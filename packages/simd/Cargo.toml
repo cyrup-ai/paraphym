@@ -1,0 +1,122 @@
+[package]
+name = "paraphym_simd"
+version = "0.1.0"
+edition = "2024"
+description = "Shared high-performance SIMD operations for paraphym ecosystem"
+authors = ["Fluent AI Contributors"]
+license = "MIT"
+repository = "https://github.com/cyrusnimda/paraphym"
+
+[dependencies]
+# Core SIMD support and zero-allocation data structures
+wide = "0.7"
+arrayvec = "0.7"
+smallvec = "2.0.0-alpha.11"
+
+# Hash map for token tracking and statistics
+dashmap = "6.1"
+ahash = "0.8"
+
+# Atomic operations and synchronization
+parking_lot = "0.12"
+crossbeam-utils = "0.8"
+
+# Random number generation for sampling
+rand = "0.9"
+
+# Fast exponential functions for softmax
+libm = "0.2"
+
+# Error handling
+thiserror = "2.0.12"
+
+# Lazy static initialization for runtime dispatch
+once_cell = "1.21.3"
+lazy_static = "1.5"
+
+# Parallel processing
+rayon = { version = "1.10.0", optional = true }
+
+tokenizers = { version = "0.21.4", optional = true }
+
+# — DSP / NN (base dependencies - no acceleration features) —
+candle-core = { git = "https://github.com/huggingface/candle", branch = "main", default-features = false }
+candle-nn = { git = "https://github.com/huggingface/candle", branch = "main", default-features = false }
+candle-transformers = { git = "https://github.com/huggingface/candle", branch = "main", default-features = false }
+# — Optional acceleration dependencies —
+half = { version = "2.6.0", optional = true }
+
+# Platform-specific acceleration dependencies
+cudarc = { version = "0.17.0", optional = true, default-features = false, features = [
+    "cublas",
+    "cublaslt",
+    "cudnn",
+    "curand",
+    "dynamic-linking",
+    "f16",
+    "std",
+] }
+metal = { version = "0.32.0", optional = true }
+bindgen_cuda = { version = "0.1.5", optional = true }
+candle-kernels = { git = "https://github.com/huggingface/candle", branch = "main", optional = true }
+candle-metal-kernels = { git = "https://github.com/huggingface/candle", branch = "main", optional = true }
+
+
+[features]
+# ───────────── default: metal acceleration enabled ─────────────
+default = ["metal", "reqwest_unstable"]
+
+# --- Developer conveniences (opt-in) -----------------------
+dev = ["debug"] # ← enable with `--features dev`
+debug = []                 # extra logging / assertions
+
+# --- SIMD features ---
+portable_simd = []
+reqwest_unstable = []
+
+# --- Candle backend features (required for all candle crates) -----
+cuda = [
+    "dep:cudarc",
+    "dep:bindgen_cuda",
+    "dep:candle-kernels",
+    "candle-core/cuda",
+    "candle-nn/cuda",
+    "candle-transformers/cuda",
+]
+cudnn = ["cuda", "cudarc/cudnn"]
+metal = [
+    "dep:metal",
+    "dep:candle-metal-kernels",
+    "candle-core/metal",
+    "candle-nn/metal",
+    "candle-transformers/metal",
+]
+accelerate = [
+    "dep:accelerate-src",
+    "candle-core/accelerate",
+    "candle-nn/accelerate",
+    "candle-transformers/accelerate",
+]
+mkl = [
+    "dep:intel-mkl-src",
+    "candle-core/mkl",
+    "candle-nn/mkl",
+    "candle-transformers/mkl",
+]
+
+# OS-specific acceleration dependencies
+[target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
+intel-mkl-src = { version = "0.8.1", optional = true }
+
+[target.'cfg(all(target_os = "windows", target_arch = "x86_64"))'.dependencies]
+intel-mkl-src = { version = "0.8.1", optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+accelerate-src = { version = "0.3.2", optional = true }
+
+
+
+[dev-dependencies]
+criterion = "0.7"
+approx = "0.5"
+float_eq = "1.0"
