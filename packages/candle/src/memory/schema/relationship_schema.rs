@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use surrealdb::RecordId;
 
-use crate::utils;
+use crate::memory::utils;
 
 /// Type alias for backwards compatibility
 pub type RelationshipSchema = Relationship;

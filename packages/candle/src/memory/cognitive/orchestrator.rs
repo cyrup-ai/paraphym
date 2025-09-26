@@ -12,8 +12,8 @@ use tokio::time::{Duration, sleep};
 use tracing::{error, info, warn};
 use walkdir::WalkDir;
 
-use crate::cognitive::evolution::{CodeEvolution, CognitiveCodeEvolution};
-use crate::cognitive::types::{CognitiveError, OptimizationOutcome, OptimizationSpec};
+use crate::memory::cognitive::evolution::{CodeEvolution, CognitiveCodeEvolution};
+use crate::memory::cognitive::types::{CognitiveError, OptimizationOutcome, OptimizationSpec};
 
 /// Orchestrator managing infinite optimization iterations
 pub struct InfiniteOrchestrator {
@@ -330,7 +330,7 @@ impl InfiniteOrchestrator {
 
 /// Convert Markdown spec to OptimizationSpec
 fn markdown_to_spec(md: &str) -> Result<OptimizationSpec, CognitiveError> {
-    use crate::cognitive::types::*;
+    use crate::memory::cognitive::types::*;
 
     // Default values
     let mut max_latency_increase = 20.0;

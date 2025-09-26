@@ -10,11 +10,11 @@ use tokio::sync::{RwLock, mpsc};
 use tokio::time::{self, Duration};
 use tracing::{info, warn};
 
-use crate::cognitive::state::CognitiveStateManager;
-use crate::cognitive::types::{
+use crate::memory::cognitive::state::CognitiveStateManager;
+use crate::memory::cognitive::types::{
     BaselineMetrics, ContentCategory, ContentType, EvolutionRules, OptimizationType, Restrictions,
 };
-use crate::cognitive::{
+use crate::memory::cognitive::{
     committee::CommitteeEvent,
     evolution::CognitiveCodeEvolution,
     mcts::CodeState,

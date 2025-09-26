@@ -3,10 +3,10 @@
 
 use serde::Deserialize;
 
-use crate::cognitive::common::models::{Model, ModelType};
-use crate::cognitive::common::types::{AgentEvaluation, EvaluationPhase, EvaluationRubric};
-use crate::cognitive::mcts::CodeState;
-use crate::cognitive::types::CognitiveError;
+use crate::memory::cognitive::common::models::{Model, ModelType};
+use crate::memory::cognitive::common::types::{AgentEvaluation, EvaluationPhase, EvaluationRubric};
+use crate::memory::cognitive::mcts::CodeState;
+use crate::memory::cognitive::types::CognitiveError;
 
 /// Provider-based evaluation agent
 #[derive(Debug, Clone)]

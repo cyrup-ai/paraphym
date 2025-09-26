@@ -1,8 +1,8 @@
 // src/cognitive/compiler.rs
 //! Runtime compilation and validation for code modifications
 
-use crate::cognitive::mcts::CodeState;
-use crate::cognitive::types::CognitiveError;
+use crate::memory::cognitive::mcts::CodeState;
+use crate::memory::cognitive::types::CognitiveError;
 
 /// Runtime compiler for validating code modifications
 pub struct RuntimeCompiler {

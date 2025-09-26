@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use surrealdb::sql::Value;
 
-use crate::utils::error::Result;
+use crate::memory::utils::error::Result;
 
 /// Type alias for vector metadata
 pub type VectorMetadata = Option<HashMap<String, Value>>;

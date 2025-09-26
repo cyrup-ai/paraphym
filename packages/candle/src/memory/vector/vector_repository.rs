@@ -6,8 +6,8 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-use crate::utils::Result;
-use crate::vector::{DistanceMetric, VectorIndex, VectorIndexConfig, VectorIndexFactory};
+use crate::memory::utils::Result;
+use crate::memory::vector::{DistanceMetric, VectorIndex, VectorIndexConfig, VectorIndexFactory};
 
 /// Vector collection metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]

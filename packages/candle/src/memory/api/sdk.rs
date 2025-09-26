@@ -5,7 +5,7 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use crate::memory::memory_manager::MemoryManager;
-use crate::vector::vector_search::{VectorSearch, SearchOptions};
+use crate::memory::vector::vector_search::{VectorSearch, SearchOptions};
 // Use domain types for traits and provider clients for completion services
 use paraphym_domain::{
     completion::CompletionProvider,
@@ -15,9 +15,9 @@ use paraphym_domain::{
 // use paraphym_provider::{
 //     openai::OpenAIClient,
 //     anthropic::AnthropicClient};
-use crate::utils::error::Result;
-use crate::schema::memory_schema::Memory;
-use crate::schema::relationship_schema::Relationship;
+use crate::memory::utils::error::Result;
+use crate::memory::schema::memory_schema::Memory;
+use crate::memory::schema::relationship_schema::Relationship;
 
 /// Content analysis result for backward compatibility
 #[derive(Debug, Clone)]

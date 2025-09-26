@@ -13,7 +13,7 @@ use serde::{
 use uuid::Uuid;
 
 // Import for error conversion
-// use paraphym_memory::utils::error::Error as FluentMemoryError; // Temporarily disabled to break circular dependency
+// use paraphym_candle::memory::utils::error::Error as FluentMemoryError; // Temporarily disabled to break circular dependency
 
 /// Zero-allocation memory type enumeration with blazing-fast operations
 ///

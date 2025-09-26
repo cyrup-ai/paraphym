@@ -7,7 +7,7 @@
 //! - Comprehensive error handling and validation
 //! - Support for different embedding models and providers
 
-use crate::utils::error::Result;
+use crate::memory::utils::error::Result;
 
 /// Trait for embedding model implementations - SYNCHRONOUS OPERATIONS ONLY
 ///
@@ -38,7 +38,7 @@ pub trait EmbeddingModel: Send + Sync + std::fmt::Debug {
     ///
     /// # Example
     /// ```rust,no_run
-    /// use paraphym_memory::vector::embedding_model::EmbeddingModel;
+    /// use paraphym_candle::memory::vector::embedding_model::EmbeddingModel;
     ///
     /// fn generate_embedding(model: &dyn EmbeddingModel) -> Result<(), Box<dyn std::error::Error>> {
     ///     let embedding = model.embed("Hello world", Some("search".to_string()))?;
@@ -72,7 +72,7 @@ pub trait EmbeddingModel: Send + Sync + std::fmt::Debug {
     ///
     /// # Example
     /// ```rust,no_run
-    /// use paraphym_memory::vector::embedding_model::EmbeddingModel;
+    /// use paraphym_candle::memory::vector::embedding_model::EmbeddingModel;
     ///
     /// fn batch_process(model: &dyn EmbeddingModel) -> Result<(), Box<dyn std::error::Error>> {
     ///     let texts = vec!["First text".to_string(), "Second text".to_string()];
@@ -95,7 +95,7 @@ pub trait EmbeddingModel: Send + Sync + std::fmt::Debug {
     ///
     /// # Example
     /// ```rust,no_run
-    /// use paraphym_memory::vector::embedding_model::EmbeddingModel;
+    /// use paraphym_candle::memory::vector::embedding_model::EmbeddingModel;
     ///
     /// fn check_dimensions(model: &dyn EmbeddingModel) {
     ///     let dim = model.dimension();
@@ -117,7 +117,7 @@ pub trait EmbeddingModel: Send + Sync + std::fmt::Debug {
     ///
     /// # Example
     /// ```rust,no_run
-    /// use paraphym_memory::vector::embedding_model::EmbeddingModel;
+    /// use paraphym_candle::memory::vector::embedding_model::EmbeddingModel;
     ///
     /// fn log_model_info(model: &dyn EmbeddingModel) {
     ///     println!("Using embedding model: {}", model.name());

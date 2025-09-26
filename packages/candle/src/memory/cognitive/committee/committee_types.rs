@@ -15,8 +15,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use smallvec::SmallVec;
 use tokio::sync::RwLock;
 
-use crate::cognitive::committee::relaxed_counter::RelaxedCounter;
-use crate::cognitive::types::{CognitiveError, OptimizationSpec};
+use crate::memory::cognitive::committee::relaxed_counter::RelaxedCounter;
+use crate::memory::cognitive::types::{CognitiveError, OptimizationSpec};
 
 /// Zero-allocation custom serialization for ArrayVec and Instant types
 mod committee_serialization {

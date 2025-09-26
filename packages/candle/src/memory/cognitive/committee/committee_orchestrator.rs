@@ -21,8 +21,8 @@ use super::committee_types::{
     CacheEntry, CacheMetrics, CommitteeError, CommitteeEvaluation, CommitteeMetrics,
     CommitteeResult, EvaluationConfig, EvaluationResult, ModelType,
     MAX_COMMITTEE_SIZE, MAX_CACHE_LIFETIME_SECS, MetricsSnapshot, CacheMetricsSnapshot};
-use crate::cognitive::mcts::CodeState;
-use crate::cognitive::types::OptimizationSpec;
+use crate::memory::cognitive::mcts::CodeState;
+use crate::memory::cognitive::types::OptimizationSpec;
 
 /// Main committee evaluator orchestrating the entire evaluation process
 #[derive(Debug)]

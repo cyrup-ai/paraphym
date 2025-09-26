@@ -12,9 +12,9 @@ use surrealdb::engine::any::Any;
 // Remove imports that conflict with local definitions
 use crate::memory::primitives::types::MemoryTypeEnum;
 use crate::memory::primitives::{MemoryNode, MemoryRelationship};
-use crate::schema::memory_schema::{MemoryMetadataSchema, MemoryNodeSchema};
-use crate::schema::relationship_schema::RelationshipSchema;
-use crate::utils::error::Error;
+use crate::memory::schema::memory_schema::{MemoryMetadataSchema, MemoryNodeSchema};
+use crate::memory::schema::relationship_schema::RelationshipSchema;
+use crate::memory::utils::error::Error;
 
 /// Content structure for creating/updating memory nodes (without ID)
 #[derive(Debug, Clone, Serialize, Deserialize)]

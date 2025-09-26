@@ -14,9 +14,9 @@ use serde::{Deserialize, Serialize};
 use smallvec::{SmallVec, smallvec};
 use tracing::info;
 
-use crate::cognitive::mcts::CodeState;
-use crate::cognitive::quantum::QuantumConfig;
-use crate::cognitive::types::CognitiveError;
+use crate::memory::cognitive::mcts::CodeState;
+use crate::memory::cognitive::quantum::QuantumConfig;
+use crate::memory::cognitive::types::CognitiveError;
 
 /// Simple atomic wrapper for f64
 #[derive(Debug)]

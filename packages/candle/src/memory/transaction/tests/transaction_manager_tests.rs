@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::transaction::*;
+    use crate::memory::transaction::*;
     
     #[tokio::test]
     async fn test_transaction_lifecycle() {

@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::memory::primitives::types::MemoryTypeEnum;
-use crate::query::Result;
+use crate::memory::query::Result;
 
 /// Query builder for constructing memory queries
 #[derive(Debug, Clone, Default)]

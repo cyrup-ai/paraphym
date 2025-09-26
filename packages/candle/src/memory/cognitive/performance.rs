@@ -7,10 +7,10 @@ use std::time::Instant;
 use tokio::sync::RwLock;
 use tracing::debug;
 
-use crate::cognitive::committee::EvaluationCommittee;
-use crate::cognitive::mcts::CodeState;
-use crate::cognitive::types::ImpactFactors;
-use crate::cognitive::types::{CognitiveError, OptimizationSpec};
+use crate::memory::cognitive::committee::EvaluationCommittee;
+use crate::memory::cognitive::mcts::CodeState;
+use crate::memory::cognitive::types::ImpactFactors;
+use crate::memory::cognitive::types::{CognitiveError, OptimizationSpec};
 
 /// Tracks performance metrics across evaluations
 #[derive(Debug, Clone)]

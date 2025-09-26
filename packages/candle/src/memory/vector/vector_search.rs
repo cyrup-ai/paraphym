@@ -16,10 +16,10 @@ use crossbeam_channel::{Receiver, Sender, unbounded};
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::Value;
 
-use crate::constants::SEARCH_TASK;
-use crate::utils::error::Result;
-use crate::vector::embedding_model::EmbeddingModel;
-use crate::vector::vector_store::VectorStore;
+use crate::memory::constants::SEARCH_TASK;
+use crate::memory::utils::error::Result;
+use crate::memory::vector::embedding_model::EmbeddingModel;
+use crate::memory::vector::vector_store::VectorStore;
 
 /// Convert static string to Option<String> for embedding tasks
 #[inline]

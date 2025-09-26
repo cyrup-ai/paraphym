@@ -25,6 +25,6 @@ pub use router::QuantumRouter;
 pub use state::{PhaseEvolution, SuperpositionState, TimeDependentTerm};
 pub use types::*;
 
-pub use crate::cognitive::types::EntanglementType;
+pub use crate::memory::cognitive::types::EntanglementType;
 
 // Tests are located in the tests/ directory

@@ -9,10 +9,10 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::graph::entity::BaseEntity;
+use crate::memory::graph::entity::BaseEntity;
 use crate::memory::primitives::metadata::MemoryMetadata;
-use crate::utils::Result;
-use crate::utils::error::Error;
+use crate::memory::utils::Result;
+use crate::memory::utils::error::Error;
 
 /// Convert serde_json::Value to surrealdb::sql::Value
 fn json_to_surreal_value(json: serde_json::Value) -> surrealdb::sql::Value {
@@ -319,7 +319,7 @@ impl MemoryType for BaseMemory {
     }
 
     fn to_entity(&self) -> BaseEntity {
-        use crate::graph::entity::BaseEntity;
+        use crate::memory::graph::entity::BaseEntity;
         let mut entity = BaseEntity::new(&self.id, &format!("memory_{}", self.metadata.category));
 
         /// Helper function to safely serialize values to JSON, with fallback handling
@@ -417,7 +417,7 @@ impl MemoryType for BaseMemory {
     where
         Self: Sized,
     {
-        use crate::graph::entity::Entity;
+        use crate::memory::graph::entity::Entity;
 
         let id = entity.id().to_string();
 

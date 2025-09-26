@@ -5,12 +5,12 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
-use crate::cognitive::attention::{AttentionConfig, AttentionRouter, CognitiveAttentionWeights};
-use crate::cognitive::evolution::EvolutionEngine;
-use crate::cognitive::quantum::types::RoutingDecision as QuantumRoutingDecision;
-use crate::cognitive::quantum::{QuantumConfig, QuantumRouter};
-use crate::cognitive::state::CognitiveStateManager;
-use crate::cognitive::types::*;
+use crate::memory::cognitive::attention::{AttentionConfig, AttentionRouter, CognitiveAttentionWeights};
+use crate::memory::cognitive::evolution::EvolutionEngine;
+use crate::memory::cognitive::quantum::types::RoutingDecision as QuantumRoutingDecision;
+use crate::memory::cognitive::quantum::{QuantumConfig, QuantumRouter};
+use crate::memory::cognitive::state::CognitiveStateManager;
+use crate::memory::cognitive::types::*;
 
 /// The main cognitive mesh that orchestrates all cognitive operations
 pub struct CognitiveMesh {

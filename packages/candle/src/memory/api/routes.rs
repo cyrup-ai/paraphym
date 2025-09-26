@@ -12,7 +12,7 @@ use super::handlers::{
     create_memory, delete_memory, get_health, get_memory, get_metrics, search_memories,
     update_memory,
 };
-use crate::SurrealMemoryManager;
+use crate::memory::SurrealMemoryManager;
 
 /// Create the main API router
 pub fn create_router(memory_manager: Arc<SurrealMemoryManager>) -> Router {

@@ -6,8 +6,8 @@ use std::time::{Duration, Instant};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
-use crate::cognitive::quantum::complex::Complex64;
-use crate::cognitive::quantum::entanglement::EntanglementLink;
+use crate::memory::cognitive::quantum::complex::Complex64;
+use crate::memory::cognitive::quantum::entanglement::EntanglementLink;
 
 /// Quantum superposition state with full quantum properties
 #[derive(Debug, Clone)]
@@ -107,7 +107,7 @@ impl SuperpositionState {
 
     /// Entangle this superposition with another memory
     pub fn entangle(&mut self, memory_id: String) {
-        use crate::cognitive::types::EntanglementType;
+        use crate::memory::cognitive::types::EntanglementType;
 
         // Create a basic EntanglementLink
         let link = crate::cognitive::quantum::entanglement::EntanglementLink::new(

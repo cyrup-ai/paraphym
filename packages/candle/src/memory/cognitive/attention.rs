@@ -18,8 +18,8 @@ use paraphym_simd::{smart_cosine_similarity, softmax};
 use memchr::memmem;
 use serde::{Deserialize, Serialize};
 
-use crate::cognitive::types::EnhancedQuery;
-use crate::cognitive::types::{RoutingDecision, RoutingStrategy};
+use crate::memory::cognitive::types::EnhancedQuery;
+use crate::memory::cognitive::types::{RoutingDecision, RoutingStrategy};
 
 /// Production-quality attention mechanism for relevance scoring and focus management
 ///

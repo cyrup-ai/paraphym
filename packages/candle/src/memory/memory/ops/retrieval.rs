@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
 use crate::memory::filter::MemoryFilter;
-use crate::utils::Result;
-use crate::vector::VectorStore;
+use crate::memory::utils::Result;
+use crate::memory::vector::VectorStore;
 
 /// Retrieval method used to find the memory
 #[derive(Debug, Clone, Serialize, Deserialize)]

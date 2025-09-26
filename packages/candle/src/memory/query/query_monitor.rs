@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-use crate::query::{QueryStats, QueryType, Result};
+use crate::memory::query::{QueryStats, QueryType, Result};
 
 /// Query monitor for tracking query performance
 pub struct QueryMonitor {

@@ -41,7 +41,7 @@ use super::{
     PendingEmbedding, PendingVectorOp, PendingVectorSearch, VectorSearchResult, VectorStore,
 };
 use crate::memory::filter::MemoryFilter;
-use crate::utils::error::Error;
+use crate::memory::utils::error::Error;
 
 /// Atomic metrics for lock-free vector store operations (zero allocation)
 #[derive(Debug)]

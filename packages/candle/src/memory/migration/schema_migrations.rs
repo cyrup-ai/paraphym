@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::migration::{Migration, PendingMigration};
+use crate::memory::migration::{Migration, PendingMigration};
 
 /// Schema migration record
 #[derive(Debug, Clone, Serialize, Deserialize)]

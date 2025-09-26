@@ -6,7 +6,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::migration::{MigrationError, Result};
+use crate::memory::migration::{MigrationError, Result};
 
 /// Configuration for CSV export with performance optimizations
 #[derive(Debug, Clone)]

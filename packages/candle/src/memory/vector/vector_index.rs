@@ -11,8 +11,8 @@ use paraphym_simd::cosine_similarity;
 use instant_distance::Builder;
 use serde::{Deserialize, Serialize};
 
-use crate::utils::Result;
-use crate::vector::DistanceMetric;
+use crate::memory::utils::Result;
+use crate::memory::vector::DistanceMetric;
 
 /// Vector index configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]

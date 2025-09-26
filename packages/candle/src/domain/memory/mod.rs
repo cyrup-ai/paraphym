@@ -16,8 +16,8 @@ pub mod config;
 pub use config::llm::{LLMConfig, LLMProvider};
 
 // Re-export real memory manager from packages/memory
-pub use paraphym_memory::memory::manager::surreal::SurrealDBMemoryManager;
-pub use paraphym_memory::memory::manager::MemoryManager;
+pub use paraphym_candle::memory::memory::manager::surreal::SurrealDBMemoryManager;
+pub use paraphym_candle::memory::memory::manager::MemoryManager;
 
 /// SIMD-optimized vector operations for high-performance memory processing
 mod ops;
@@ -70,7 +70,7 @@ pub use config::{DatabaseConfig, MemoryConfig, VectorStoreConfig};
 // Re-export paraphym_memory types for convenience
 // Removed unexpected cfg condition "paraphym-memory" - feature does not exist
 // Re-export memory primitives from packages/memory for backward compatibility
-pub use paraphym_memory::memory::primitives::MemoryNode;
+pub use paraphym_candle::memory::memory::primitives::MemoryNode;
 pub use ops::{
     CpuArchitecture, CpuFeatures, Op, EMBEDDING_DIMENSION, SIMD_WIDTH, SMALL_EMBEDDING_DIMENSION,
 };

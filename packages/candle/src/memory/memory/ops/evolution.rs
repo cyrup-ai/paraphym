@@ -12,10 +12,10 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::Value;
 
-use crate::constants::{EMPTY_STRING, METADATA_PREFIX};
-use crate::graph::entity::{BaseEntity, Entity};
-use crate::utils::Result;
-use crate::utils::error::Error;
+use crate::memory::constants::{EMPTY_STRING, METADATA_PREFIX};
+use crate::memory::graph::entity::{BaseEntity, Entity};
+use crate::memory::utils::Result;
+use crate::memory::utils::error::Error;
 
 /// Evolution transition type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

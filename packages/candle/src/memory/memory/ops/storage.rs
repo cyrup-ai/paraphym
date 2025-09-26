@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
 use crate::memory::{MemoryNode, MemoryRelationship};
-use crate::utils::Result;
+use crate::memory::utils::Result;
 
 /// A pending store operation
 pub struct PendingStore {

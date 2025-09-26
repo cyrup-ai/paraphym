@@ -11,8 +11,8 @@ use crate::memory::{
     MemoryMetadata, MemoryNode, MemoryRelationship, MemoryType, filter::MemoryFilter,
     primitives::types::MemoryTypeEnum, repository::MemoryRepository, storage::MemoryStorage,
 };
-use crate::utils::{Error, Result};
-use crate::vector::VectorStore;
+use crate::memory::utils::{Error, Result};
+use crate::memory::vector::VectorStore;
 
 /// High-level memory manager that coordinates between different memory components
 pub struct MemoryCoordinator<S, V>

@@ -15,13 +15,13 @@ use std::time::{Duration, Instant};
 use crossbeam::channel::{Receiver, Sender, bounded, unbounded};
 use thiserror::Error;
 
-use crate::cognitive::quantum::{
+use crate::memory::cognitive::quantum::{
     BasisType, Complex64, EntanglementGraph, QuantumConfig, QuantumErrorCorrection, QuantumMetrics,
     SuperpositionState,
     types::{EnhancedQuery, RoutingDecision, RoutingStrategy},
 };
-use crate::cognitive::state::CognitiveStateManager;
-use crate::cognitive::types::{CognitiveResult, QueryIntent};
+use crate::memory::cognitive::state::CognitiveStateManager;
+use crate::memory::cognitive::types::{CognitiveResult, QueryIntent};
 
 /// Zero-allocation quantum router with crossbeam streaming
 #[derive(Clone)]

@@ -21,7 +21,7 @@ use axum::Router;
 #[cfg(feature = "api")]
 use crate::memory::MemoryManager;
 #[cfg(feature = "api")]
-use crate::utils::config::APIConfig;
+use crate::memory::utils::config::APIConfig;
 
 /// API server for the memory system
 #[cfg(feature = "api")]

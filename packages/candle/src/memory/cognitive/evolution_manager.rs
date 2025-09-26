@@ -6,9 +6,9 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
-use crate::cognitive::committee::committee_consensus::ConsensusDecision;
-use crate::cognitive::mcts::CodeState;
-use crate::cognitive::types::CognitiveError;
+use crate::memory::cognitive::committee::committee_consensus::ConsensusDecision;
+use crate::memory::cognitive::mcts::CodeState;
+use crate::memory::cognitive::types::CognitiveError;
 
 /// Tracks evolution progress and manages prompt enhancement
 pub struct EvolutionManager {

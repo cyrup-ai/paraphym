@@ -7,10 +7,10 @@ use futures_util::stream::{FuturesUnordered, StreamExt};
 use tokio::sync::{RwLock, Semaphore, mpsc};
 use tracing::{info, warn};
 
-use crate::cognitive::committee::agent::ProviderEvaluationAgent;
-use crate::cognitive::common::types::*;
-use crate::cognitive::mcts::CodeState;
-use crate::cognitive::types::{CognitiveError, ImpactFactors};
+use crate::memory::cognitive::committee::agent::ProviderEvaluationAgent;
+use crate::memory::cognitive::common::types::*;
+use crate::memory::cognitive::mcts::CodeState;
+use crate::memory::cognitive::types::{CognitiveError, ImpactFactors};
 
 /// Committee orchestrating consensus among provider agents with multi-round evaluation
 #[derive(Debug)]

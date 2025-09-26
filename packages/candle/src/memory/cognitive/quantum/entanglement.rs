@@ -6,11 +6,11 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::cognitive::quantum::{
+use crate::memory::cognitive::quantum::{
     Complex64,
     types::{CognitiveError, CognitiveResult},
 };
-use crate::cognitive::types::EntanglementType;
+use crate::memory::cognitive::types::EntanglementType;
 
 /// Comprehensive entanglement graph with quantum correlations
 #[derive(Debug, Clone)]

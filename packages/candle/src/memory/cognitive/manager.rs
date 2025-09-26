@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use arrayvec::ArrayVec;
 use crossbeam::channel::{Receiver, Sender, bounded, unbounded};
-use paraphym_async::{AsyncStream, AsyncTask};
+use ystream::{AsyncStream, AsyncTask};
 // Use domain types for traits and models
 use paraphym_domain::{
     chat::Message,
@@ -29,10 +29,10 @@ use model_info::{DiscoveryProvider as Provider, ModelInfo, ModelInfoBuilder};
 use serde_json::json;
 use tokio;
 
-use crate::cognitive::quantum::types::EnhancedQuery;
-use crate::cognitive::quantum::types::QueryIntent;
-use crate::cognitive::types::{CognitiveMemoryNode, CognitiveSettings, CognitiveState};
-use crate::cognitive::{
+use crate::memory::cognitive::quantum::types::EnhancedQuery;
+use crate::memory::cognitive::quantum::types::QueryIntent;
+use crate::memory::cognitive::types::{CognitiveMemoryNode, CognitiveSettings, CognitiveState};
+use crate::memory::cognitive::{
     QuantumSignature,
     attention::AttentionMechanism,
     evolution::{EvolutionEngine, EvolutionMetadata},

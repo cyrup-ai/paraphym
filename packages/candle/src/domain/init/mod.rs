@@ -4,8 +4,8 @@ pub mod globals;
 
 use std::sync::Arc;
 
-use paraphym_memory::memory::manager::surreal::SurrealDBMemoryManager;
-use paraphym_memory::memory::primitives::MemoryConfig;
+use paraphym_candle::memory::memory::manager::surreal::SurrealDBMemoryManager;
+use paraphym_candle::memory::memory::primitives::MemoryConfig;
 use surrealdb::{Surreal, engine::any::{connect, Any}};
 
 use crate::domain::core::DomainInitError;

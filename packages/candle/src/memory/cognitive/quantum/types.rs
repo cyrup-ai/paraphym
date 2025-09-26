@@ -4,7 +4,7 @@ use std::fmt;
 
 use thiserror::Error;
 
-pub use crate::cognitive::types::QueryIntent;
+pub use crate::memory::cognitive::types::QueryIntent;
 
 /// Result type for cognitive operations
 pub type CognitiveResult<T> = Result<T, CognitiveError>;

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::query::{QueryPlan, QueryStep, QueryType, Result};
+use crate::memory::query::{QueryPlan, QueryStep, QueryType, Result};
 
 /// Index information
 #[derive(Debug, Clone, Serialize, Deserialize)]

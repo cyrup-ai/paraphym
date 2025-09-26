@@ -8,7 +8,7 @@ use serde_json::Value;
 
 use crate::domain::context::CandleDocument as Document;
 use crate::domain::memory::config::memory::MemoryConfig as ComprehensiveMemoryConfig;
-use paraphym_memory::memory::primitives::MemoryConfig;
+use paraphym_candle::memory::memory::primitives::MemoryConfig;
 use crate::domain::memory::{Error as MemoryError, Memory, MemoryTool, MemoryToolError};
 use crate::domain::model::CandleModel as Model;
 use crate::domain::tool::CandleMcpToolData as McpToolData;

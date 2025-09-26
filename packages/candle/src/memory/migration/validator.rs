@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::migration::{MigrationError, Result};
+use crate::memory::migration::{MigrationError, Result};
 
 /// Data validator
 pub struct DataValidator {

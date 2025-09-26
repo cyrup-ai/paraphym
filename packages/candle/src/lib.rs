@@ -25,6 +25,8 @@ pub mod domain;
 pub mod providers;
 /// Real workflow execution system with streams-only architecture
 pub mod workflow;
+/// Memory system with cognitive features and vector storage
+pub mod memory;
 
 // Essential Candle re-exports for public API (minimal set)
 // Domain types will be added as they become available

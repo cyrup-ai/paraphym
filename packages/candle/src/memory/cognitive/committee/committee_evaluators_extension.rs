@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use super::committee_types::{CommitteeEvaluation, CommitteeResult, ModelType};
 use super::relaxed_counter::RelaxedCounter;
-use crate::cognitive::types::OptimizationSpec;
+use crate::memory::cognitive::types::OptimizationSpec;
 
 /// Lock-free evaluation task for task queue distribution
 #[derive(Debug)]

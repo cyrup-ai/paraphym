@@ -13,7 +13,7 @@ use crossbeam_channel::{Receiver, Sender, unbounded};
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::Value;
 
-use crate::graph::graph_db::{GraphDatabase, GraphError, GraphQueryOptions, Node, Result};
+use crate::memory::graph::graph_db::{GraphDatabase, GraphError, GraphQueryOptions, Node, Result};
 
 /// Type alias for entity validation functions
 pub type EntityValidatorFn = Box<dyn Fn(&dyn Entity) -> Result<()> + Send + Sync>;

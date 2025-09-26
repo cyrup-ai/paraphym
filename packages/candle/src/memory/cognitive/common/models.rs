@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::env;
 
-use paraphym_async::AsyncStream;
+use ystream::AsyncStream;
 use paraphym_domain::{
     chat::{Message, MessageRole},
     completion::CompletionResponse,

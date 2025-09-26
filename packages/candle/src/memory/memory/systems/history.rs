@@ -11,9 +11,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::Value;
 
-use crate::graph::entity::{BaseEntity, Entity};
-use crate::utils::Result;
-use crate::utils::error::Error;
+use crate::memory::graph::entity::{BaseEntity, Entity};
+use crate::memory::utils::Result;
+use crate::memory::utils::error::Error;
 
 /// Change type enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

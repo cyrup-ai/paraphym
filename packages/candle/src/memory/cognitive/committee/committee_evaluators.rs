@@ -13,7 +13,7 @@ use arrayvec::ArrayVec;
 use chrono::Utc;
 // AtomicCounter trait no longer needed since we use local RelaxedCounter
 use crossbeam_queue::SegQueue;
-use paraphym_async::{AsyncStream, AsyncTask};
+use ystream::{AsyncStream, AsyncTask};
 // Use domain types for traits and models
 use paraphym_domain::{
     chat::{Message, MessageRole},
@@ -31,7 +31,7 @@ pub use super::committee_types::{
     MAX_COMMITTEE_SIZE, Model, ModelMetrics, ModelType, QualityTier,
 };
 // Import additional types for zero allocation patterns
-pub use crate::cognitive::committee::committee_evaluators_extension::{
+pub use crate::memory::cognitive::committee::committee_evaluators_extension::{
     EvaluationSessionMetrics, EvaluationTask, EvaluatorPoolMetrics,
 };
 
@@ -183,7 +183,7 @@ impl CompletionBackend for Http3CompletionBackend {
         })
     }
 }
-use crate::cognitive::types::OptimizationSpec;
+use crate::memory::cognitive::types::OptimizationSpec;
 
 /// Individual provider evaluator managing a single model instance
 #[derive(Debug)]

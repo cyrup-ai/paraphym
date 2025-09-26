@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::cognitive::types::{ImpactFactors, OptimizationSpec, RoutingDecision};
+use crate::memory::cognitive::types::{ImpactFactors, OptimizationSpec, RoutingDecision};
 
 /// Consensus decision from committee
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use serde_json;
 
-use crate::migration::Result;
+use crate::memory::migration::Result;
 
 /// Type alias for conversion rules
 pub type ConversionRule = Arc<dyn Fn(&ImportData) -> Result<ImportData> + Send + Sync>;

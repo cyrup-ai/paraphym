@@ -9,10 +9,10 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tracing::{debug, info};
 
-use crate::cognitive::committee::{CommitteeEvent, EvaluationCommittee};
-use crate::cognitive::common::types::CommitteeConfig;
-use crate::cognitive::performance::PerformanceAnalyzer;
-use crate::cognitive::types::{CognitiveError, OptimizationSpec};
+use crate::memory::cognitive::committee::{CommitteeEvent, EvaluationCommittee};
+use crate::memory::cognitive::common::types::CommitteeConfig;
+use crate::memory::cognitive::performance::PerformanceAnalyzer;
+use crate::memory::cognitive::types::{CognitiveError, OptimizationSpec};
 
 /// Codebase state with metrics
 #[derive(Clone, Debug, Serialize, Deserialize)]

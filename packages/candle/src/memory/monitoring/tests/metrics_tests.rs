@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::monitoring::metrics::*;
+    use crate::memory::monitoring::metrics::*;
     
     #[test]
     fn test_counter_metric() {

@@ -10,7 +10,7 @@ use std::fmt::Debug;
 use serde::{Deserialize, Serialize};
 use surrealdb::sql::{Object, Value};
 
-use crate::graph::graph_db::{GraphError, Result};
+use crate::memory::graph::graph_db::{GraphError, Result};
 use crate::memory::primitives::types::{BaseMemory, MemoryContent, MemoryTypeEnum};
 
 /// Step status enum

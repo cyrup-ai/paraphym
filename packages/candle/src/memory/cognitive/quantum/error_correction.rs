@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use crate::cognitive::quantum::{
+use crate::memory::cognitive::quantum::{
     Complex64,
     ml_decoder::{MLDecoder, MLModelType},
     types::CognitiveResult,

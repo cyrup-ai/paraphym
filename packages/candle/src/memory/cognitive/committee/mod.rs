@@ -13,4 +13,4 @@ pub mod relaxed_counter;
 // Re-export the primary public-facing types for easy access.
 pub use orchestrator::EvaluationCommittee;
 
-pub use crate::cognitive::common::types::CommitteeEvent;
+pub use crate::memory::cognitive::common::types::CommitteeEvent;

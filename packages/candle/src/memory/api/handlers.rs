@@ -12,7 +12,7 @@ use axum::{
 use futures_util::StreamExt;
 
 use super::models::{CreateMemoryRequest, HealthResponse, MemoryResponse, SearchRequest};
-use crate::SurrealMemoryManager;
+use crate::memory::SurrealMemoryManager;
 use crate::memory::manager::surreal::MemoryManager;
 use crate::memory::primitives::node::MemoryNode;
 

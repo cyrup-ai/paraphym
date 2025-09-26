@@ -7,8 +7,8 @@ use paraphym_simd::cosine_similarity;
 use surrealdb::sql::Value;
 
 use super::vector_store::{VectorMetadata, VectorSearchResult, VectorStore};
-use crate::constants::ERROR_VECTOR_NOT_FOUND;
-use crate::utils::error::{Error, Result};
+use crate::memory::constants::ERROR_VECTOR_NOT_FOUND;
+use crate::memory::utils::error::{Error, Result};
 
 /// Thread-safe in-memory vector store implementation
 ///

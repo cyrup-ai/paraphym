@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tokio::sync::oneshot;
 use tokio::sync::{Mutex, RwLock};
 
-use crate::transaction::{
+use crate::memory::transaction::{
     IsolationLevel, PendingCommit, PendingRollback, Result, Transaction, TransactionContext,
     TransactionError, TransactionState,
 };

@@ -10,18 +10,18 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use chrono::{DateTime, Utc};
 use crossbeam_skiplist::SkipMap;
-use paraphym_async::AsyncStream;
-use paraphym_async::channel;
+use ystream::AsyncStream;
+use ystream::channel;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::graph::entity::BaseEntity;
+use crate::memory::graph::entity::BaseEntity;
 use crate::memory::primitives::metadata::MemoryMetadata;
 use crate::memory::primitives::node::MemoryNode;
 use crate::memory::primitives::types::{BaseMemory, MemoryContent, MemoryType, MemoryTypeEnum};
 use crate::memory::repository::MemoryRepository;
-use crate::utils::Result;
-use crate::utils::error::Error;
+use crate::memory::utils::Result;
+use crate::memory::utils::error::Error;
 
 /// Context for an episodic memory event
 #[derive(Debug, Clone, Serialize, Deserialize)]

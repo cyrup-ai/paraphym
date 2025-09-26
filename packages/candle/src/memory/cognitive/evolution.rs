@@ -10,13 +10,13 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{error, info};
 
-use crate::cognitive::committee::{CommitteeEvent, EvaluationCommittee};
-use crate::cognitive::mcts::{CodeState, MCTS};
-use crate::cognitive::performance::PerformanceAnalyzer;
-use crate::cognitive::state::CognitiveStateManager;
+use crate::memory::cognitive::committee::{CommitteeEvent, EvaluationCommittee};
+use crate::memory::cognitive::mcts::{CodeState, MCTS};
+use crate::memory::cognitive::performance::PerformanceAnalyzer;
+use crate::memory::cognitive::state::CognitiveStateManager;
 // Re-export types for external use
-pub use crate::cognitive::types::EvolutionMetadata;
-use crate::cognitive::types::{
+pub use crate::memory::cognitive::types::EvolutionMetadata;
+use crate::memory::cognitive::types::{
     CognitiveError, MutationEvent, MutationType, OptimizationOutcome, OptimizationSpec,
     PendingOptimizationResult,
 };
