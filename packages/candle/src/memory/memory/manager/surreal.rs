@@ -27,7 +27,7 @@ struct MemoryNodeCreateContent {
 impl From<&MemoryNode> for MemoryNodeCreateContent {
     fn from(memory: &MemoryNode) -> Self {
         Self {
-            content: memory.content.clone(),
+            content: memory.content.text.clone(),
             memory_type: memory.memory_type.clone(),
             metadata: MemoryMetadataSchema {
                 created_at: memory.metadata.created_at,
@@ -65,8 +65,8 @@ impl From<&MemoryRelationship> for RelationshipCreateContent {
                 .metadata
                 .clone()
                 .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new())),
-            created_at: crate::utils::current_timestamp_ms(),
-            updated_at: crate::utils::current_timestamp_ms(),
+            created_at: crate::memory::utils::current_timestamp_ms(),
+            updated_at: crate::memory::utils::current_timestamp_ms(),
             strength: 1.0,
         }
     }
@@ -289,27 +289,27 @@ impl SurrealDBMemoryManager {
         self.db
             .query("DEFINE TABLE memory SCHEMALESS")
             .await
-            .map_err(|e| Error::Database(Box::new(e)))?;
+            .map_err(|e| Error::Database(format!("{:?}", e)))?;
 
         // Create relationship table - schemaless for flexibility
         self.db
             .query("DEFINE TABLE memory_relationship SCHEMALESS")
             .await
-            .map_err(|e| Error::Database(Box::new(e)))?;
+            .map_err(|e| Error::Database(format!("{:?}", e)))?;
 
         // Create indexes for efficient querying
         self.db
             .query("DEFINE INDEX memory_type_idx ON TABLE memory COLUMNS memory_type")
             .await
-            .map_err(|e| Error::Database(Box::new(e)))?;
+            .map_err(|e| Error::Database(format!("{:?}", e)))?;
 
         self.db.query("DEFINE INDEX memory_relationship_source_idx ON TABLE memory_relationship COLUMNS source_id")
             .await
-            .map_err(|e| Error::Database(Box::new(e)))?;
+            .map_err(|e| Error::Database(format!("{:?}", e)))?;
 
         self.db.query("DEFINE INDEX memory_relationship_target_idx ON TABLE memory_relationship COLUMNS target_id")
             .await
-            .map_err(|e| Error::Database(Box::new(e)))?;
+            .map_err(|e| Error::Database(format!("{:?}", e)))?;
 
         Ok(())
     }
@@ -328,7 +328,7 @@ impl SurrealDBMemoryManager {
 
         MemoryNode {
             id,
-            content: schema.content,
+            content: crate::memory::memory::primitives::types::MemoryContent::new(&schema.content),
             memory_type: schema.memory_type,
             created_at: schema.metadata.created_at,
             updated_at: schema.metadata.last_accessed_at,
@@ -345,7 +345,7 @@ impl SurrealDBMemoryManager {
         self.db
             .query(query)
             .await
-            .map_err(|e| Error::Database(Box::new(e)))
+            .map_err(|e| Error::Database(format!("{:?}", e)))
     }
 
     /// Health check method to verify database connectivity
@@ -353,7 +353,7 @@ impl SurrealDBMemoryManager {
         // Perform a simple query to check if the database is responsive
         match self.db.query("SELECT 1 as health").await {
             Ok(_) => Ok(()),
-            Err(e) => Err(Error::Database(Box::new(e))),
+            Err(e) => Err(Error::Database(format!("{:?}", e))),
         }
     }
 }
@@ -375,7 +375,7 @@ impl MemoryManager for SurrealDBMemoryManager {
             {
                 Ok(created) => created,
                 Err(e) => {
-                    let _ = tx.send(Err(Error::Database(Box::new(e))));
+                    let _ = tx.send(Err(Error::Database(format!("{:?}", e))));
                     return;
                 }
             };
@@ -400,7 +400,7 @@ impl MemoryManager for SurrealDBMemoryManager {
         tokio::spawn(async move {
             let result = match db.select::<Option<MemoryNodeSchema>>(("memory", id)).await {
                 Ok(result) => Ok(result.map(SurrealDBMemoryManager::from_schema)),
-                Err(e) => Err(Error::Database(Box::new(e))),
+                Err(e) => Err(Error::Database(format!("{:?}", e))),
             };
 
             let _ = tx.send(result);
@@ -423,7 +423,7 @@ impl MemoryManager for SurrealDBMemoryManager {
                 match db.update(("memory", &id)).content(memory_content).await {
                     Ok(updated) => updated,
                     Err(e) => {
-                        let _ = tx.send(Err(Error::Database(Box::new(e))));
+                        let _ = tx.send(Err(Error::Database(format!("{:?}", e))));
                         return;
                     }
                 };
@@ -452,7 +452,7 @@ impl MemoryManager for SurrealDBMemoryManager {
                 .await
             {
                 Ok(result) => Ok(result.is_some()),
-                Err(e) => Err(Error::Database(Box::new(e))),
+                Err(e) => Err(Error::Database(format!("{:?}", e))),
             };
 
             let _ = tx.send(result);
@@ -476,7 +476,7 @@ impl MemoryManager for SurrealDBMemoryManager {
             {
                 Ok(created) => created,
                 Err(e) => {
-                    let _ = tx.send(Err(Error::Database(Box::new(e))));
+                    let _ = tx.send(Err(Error::Database(format!("{:?}", e))));
                     return;
                 }
             };
@@ -526,7 +526,7 @@ impl MemoryManager for SurrealDBMemoryManager {
                     }
                 }
                 Err(e) => {
-                    let _ = tx.send(Err(Error::Database(Box::new(e)))).await;
+                    let _ = tx.send(Err(Error::Database(format!("{:?}", e)))).await;
                 }
             }
         });
@@ -546,7 +546,7 @@ impl MemoryManager for SurrealDBMemoryManager {
                 .await
             {
                 Ok(result) => Ok(result.is_some()),
-                Err(e) => Err(Error::Database(Box::new(e))),
+                Err(e) => Err(Error::Database(format!("{:?}", e))),
             };
 
             let _ = tx.send(result);
@@ -587,7 +587,7 @@ impl MemoryManager for SurrealDBMemoryManager {
                     }
                 }
                 Err(e) => {
-                    let _ = tx.send(Err(Error::Database(Box::new(e)))).await;
+                    let _ = tx.send(Err(Error::Database(format!("{:?}", e)))).await;
                 }
             }
         });
@@ -616,7 +616,7 @@ impl MemoryManager for SurrealDBMemoryManager {
                     }
                 }
                 Err(e) => {
-                    let _ = tx.send(Err(Error::Database(Box::new(e)))).await;
+                    let _ = tx.send(Err(Error::Database(format!("{:?}", e)))).await;
                 }
             }
         });
@@ -654,7 +654,7 @@ impl MemoryManager for SurrealDBMemoryManager {
                     }
                 }
                 Err(e) => {
-                    let _ = tx.send(Err(Error::Database(Box::new(e)))).await;
+                    let _ = tx.send(Err(Error::Database(format!("{:?}", e)))).await;
                 }
             }
         });

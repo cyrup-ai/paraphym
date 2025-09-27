@@ -10,7 +10,8 @@ use std::fmt::Debug;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use surrealdb::sql::Value;
+use surrealdb::Value;
+use surrealdb::value::{to_value, from_value};
 
 use crate::memory::constants::{EMPTY_STRING, METADATA_PREFIX};
 use crate::memory::graph::entity::{BaseEntity, Entity};
@@ -79,20 +80,25 @@ impl std::str::FromStr for TransitionType {
 impl TransitionType {
     /// Convert to value
     pub fn to_value(&self) -> Value {
+        use surrealdb::value::to_value;
+        
         match self {
-            TransitionType::Linear => Value::Strand("linear".into()),
-            TransitionType::Branching => Value::Strand("branching".into()),
-            TransitionType::Merging => Value::Strand("merging".into()),
-            TransitionType::Restoration => Value::Strand("restoration".into()),
-            TransitionType::Deletion => Value::Strand("deletion".into()),
-            TransitionType::Custom(code) => Value::Strand(format!("custom{code}").into()),
+            TransitionType::Linear => to_value("linear").unwrap_or_default(),
+            TransitionType::Branching => to_value("branching").unwrap_or_default(),
+            TransitionType::Merging => to_value("merging").unwrap_or_default(),
+            TransitionType::Restoration => to_value("restoration").unwrap_or_default(),
+            TransitionType::Deletion => to_value("deletion").unwrap_or_default(),
+            TransitionType::Custom(code) => to_value(format!("custom{code}")).unwrap_or_default(),
         }
     }
 
     /// Create from value
     pub fn from_value(value: &Value) -> Result<Self> {
-        if let Value::Strand(s) = value {
-            s.to_string().parse()
+        use surrealdb::value::from_value;
+        
+        // Convert SurrealDB Value to string and parse
+        if let Ok(s) = from_value::<String>(value.clone()) {
+            s.parse()
         } else {
             Err(Error::ConversionError(
                 "Invalid transition type value".to_string(),
@@ -250,37 +256,26 @@ impl EvolutionTransition {
 
     /// Convert to entity
     pub fn to_entity(&self) -> BaseEntity {
-        let mut entity = BaseEntity::new(&self.id, "memory_evolution_transition");
+        let mut entity = BaseEntity::new(self.id.clone(), "memory_evolution_transition".to_string());
 
-        // Add basic attributes
-        entity = entity.with_attribute("memory_id", Value::Strand(self.memory_id.clone().into()));
+        // Add basic attributes using to_value
+        entity = entity.with_attribute("memory_id", to_value(self.memory_id.clone()).unwrap_or_default());
         entity = entity.with_attribute("transition_type", self.transition_type.to_value());
-        entity = entity.with_attribute("timestamp", Value::Datetime(self.timestamp.into()));
+        entity = entity.with_attribute("timestamp", to_value(self.timestamp).unwrap_or_default());
 
         // Add source version IDs
         if !self.source_version_ids.is_empty() {
-            let source_ids = self
-                .source_version_ids
-                .iter()
-                .map(|id| Value::Strand(id.clone().into()))
-                .collect::<Vec<_>>();
-            entity = entity.with_attribute("source_version_ids", Value::Array(source_ids.into()));
+            entity = entity.with_attribute("source_version_ids", to_value(self.source_version_ids.clone()).unwrap_or_default());
         }
 
         // Add target version IDs
         if !self.target_version_ids.is_empty() {
-            let target_ids = self
-                .target_version_ids
-                .iter()
-                .map(|id| Value::Strand(id.clone().into()))
-                .collect::<Vec<_>>();
-            entity = entity.with_attribute("target_version_ids", Value::Array(target_ids.into()));
+            entity = entity.with_attribute("target_version_ids", to_value(self.target_version_ids.clone()).unwrap_or_default());
         }
 
         // Add description if present
         if let Some(ref description) = self.description {
-            entity =
-                entity.with_attribute("description", Value::Strand(description.clone().into()));
+            entity = entity.with_attribute("description", to_value(description.clone()).unwrap_or_default());
         }
 
         // Add metadata
@@ -295,8 +290,10 @@ impl EvolutionTransition {
     pub fn from_entity(entity: &dyn Entity) -> Result<Self> {
         let id = entity.id().to_string();
 
-        let memory_id = if let Some(Value::Strand(s)) = entity.get_attribute("memory_id") {
-            s.to_string()
+        let memory_id = if let Some(value) = entity.get_attribute("memory_id") {
+            from_value::<String>(value.clone()).map_err(|_| {
+                Error::ConversionError("Invalid memory_id attribute type".to_string())
+            })?
         } else {
             return Err(Error::ConversionError(
                 "Missing memory_id attribute".to_string(),
@@ -311,46 +308,30 @@ impl EvolutionTransition {
             ));
         };
 
-        let timestamp = if let Some(Value::Datetime(dt)) = entity.get_attribute("timestamp") {
-            DateTime::<Utc>::from(dt.clone())
+        let timestamp = if let Some(value) = entity.get_attribute("timestamp") {
+            from_value::<DateTime<Utc>>(value.clone()).map_err(|_| {
+                Error::ConversionError("Invalid timestamp attribute type".to_string())
+            })?
         } else {
             return Err(Error::ConversionError(
                 "Missing timestamp attribute".to_string(),
             ));
         };
 
-        let source_version_ids =
-            if let Some(Value::Array(arr)) = entity.get_attribute("source_version_ids") {
-                arr.iter()
-                    .filter_map(|value| {
-                        if let Value::Strand(s) = value {
-                            Some(s.to_string())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            };
+        let source_version_ids = if let Some(value) = entity.get_attribute("source_version_ids") {
+            from_value::<Vec<String>>(value.clone()).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
 
-        let target_version_ids =
-            if let Some(Value::Array(arr)) = entity.get_attribute("target_version_ids") {
-                arr.iter()
-                    .filter_map(|value| {
-                        if let Value::Strand(s) = value {
-                            Some(s.to_string())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            };
+        let target_version_ids = if let Some(value) = entity.get_attribute("target_version_ids") {
+            from_value::<Vec<String>>(value.clone()).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
 
-        let description = if let Some(Value::Strand(s)) = entity.get_attribute("description") {
-            Some(s.to_string())
+        let description = if let Some(value) = entity.get_attribute("description") {
+            from_value::<String>(value.clone()).ok()
         } else {
             None
         };
@@ -365,6 +346,10 @@ impl EvolutionTransition {
             }
         }
 
+        // Set primary version IDs from first elements of vectors
+        let from_version_id = source_version_ids.first().cloned().unwrap_or_default();
+        let to_version_id = target_version_ids.first().cloned().unwrap_or_default();
+
         Ok(Self {
             id,
             memory_id,
@@ -372,8 +357,8 @@ impl EvolutionTransition {
             timestamp,
             source_version_ids,
             target_version_ids,
-            from_version_id: String::new(),
-            to_version_id: String::new(),
+            from_version_id,
+            to_version_id,
             metadata,
             description,
         })

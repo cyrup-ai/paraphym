@@ -7,10 +7,10 @@ use thiserror::Error;
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Custom error type for the application
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 pub enum Error {
     #[error("Database error: {0}")]
-    Database(Box<surrealdb::Error>),
+    Database(String),
 
     #[error("Vector store error: {0}")]
     VectorStore(String),
@@ -20,6 +20,9 @@ pub enum Error {
 
     #[error("Embedding model error: {0}")]
     Embedding(String),
+
+    #[error("Model error: {0}")]
+    ModelError(String),
 
     #[error("Completion provider error: {0}")]
     CompletionProvider(String),
@@ -46,10 +49,10 @@ pub enum Error {
     ConversionError(String),
 
     #[error("I/O error: {0}")]
-    Io(#[from] std::io::Error),
+    Io(String),
 
     #[error("Serialization error: {0}")]
-    Serialization(#[from] serde_json::Error),
+    Serialization(String),
 
     #[error("Binary serialization error: {0}")]
     BinarySerialization(String),
@@ -99,6 +102,10 @@ impl axum::response::IntoResponse for Error {
             Error::Embedding(e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Embedding error: {}", e),
+            ),
+            Error::ModelError(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Model error: {}", e),
             ),
             Error::CompletionProvider(e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -153,18 +160,30 @@ impl axum::response::IntoResponse for Error {
 
 impl From<surrealdb::Error> for Error {
     fn from(err: surrealdb::Error) -> Self {
-        Error::Database(Box::new(err))
+        Error::Database(err.to_string())
     }
 }
 
-impl From<anyhow::Error> for Error {
-    fn from(err: anyhow::Error) -> Self {
-        Error::Other(err.to_string())
+impl From<candle_core::Error> for Error {
+    fn from(err: candle_core::Error) -> Self {
+        Error::ModelError(format!("Candle error: {}", err))
     }
 }
 
-impl From<paraphym_http3::HttpError> for Error {
-    fn from(err: paraphym_http3::HttpError) -> Self {
-        Error::HttpRequest(err.to_string())
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Error::Io(err.to_string())
     }
 }
+
+impl From<serde_json::Error> for Error {
+    fn from(err: serde_json::Error) -> Self {
+        Error::Serialization(err.to_string())
+    }
+}
+
+// Note: anyhow::Error conversion removed due to conflict with surrealdb::Error
+// Use .map_err(|e| Error::Other(e.to_string())) for manual anyhow conversions
+
+// HTTP error conversion removed - using standard error types instead
+// If HTTP functionality is needed, use reqwest or other standard HTTP crates

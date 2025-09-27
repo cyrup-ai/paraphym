@@ -229,7 +229,7 @@ impl WorkingMemoryItem {
     pub fn new(content: impl Into<Arc<str>>, activation: f32, ttl: Duration) -> Self {
         Self {
             id: Uuid::new_v4(),
-            content: content.into(),
+            content: content.into().to_string(),
             activation: activation.clamp(0.0, 1.0),
             created_at: SystemTime::now(),
             ttl,
@@ -263,7 +263,7 @@ impl CognitiveMemoryEntry {
     #[inline]
     pub fn new(content: impl Into<Arc<str>>, strength: f32) -> Self {
         Self {
-            content: content.into(),
+            content: content.into().to_string(),
             strength: strength.clamp(0.0, 1.0),
             access_count: 0,
             last_access: SystemTime::now(),

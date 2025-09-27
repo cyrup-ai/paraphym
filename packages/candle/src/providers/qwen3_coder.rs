@@ -11,8 +11,10 @@ use candle_core::quantized::gguf_file;
 use candle_core::DType;
 use candle_transformers::models::llama::LlamaConfig;
 use ystream::AsyncStream;
-// Removed unused imports based on structure analysis
+// SIMD optimizations for high-performance inference
 use paraphym_simd::get_cpu_features;
+#[cfg(feature = "progresshub")]
+use progresshub::{ProgressHub, types::ZeroOneOrMany as ProgressHubZeroOneOrMany};
 use serde::{Deserialize, Serialize};
 
 use crate::domain::chat::message::types::CandleMessageChunk;
@@ -33,8 +35,10 @@ pub trait BuilderCandleQwen3CoderProvider: Send + Sync + 'static {
 /// with automatic model downloading via ProgressHub.
 #[derive(Debug, Clone)]
 pub struct CandleQwen3CoderProvider {
-    /// Model path on filesystem (dynamically obtained from ProgressHub)
+    /// Model cache directory path
     model_path: String,
+    /// GGUF model file path
+    gguf_file_path: String,
     /// Provider configuration
     config: CandleQwen3CoderConfig,
     /// Model configuration for inference
@@ -135,11 +139,55 @@ impl CandleQwen3CoderProvider {
     }
 
     /// Create provider with custom configuration and automatic download
+    #[cfg(feature = "progresshub")]
+    pub async fn with_config_async(
+        config: CandleQwen3CoderConfig,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        // Download model using ProgressHub
+        let results = ProgressHub::builder()
+            .model("Qwen/Qwen2.5-Coder-32B-Instruct-GGUF")
+            .with_cli_progress()
+            .download()
+            .await?;
+
+        // Extract the model path from download results following ProgressHub example pattern
+        let (model_cache_dir, gguf_file_path) = if let Some(result) = results.into_iter().next() {
+            match &result.models {
+                ProgressHubZeroOneOrMany::One(model) => {
+                    // Extract model cache directory
+                    let cache_dir = model.model_cache_path.display().to_string();
+
+                    // Find GGUF file with zero allocation - prioritize largest file (model weights over tokenizer)
+                    let gguf_file = model
+                        .files
+                        .iter()
+                        .filter(|file| file.filename.ends_with(".gguf"))
+                        .max_by_key(|file| file.expected_size)
+                        .ok_or_else(|| "No GGUF files found in downloaded model")?;
+
+                    let gguf_path = gguf_file.path.display().to_string();
+                    (cache_dir, gguf_path)
+                }
+                ProgressHubZeroOneOrMany::Zero => {
+                    return Err("No models were downloaded".into());
+                }
+                ProgressHubZeroOneOrMany::Many(_) => {
+                    return Err("Expected exactly one model, got multiple".into());
+                }
+            }
+        } else {
+            return Err("No download results returned".into());
+        };
+
+        Self::with_config_sync_gguf(model_cache_dir, gguf_file_path, config)
+    }
+
+    /// Create provider with custom configuration and automatic download (fallback when progresshub not available)
+    #[cfg(not(feature = "progresshub"))]
     pub async fn with_config_async(
         _config: CandleQwen3CoderConfig,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        // Temporary placeholder - return error until progresshub dependency is restored
-        return Err("ProgressHub download temporarily disabled due to dependency issues".into());
+        Err("ProgressHub feature not enabled. Use with_config_sync_gguf() with local model path".into())
     }
 
     /// Create provider with custom configuration and existing model path
@@ -175,7 +223,8 @@ impl CandleQwen3CoderProvider {
         };
 
         Ok(Self {
-            model_path,
+            model_path: model_path.clone(),
+            gguf_file_path: model_path, // For sync method, assume model_path is the GGUF file
             config,
             model_config,
         })
@@ -301,6 +350,7 @@ impl CandleQwen3CoderProvider {
 
         Ok(Self {
             model_path: model_cache_dir,
+            gguf_file_path,
             config,
             model_config,
         })
@@ -345,25 +395,29 @@ impl CandleQwen3CoderProvider {
 
         // Convert CandleCompletionChunk to legacy CandleMessageChunk format
         AsyncStream::with_channel(move |sender| {
-            completion_stream.for_each(|completion_chunk| {
-                let message_chunk = match completion_chunk {
-                    crate::domain::completion::CandleCompletionChunk::Text(text) => {
-                        CandleMessageChunk::Text(text)
-                    }
-                    crate::domain::completion::CandleCompletionChunk::Complete {
-                        text,
-                        finish_reason,
-                        usage,
-                    } => CandleMessageChunk::Complete {
-                        text,
-                        finish_reason: finish_reason.map(|f| format!("{:?}", f)),
-                        usage: usage.map(|u| format!("{:?}", u)),
-                    },
-                    _ => CandleMessageChunk::Error("Unknown completion chunk type".to_string()),
-                };
+            ystream::spawn_task(move || async move {
+                use futures_util::StreamExt;
+                let mut stream = completion_stream;
+                while let Some(completion_chunk) = stream.next().await {
+                    let message_chunk = match completion_chunk {
+                        crate::domain::completion::CandleCompletionChunk::Text(text) => {
+                            CandleMessageChunk::Text(text)
+                        }
+                        crate::domain::completion::CandleCompletionChunk::Complete {
+                            text,
+                            finish_reason,
+                            usage,
+                        } => CandleMessageChunk::Complete {
+                            text,
+                            finish_reason: finish_reason.map(|f| format!("{:?}", f)),
+                            usage: usage.map(|u| format!("{:?}", u)),
+                        },
+                        _ => CandleMessageChunk::Error("Unknown completion chunk type".to_string()),
+                    };
 
-                if sender.send(message_chunk).is_err() {
-                    return; // Client disconnected
+                    if sender.send(message_chunk).is_err() {
+                        break; // Client disconnected
+                    }
                 }
             });
         })
@@ -452,6 +506,7 @@ impl CandleCompletionModel for CandleQwen3CoderProvider {
 
         // Create TextGenerator and perform local inference
         let model_path = self.model_path.clone();
+        let gguf_file_path = self.gguf_file_path.clone();
         let config = self.config.clone();
         let model_config = self.model_config.clone();
 
@@ -459,7 +514,7 @@ impl CandleCompletionModel for CandleQwen3CoderProvider {
             use crate::core::generation::{
                 generator::TextGenerator,
                 tokens::SpecialTokens,
-                models::CandleModel as CoreCandleModel,
+                // models::CandleModel as CoreCandleModel, // Reserved for future candle model integration
             };
             use candle_core::Device;
             use tokenizers::Tokenizer;
@@ -477,17 +532,51 @@ impl CandleCompletionModel for CandleQwen3CoderProvider {
                 }
             };
 
-            // Create mock model implementation - TODO: implement real model loading
-            struct MockQwenModel;
-            impl CoreCandleModel for MockQwenModel {
-                fn forward(&self, _input: &candle_core::Tensor, _position: usize) -> Result<candle_core::Tensor, Box<dyn std::error::Error + Send + Sync>> {
-                    Err("Model loading not yet implemented".into())
-                }
-            }
+            // Create real quantized model implementation
+            use crate::core::generation::models::ModelFactory;
+            use crate::core::ModelConfig as CandleConfig;
+            use std::sync::Arc;
 
-            // Create TextGenerator
+            // Create model configuration for the quantized model
+            let candle_model_config = Arc::new(CandleConfig::new(
+                &gguf_file_path,
+                format!("{}/tokenizer.json", model_path),
+                crate::core::ModelArchitecture::Llama(candle_transformers::models::llama::Config {
+                    hidden_size: model_config.hidden_size,
+                    intermediate_size: model_config.intermediate_size,
+                    vocab_size: model_config.vocab_size,
+                    num_hidden_layers: model_config.num_hidden_layers,
+                    num_attention_heads: model_config.num_attention_heads,
+                    num_key_value_heads: model_config.num_key_value_heads.unwrap_or(model_config.num_attention_heads),
+                    use_flash_attn: false,
+                    rms_norm_eps: model_config.rms_norm_eps,
+                    rope_theta: model_config.rope_theta,
+                    bos_token_id: model_config.bos_token_id,
+                    eos_token_id: model_config.eos_token_id.clone(),
+                    rope_scaling: model_config.rope_scaling.clone(),
+                    max_position_embeddings: model_config.max_position_embeddings,
+                    tie_word_embeddings: model_config.tie_word_embeddings.unwrap_or(false),
+                }),
+                "qwen3-coder",
+                "qwen3-coder",
+            )
+            .with_vocab_size(model_config.vocab_size)
+            .with_context_length(config.max_context as usize)
+            .with_dtype(config.dtype));
+
+            // Load the real quantized model
+            let quantized_model = match ModelFactory::create_quantized_llama(&gguf_file_path, candle_model_config, device.clone()) {
+                Ok(model) => model,
+                Err(e) => {
+                    let error_chunk = CandleCompletionChunk::Error(format!("Failed to load quantized model: {}", e));
+                    let _ = sender.send(error_chunk);
+                    return;
+                }
+            };
+
+            // Create TextGenerator with real model
             let text_generator = TextGenerator::new(
-                Box::new(MockQwenModel),
+                Box::new(quantized_model),
                 tokenizer,
                 device,
                 _sampling_config,
@@ -495,10 +584,10 @@ impl CandleCompletionModel for CandleQwen3CoderProvider {
 
             // Set up special tokens
             let special_tokens = SpecialTokens {
-                bos_token_id: model_config.bos_token_id.unwrap_or(151643), // Qwen3 BOS
+                bos_token_id: Some(model_config.bos_token_id.unwrap_or(151643)), // Qwen3 BOS
                 eos_token_id: match &model_config.eos_token_id {
-                    Some(candle_transformers::models::llama::LlamaEosToks::Single(id)) => *id,
-                    _ => 151645, // Qwen3 EOS
+                    Some(candle_transformers::models::llama::LlamaEosToks::Single(id)) => Some(*id),
+                    _ => Some(151645), // Qwen3 EOS
                 },
                 pad_token_id: None,
             };
@@ -506,18 +595,22 @@ impl CandleCompletionModel for CandleQwen3CoderProvider {
             // Generate text using TextGenerator
             let text_stream = text_generator.generate(
                 _prompt_text,
-                _max_tokens,
+                _max_tokens.try_into().unwrap(),
                 special_tokens,
             );
 
-            // Convert CandleStringChunk to CandleCompletionChunk
-            text_stream.for_each(|string_chunk| {
-                let completion_chunk = CandleCompletionChunk::Text(string_chunk.0);
-                if sender.send(completion_chunk).is_err() {
-                    return; // Client disconnected
+            // Convert CandleStringChunk to CandleCompletionChunk using ystream async pattern
+            ystream::spawn_task(move || async move {
+                use futures_util::StreamExt;
+                let mut stream = text_stream;
+                while let Some(string_chunk) = stream.next().await {
+                    let completion_chunk = CandleCompletionChunk::Text(string_chunk.0);
+                    if sender.send(completion_chunk).is_err() {
+                        break; // Client disconnected
+                    }
                 }
             });
-        });
+        })
     }
 }
 

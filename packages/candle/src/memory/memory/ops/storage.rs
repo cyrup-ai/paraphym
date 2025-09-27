@@ -28,7 +28,7 @@ impl Future for PendingStore {
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match Pin::new(&mut self.rx).poll(cx) {
             Poll::Ready(Ok(result)) => Poll::Ready(result),
-            Poll::Ready(Err(_)) => Poll::Ready(Err(crate::utils::error::Error::Internal(
+            Poll::Ready(Err(_)) => Poll::Ready(Err(crate::memory::utils::error::Error::Internal(
                 "Store task failed".to_string(),
             ))),
             Poll::Pending => Poll::Pending,
@@ -53,7 +53,7 @@ impl Future for PendingRetrieve {
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match Pin::new(&mut self.rx).poll(cx) {
             Poll::Ready(Ok(result)) => Poll::Ready(result),
-            Poll::Ready(Err(_)) => Poll::Ready(Err(crate::utils::error::Error::Internal(
+            Poll::Ready(Err(_)) => Poll::Ready(Err(crate::memory::utils::error::Error::Internal(
                 "Retrieve task failed".to_string(),
             ))),
             Poll::Pending => Poll::Pending,
@@ -78,7 +78,7 @@ impl Future for PendingUpdate {
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match Pin::new(&mut self.rx).poll(cx) {
             Poll::Ready(Ok(result)) => Poll::Ready(result),
-            Poll::Ready(Err(_)) => Poll::Ready(Err(crate::utils::error::Error::Internal(
+            Poll::Ready(Err(_)) => Poll::Ready(Err(crate::memory::utils::error::Error::Internal(
                 "Update task failed".to_string(),
             ))),
             Poll::Pending => Poll::Pending,
@@ -103,7 +103,7 @@ impl Future for PendingDelete {
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match Pin::new(&mut self.rx).poll(cx) {
             Poll::Ready(Ok(result)) => Poll::Ready(result),
-            Poll::Ready(Err(_)) => Poll::Ready(Err(crate::utils::error::Error::Internal(
+            Poll::Ready(Err(_)) => Poll::Ready(Err(crate::memory::utils::error::Error::Internal(
                 "Delete task failed".to_string(),
             ))),
             Poll::Pending => Poll::Pending,
@@ -128,7 +128,7 @@ impl Future for PendingRelationships {
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match Pin::new(&mut self.rx).poll(cx) {
             Poll::Ready(Ok(result)) => Poll::Ready(result),
-            Poll::Ready(Err(_)) => Poll::Ready(Err(crate::utils::error::Error::Internal(
+            Poll::Ready(Err(_)) => Poll::Ready(Err(crate::memory::utils::error::Error::Internal(
                 "Get relationships task failed".to_string(),
             ))),
             Poll::Pending => Poll::Pending,
@@ -153,7 +153,7 @@ impl Future for PendingStats {
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match Pin::new(&mut self.rx).poll(cx) {
             Poll::Ready(Ok(result)) => Poll::Ready(result),
-            Poll::Ready(Err(_)) => Poll::Ready(Err(crate::utils::error::Error::Internal(
+            Poll::Ready(Err(_)) => Poll::Ready(Err(crate::memory::utils::error::Error::Internal(
                 "Stats task failed".to_string(),
             ))),
             Poll::Pending => Poll::Pending,
@@ -249,7 +249,7 @@ impl MemoryStorage for InMemoryStorage {
         tokio::spawn(async move {
             let memories = memories.read().await;
             let result = memories.get(&id).cloned().ok_or_else(|| {
-                crate::utils::error::Error::NotFound(format!("Memory {id} not found"))
+                crate::memory::utils::error::Error::NotFound(format!("Memory {id} not found"))
             });
             let _ = tx.send(result);
         });
@@ -267,7 +267,7 @@ impl MemoryStorage for InMemoryStorage {
                 memories.insert(memory.id.clone(), memory.clone());
                 Ok(())
             } else {
-                Err(crate::utils::error::Error::NotFound(format!(
+                Err(crate::memory::utils::error::Error::NotFound(format!(
                     "Memory {} not found",
                     memory.id
                 )))
@@ -291,7 +291,7 @@ impl MemoryStorage for InMemoryStorage {
                 relationships.remove(&id);
                 Ok(())
             } else {
-                Err(crate::utils::error::Error::NotFound(format!(
+                Err(crate::memory::utils::error::Error::NotFound(format!(
                     "Memory {id} not found"
                 )))
             };
@@ -435,7 +435,7 @@ impl StorageFactory {
     pub async fn create(config: &StorageConfig) -> Result<Box<dyn MemoryStorage>> {
         match config.backend {
             StorageBackend::Memory => Ok(Box::new(InMemoryStorage::new())),
-            _ => Err(crate::utils::error::Error::NotImplemented(format!(
+            _ => Err(crate::memory::utils::error::Error::NotImplemented(format!(
                 "Storage backend {:?} not implemented",
                 config.backend
             ))),

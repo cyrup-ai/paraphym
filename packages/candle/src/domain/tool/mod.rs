@@ -23,5 +23,5 @@ pub use mcp::{
 };
 // Re-export trait-backed architecture types (NEW PREFERRED APPROACH)
 pub use traits::{CandleMcpTool, CandleTool};
-// Re-export legacy MCP types for backward compatibility
-pub use types::CandleMcpToolData;
+// Re-export tool definition types for completion requests
+pub use types::{CandleMcpToolData, FunctionDefinition, ToolDefinition, ToolType};

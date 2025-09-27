@@ -10,9 +10,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
-use super::types::{MAX_CHUNK_SIZE, MAX_TOKENS, TEMPERATURE_RANGE};
+use super::types::{MAX_CHUNK_SIZE, MAX_TOKENS, TEMPERATURE_RANGE, ToolDefinition};
 use crate::domain::chat::message::types::CandleMessage as ChatMessage;
 use crate::domain::context::CandleDocument as Document;
+use crate::memory::memory::ops::retrieval::RetrievalResult;
 // NOTE: ToolDefinition was removed with HTTP infrastructure cleanup
 // Local Candle tool definitions will be implemented when needed
 use crate::domain::model::{ValidationError, ValidationResult};
@@ -26,6 +27,8 @@ pub struct CompletionRequest {
     pub chat_history: ZeroOneOrMany<ChatMessage>,
     /// Documents to use as context
     pub documents: ZeroOneOrMany<Document>,
+    /// Retrieved memories from previous conversations
+    pub memories: ZeroOneOrMany<RetrievalResult>,
     /// Tools available to the model
     pub tools: ZeroOneOrMany<ToolDefinition>,
     /// Sampling temperature (0.0 to 2.0)
@@ -98,6 +101,7 @@ impl CompletionRequest {
             system_prompt: self.system_prompt,
             chat_history: self.chat_history,
             documents: self.documents,
+            memories: self.memories,
             tools: self.tools,
             temperature: self.temperature,
             max_tokens: self.max_tokens,

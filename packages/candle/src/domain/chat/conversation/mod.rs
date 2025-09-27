@@ -122,7 +122,7 @@ pub enum CandleConversationEvent {
 }
 
 impl MessageChunk for CandleConversationEvent {
-    fn bad_chunk(error: String) -> Self {
+    fn bad_chunk(_error: String) -> Self { // Error parameter reserved for future use
         Self::StatsUpdated {
             total_messages: 0,
             user_messages: 0,

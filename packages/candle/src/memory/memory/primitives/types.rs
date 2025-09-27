@@ -14,34 +14,11 @@ use crate::memory::primitives::metadata::MemoryMetadata;
 use crate::memory::utils::Result;
 use crate::memory::utils::error::Error;
 
-/// Convert serde_json::Value to surrealdb::sql::Value
-fn json_to_surreal_value(json: serde_json::Value) -> surrealdb::sql::Value {
-    match json {
-        serde_json::Value::Null => surrealdb::sql::Value::Null,
-        serde_json::Value::Bool(b) => surrealdb::sql::Value::Bool(b),
-        serde_json::Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                surrealdb::sql::Value::Number(surrealdb::sql::Number::Int(i))
-            } else if let Some(f) = n.as_f64() {
-                surrealdb::sql::Value::Number(surrealdb::sql::Number::Float(f))
-            } else {
-                surrealdb::sql::Value::Null
-            }
-        }
-        serde_json::Value::String(s) => surrealdb::sql::Value::Strand(s.into()),
-        serde_json::Value::Array(arr) => {
-            let values: Vec<surrealdb::sql::Value> =
-                arr.into_iter().map(json_to_surreal_value).collect();
-            surrealdb::sql::Value::Array(values.into())
-        }
-        serde_json::Value::Object(obj) => {
-            let mut map = surrealdb::sql::Object::default();
-            for (k, v) in obj {
-                map.insert(k, json_to_surreal_value(v));
-            }
-            surrealdb::sql::Value::Object(map)
-        }
-    }
+/// Convert serde_json::Value to surrealdb::Value
+fn json_to_surreal_value(json: serde_json::Value) -> surrealdb::Value {
+    use surrealdb::value::to_value;
+    
+    to_value(json).unwrap_or_default()
 }
 
 /// Memory type enum
@@ -320,7 +297,7 @@ impl MemoryType for BaseMemory {
 
     fn to_entity(&self) -> BaseEntity {
         use crate::memory::graph::entity::BaseEntity;
-        let mut entity = BaseEntity::new(&self.id, &format!("memory_{}", self.metadata.category));
+        let mut entity = BaseEntity::new(self.id.clone(), format!("memory_{}", self.metadata.category));
 
         /// Helper function to safely serialize values to JSON, with fallback handling
         fn serialize_field<T: Serialize>(value: &T, field_name: &str) -> serde_json::Value {
@@ -338,76 +315,76 @@ impl MemoryType for BaseMemory {
         }
 
         // Add basic fields as attributes
-        entity.attributes.insert(
-            "name".to_string(),
+        entity = entity.with_attribute(
+            "name",
             json_to_surreal_value(self.name.clone().into()),
         );
-        entity.attributes.insert(
-            "description".to_string(),
+        entity = entity.with_attribute(
+            "description",
             json_to_surreal_value(self.description.clone().into()),
         );
-        entity.attributes.insert(
-            "updated_at".to_string(),
+        entity = entity.with_attribute(
+            "updated_at",
             json_to_surreal_value(serialize_field(&self.updated_at, "updated_at")),
         );
 
         // Add metadata fields as attributes
-        entity.attributes.insert(
-            "user_id".to_string(),
+        entity = entity.with_attribute(
+            "user_id",
             json_to_surreal_value(serialize_field(&self.metadata.user_id, "user_id")),
         );
-        entity.attributes.insert(
-            "agent_id".to_string(),
+        entity = entity.with_attribute(
+            "agent_id",
             json_to_surreal_value(serialize_field(&self.metadata.agent_id, "agent_id")),
         );
-        entity.attributes.insert(
-            "context".to_string(),
+        entity = entity.with_attribute(
+            "context",
             json_to_surreal_value(self.metadata.context.clone().into()),
         );
-        entity.attributes.insert(
-            "keywords".to_string(),
+        entity = entity.with_attribute(
+            "keywords",
             json_to_surreal_value(serialize_field(&self.metadata.keywords, "keywords")),
         );
-        entity.attributes.insert(
-            "tags".to_string(),
+        entity = entity.with_attribute(
+            "tags",
             json_to_surreal_value(serialize_field(&self.metadata.tags, "tags")),
         );
-        entity.attributes.insert(
-            "category".to_string(),
+        entity = entity.with_attribute(
+            "category",
             json_to_surreal_value(self.metadata.category.clone().into()),
         );
-        entity.attributes.insert(
-            "importance".to_string(),
+        entity = entity.with_attribute(
+            "importance",
             json_to_surreal_value(self.metadata.importance.into()),
         );
-        entity.attributes.insert(
-            "source".to_string(),
+        entity = entity.with_attribute(
+            "source",
             json_to_surreal_value(serialize_field(&self.metadata.source, "source")),
         );
-        entity.attributes.insert(
-            "created_at".to_string(),
+        entity = entity.with_attribute(
+            "created_at",
             json_to_surreal_value(serialize_field(&self.metadata.created_at, "created_at")),
         );
-        entity.attributes.insert(
-            "last_accessed_at".to_string(),
+        entity = entity.with_attribute(
+            "last_accessed_at",
             json_to_surreal_value(serialize_field(
                 &self.metadata.last_accessed_at,
                 "last_accessed_at",
             )),
         );
-        entity.attributes.insert(
-            "embedding".to_string(),
+        entity = entity.with_attribute(
+            "embedding",
             json_to_surreal_value(serialize_field(&self.metadata.embedding, "embedding")),
         );
-        entity.attributes.insert(
-            "custom".to_string(),
+        entity = entity.with_attribute(
+            "custom",
             json_to_surreal_value(self.metadata.custom.clone()),
         );
 
         // Add content as attributes
         let content_attrs = self.content.to_entity();
         for (key, value) in content_attrs {
-            entity.attributes.insert(key, json_to_surreal_value(value));
+            entity = entity.with_attribute(&key, json_to_surreal_value(value));
         }
 
         entity
@@ -441,7 +418,12 @@ impl MemoryType for BaseMemory {
         let attributes: HashMap<String, Value> = entity
             .attributes()
             .iter()
-            .map(|(k, v)| (k.clone(), v.clone().into()))
+            .map(|(k, v)| {
+                // Convert surrealdb::Value to serde_json::Value via serialization
+                let json_value = serde_json::to_value(v)
+                    .unwrap_or_else(|_| serde_json::Value::String(format!("{:?}", v)));
+                (k.clone(), json_value)
+            })
             .collect();
 
         let name = get_attr("name", &attributes)?

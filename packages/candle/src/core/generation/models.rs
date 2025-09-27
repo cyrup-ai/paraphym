@@ -8,6 +8,8 @@ use std::sync::Arc;
 
 use candle_core::{Device, Tensor};
 use candle_transformers::models::llama::{Cache, Llama};
+use candle_transformers::models::quantized_llama;
+use candle_core::quantized::gguf_file;
 
 use super::types::CandleResult;
 use crate::core::ModelConfig as CandleConfig;
@@ -117,17 +119,120 @@ impl CandleModel for CandleLlamaModel {
     }
 }
 
+/// Quantized Llama model wrapper for GGUF models
+///
+/// This wrapper handles quantized models loaded from GGUF files using
+/// the candle_transformers::models::quantized_llama module.
+#[derive(Debug)]
+pub struct CandleQuantizedLlamaModel {
+    /// The underlying quantized model weights
+    model_weights: quantized_llama::ModelWeights,
+
+    /// Device the model is loaded on
+    device: Device,
+
+    /// Model configuration
+    config: Arc<CandleConfig>,
+
+    /// Model vocabulary size
+    vocab_size: usize,
+}
+
+impl CandleQuantizedLlamaModel {
+    /// Create new CandleQuantizedLlamaModel
+    pub fn new(
+        model_weights: quantized_llama::ModelWeights,
+        device: Device,
+        config: Arc<CandleConfig>,
+        vocab_size: usize,
+    ) -> Self {
+        Self {
+            model_weights,
+            device,
+            config,
+            vocab_size,
+        }
+    }
+
+    /// Load a quantized Llama model from a GGUF file
+    pub fn from_gguf_path<P: AsRef<std::path::Path>>(
+        model_path: P,
+        device: Device,
+        config: Arc<CandleConfig>,
+    ) -> CandleResult<Self> {
+        let mut file = std::fs::File::open(&model_path)
+            .map_err(|e| crate::domain::model::error::CandleModelError::InvalidConfiguration(
+                format!("Failed to open GGUF file: {}", e).into()
+            ))?;
+        
+        let gguf_content = gguf_file::Content::read(&mut file)
+            .map_err(|e| crate::domain::model::error::CandleModelError::InvalidConfiguration(
+                format!("Failed to read GGUF file: {}", e).into()
+            ))?;
+        
+        let model_weights = quantized_llama::ModelWeights::from_gguf(gguf_content, &mut file, &device)
+            .map_err(|e| crate::domain::model::error::CandleModelError::InvalidConfiguration(
+                format!("Failed to load model weights from GGUF: {}", e).into()
+            ))?;
+        
+        // Extract vocab size from config or use default
+        let vocab_size = config.vocab_size;
+        
+        Ok(Self::new(model_weights, device, config, vocab_size))
+    }
+
+    /// Get the underlying model weights
+    pub fn model_weights(&self) -> &quantized_llama::ModelWeights {
+        &self.model_weights
+    }
+
+    /// Get the underlying model weights mutably
+    pub fn model_weights_mut(&mut self) -> &mut quantized_llama::ModelWeights {
+        &mut self.model_weights
+    }
+}
+
+impl CandleModel for CandleQuantizedLlamaModel {
+    fn forward(&mut self, input: &Tensor, position: usize) -> CandleResult<Tensor> {
+        self.model_weights
+            .forward(input, position)
+            .map_err(Into::into)
+    }
+
+    fn device(&self) -> &Device {
+        &self.device
+    }
+
+    fn vocab_size(&self) -> usize {
+        self.vocab_size
+    }
+
+    fn config(&self) -> Option<&CandleConfig> {
+        Some(&self.config)
+    }
+}
+
 /// Model factory for creating different model types
 pub struct ModelFactory;
 
 impl ModelFactory {
-    /// Create a Llama model from configuration
+    /// Create a quantized Llama model from GGUF file path
+    pub fn create_quantized_llama<P: AsRef<std::path::Path>>(
+        model_path: P,
+        config: Arc<CandleConfig>,
+        device: Device,
+    ) -> CandleResult<CandleQuantizedLlamaModel> {
+        CandleQuantizedLlamaModel::from_gguf_path(model_path, device, config)
+    }
+
+    /// Create a Llama model from configuration (placeholder for regular models)
     pub fn create_llama(
         _config: Arc<CandleConfig>,
         _device: Device,
     ) -> CandleResult<CandleLlamaModel> {
-        // Factory implementation would go here
-        todo!("Model factory implementation")
+        Err(crate::domain::model::error::CandleModelError::OperationNotSupported(
+            "Regular Llama model loading not implemented - use create_quantized_llama for GGUF models".into()
+        ))
     }
 
     /// Create a model from a model type string

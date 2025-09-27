@@ -103,8 +103,8 @@ unsafe fn avx2_softmax(logits: &[f32]) -> SimdResult<Vec<f32>> {
         _mm256_storeu_ps(result.as_mut_ptr().add(i), norm);
         i += 8;
     }
-    for j in i..len {
-        result[j] *= inv_sum;
+    for result_item in result.iter_mut().take(len).skip(i) {
+        *result_item *= inv_sum;
     }
 
     Ok(result)
@@ -175,8 +175,8 @@ unsafe fn sse41_softmax(logits: &[f32]) -> SimdResult<Vec<f32>> {
         _mm_storeu_ps(result.as_mut_ptr().add(i), norm);
         i += 4;
     }
-    for j in i..len {
-        result[j] *= inv_sum;
+    for result_item in result.iter_mut().take(len).skip(i) {
+        *result_item *= inv_sum;
     }
 
     Ok(result)
@@ -248,8 +248,8 @@ unsafe fn neon_softmax(logits: &[f32]) -> SimdResult<Vec<f32>> {
         unsafe { vst1q_f32(result.as_mut_ptr().add(i), norm) };
         i += 4;
     }
-    for j in i..len {
-        result[j] *= inv_sum;
+    for result_item in result.iter_mut().take(len).skip(i) {
+        *result_item *= inv_sum;
     }
 
     Ok(result)
@@ -257,7 +257,6 @@ unsafe fn neon_softmax(logits: &[f32]) -> SimdResult<Vec<f32>> {
 
 /// Computes softmax over a slice of logits using the best available implementation.
 /// Returns a Vec with softmax probabilities.
-
 /// Dispatch table for softmax operations across different CPU capabilities
 pub static SOFTMAX_DISPATCH: Lazy<SoftmaxDispatch> = Lazy::new(create_softmax_dispatch);
 

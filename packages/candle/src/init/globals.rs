@@ -13,8 +13,8 @@ use once_cell::sync::Lazy;
 
 use crate::domain::error::SimpleCircuitBreaker;
 // Temporarily disabled to break circular dependency
-// use paraphym_candle::memory::{MemoryConfig, SurrealDBMemoryManager};
-// use paraphym_candle::memory::memory::MemoryMetadata;
+// use crate::memory::{MemoryConfig, SurrealDBMemoryManager};
+// use crate::memory::memory::MemoryMetadata;
 
 // Use stub types from memory::manager
 use crate::memory::manager::{MemoryConfig, SurrealDBMemoryManager};

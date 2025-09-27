@@ -10,6 +10,8 @@ use thiserror::Error;
 use ystream::AsyncStream;
 
 use crate::domain::completion::CandleCompletionResponse;
+// use crate::domain::completion::traits::CandleCompletionModel; // Reserved for future completion model integration
+#[cfg(feature = "progresshub")]
 use crate::providers::{CandleKimiK2Provider, CandleQwen3CoderProvider};
 
 /// Local engine errors
@@ -72,39 +74,100 @@ impl LocalEngine {
     /// Process completion request using local providers
     pub fn complete(
         &self,
-        prompt: String,
-    ) -> AsyncStream<CandleCompletionResponse> {
+        _prompt: String,
+    ) -> AsyncStream<CandleCompletionResponse<'static>> {
         // Increment request counter
         self.request_count.fetch_add(1, Ordering::Relaxed);
 
+        // Capture values from self before creating the async stream
         let model_name = self.config.model_name.clone();
-        let max_tokens = self.config.max_tokens;
-        let temperature = self.config.temperature;
+        let _max_tokens = self.config.max_tokens;
+        let _temperature = self.config.temperature;
 
         AsyncStream::with_channel(move |sender| {
+
             // Route to appropriate provider based on model name
             match model_name.as_str() {
                 "kimi-k2" => {
-                    // Use KimiK2 provider
-                    match CandleKimiK2Provider::new() {
-                        Ok(provider) => {
-                            // Provider handles completion internally
-                            let response = CandleCompletionResponse {
-                                text: "Local Kimi-K2 inference would happen here".into(),
-                                model: Some(model_name.into()),
+                    // Create runtime for async provider creation
+                    let _rt = match tokio::runtime::Runtime::new() {
+                        Ok(_rt) => _rt,
+                        Err(e) => {
+                            let error_response = CandleCompletionResponse {
+                                text: format!("Failed to create async runtime: {}", e).into(),
+                                model: model_name.clone().into(),
                                 provider: Some("candle-local".into()),
                                 usage: None,
-                                finish_reason: Some("completed".into()),
+                                finish_reason: Some("error".into()),
                                 response_time_ms: None,
-                                generation_time_ms: Some(100),
-                                tokens_per_second: Some(10.0),
+                                generation_time_ms: Some(0),
+                                tokens_per_second: Some(0.0),
                             };
-                            let _ = sender.send(response);
+                            let _ = sender.send(error_response);
+                            return;
+                        }
+                    };
+
+                    // Use KimiK2 provider with real inference
+                    #[cfg(feature = "progresshub")]
+                    match _rt.block_on(CandleKimiK2Provider::new()) {
+                        Ok(provider) => {
+                            // Create completion parameters
+                            let completion_params = crate::domain::completion::CandleCompletionParams {
+                                temperature: _temperature.unwrap_or(0.7) as f64,
+                                max_tokens: _max_tokens.map(|t| std::num::NonZeroU64::new(t as u64).unwrap()),
+                                n: std::num::NonZeroU8::new(1).unwrap(),
+                                stream: true,
+                                additional_params: None,
+                            };
+                            
+                            // Create prompt
+                            let candle_prompt = crate::domain::prompt::CandlePrompt::new(prompt.clone());
+                            
+                            // Get real completion stream from provider
+                            let completion_stream = provider.prompt(candle_prompt, &completion_params);
+                            
+                            // Process completion stream using proper ystream pattern
+                            ystream::spawn_task(move || async move {
+                                let mut stream = completion_stream;
+                                while let Some(chunk) = stream.next().await {
+                                    let response = match chunk {
+                                        crate::domain::context::chunk::CandleCompletionChunk::Text(text) => {
+                                            CandleCompletionResponse {
+                                                text: text.into(),
+                                                model: model_name.clone().into(),
+                                                provider: Some("candle-local".into()),
+                                                usage: None,
+                                                finish_reason: None,
+                                                response_time_ms: None,
+                                                generation_time_ms: None,
+                                                tokens_per_second: None,
+                                            }
+                                        },
+                                        crate::domain::context::chunk::CandleCompletionChunk::Error(err) => {
+                                            CandleCompletionResponse {
+                                                text: format!("Error: {}", err).into(),
+                                                model: model_name.clone().into(),
+                                                provider: Some("candle-local".into()),
+                                                usage: None,
+                                                finish_reason: Some("error".into()),
+                                                response_time_ms: None,
+                                                generation_time_ms: None,
+                                                tokens_per_second: None,
+                                            }
+                                        },
+                                    };
+                                    
+                                    if sender.send(response).is_err() {
+                                        break; // Client disconnected
+                                    }
+                                }
+                            });
                         }
                         Err(e) => {
                             let error_response = CandleCompletionResponse {
                                 text: format!("Error creating Kimi-K2 provider: {}", e).into(),
-                                model: Some(model_name.into()),
+                                model: model_name.into(),
                                 provider: Some("candle-local".into()),
                                 usage: None,
                                 finish_reason: Some("error".into()),
@@ -115,28 +178,105 @@ impl LocalEngine {
                             let _ = sender.send(error_response);
                         }
                     }
+
+                    #[cfg(not(feature = "progresshub"))]
+                    {
+                        let error_response = CandleCompletionResponse {
+                            text: "KimiK2 provider requires progresshub feature to be enabled".into(),
+                            model: model_name.into(),
+                            provider: Some("candle-local".into()),
+                            usage: None,
+                            finish_reason: Some("error".into()),
+                            response_time_ms: None,
+                            generation_time_ms: Some(0),
+                            tokens_per_second: Some(0.0),
+                        };
+                        let _ = sender.send(error_response);
+                    }
                 }
                 "qwen3-coder" => {
-                    // Use Qwen3Coder provider
-                    match CandleQwen3CoderProvider::new() {
-                        Ok(provider) => {
-                            // Provider handles completion internally
-                            let response = CandleCompletionResponse {
-                                text: "Local Qwen3-Coder inference would happen here".into(),
-                                model: Some(model_name.into()),
+                    // Create runtime for async provider creation
+                    let _rt = match tokio::runtime::Runtime::new() {
+                        Ok(_rt) => _rt,
+                        Err(e) => {
+                            let error_response = CandleCompletionResponse {
+                                text: format!("Failed to create async runtime: {}", e).into(),
+                                model: model_name.clone().into(),
                                 provider: Some("candle-local".into()),
                                 usage: None,
-                                finish_reason: Some("completed".into()),
+                                finish_reason: Some("error".into()),
                                 response_time_ms: None,
-                                generation_time_ms: Some(100),
-                                tokens_per_second: Some(15.0),
+                                generation_time_ms: Some(0),
+                                tokens_per_second: Some(0.0),
                             };
-                            let _ = sender.send(response);
+                            let _ = sender.send(error_response);
+                            return;
+                        }
+                    };
+
+                    // Use Qwen3Coder provider
+                    #[cfg(feature = "progresshub")]
+                    match _rt.block_on(CandleQwen3CoderProvider::new()) {
+                        Ok(provider) => {
+                            // Create completion parameters for Qwen3-Coder
+                            let completion_params = crate::domain::completion::CandleCompletionParams {
+                                temperature: _temperature.unwrap_or(0.7) as f64,
+                                max_tokens: _max_tokens.map(|t| std::num::NonZeroU64::new(t as u64).unwrap()),
+                                n: std::num::NonZeroU8::new(1).unwrap(),
+                                stream: true,
+                                additional_params: None,
+                            };
+
+                            // Create prompt for Qwen3-Coder
+                            let candle_prompt = crate::domain::prompt::CandlePrompt::new(prompt.clone());
+
+                            // Get real completion stream from Qwen3-Coder provider
+                            let completion_stream = provider.prompt(candle_prompt, &completion_params);
+
+                            // Process completion stream using proper ystream pattern
+                            ystream::spawn_task(move || async move {
+                                use futures_util::StreamExt;
+
+                                let mut stream = completion_stream;
+                                while let Some(chunk) = stream.next().await {
+                                    let response = match chunk {
+                                        crate::domain::context::chunk::CandleCompletionChunk::Text(text) => {
+                                            CandleCompletionResponse {
+                                                text: text.into(),
+                                                model: model_name.clone().into(),
+                                                provider: Some("candle-local".into()),
+                                                usage: None,
+                                                finish_reason: None,
+                                                response_time_ms: None,
+                                                generation_time_ms: None,
+                                                tokens_per_second: None,
+                                            }
+                                        },
+                                        crate::domain::context::chunk::CandleCompletionChunk::Error(err) => {
+                                            CandleCompletionResponse {
+                                                text: format!("Error: {}", err).into(),
+                                                model: model_name.clone().into(),
+                                                provider: Some("candle-local".into()),
+                                                usage: None,
+                                                finish_reason: Some("error".into()),
+                                                response_time_ms: None,
+                                                generation_time_ms: None,
+                                                tokens_per_second: None,
+                                            }
+                                        },
+                                        _ => continue, // Skip other chunk types
+                                    };
+
+                                    if sender.send(response).is_err() {
+                                        break; // Client disconnected
+                                    }
+                                }
+                            });
                         }
                         Err(e) => {
                             let error_response = CandleCompletionResponse {
                                 text: format!("Error creating Qwen3-Coder provider: {}", e).into(),
-                                model: Some(model_name.into()),
+                                model: model_name.into(),
                                 provider: Some("candle-local".into()),
                                 usage: None,
                                 finish_reason: Some("error".into()),
@@ -146,12 +286,27 @@ impl LocalEngine {
                             };
                             let _ = sender.send(error_response);
                         }
+                    }
+
+                    #[cfg(not(feature = "progresshub"))]
+                    {
+                        let error_response = CandleCompletionResponse {
+                            text: "Qwen3-Coder provider requires progresshub feature to be enabled".into(),
+                            model: model_name.into(),
+                            provider: Some("candle-local".into()),
+                            usage: None,
+                            finish_reason: Some("error".into()),
+                            response_time_ms: None,
+                            generation_time_ms: Some(0),
+                            tokens_per_second: Some(0.0),
+                        };
+                        let _ = sender.send(error_response);
                     }
                 }
                 _ => {
                     let error_response = CandleCompletionResponse {
                         text: format!("Unsupported model: {}. Supported models: kimi-k2, qwen3-coder", model_name).into(),
-                        model: Some(model_name.into()),
+                        model: model_name.into(),
                         provider: Some("candle-local".into()),
                         usage: None,
                         finish_reason: Some("error".into()),

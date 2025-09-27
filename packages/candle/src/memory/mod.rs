@@ -3,7 +3,6 @@
 //! emergent agent evolution, and self-modifying capabilities.
 
 pub mod api;
-#[cfg(feature = "cognitive")]
 pub mod cognitive;
 pub mod constants;
 pub mod graph;
@@ -20,35 +19,25 @@ pub mod vector;
 // Conditional re-exports if API feature is enabled
 #[cfg(feature = "api")]
 pub use api::APIServer;
-// Re-export cognitive system (conditional)
-#[cfg(feature = "cognitive")]
-pub use cognitive::{
-    CognitiveMemoryManager, CognitiveMemoryNode, CognitiveSettings, CognitiveState,
-    EvolutionMetadata, QuantumSignature,
+
+// Re-export memory submodules for backward compatibility
+pub use memory::{
+    MemoryMetadata, MemoryNode, SurrealDBMemoryManager, MemoryRelationship,
+    manager::{MemoryManager, coordinator::MemoryCoordinator},
+    primitives, filter, repository, storage, ops,
 };
-pub use memory::MemoryMetadata;
-pub use memory::MemoryNode;
-pub use memory::SurrealDBMemoryManager;
 pub use memory::SurrealDBMemoryManager as SurrealMemoryManager;
-pub use memory::manager::MemoryManager;
-pub use schema::MemoryType;
+
+// Re-export manager module for compatibility
+pub use memory::manager;
+// Re-export MemoryType from memory primitives (the actual implementation)
+pub use memory::primitives::types::MemoryType;
 #[cfg(feature = "api")]
 pub use utils::config::APIConfig;
 pub use utils::config::MemoryConfig;
 pub use utils::error::Error;
 
-/// Initialize the cognitive memory system (requires "cognitive" feature)
-#[cfg(feature = "cognitive")]
-pub async fn initialize_cognitive(
-    url: &str,
-    namespace: &str,
-    database: &str,
-    settings: CognitiveSettings,
-) -> Result<CognitiveMemoryManager, Error> {
-    CognitiveMemoryManager::new(url, namespace, database, settings)
-        .await
-        .map_err(|e| Error::Config(format!("Failed to initialize cognitive system: {}", e)))
-}
+
 
 /// Initialize the traditional memory system with SurrealDB using a configuration object.
 /// This is a more robust approach than just a DB URL.

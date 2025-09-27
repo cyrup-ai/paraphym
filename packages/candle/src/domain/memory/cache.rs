@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+use chrono::{DateTime, Utc};
 
 /// Cached timestamp for zero-allocation timestamp operations
 static CACHED_TIMESTAMP: AtomicU64 = AtomicU64::new(0);
@@ -34,6 +35,14 @@ fn update_cached_timestamp() {
 pub fn get_cached_system_time() -> SystemTime {
     let timestamp = get_cached_timestamp();
     UNIX_EPOCH + std::time::Duration::from_secs(timestamp)
+}
+
+/// Get cached DateTime<Utc> for chrono compatibility
+#[inline(always)]
+#[must_use]
+pub fn get_cached_utc() -> DateTime<Utc> {
+    let timestamp = get_cached_timestamp();
+    DateTime::from_timestamp(timestamp as i64, 0).unwrap_or_else(Utc::now)
 }
 
 /// Initialize timestamp caching system (call once at startup)

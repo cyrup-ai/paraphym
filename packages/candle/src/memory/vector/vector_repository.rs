@@ -55,7 +55,7 @@ impl VectorRepository {
         let default_config = VectorIndexConfig {
             metric: DistanceMetric::Cosine,
             dimensions: default_dimensions,
-            index_type: crate::vector::vector_index::IndexType::Flat,
+            index_type: crate::memory::vector::vector_index::IndexType::Flat,
             parameters: HashMap::new(),
         };
 
@@ -75,12 +75,12 @@ impl VectorRepository {
         let mut collections = self.collections.write().await;
 
         if collections.contains_key(&name) {
-            return Err(crate::utils::error::Error::AlreadyExists(format!(
+            return Err(crate::memory::utils::error::Error::AlreadyExists(format!(
                 "Collection '{name}' already exists"
             )));
         }
 
-        let now = chrono::Utc::now();
+        let now = crate::domain::memory::cache::get_cached_utc();
         let metadata = VectorCollection {
             id: uuid::Uuid::new_v4().to_string(),
             name: name.clone(),
@@ -115,7 +115,7 @@ impl VectorRepository {
         let mut collections = self.collections.write().await;
 
         if collections.remove(name).is_none() {
-            return Err(crate::utils::error::Error::NotFound(format!(
+            return Err(crate::memory::utils::error::Error::NotFound(format!(
                 "Collection '{name}' not found"
             )));
         }
@@ -131,7 +131,7 @@ impl VectorRepository {
             .get(name)
             .map(|handle| handle.metadata.clone())
             .ok_or_else(|| {
-                crate::utils::error::Error::NotFound(format!("Collection '{name}' not found"))
+                crate::memory::utils::error::Error::NotFound(format!("Collection '{name}' not found"))
             })
     }
 
@@ -154,14 +154,14 @@ impl VectorRepository {
         let mut collections = self.collections.write().await;
 
         let handle = collections.get_mut(collection_name).ok_or_else(|| {
-            crate::utils::error::Error::NotFound(format!(
+            crate::memory::utils::error::Error::NotFound(format!(
                 "Collection '{collection_name}' not found"
             ))
         })?;
 
         handle.index.add(id, vector)?;
         handle.metadata.count = handle.index.len();
-        handle.metadata.updated_at = chrono::Utc::now();
+        handle.metadata.updated_at = crate::domain::memory::cache::get_cached_utc();
 
         Ok(())
     }
@@ -171,14 +171,14 @@ impl VectorRepository {
         let mut collections = self.collections.write().await;
 
         let handle = collections.get_mut(collection_name).ok_or_else(|| {
-            crate::utils::error::Error::NotFound(format!(
+            crate::memory::utils::error::Error::NotFound(format!(
                 "Collection '{collection_name}' not found"
             ))
         })?;
 
         handle.index.remove(id)?;
         handle.metadata.count = handle.index.len();
-        handle.metadata.updated_at = chrono::Utc::now();
+        handle.metadata.updated_at = crate::domain::memory::cache::get_cached_utc();
 
         Ok(())
     }
@@ -193,7 +193,7 @@ impl VectorRepository {
         let collections = self.collections.read().await;
 
         let handle = collections.get(collection_name).ok_or_else(|| {
-            crate::utils::error::Error::NotFound(format!(
+            crate::memory::utils::error::Error::NotFound(format!(
                 "Collection '{collection_name}' not found"
             ))
         })?;
@@ -206,13 +206,13 @@ impl VectorRepository {
         let mut collections = self.collections.write().await;
 
         let handle = collections.get_mut(collection_name).ok_or_else(|| {
-            crate::utils::error::Error::NotFound(format!(
+            crate::memory::utils::error::Error::NotFound(format!(
                 "Collection '{collection_name}' not found"
             ))
         })?;
 
         handle.index.build()?;
-        handle.metadata.updated_at = chrono::Utc::now();
+        handle.metadata.updated_at = crate::domain::memory::cache::get_cached_utc();
 
         Ok(())
     }
@@ -229,7 +229,7 @@ impl VectorRepository {
         let mut collections = self.collections.write().await;
 
         let handle = collections.get_mut(collection_name).ok_or_else(|| {
-            crate::utils::error::Error::NotFound(format!(
+            crate::memory::utils::error::Error::NotFound(format!(
                 "Collection '{collection_name}' not found"
             ))
         })?;
@@ -239,7 +239,7 @@ impl VectorRepository {
         }
 
         handle.metadata.count = handle.index.len();
-        handle.metadata.updated_at = chrono::Utc::now();
+        handle.metadata.updated_at = crate::domain::memory::cache::get_cached_utc();
 
         // Rebuild index after batch insert for better performance
         handle.index.build()?;
@@ -256,7 +256,7 @@ impl VectorRepository {
         let mut collections = self.collections.write().await;
 
         let handle = collections.get_mut(collection_name).ok_or_else(|| {
-            crate::utils::error::Error::NotFound(format!(
+            crate::memory::utils::error::Error::NotFound(format!(
                 "Collection '{collection_name}' not found"
             ))
         })?;
@@ -266,7 +266,7 @@ impl VectorRepository {
         }
 
         handle.metadata.count = handle.index.len();
-        handle.metadata.updated_at = chrono::Utc::now();
+        handle.metadata.updated_at = crate::domain::memory::cache::get_cached_utc();
 
         Ok(())
     }

@@ -132,7 +132,7 @@ pub enum RuleCondition {
 }
 
 /// A model resolution result
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ModelResolution {
     /// The resolved provider name
     pub provider: String,
@@ -148,6 +148,51 @@ pub struct ModelResolution {
 
     /// The score of the match (higher is better)
     pub score: f64,
+}
+
+impl cyrup_sugars::prelude::MessageChunk for ModelResolution {
+    fn bad_chunk(_error: String) -> Self {
+        Self::default()
+    }
+
+    fn error(&self) -> Option<&str> {
+        None
+    }
+}
+
+/// Wrapper for registered model lookup results that implements MessageChunk
+#[derive(Debug, Clone)]
+pub struct RegisteredModelResult<M: Model + 'static> {
+    /// The registered model if found
+    pub model: Option<RegisteredModel<M>>,
+}
+
+impl<M: Model + 'static> RegisteredModelResult<M> {
+    /// Create a result with a found model
+    pub fn found(model: RegisteredModel<M>) -> Self {
+        Self { model: Some(model) }
+    }
+    
+    /// Create a result with no model found
+    pub fn not_found() -> Self {
+        Self { model: None }
+    }
+}
+
+impl<M: Model + 'static> Default for RegisteredModelResult<M> {
+    fn default() -> Self {
+        Self::not_found()
+    }
+}
+
+impl<M: Model + 'static> cyrup_sugars::prelude::MessageChunk for RegisteredModelResult<M> {
+    fn bad_chunk(_error: String) -> Self {
+        Self::default()
+    }
+
+    fn error(&self) -> Option<&str> {
+        None
+    }
 }
 
 impl ModelResolution {
@@ -332,7 +377,7 @@ impl ModelResolver {
         &self,
         model_name: &str,
         provider: Option<&str>,
-    ) -> AsyncStream<Option<RegisteredModel<M>>> {
+    ) -> AsyncStream<RegisteredModelResult<M>> {
         let resolver = self.clone();
         let model_name = model_name.to_string();
         let provider = provider.map(|s| s.to_string());
@@ -349,17 +394,17 @@ impl ModelResolver {
                         .get::<M>(&resolution.provider, &resolution.model)
                     {
                         Ok(Some(model)) => {
-                            let _ = sender.send(Some(model));
+                            let _ = sender.send(RegisteredModelResult::found(model));
                         }
                         _ => {
-                            let _ = sender.send(None);
+                            let _ = sender.send(RegisteredModelResult::not_found());
                         }
                     }
                 } else {
-                    let _ = sender.send(None);
+                    let _ = sender.send(RegisteredModelResult::not_found());
                 }
             } else {
-                let _ = sender.send(None);
+                let _ = sender.send(RegisteredModelResult::not_found());
             }
         })
     }

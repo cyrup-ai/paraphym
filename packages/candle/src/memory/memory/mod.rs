@@ -36,8 +36,11 @@ pub use primitives::metadata::{
 pub use primitives::node::MemoryNode;
 pub use primitives::relationship::MemoryRelationship;
 pub use primitives::types::{
-    BaseMemory, MemoryContent, MemoryType, MemoryTypeEnum, RelationshipType,
+    BaseMemory, MemoryContent, MemoryTypeEnum, RelationshipType,
 };
+
+// Type alias for backward compatibility
+pub type MemoryType = MemoryTypeEnum;
 // Schema and systems
 pub use schema::*;
 pub use systems::*;

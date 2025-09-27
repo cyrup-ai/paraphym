@@ -7,7 +7,7 @@
 pub mod primitives;
 
 /// Quantum-inspired cognitive computing types
-mod cognitive;
+pub mod cognitive;
 
 /// High-performance configuration system
 pub mod config;
@@ -16,23 +16,23 @@ pub mod config;
 pub use config::llm::{LLMConfig, LLMProvider};
 
 // Re-export real memory manager from packages/memory
-pub use paraphym_candle::memory::memory::manager::surreal::SurrealDBMemoryManager;
-pub use paraphym_candle::memory::memory::manager::MemoryManager;
+pub use crate::memory::memory::manager::surreal::SurrealDBMemoryManager;
+pub use crate::memory::memory::manager::MemoryManager;
 
 /// SIMD-optimized vector operations for high-performance memory processing
-mod ops;
+pub mod ops;
 
 /// Memory tool implementation for MCP integration
 mod tool;
 
 /// Cache implementation
-mod cache;
+pub mod cache;
 
 /// Memory pool implementation
-mod pool;
+pub mod pool;
 
 /// Memory serialization utilities
-mod serialization;
+pub mod serialization;
 
 /// Memory workflow management - removed fake implementation
 
@@ -70,7 +70,7 @@ pub use config::{DatabaseConfig, MemoryConfig, VectorStoreConfig};
 // Re-export paraphym_memory types for convenience
 // Removed unexpected cfg condition "paraphym-memory" - feature does not exist
 // Re-export memory primitives from packages/memory for backward compatibility
-pub use paraphym_candle::memory::memory::primitives::MemoryNode;
+pub use crate::memory::memory::primitives::MemoryNode;
 pub use ops::{
     CpuArchitecture, CpuFeatures, Op, EMBEDDING_DIMENSION, SIMD_WIDTH, SMALL_EMBEDDING_DIMENSION,
 };
@@ -79,7 +79,7 @@ pub use primitives::*;
 pub use primitives::{MemoryContent, MemoryTypeEnum};
 pub use tool::{MemoryOperation, MemoryResult, MemoryTool, MemoryToolError, MemoryToolResult};
 // Re-export trait types for trait-backed architecture
-pub use traits::{CandleMemory, CandleMemoryImpl, CandleMemoryStats, MockCandleMemory};
+pub use traits::{CandleMemory, CandleMemoryStats, MockCandleMemory};
 
 // BoxFuture replaced with AsyncStream - use .collect() for Future-like behavior
 

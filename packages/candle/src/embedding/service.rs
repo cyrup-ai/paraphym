@@ -143,10 +143,5 @@ impl InMemoryEmbeddingCache {
     }
 }
 
-/// Fast hash function for content-based embedding generation
-#[inline]
-fn content_hash(content: &str) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    content.hash(&mut hasher);
-    hasher.finish()
-}
+// Use the content_hash function from the domain serialization module
+use crate::domain::memory::serialization::content_hash;

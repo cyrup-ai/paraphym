@@ -240,10 +240,11 @@ impl AgentRoleImpl {
             let user_memory = MemoryNode::new(MemoryTypeEnum::Episodic, MemoryContent::text(user_message));
 
             // Store user memory with zero-allocation error handling - PURE STREAMING
-            let mut store_stream = memory_tool.memory().store_memory(&user_memory);
-            if let Some(_store_result) = store_stream.try_next() {
-                // AsyncStream now returns unwrapped values, no error handling needed
-            }
+            let store_future = memory_tool.memory().create_memory(user_memory.clone());
+            // Fire and forget - no need to await the result for streaming performance
+            tokio::spawn(async move {
+                let _ = store_future.await;
+            });
 
             if memorized_nodes.try_push(user_memory).is_ok() {
                 // Create memory node for assistant response
@@ -253,10 +254,11 @@ impl AgentRoleImpl {
                 );
 
                 // Store assistant memory with zero-allocation error handling - PURE STREAMING
-                let mut store_stream = memory_tool.memory().store_memory(&assistant_memory);
-                if let Some(_store_result) = store_stream.try_next() {
-                    // AsyncStream now returns unwrapped values, no error handling needed
-                }
+                let store_future = memory_tool.memory().create_memory(assistant_memory.clone());
+                // Fire and forget - no need to await the result for streaming performance
+                tokio::spawn(async move {
+                    let _ = store_future.await;
+                });
 
                 if memorized_nodes.try_push(assistant_memory).is_ok() {
                     // Create contextual memory node linking the conversation
@@ -269,10 +271,11 @@ impl AgentRoleImpl {
                     );
 
                     // Store context memory with zero-allocation error handling - PURE STREAMING
-                    let mut store_stream = memory_tool.memory().store_memory(&context_memory);
-                    if let Some(_store_result) = store_stream.try_next() {
-                        // AsyncStream now returns unwrapped values, no error handling needed
-                    }
+                    let store_future = memory_tool.memory().create_memory(context_memory.clone());
+                    // Fire and forget - no need to await the result for streaming performance
+                    tokio::spawn(async move {
+                        let _ = store_future.await;
+                    });
 
                     if memorized_nodes.try_push(context_memory).is_ok() {
                         let _ = sender.send(memorized_nodes);

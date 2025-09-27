@@ -159,7 +159,7 @@ impl<T: Send + 'static + MessageChunk + Default> OneshotChannel<T> {
         AsyncStream::with_channel(|stream_sender| {
             std::thread::spawn(move || {
                 match self.receiver.recv() {
-                    Ok(value) => {
+                    Ok(_value) => {
                         // For oneshot channels, we need a different approach since T might not implement MessageChunk
                         // This is a design issue - oneshot channels need to return the actual value
                         // For now, signal success
@@ -198,7 +198,7 @@ where
     fn into_task(self) -> AsyncTask<T> {
         // Create a channel and consume the stream
         let (tx, rx) = crossbeam_channel::bounded(1);
-        let mut stream = self;
+        let stream = self;
         std::thread::spawn(move || {
             if let Some(result) = stream.try_next() {
                 let _ = tx.send(result);

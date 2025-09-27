@@ -11,15 +11,24 @@ use crossbeam_utils::CachePadded;
 use cyrup_sugars::prelude::MessageChunk;
 use once_cell::sync::Lazy;
 use thiserror::Error;
+use chrono::Utc;
+// StreamExt not currently used but may be needed for future async operations
 
 // Import real completion infrastructure
 use crate::core::engine::{CompletionRequest, Engine, EngineConfig};
 // Removed unused import: use tokio_stream::StreamExt;
 use crate::domain::agent::role::CandleAgentRoleImpl;
-use crate::domain::memory::primitives::{MemoryContent, MemoryTypeEnum};
-use crate::domain::memory::{Memory, MemoryError, MemoryNode};
+use crate::domain::completion::PromptFormatter;
+
+use crate::memory::memory::primitives::types::{MemoryTypeEnum, MemoryContent};
+use crate::memory::memory::{MemoryNode};
+use crate::memory::memory::manager::surreal::MemoryManager;
+use crate::memory::memory::ops::retrieval::RetrievalResult;
+use crate::domain::memory::{Error as MemoryError};
 use crate::domain::context::chunk::CandleCollectionChunk;
+use crate::domain::context::CandleDocument as Document;
 use crate::domain::memory::{MemoryTool, MemoryToolError};
+use cyrup_sugars::ZeroOneOrMany;
 
 /// Maximum number of relevant memories for context injection
 const MAX_RELEVANT_MEMORIES: usize = 10;
@@ -131,18 +140,27 @@ impl MessageChunk for MemoryEnhancedChatResponse {
 
 
 impl CandleAgentRoleImpl {
-    /// Generate real AI response using `Engine` with `TextGenerator`
+    /// Generate real AI response using `Engine` with `TextGenerator` and proper memory vs context sectioning
     ///
     /// # Arguments
     /// * `message` - User message to respond to
-    /// * `context` - Injected memory context for enhanced responses
+    /// * `memories` - Retrieved memories for context
+    /// * `documents` - Static context documents
+    /// * `chat_history` - Conversation history
     ///
     /// # Returns
     /// Result containing real AI-generated response
     ///
     /// # Performance
     /// Uses `Engine` infrastructure with `TextGenerator` for real model inference
-    fn generate_ai_response(&self, message: &str, context: &str) -> Result<String, ChatError> {
+    /// with proper memory vs context sectioning following LLM best practices
+    fn generate_ai_response_with_sectioning(
+        &self,
+        message: &str,
+        memories: &ZeroOneOrMany<RetrievalResult>,
+        documents: &ZeroOneOrMany<Document>,
+        chat_history: &ZeroOneOrMany<crate::domain::chat::message::types::CandleMessage>,
+    ) -> Result<String, ChatError> {
         // Create engine configuration for kimi-k2 provider (matches working engine.rs setup)
         let engine_config = EngineConfig::new("kimi-k2", "kimi-k2")
             .with_temperature(0.7)
@@ -153,12 +171,13 @@ impl CandleAgentRoleImpl {
         let engine = Engine::new(engine_config)
             .map_err(|e| ChatError::System(format!("Failed to create Engine: {}", e)))?;
 
-        // Build full prompt with context and message
-        let full_prompt = if context.is_empty() {
-            format!("User: {}\nAssistant: ", message)
-        } else {
-            format!("Context: {}\n\nUser: {}\nAssistant: ", context, message)
-        };
+        // Use PromptFormatter for proper memory vs context sectioning
+        let formatter = PromptFormatter::new()
+            .with_max_memory_length(Some(2000))
+            .with_max_context_length(Some(4000));
+
+        // Format prompt with clear sectioning for LLM understanding
+        let full_prompt = formatter.format_prompt(memories, documents, chat_history, message);
 
         // Create completion request with borrowed data
         let completion_request = CompletionRequest::new(&full_prompt);
@@ -176,11 +195,47 @@ impl CandleAgentRoleImpl {
         }
     }
 
+    /// Generate real AI response using legacy context string (for backward compatibility)
+    ///
+    /// # Arguments
+    /// * `message` - User message to respond to
+    /// * `context` - Injected memory context for enhanced responses
+    ///
+    /// # Returns
+    /// Result containing real AI-generated response
+    ///
+    /// # Performance
+    /// Uses `Engine` infrastructure with `TextGenerator` for real model inference
+    fn generate_ai_response(&self, message: &str, context: &str) -> Result<String, ChatError> {
+        // For backward compatibility, treat context as memories
+        let memories = if context.is_empty() {
+            ZeroOneOrMany::None
+        } else {
+            // Parse the context back into a simple RetrievalResult for compatibility
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("content".to_string(), serde_json::Value::String(context.to_string()));
+            
+            let retrieval_result = RetrievalResult {
+                id: "legacy_context".to_string(),
+                score: 1.0,
+                method: crate::memory::memory::ops::retrieval::RetrievalMethod::Semantic,
+                metadata,
+            };
+            ZeroOneOrMany::One(retrieval_result)
+        };
+
+        // No documents or chat history in legacy mode
+        let documents = ZeroOneOrMany::None;
+        let chat_history = ZeroOneOrMany::None;
+
+        self.generate_ai_response_with_sectioning(message, &memories, &documents, &chat_history)
+    }
+
     /// Context-aware chat with automatic memory injection and memorization
     ///
     /// # Arguments
     /// * `message` - User message to process
-    /// * `memory` - Shared memory instance for context injection
+    /// * `memory_manager` - Memory manager for memory operations
     /// * `memory_tool` - Memory tool for storage operations
     ///
     /// # Returns
@@ -191,18 +246,17 @@ impl CandleAgentRoleImpl {
     pub fn chat(
         &self,
         message: impl Into<String>,
-        memory: &Memory,
+        memory_manager: &Arc<dyn MemoryManager>,
         memory_tool: &MemoryTool,
     ) -> ystream::AsyncStream<MemoryEnhancedChatResponse> {
         let message = message.into();
         let self_clone = self.clone();
-        let memory_clone = memory.clone();
+        let memory_manager_clone = memory_manager.clone();
         let memory_tool_clone = memory_tool.clone();
 
         ystream::AsyncStream::with_channel(move |sender| {
             // Inject relevant memory context with zero-allocation processing
-            let memory_arc = Arc::new(memory_clone);
-            let context_stream = self_clone.inject_memory_context(&message, &memory_arc);
+            let context_stream = self_clone.inject_memory_context(&message, &memory_manager_clone);
 
             if let Some(context_injection) = context_stream.try_next() {
                 // Generate real AI response using Engine with TextGenerator
@@ -237,7 +291,7 @@ impl CandleAgentRoleImpl {
     ///
     /// # Arguments
     /// * `message` - User message for context relevance
-    /// * `memory` - Shared memory instance for queries
+    /// * `memory_manager` - Memory manager for queries
     ///
     /// # Returns
     /// Result containing context injection result
@@ -246,22 +300,102 @@ impl CandleAgentRoleImpl {
     /// Zero allocation with lock-free memory queries and quantum routing
     pub fn inject_memory_context(
         &self,
-        _message: &str,
-        _memory: &Arc<Memory>,
+        message: &str,
+        memory_manager: &Arc<dyn MemoryManager>,
     ) -> ystream::AsyncStream<ContextInjectionResult> {
+        let message = message.to_string();
+        let _self_clone = self.clone(); // Reserved for future use in memory context
+        let memory_manager_clone = memory_manager.clone();
+
         ystream::AsyncStream::with_channel(move |sender| {
             // Query relevant memories with zero-allocation buffer
-            let relevant_memories = ArrayVec::<MemoryNode, MAX_RELEVANT_MEMORIES>::new();
+            let relevant_memories = ArrayVec::<MemoryNode, MAX_RELEVANT_MEMORIES>::new(); // Reserved for future memory ranking
+            let total_relevance_score = 0.0; // Reserved for future relevance scoring
 
-            // TODO: Implement actual memory querying logic
-            // For now, return empty context
-            let injected_context = String::new();
-            let relevance_score = 0.0;
+            // Use the user's elite MemoryManager directly for vector similarity search
+            // No intermediate layers needed - direct access to sophisticated SurrealDB implementation
+
+            // Use user's elite MemoryManager search_by_content for semantic search
+            let memory_stream = memory_manager_clone.search_by_content(&message);
+
+            // Collect results from the sophisticated stream using proper async collection
+            let (retrieval_tx, retrieval_rx) = std::sync::mpsc::channel();
+
+            // Spawn task to collect memory stream results
+            ystream::spawn_task(move || async move {
+                use futures_util::StreamExt;
+
+                let mut stream = memory_stream;
+                let mut results = Vec::new();
+
+                // Collect up to MAX_RELEVANT_MEMORIES from the stream
+                while let Some(memory_result) = stream.next().await {
+                    if results.len() >= MAX_RELEVANT_MEMORIES {
+                        break;
+                    }
+
+                    if let Ok(memory_node) = memory_result {
+                        // Convert MemoryNode to RetrievalResult for consistent API
+                        let retrieval_result = RetrievalResult {
+                            id: memory_node.id.clone(),
+                            score: 0.8, // Good relevance from content search
+                            method: crate::memory::memory::ops::retrieval::RetrievalMethod::Semantic,
+                            metadata: {
+                                let mut metadata = std::collections::HashMap::new();
+                                metadata.insert("content".to_string(), serde_json::Value::String(
+                                    memory_node.content.text.clone()
+                                ));
+                                metadata.insert("memory_type".to_string(), serde_json::Value::String(
+                                    format!("{:?}", memory_node.memory_type)
+                                ));
+                                metadata.insert("importance".to_string(), serde_json::Value::Number(
+                                    serde_json::Number::from_f64(memory_node.metadata.importance as f64)
+                                        .unwrap_or_else(|| serde_json::Number::from(0))
+                                ));
+                                metadata
+                            },
+                        };
+                        results.push(retrieval_result);
+                    }
+                }
+
+                let _ = retrieval_tx.send(results);
+            });
+
+            // Receive results with timeout to prevent blocking
+            let retrieval_results = retrieval_rx.recv_timeout(
+                std::time::Duration::from_millis(1000)
+            ).unwrap_or_default();
+
+            // Use PromptFormatter to format memories properly
+            let formatter = PromptFormatter::new()
+                .with_max_memory_length(Some(2000))
+                .with_headers(true);
+            
+            let memories_zero_one_many = if retrieval_results.is_empty() {
+                ZeroOneOrMany::None
+            } else if retrieval_results.len() == 1 {
+                ZeroOneOrMany::One(retrieval_results.into_iter().next().unwrap())
+            } else {
+                ZeroOneOrMany::Many(retrieval_results)
+            };
+            
+            let _documents: ZeroOneOrMany<Document> = ZeroOneOrMany::None; // Reserved for future document context
+            let _chat_history: ZeroOneOrMany<crate::domain::chat::message::types::CandleMessage> = ZeroOneOrMany::None; // Reserved for future chat context
+            
+            let injected_context = formatter.format_memory_section(&memories_zero_one_many)
+                .unwrap_or_else(String::new);
+
             let memory_nodes_used = relevant_memories.len();
+            let avg_relevance_score = if memory_nodes_used > 0 {
+                total_relevance_score / memory_nodes_used as f64
+            } else {
+                0.0
+            };
 
             let result = ContextInjectionResult {
                 injected_context,
-                relevance_score,
+                relevance_score: avg_relevance_score,
                 memory_nodes_used,
             };
 
@@ -290,11 +424,8 @@ impl CandleAgentRoleImpl {
 
         // Simple relevance scoring based on content similarity and memory node importance
         let message_len = message.len();
-        let memory_content = match &memory_node.base_memory().content {
-            MemoryContent::Text(text) => text.as_ref(),
-            _ => "", // Non-text content gets empty string for comparison
-        };
-        let memory_len = memory_content.len();
+        let memory_content = &memory_node.content;
+        let memory_len = memory_content.text.len();
 
         // Basic content length similarity (normalized)
         let length_similarity = 1.0
@@ -302,19 +433,19 @@ impl CandleAgentRoleImpl {
                 / (message_len.max(memory_len) as f64 + 1.0));
 
         // Memory node importance factor
-        let importance_factor = memory_node.importance() as f64;
+        let importance_factor = memory_node.metadata.importance;
 
-        // Time decay factor based on last access
-        let time_factor = if let Ok(elapsed) = memory_node.last_accessed().elapsed() {
+        // Time decay factor based on last access (use updated_at as proxy)
+        let time_factor = {
+            let elapsed = Utc::now().signed_duration_since(memory_node.updated_at);
+            let hours = elapsed.num_hours() as f64;
             // Decay over 24 hours, minimum 0.1
-            (1.0 - (elapsed.as_secs() as f64 / 86400.0)).max(0.1)
-        } else {
-            0.5 // Default if time calculation fails
+            (1.0 - (hours / 24.0)).max(0.1f64)
         };
 
         // Combined relevance score (weighted average)
         let score =
-            (length_similarity * 0.3 + importance_factor * 0.5 + time_factor * 0.2).min(1.0);
+            (length_similarity * 0.3 + importance_factor as f64 * 0.5 + time_factor * 0.2).min(1.0);
 
         Ok(score)
     }
@@ -347,43 +478,37 @@ impl CandleAgentRoleImpl {
             // Create memory node for user message using direct constructor
             let user_memory = MemoryNode::new(
                 MemoryTypeEnum::Episodic,
-                MemoryContent::text(user_message.as_str()),
+                MemoryContent::text(&user_message),
             );
 
             // Store user memory with zero-allocation error handling - PURE STREAMING
-            let mut store_stream = memory_tool_clone.memory().store_memory(&user_memory);
-            if let Some(_store_result) = store_stream.try_next() {
-                // AsyncStream now returns unwrapped values, no error handling needed
-            }
+            let _store_stream = memory_tool_clone.memory().create_memory(user_memory.clone());
+            // Fire-and-forget storage operation - no need to consume stream
 
             if memorized_nodes.try_push(user_memory).is_ok() {
                 // Create memory node for assistant response
                 let assistant_memory = MemoryNode::new(
                     MemoryTypeEnum::Episodic,
-                    MemoryContent::text(assistant_response.as_str()),
+                    MemoryContent::text(&assistant_response),
                 );
 
                 // Store assistant memory with zero-allocation error handling - PURE STREAMING
-                let mut store_stream = memory_tool_clone.memory().store_memory(&assistant_memory);
-                if let Some(_store_result) = store_stream.try_next() {
-                    // AsyncStream now returns unwrapped values, no error handling needed
-                }
+                let _store_stream = memory_tool_clone.memory().create_memory(assistant_memory.clone());
+                // Fire-and-forget storage operation - no need to consume stream
 
                 if memorized_nodes.try_push(assistant_memory).is_ok() {
                     // Create contextual memory node linking the conversation
                     let context_memory = MemoryNode::new(
-                        MemoryTypeEnum::Contextual,
-                        MemoryContent::text(format!(
+                        MemoryTypeEnum::Working,
+                        MemoryContent::text(&format!(
                             "Conversation: {} -> {}",
                             user_message, assistant_response
                         )),
                     );
 
                     // Store context memory with zero-allocation error handling - PURE STREAMING
-                    let mut store_stream = memory_tool_clone.memory().store_memory(&context_memory);
-                    if let Some(_store_result) = store_stream.try_next() {
-                        // AsyncStream now returns unwrapped values, no error handling needed
-                    }
+                    let _store_stream = memory_tool_clone.memory().create_memory(context_memory.clone());
+                    // Fire-and-forget storage operation - no need to consume stream
 
                     if memorized_nodes.try_push(context_memory).is_ok() {
                         let _ = sender.send(CandleCollectionChunk { 

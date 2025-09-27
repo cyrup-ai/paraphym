@@ -9,7 +9,7 @@ use std::fmt::Debug;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use surrealdb::sql::Value;
+use surrealdb::Value;
 
 use crate::memory::graph::entity::{BaseEntity, Entity};
 use crate::memory::utils::Result;
@@ -74,21 +74,24 @@ impl ChangeType {
 
     /// Convert to value
     pub fn to_value(&self) -> Value {
+        use surrealdb::value::to_value;
         match self {
-            ChangeType::Creation => Value::Strand("creation".into()),
-            ChangeType::Update => Value::Strand("update".into()),
-            ChangeType::Deletion => Value::Strand("deletion".into()),
-            ChangeType::Restoration => Value::Strand("restoration".into()),
-            ChangeType::Merge => Value::Strand("merge".into()),
-            ChangeType::Split => Value::Strand("split".into()),
-            ChangeType::Custom(code) => Value::Strand(format!("custom{code}").into()),
+            ChangeType::Creation => to_value("creation").unwrap_or_default(),
+            ChangeType::Update => to_value("update").unwrap_or_default(),
+            ChangeType::Deletion => to_value("deletion").unwrap_or_default(),
+            ChangeType::Restoration => to_value("restoration").unwrap_or_default(),
+            ChangeType::Merge => to_value("merge").unwrap_or_default(),
+            ChangeType::Split => to_value("split").unwrap_or_default(),
+            ChangeType::Custom(code) => to_value(format!("custom{code}")).unwrap_or_default(),
         }
     }
 
     /// Create from value
     pub fn from_value(value: &Value) -> Result<Self> {
-        if let Value::Strand(s) = value {
-            Self::parse_from_str(&s.to_string())
+        use surrealdb::value::from_value;
+        
+        if let Ok(s) = from_value::<String>(value.clone()) {
+            Self::parse_from_str(&s)
         } else {
             Err(Error::ConversionError(
                 "Invalid change type value".to_string(),
@@ -240,48 +243,43 @@ impl MemoryVersion {
 
     /// Convert to entity
     pub fn to_entity(&self) -> BaseEntity {
-        let mut entity = BaseEntity::new(&self.id, "memory_version");
+        let mut entity = BaseEntity::new(self.id.clone(), "memory_version".to_string());
 
         // Add basic attributes
-        entity = entity.with_attribute("memory_id", Value::Strand(self.memory_id.clone().into()));
-        entity = entity.with_attribute("version", Value::Number(self.version.into()));
+        entity = entity.with_attribute("memory_id", surrealdb::value::to_value(self.memory_id.clone()).unwrap_or_default());
+        entity = entity.with_attribute("version", surrealdb::value::to_value(self.version).unwrap_or_default());
         entity = entity.with_attribute("change_type", self.change_type.to_value());
-        entity = entity.with_attribute("timestamp", Value::Datetime(self.timestamp.into()));
+        entity = entity.with_attribute("timestamp", surrealdb::value::to_value(self.timestamp).unwrap_or_default());
 
         // Add optional attributes
         if let Some(ref user_id) = self.user_id {
-            entity = entity.with_attribute("user_id", Value::Strand(user_id.clone().into()));
+            entity = entity.with_attribute("user_id", surrealdb::value::to_value(user_id.clone()).unwrap_or_default());
         }
 
         if let Some(ref content) = self.content {
-            entity = entity.with_attribute("content", Value::Strand(content.clone().into()));
+            entity = entity.with_attribute("content", surrealdb::value::to_value(content.clone()).unwrap_or_default());
         }
 
         if let Some(ref previous_version_id) = self.previous_version_id {
             entity = entity.with_attribute(
                 "previous_version_id",
-                Value::Strand(previous_version_id.clone().into()),
+                surrealdb::value::to_value(previous_version_id.clone()).unwrap_or_default(),
             );
         }
 
         if !self.related_version_ids.is_empty() {
-            let related_ids = self
-                .related_version_ids
-                .iter()
-                .map(|id| Value::Strand(id.clone().into()))
-                .collect::<Vec<_>>();
-            entity = entity.with_attribute("related_version_ids", Value::Array(related_ids.into()));
+            entity = entity.with_attribute("related_version_ids", surrealdb::value::to_value(self.related_version_ids.clone()).unwrap_or_default());
         }
 
         if let Some(ref change_summary) = self.change_summary {
             entity = entity.with_attribute(
                 "change_summary",
-                Value::Strand(change_summary.clone().into()),
+                surrealdb::value::to_value(change_summary.clone()).unwrap_or_default(),
             );
         }
 
         if let Some(ref diff) = self.diff {
-            entity = entity.with_attribute("diff", Value::Strand(diff.clone().into()));
+            entity = entity.with_attribute("diff", surrealdb::value::to_value(diff.clone()).unwrap_or_default());
         }
 
         // Add metadata
@@ -296,16 +294,22 @@ impl MemoryVersion {
     pub fn from_entity(entity: &dyn Entity) -> Result<Self> {
         let id = entity.id().to_string();
 
-        let memory_id = if let Some(Value::Strand(s)) = entity.get_attribute("memory_id") {
-            s.to_string()
+        let memory_id = if let Some(value) = entity.get_attribute("memory_id") {
+            use surrealdb::value::from_value;
+            from_value::<String>(value.clone()).map_err(|_| Error::ConversionError(
+                "Invalid memory_id attribute".to_string(),
+            ))?
         } else {
             return Err(Error::ConversionError(
                 "Missing memory_id attribute".to_string(),
             ));
         };
 
-        let version = if let Some(Value::Number(n)) = entity.get_attribute("version") {
-            n.as_int() as u32
+        let version = if let Some(value) = entity.get_attribute("version") {
+            use surrealdb::value::from_value;
+            from_value::<u32>(value.clone()).map_err(|_| Error::ConversionError(
+                "Invalid version attribute".to_string(),
+            ))?
         } else {
             return Err(Error::ConversionError(
                 "Missing version attribute".to_string(),
@@ -320,57 +324,55 @@ impl MemoryVersion {
             ));
         };
 
-        let timestamp = if let Some(Value::Datetime(dt)) = entity.get_attribute("timestamp") {
-            DateTime::<Utc>::from(dt.clone())
+        let timestamp = if let Some(value) = entity.get_attribute("timestamp") {
+            use surrealdb::value::from_value;
+            from_value::<DateTime<Utc>>(value.clone()).map_err(|e| Error::ConversionError(
+                format!("Invalid timestamp attribute: {}", e)
+            ))?
         } else {
             return Err(Error::ConversionError(
                 "Missing timestamp attribute".to_string(),
             ));
         };
 
-        let user_id = if let Some(Value::Strand(s)) = entity.get_attribute("user_id") {
-            Some(s.to_string())
+        let user_id = if let Some(value) = entity.get_attribute("user_id") {
+            use surrealdb::value::from_value;
+            from_value::<String>(value.clone()).ok()
         } else {
             None
         };
 
-        let content = if let Some(Value::Strand(s)) = entity.get_attribute("content") {
-            Some(s.to_string())
+        let content = if let Some(value) = entity.get_attribute("content") {
+            use surrealdb::value::from_value;
+            from_value::<String>(value.clone()).ok()
         } else {
             None
         };
 
-        let previous_version_id =
-            if let Some(Value::Strand(s)) = entity.get_attribute("previous_version_id") {
-                Some(s.to_string())
-            } else {
-                None
-            };
-
-        let related_version_ids =
-            if let Some(Value::Array(arr)) = entity.get_attribute("related_version_ids") {
-                arr.iter()
-                    .filter_map(|value| {
-                        if let Value::Strand(s) = value {
-                            Some(s.to_string())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            };
-
-        let change_summary = if let Some(Value::Strand(s)) = entity.get_attribute("change_summary")
-        {
-            Some(s.to_string())
+        let previous_version_id = if let Some(value) = entity.get_attribute("previous_version_id") {
+            use surrealdb::value::from_value;
+            from_value::<String>(value.clone()).ok()
         } else {
             None
         };
 
-        let diff = if let Some(Value::Strand(s)) = entity.get_attribute("diff") {
-            Some(s.to_string())
+        let related_version_ids = if let Some(value) = entity.get_attribute("related_version_ids") {
+            use surrealdb::value::from_value;
+            from_value::<Vec<String>>(value.clone()).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
+        let change_summary = if let Some(value) = entity.get_attribute("change_summary") {
+            use surrealdb::value::from_value;
+            from_value::<String>(value.clone()).ok()
+        } else {
+            None
+        };
+
+        let diff = if let Some(value) = entity.get_attribute("diff") {
+            use surrealdb::value::from_value;
+            from_value::<String>(value.clone()).ok()
         } else {
             None
         };

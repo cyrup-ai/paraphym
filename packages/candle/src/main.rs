@@ -1,14 +1,20 @@
-use std::io::{self, Write};
+#[cfg(feature = "progresshub")]
+use std::io;
 
 use clap::Parser;
+
+
+#[cfg(feature = "progresshub")]
+use paraphym_candle::providers::{kimi_k2::CandleKimiK2Provider, qwen3_coder::CandleQwen3CoderProvider};
+
+#[cfg(feature = "progresshub")]
 use paraphym_candle::{
-    builders::agent_role::{CandleAgentBuilder, CandleAgentRoleBuilder, CandleFluentAi},
+    builders::CandleFluentAi,
     domain::{
-        chat::{message::CandleMessageChunk, CandleChatLoop},
-        completion::{CandleCompletionModel, CandleCompletionParams},
-        prompt::CandlePrompt,
+        chat::CandleChatLoop,
+        completion::{CandleCompletionParams, CandlePrompt},
+        context::chunk::CandleMessageChunk,
     },
-    providers::{kimi_k2::CandleKimiK2Provider, qwen3_coder::CandleQwen3CoderProvider},
 };
 
 #[derive(Parser)]
@@ -36,6 +42,9 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize Candle performance optimizations
+    paraphym_candle::init_candle();
+    
     let args = Args::parse();
 
     println!(
@@ -46,6 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create the provider based on the model argument
     match args.model.as_str() {
+        #[cfg(feature = "progresshub")]
         "kimi-k2" => {
             println!("🚀 Initializing Kimi-K2 provider with ProgressHub...");
             let provider = CandleKimiK2Provider::new()
@@ -59,6 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
             .await
         }
+        #[cfg(feature = "progresshub")]
         "qwen-coder" => {
             println!("🚀 Initializing Qwen3-Coder provider with ProgressHub...");
             let provider = CandleQwen3CoderProvider::new()
@@ -82,6 +93,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
+#[cfg(feature = "progresshub")]
+#[cfg(feature = "progresshub")]
 async fn run_chat(
     provider: CandleKimiK2Provider,
     temperature: f64,
@@ -124,6 +137,8 @@ async fn run_chat(
     Ok(())
 }
 
+#[cfg(feature = "progresshub")]
+#[cfg(feature = "progresshub")]
 async fn run_chat_qwen(
     provider: CandleQwen3CoderProvider,
     _temperature: f64,

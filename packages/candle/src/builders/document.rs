@@ -11,7 +11,7 @@ use crate::domain::context::{CandleDocumentChunk as DocumentChunk, CandleDocumen
 use crate::domain::context::{CandleContentFormat as ContentFormat, CandleDocumentMediaType as DocumentMediaType};
 use crate::util::ZeroOneOrMany;
 use ystream::{AsyncTask, AsyncStream, spawn_task};
-use paraphym_http3::{HttpClient, HttpConfig, HttpMethod, HttpRequest};
+use quyc::Quyc;
 use serde_json::Value;
 use std::fs;
 
@@ -717,47 +717,60 @@ where
         let builder = builder.clone();
         
         AsyncStream::with_channel(move |sender| {
-            let client = match HttpClient::with_config(HttpConfig::ai_optimized()) {
-                Ok(client) => client,
-                Err(_) => return, // Skip sending - client creation failed
-            };
-
-            let mut request = HttpRequest::new(HttpMethod::Get, url);
-
-            // Set timeout if specified
-            if let Some(timeout_ms) = builder.timeout_ms {
-                request = request.with_timeout(std::time::Duration::from_millis(timeout_ms));
-            }
-
             // Attempt request with retries
-            let mut last_error = String::new();
             for attempt in 0..=builder.retry_attempts {
-                let mut response_stream = client.send(request.clone()).collect();
-                if let Some(response) = response_stream.try_next() {
-                    if response.status().is_success() {
-                        let mut text_stream = response.text().collect();
-                        if let Some(content) = text_stream.try_next() {
-                            // Check size if max_size is set
-                            if let Some(max_size) = builder.max_size {
-                                if content.len() > max_size {
-                                    return; // Skip sending - content too large
-                                }
-                            }
-
-                            let _ = sender.send(content);
-                            return;
+                // Use Quyc::get() directly - much simpler!
+                let mut quyc_builder = Quyc::debug();
+                
+                // Set timeout if specified
+                if let Some(timeout_ms) = builder.timeout_ms {
+                    quyc_builder = quyc_builder.timeout(std::time::Duration::from_millis(timeout_ms));
+                }
+                
+                // Simple string response type for text content
+                #[derive(serde::Deserialize, Default)]
+                struct StringResponse(String);
+                
+                impl ystream::prelude::MessageChunk for StringResponse {
+                    fn bad_chunk(error: String) -> Self {
+                        StringResponse(format!("ERROR: {}", error))
+                    }
+                    
+                    fn error(&self) -> Option<&str> {
+                        if self.0.starts_with("ERROR: ") {
+                            Some(&self.0)
+                        } else {
+                            None
                         }
                     }
-                } else {
-                    last_error = format!("Attempt {}: HTTP request failed", attempt + 1);
+                }
+                
+                // Use quyc to get the content
+                let response: StringResponse = quyc_builder.get(&url).collect_one();
+                
+                if let Some(error) = response.error() {
                     if attempt < builder.retry_attempts {
                         std::thread::sleep(std::time::Duration::from_millis(
                             100 * (1 << attempt), // Exponential backoff
                         ));
+                        continue;
+                    }
+                    // Final attempt failed, don't send anything
+                    return;
+                }
+                
+                let content = response.0;
+                
+                // Check size if max_size is set
+                if let Some(max_size) = builder.max_size {
+                    if content.len() > max_size {
+                        return; // Skip sending - content too large
                     }
                 }
+
+                let _ = sender.send(content);
+                return;
             }
-            // If all attempts failed, don't send anything
         })
     }
 

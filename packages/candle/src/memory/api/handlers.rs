@@ -14,7 +14,7 @@ use futures_util::StreamExt;
 use super::models::{CreateMemoryRequest, HealthResponse, MemoryResponse, SearchRequest};
 use crate::memory::SurrealMemoryManager;
 use crate::memory::manager::surreal::MemoryManager;
-use crate::memory::primitives::node::MemoryNode;
+use crate::memory::memory::primitives::node::MemoryNode;
 
 /// Create a new memory
 pub async fn create_memory(
@@ -27,7 +27,8 @@ pub async fn create_memory(
     }
 
     // Create memory node from request
-    let memory_node = MemoryNode::new(request.content, request.memory_type);
+    let content = crate::memory::memory::primitives::types::MemoryContent::new(&request.content);
+    let memory_node = MemoryNode::new(request.memory_type, content);
 
     // Create memory using the manager
     let pending_memory = memory_manager.create_memory(memory_node);
@@ -35,7 +36,7 @@ pub async fn create_memory(
         Ok(memory) => {
             let response = MemoryResponse {
                 id: memory.id,
-                content: memory.content,
+                content: memory.content.text,
                 memory_type: memory.memory_type,
                 metadata: request.metadata,
                 user_id: request.user_id,
@@ -66,7 +67,7 @@ pub async fn get_memory(
         Ok(Some(memory)) => {
             let response = MemoryResponse {
                 id: memory.id,
-                content: memory.content,
+                content: memory.content.text,
                 metadata: serde_json::to_value(&memory.metadata).ok(),
                 memory_type: memory.memory_type,
                 user_id: None,
@@ -96,14 +97,15 @@ pub async fn update_memory(
 
     // Update memory using the manager
     // Create updated memory node
-    let updated_memory = MemoryNode::with_id(id.clone(), request.content, request.memory_type);
+    let content = crate::memory::memory::primitives::types::MemoryContent::new(&request.content);
+    let updated_memory = MemoryNode::with_id(id.clone(), request.memory_type, content);
 
     let pending_memory = memory_manager.update_memory(updated_memory);
     match pending_memory.await {
         Ok(memory) => {
             let response = MemoryResponse {
                 id: memory.id,
-                content: memory.content,
+                content: memory.content.text,
                 metadata: serde_json::to_value(&memory.metadata).ok(),
                 memory_type: memory.memory_type,
                 user_id: None,
@@ -167,7 +169,7 @@ pub async fn search_memories(
         .into_iter()
         .map(|memory| MemoryResponse {
             id: memory.id,
-            content: memory.content,
+            content: memory.content.text,
             metadata: serde_json::to_value(&memory.metadata).ok(),
             memory_type: memory.memory_type,
             user_id: None,

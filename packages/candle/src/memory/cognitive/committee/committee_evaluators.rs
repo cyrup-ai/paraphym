@@ -1,785 +1,163 @@
-//! Individual provider evaluator implementations for committee-based assessment
+//! Committee Evaluators Using Existing Providers
 //!
-//! This module provides the core evaluator logic that interfaces with individual
-//! completion providers to perform assessment tasks. Each evaluator manages a single
-//! model instance and handles prompt generation, response parsing, and error recovery.
+//! Committee evaluation implementation using existing CandleKimiK2Provider and CandleQwen3CoderProvider.
 
-use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
-
-use arrayvec::ArrayVec;
-use chrono::Utc;
-// AtomicCounter trait no longer needed since we use local RelaxedCounter
-use crossbeam_queue::SegQueue;
-use ystream::{AsyncStream, AsyncTask};
-// Use domain types for traits and models
-use paraphym_domain::{
-    chat::{Message, MessageRole},
-    completion::{CompletionBackend, CompletionCoreError, CompletionRequest, CompletionResponse},
+// StreamExt not currently used but may be needed for future async operations
+use crate::memory::cognitive::types::CognitiveError;
+use crate::domain::completion::traits::CandleCompletionModel;
+use crate::memory::cognitive::committee::committee_types::{
+    Committee, CommitteeConfig
 };
-// Use HTTP3 + model-info architecture instead of provider clients
-use paraphym_http3::{Http3, HttpClient, HttpConfig, HttpError};
-use model_info::{DiscoveryProvider as Provider, ModelInfo, ModelInfoBuilder};
-use serde_json::json;
-use tokio::sync::{RwLock, Semaphore};
-use uuid::Uuid;
-
-pub use super::committee_types::{
-    CommitteeError, CommitteeEvaluation, CommitteeResult, EvaluationPrompt, HealthStatus,
-    MAX_COMMITTEE_SIZE, Model, ModelMetrics, ModelType, QualityTier,
-};
-// Import additional types for zero allocation patterns
-pub use crate::memory::cognitive::committee::committee_evaluators_extension::{
-    EvaluationSessionMetrics, EvaluationTask, EvaluatorPoolMetrics,
+use crate::domain::{
+    completion::CandleCompletionParams,
+    context::chunk::CandleCompletionChunk,
+    prompt::CandlePrompt,
 };
 
-/// HTTP3-based completion backend implementation
-/// Uses HTTP3 + model-info architecture instead of provider clients
-#[derive(Debug, Clone)]
-struct Http3CompletionBackend {
-    provider: Provider,
-    model_info: ModelInfo,
-    api_key: String,
-    http_client: HttpClient,
-}
-
-impl Http3CompletionBackend {
-    #[inline]
-    async fn new(model_type: &ModelType) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let (provider, model_name) = match model_type {
-            ModelType::Gpt35Turbo => (Provider::OpenAI, "gpt-3.5-turbo"),
-            ModelType::Gpt4O => (Provider::OpenAI, "gpt-4o"),
-            ModelType::Gpt4Turbo => (Provider::OpenAI, "gpt-4-turbo"),
-            ModelType::Claude3Opus => (Provider::Anthropic, "claude-3-opus-20240229"),
-            ModelType::Claude3Sonnet => (Provider::Anthropic, "claude-3-sonnet-20240229"),
-            ModelType::Claude3Haiku => (Provider::Anthropic, "claude-3-haiku-20240307"),
-            _ => return Err(format!("Model type {:?} is not yet implemented", model_type).into()),
-        };
-
-        let api_key_env = match provider {
-            Provider::OpenAI => "OPENAI_API_KEY",
-            Provider::Anthropic => "ANTHROPIC_API_KEY",
-            _ => return Err(format!("Provider {:?} is not yet implemented", provider).into()),
-        };
-
-        let api_key = std::env::var(api_key_env)
-            .map_err(|_| format!("{} environment variable not set", api_key_env))?;
-
-        // Create HTTP3 client optimized for AI operations
-        let http_client = HttpClient::with_config(HttpConfig::ai_optimized())
-            .map_err(|e| format!("Failed to create HTTP3 client: {}", e))?;
-
-        // Create model info using model-info package
-        let model_info = ModelInfoBuilder::new()
-            .provider_name(match provider {
-                Provider::OpenAI => "openai",
-                Provider::Anthropic => "anthropic",
-                _ => return Err("Unsupported provider".into()),
-            })
-            .name(model_name)
-            .build()
-            .map_err(|e| format!("Failed to create model info: {}", e))?;
-
-        Ok(Self {
-            provider,
-            model_info,
-            api_key,
-            http_client,
-        })
-    }
-}
-
-impl CompletionBackend for Http3CompletionBackend {
-    #[inline]
-    fn submit_completion<'a>(
-        &'a self,
-        request: CompletionRequest,
-    ) -> AsyncTask<CompletionResponse<'a>> {
-        let provider = self.provider.clone();
-        let model_info = self.model_info.clone();
-        let api_key = self.api_key.clone();
-        let http_client = self.http_client.clone();
-
-        AsyncTask::spawn(async move {
-            let base_url = provider.default_base_url();
-            let endpoint = match provider {
-                Provider::OpenAI | Provider::Anthropic => "/chat/completions",
-                _ => {
-                    return Err(CompletionCoreError::ProviderUnavailable(
-                        "Provider not implemented".to_string(),
-                    ));
-                }
-            };
-
-            let url = format!("{}{}", base_url, endpoint);
-
-            // Convert request to messages format with proper Message structure
-            let messages = vec![Message {
-                role: MessageRole::User,
-                content: request.prompt().content().to_string(),
-                id: Some(Uuid::new_v4().to_string()),
-                timestamp: Some(Utc::now().timestamp() as u64),
-            }];
-
-            // Build request payload based on provider
-            let request_body = match provider {
-                Provider::OpenAI => {
-                    json!({
-                        "model": model_info.name,
-                        "messages": messages.iter().map(|m| {
-                            json!({"role": m.role.to_string().to_lowercase(), "content": m.content})
-                        }).collect::<Vec<_>>(),
-                        "stream": false
-                    })
-                }
-                Provider::Anthropic => {
-                    json!({
-                        "model": model_info.name,
-                        "max_tokens": 4096,
-                        "messages": messages.iter().map(|m| {
-                            json!({"role": m.role.to_string().to_lowercase(), "content": m.content})
-                        }).collect::<Vec<_>>(),
-                    })
-                }
-                _ => {
-                    return Err(CompletionCoreError::ProviderUnavailable(
-                        "Provider not implemented".to_string(),
-                    ));
-                }
-            };
-
-            // Make HTTP3 request
-            let response = Http3::json()
-                .api_key(&api_key)
-                .body(&request_body)
-                .post(&url)
-                .collect::<serde_json::Value>()
-                .await
-                .map_err(|e| {
-                    CompletionCoreError::RequestFailed(format!("HTTP3 request failed: {}", e))
-                })?;
-
-            // Parse response based on provider
-            let content = match provider {
-                Provider::OpenAI => response["choices"][0]["message"]["content"]
-                    .as_str()
-                    .unwrap_or("")
-                    .to_string(),
-                Provider::Anthropic => response["content"][0]["text"]
-                    .as_str()
-                    .unwrap_or("")
-                    .to_string(),
-                _ => {
-                    return Err(CompletionCoreError::ProviderUnavailable(
-                        "Provider not implemented".to_string(),
-                    ));
-                }
-            };
-
-            // Create completion response using domain types
-            Ok(CompletionResponse::text(content))
-        })
-    }
-}
-use crate::memory::cognitive::types::OptimizationSpec;
-
-/// Individual provider evaluator managing a single model instance
+/// Committee evaluator using existing providers (CandleKimiK2Provider, CandleQwen3CoderProvider)
 #[derive(Debug)]
-pub struct ProviderEvaluator {
-    /// Model instance with provider
-    model: Model,
-    /// Unique identifier for this evaluator
-    evaluator_id: String,
-    /// Semaphore for request rate limiting
-    request_limiter: Arc<Semaphore>,
-    /// Performance tracking
-    metrics: Arc<RwLock<ModelMetrics>>,
-    /// Health monitoring
-    health_status: Arc<RwLock<HealthStatus>>,
+pub struct ProviderCommitteeEvaluator {
+    committee: Arc<Committee>,
 }
 
-impl ProviderEvaluator {
-    /// Create a new provider evaluator instance
-    ///
-    /// # Arguments
-    /// * `model_type` - Type of model to use for evaluation
-    /// * `max_concurrent_requests` - Maximum concurrent requests allowed
-    ///
-    /// # Returns
-    /// * ProviderEvaluator configured for the specified model type
-    pub async fn new(
-        model_type: ModelType,
-        max_concurrent_requests: usize,
-    ) -> CommitteeResult<Self> {
-        let provider = Self::create_provider(&model_type).await.map_err(|e| {
-            CommitteeError::ProviderError {
-                model_type: model_type.clone(),
-                source: e,
-            }
-        })?;
+impl ProviderCommitteeEvaluator {
+    /// Create new committee evaluator using existing providers
+    pub async fn new() -> Result<Self, CognitiveError> {
+        let config = CommitteeConfig::default();
+        let committee = Arc::new(Committee::new(config).await?);
 
-        let model = Model {
-            model_type: model_type.clone(),
-            api_key: Arc::from(""),
-            base_url: None,
-            timeout_ms: 30000,
-            max_retries: 3,
-            rate_limit_per_minute: 60,
-            provider,
-            health_status: Arc::new(RwLock::new(HealthStatus::default())),
-            metrics: Arc::new(RwLock::new(ModelMetrics::default())),
-        };
+        Ok(Self { committee })
+    }
 
-        let evaluator_id = format!(
-            "{}-{}",
-            model_type.display_name(),
-            Uuid::new_v4().as_simple()
+    /// Create evaluator with custom configuration
+    pub async fn with_config(config: CommitteeConfig) -> Result<Self, CognitiveError> {
+        let committee = Arc::new(Committee::new(config).await?);
+
+        Ok(Self { committee })
+    }
+
+    /// Evaluate content using existing providers for real AI evaluation
+    pub async fn evaluate(&self, content: &str) -> Result<f64, CognitiveError> {
+        self.committee.evaluate(content).await
+    }
+
+    /// Generate evaluation report using AI
+    pub async fn generate_report(&self, content: &str) -> Result<String, CognitiveError> {
+        let score = self.evaluate(content).await?;
+        Ok(format!("AI evaluation score: {:.2} (using local CandleKimiK2Provider)", score))
+    }
+
+    /// Evaluate with KimiK2 provider
+    pub async fn evaluate_with_kimi(&self, content: &str) -> Result<String, CognitiveError> {
+        let evaluation_prompt = format!(
+            "Provide a detailed evaluation of this content including strengths, weaknesses, and an overall quality assessment:\n\nContent:\n{}",
+            content
         );
 
-        Ok(Self {
-            model,
-            evaluator_id,
-            request_limiter: Arc::new(Semaphore::new(max_concurrent_requests)),
-            metrics: Arc::new(RwLock::new(ModelMetrics::default())),
-            health_status: Arc::new(RwLock::new(HealthStatus::default())),
-        })
-    }
+        let prompt = CandlePrompt::new(&evaluation_prompt);
+        let params = CandleCompletionParams::default();
+        
+        let mut response = String::new();
+        let stream = self.committee.kimi_provider.prompt(prompt, &params);
+        let stream = Box::pin(stream);
 
-    /// Perform evaluation of an optimization proposal
-    ///
-    /// # Arguments
-    /// * `optimization_spec` - The optimization to evaluate
-    /// * `current_code` - Current code state
-    /// * `proposed_code` - Proposed optimized code
-    /// * `timeout` - Maximum time to wait for evaluation
-    ///
-    /// # Returns
-    /// * CommitteeEvaluation with detailed assessment
-    pub async fn evaluate_optimization(
-        &self,
-        optimization_spec: &OptimizationSpec,
-        current_code: &str,
-        proposed_code: &str,
-        timeout: Duration,
-    ) -> CommitteeResult<CommitteeEvaluation> {
-        let start_time = Instant::now();
-
-        // Acquire rate limiting permit
-        let _permit =
-            self.request_limiter
-                .acquire()
-                .await
-                .map_err(|_| CommitteeError::ModelUnavailable {
-                    model_type: self.model.model_type.clone(),
-                })?;
-
-        // Check health status
-        {
-            let health = self.health_status.read().await;
-            if !health.is_available {
-                return Err(CommitteeError::ModelUnavailable {
-                    model_type: self.model.model_type.clone(),
-                });
-            }
-        }
-
-        // Generate evaluation prompt
-        let prompt = EvaluationPrompt::new_optimization_prompt(
-            optimization_spec,
-            current_code,
-            proposed_code,
-            None,
-        );
-
-        // Perform evaluation with timeout
-        let evaluation_result =
-            tokio::time::timeout(timeout, self.perform_evaluation_request(prompt)).await;
-
-        let evaluation_time = start_time.elapsed();
-
-        match evaluation_result {
-            Ok(Ok(response)) => {
-                self.update_success_metrics(evaluation_time).await;
-                self.parse_evaluation_response(response, evaluation_time)
-                    .await
-            }
-            Ok(Err(e)) => {
-                self.update_error_metrics().await;
-                Err(e)
-            }
-            Err(_) => {
-                self.update_error_metrics().await;
-                Err(CommitteeError::EvaluationTimeout {
-                    timeout_ms: timeout.as_millis() as u64,
-                })
-            }
-        }
-    }
-
-    /// Get current health status of this evaluator
-    pub async fn health_status(&self) -> HealthStatus {
-        self.health_status.read().await.clone()
-    }
-
-    /// Get current performance metrics
-    pub async fn metrics(&self) -> ModelMetrics {
-        self.metrics.read().await.clone()
-    }
-
-    /// Get evaluator identifier
-    #[inline(always)]
-    pub fn evaluator_id(&self) -> &str {
-        &self.evaluator_id
-    }
-
-    /// Get model type
-    #[inline(always)]
-    pub fn model_type(&self) -> &ModelType {
-        &self.model.model_type
-    }
-
-    /// Create appropriate provider for model type using HTTP3 + model-info architecture
-    async fn create_provider(
-        model_type: &ModelType,
-    ) -> Result<Arc<dyn CompletionBackend>, Box<dyn std::error::Error + Send + Sync>> {
-        match model_type {
-            ModelType::Gpt35Turbo
-            | ModelType::Gpt4O
-            | ModelType::Gpt4Turbo
-            | ModelType::Claude3Opus
-            | ModelType::Claude3Sonnet
-            | ModelType::Claude3Haiku => {
-                // Create HTTP3-based completion backend
-                let backend = Http3CompletionBackend::new(model_type).await?;
-                Ok(Arc::new(backend))
-            }
-            ModelType::GeminiPro
-            | ModelType::Mixtral8x7B
-            | ModelType::Llama270B
-            | ModelType::Llama3 => {
-                // These models are not yet implemented
-                Err(format!("Model type {:?} is not yet implemented", model_type).into())
-            }
-        }
-    }
-
-    /// Perform the actual provider request
-    async fn perform_evaluation_request(
-        &self,
-        prompt: EvaluationPrompt,
-    ) -> CommitteeResult<String> {
-        // Combine system and user prompts into a single prompt string
-        let full_prompt = format!("{}\n\n{}", prompt.system_prompt, prompt.user_prompt);
-
-        // Use the CompletionProvider streaming interface
-        let stream = self.model.provider.prompt(&full_prompt);
-
-        // Collect streaming response into complete text
-        let mut result = String::new();
-        let mut stream = stream;
-
-        use futures_util::StreamExt;
         while let Some(chunk) = stream.next().await {
-            if let Some(content) = chunk.content {
-                result.push_str(&content);
-            }
-        }
-
-        if result.is_empty() {
-            Err(CommitteeError::ProviderError {
-                model_type: self.model.model_type.clone(),
-                source: Box::new(CompletionError::ProviderUnavailable(
-                    "Empty response from provider".to_string(),
-                )),
-            })
-        } else {
-            Ok(result)
-        }
-    }
-
-    /// Parse provider response into structured evaluation
-    async fn parse_evaluation_response(
-        &self,
-        response: String,
-        evaluation_time: Duration,
-    ) -> CommitteeResult<CommitteeEvaluation> {
-        let content = &response;
-
-        // Parse structured response using regex or simple parsing
-        let (
-            makes_progress,
-            objective_alignment,
-            implementation_quality,
-            risk_assessment,
-            reasoning,
-            _improvements,
-        ) = self.extract_evaluation_components(content)?;
-
-        // Calculate confidence based on model quality tier and response coherence
-        let confidence = self.calculate_response_confidence(content, &reasoning);
-
-        Ok(CommitteeEvaluation {
-            model: self.model.model_type.clone(),
-            score: objective_alignment, // Use objective_alignment as overall score
-            reasoning: reasoning.into_bytes().into(), // Convert String to SmallVec<u8, 512>
-            confidence,
-            processing_time_ms: evaluation_time.as_millis() as u64,
-            timestamp: chrono::Utc::now(),
-            objective_alignment,
-            implementation_quality,
-            risk_assessment,
-            makes_progress,
-            evaluation_time: evaluation_time.as_micros() as u64,
-        })
-    }
-
-    /// Extract evaluation components from response text
-    fn extract_evaluation_components(
-        &self,
-        content: &str,
-    ) -> CommitteeResult<(bool, f64, f64, f64, String, Vec<String>)> {
-        let mut makes_progress = false;
-        let mut objective_alignment = 0.5;
-        let mut implementation_quality = 0.5;
-        let mut risk_assessment = 0.5;
-        let mut reasoning = String::new();
-        let mut improvements = Vec::new();
-
-        // Simple parsing logic (production would use more sophisticated parsing)
-        for line in content.lines() {
-            let line = line.trim();
-
-            if line.to_lowercase().contains("makes progress") {
-                makes_progress = line.to_lowercase().contains("true");
-            } else if line.to_lowercase().contains("objective alignment") {
-                if let Some(score) = self.extract_score_from_line(line) {
-                    objective_alignment = score;
-                }
-            } else if line.to_lowercase().contains("implementation quality") {
-                if let Some(score) = self.extract_score_from_line(line) {
-                    implementation_quality = score;
-                }
-            } else if line.to_lowercase().contains("risk assessment") {
-                if let Some(score) = self.extract_score_from_line(line) {
-                    risk_assessment = score;
-                }
-            } else if line.to_lowercase().contains("reasoning") {
-                reasoning = content
-                    .lines()
-                    .skip_while(|l| !l.to_lowercase().contains("reasoning"))
-                    .skip(1)
-                    .take_while(|l| !l.to_lowercase().contains("suggested improvements"))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-                    .trim()
-                    .to_string();
-            } else if line.to_lowercase().contains("suggested improvements") {
-                improvements = content
-                    .lines()
-                    .skip_while(|l| !l.to_lowercase().contains("suggested improvements"))
-                    .skip(1)
-                    .filter(|l| l.trim().starts_with('-') || l.trim().starts_with('*'))
-                    .map(|l| {
-                        l.trim()
-                            .trim_start_matches('-')
-                            .trim_start_matches('*')
-                            .trim()
-                            .to_string()
-                    })
-                    .collect();
-            }
-        }
-
-        // Ensure reasoning has some content
-        if reasoning.is_empty() {
-            reasoning = content
-                .lines()
-                .filter(|l| l.len() > 20)
-                .take(3)
-                .collect::<Vec<_>>()
-                .join(" ");
-        }
-
-        Ok((
-            makes_progress,
-            objective_alignment,
-            implementation_quality,
-            risk_assessment,
-            reasoning,
-            improvements,
-        ))
-    }
-
-    /// Extract numerical score from a line of text
-    fn extract_score_from_line(&self, line: &str) -> Option<f64> {
-        // Simple regex to find floating point numbers
-        use regex::Regex;
-        let re = Regex::new(r"(\d*\.?\d+)").ok()?;
-
-        for cap in re.captures_iter(line) {
-            if let Ok(score) = cap[1].parse::<f64>() {
-                if score >= 0.0 && score <= 1.0 {
-                    return Some(score);
-                }
-                // Handle scores given as percentages
-                if score > 1.0 && score <= 100.0 {
-                    return Some(score / 100.0);
-                }
-            }
-        }
-        None
-    }
-
-    /// Calculate confidence based on response quality and model characteristics
-    fn calculate_response_confidence(&self, content: &str, reasoning: &str) -> f64 {
-        let mut confidence: f64 = match self.model.model_type.quality_tier() {
-            QualityTier::Draft => 0.6,
-            QualityTier::Good => 0.7,
-            QualityTier::High => 0.8,
-            QualityTier::Premium => 0.9,
-            QualityTier::Basic => 0.65,
-            QualityTier::Standard => 0.75,
-            QualityTier::Experimental => 0.55,
-        };
-
-        // Adjust based on response length and detail
-        if reasoning.len() > 100 {
-            confidence += 0.05;
-        }
-        if reasoning.len() > 300 {
-            confidence += 0.05;
-        }
-
-        // Penalize very short responses
-        if content.len() < 100 {
-            confidence -= 0.2;
-        }
-
-        // Ensure confidence stays in valid range
-        confidence.clamp(0.0, 1.0)
-    }
-
-    /// Update metrics after successful evaluation
-    async fn update_success_metrics(&self, evaluation_time: Duration) {
-        let mut health = self.health_status.write().await;
-        health.is_available = true;
-        health.last_success = Some(Instant::now());
-        health.total_requests += 1;
-
-        // Update running average of response time
-        let total_time = health.avg_response_time.as_nanos() as f64
-            * (health.total_requests - 1) as f64
-            + evaluation_time.as_nanos() as f64;
-        health.avg_response_time =
-            Duration::from_nanos((total_time / health.total_requests as f64) as u64);
-
-        // Update error rate
-        health.error_rate = health.failed_requests as f64 / health.total_requests as f64;
-
-        let mut metrics = self.metrics.write().await;
-        metrics.evaluations_completed += 1;
-        metrics.total_evaluation_time += evaluation_time;
-    }
-
-    /// Update metrics after failed evaluation
-    async fn update_error_metrics(&self) {
-        let mut health = self.health_status.write().await;
-        health.total_requests += 1;
-        health.failed_requests += 1;
-        health.error_rate = health.failed_requests as f64 / health.total_requests as f64;
-
-        // Mark as unavailable if error rate is too high
-        if health.error_rate > 0.5 && health.total_requests > 5 {
-            health.is_available = false;
-        }
-    }
-}
-
-/// Lock-free evaluator pool for blazing-fast load balancing and redundancy
-#[derive(Debug)]
-pub struct EvaluatorPool {
-    /// Available evaluators by model type (stack-allocated for zero allocation)
-    evaluators: HashMap<ModelType, ArrayVec<Arc<ProviderEvaluator>, MAX_COMMITTEE_SIZE>>,
-    /// Atomic round-robin indices for lock-free load balancing
-    round_robin_indices: HashMap<ModelType, AtomicUsize>,
-    /// Lock-free task queue for evaluator distribution (TODO: Implement distributed task system)
-    _task_queue: SegQueue<EvaluationTask>,
-    /// Pool metrics with atomic counters
-    metrics: EvaluatorPoolMetrics,
-}
-
-impl EvaluatorPool {
-    /// Create a new evaluator pool with zero allocation
-    #[inline]
-    pub fn new() -> Self {
-        Self {
-            evaluators: HashMap::new(),
-            round_robin_indices: HashMap::new(),
-            _task_queue: SegQueue::new(),
-            metrics: EvaluatorPoolMetrics::new(),
-        }
-    }
-
-    /// Add evaluator to the pool with zero allocation
-    #[inline]
-    pub fn add_evaluator(
-        &mut self,
-        evaluator: Arc<ProviderEvaluator>,
-    ) -> Result<(), CommitteeError> {
-        let model_type = evaluator.model_type().clone();
-
-        let evaluators = self
-            .evaluators
-            .entry(model_type.clone())
-            .or_insert_with(ArrayVec::new);
-        if evaluators.is_full() {
-            return Err(CommitteeError::ResourceExhausted {
-                resource: "evaluator pool capacity".into(),
-            });
-        }
-        evaluators.push(evaluator);
-
-        self.round_robin_indices
-            .entry(model_type)
-            .or_insert_with(|| AtomicUsize::new(0));
-        self.metrics.evaluators_added.inc();
-        Ok(())
-    }
-
-    /// Get next available evaluator using lock-free round-robin
-    #[inline]
-    pub fn get_evaluator(&self, model_type: &ModelType) -> Option<Arc<ProviderEvaluator>> {
-        let evaluators = self.evaluators.get(model_type)?;
-        if evaluators.is_empty() {
-            return None;
-        }
-
-        let atomic_index = self.round_robin_indices.get(model_type)?;
-        let current_index = atomic_index.fetch_add(1, Ordering::Relaxed);
-        let index = current_index % evaluators.len();
-
-        self.metrics.evaluators_accessed.inc();
-        Some(evaluators[index].clone())
-    }
-
-    /// Get all available model types
-    pub fn available_model_types(&self) -> Vec<ModelType> {
-        self.evaluators.keys().cloned().collect()
-    }
-
-    /// Get pool health status with zero allocation
-    pub async fn pool_health(
-        &self,
-    ) -> HashMap<ModelType, ArrayVec<HealthStatus, MAX_COMMITTEE_SIZE>> {
-        let mut health_map = HashMap::new();
-
-        for (model_type, evaluators) in &self.evaluators {
-            let mut health_statuses = ArrayVec::new();
-            for evaluator in evaluators {
-                let health = evaluator.health_status().await;
-                if let Ok(()) = health_statuses.try_push(health) {
-                    // Successfully added health status
-                } else {
-                    // ArrayVec is full, skip remaining evaluators
+            match chunk {
+                CandleCompletionChunk::Text(text) => response.push_str(&text),
+                CandleCompletionChunk::Complete { text, .. } => {
+                    response.push_str(&text);
                     break;
                 }
-            }
-            health_map.insert(model_type.clone(), health_statuses);
-        }
-
-        health_map
-    }
-}
-
-/// Zero-allocation session for coordinating multiple evaluations
-#[derive(Debug)]
-pub struct EvaluationSession {
-    /// Active evaluators in this session (stack-allocated)
-    evaluators: ArrayVec<Arc<ProviderEvaluator>, MAX_COMMITTEE_SIZE>,
-    /// Session start time
-    start_time: Instant,
-    /// Session timeout
-    timeout: Duration,
-    /// Session metrics with atomic counters
-    metrics: EvaluationSessionMetrics,
-}
-
-impl EvaluationSession {
-    /// Create a new evaluation session with zero allocation
-    #[inline]
-    pub fn new(
-        evaluators: ArrayVec<Arc<ProviderEvaluator>, MAX_COMMITTEE_SIZE>,
-        timeout: Duration,
-    ) -> Result<Self, CommitteeError> {
-        if evaluators.is_empty() {
-            return Err(CommitteeError::InsufficientMembers {
-                available: 0,
-                required: 1,
-            });
-        }
-
-        Ok(Self {
-            evaluators,
-            start_time: Instant::now(),
-            timeout,
-            metrics: EvaluationSessionMetrics::new(),
-        })
-    }
-
-    /// Run evaluation across all session evaluators with zero allocation
-    pub async fn evaluate_all(
-        &self,
-        optimization_spec: &OptimizationSpec,
-        current_code: &str,
-        proposed_code: &str,
-    ) -> ArrayVec<CommitteeResult<CommitteeEvaluation>, MAX_COMMITTEE_SIZE> {
-        let remaining_timeout = self.timeout.saturating_sub(self.start_time.elapsed());
-
-        // Pre-allocate futures array for zero allocation
-        let mut evaluation_futures: ArrayVec<_, MAX_COMMITTEE_SIZE> = ArrayVec::new();
-
-        for evaluator in &self.evaluators {
-            let spec = optimization_spec.clone();
-            // Use references instead of allocating strings
-            let current_ref = current_code;
-            let proposed_ref = proposed_code;
-
-            let future = async move {
-                evaluator
-                    .evaluate_optimization(&spec, current_ref, proposed_ref, remaining_timeout)
-                    .await
-            };
-
-            if evaluation_futures.try_push(future).is_err() {
-                // ArrayVec is full, cannot add more futures
-                break;
+                _ => {}
             }
         }
 
-        // Execute all futures concurrently
-        let results = futures_util::future::join_all(evaluation_futures).await;
+        Ok(response)
+    }
 
-        // Convert Vec<Result> to ArrayVec<Result> with zero allocation
-        let mut result_array = ArrayVec::new();
-        for result in results {
-            if result_array.try_push(result).is_err() {
-                break; // ArrayVec is full
+    /// Evaluate with Qwen provider
+    pub async fn evaluate_with_qwen(&self, content: &str) -> Result<String, CognitiveError> {
+        let evaluation_prompt = format!(
+            "Provide a detailed evaluation of this content including strengths, weaknesses, and an overall quality assessment:\n\nContent:\n{}",
+            content
+        );
+
+        let prompt = CandlePrompt::new(&evaluation_prompt);
+        let params = CandleCompletionParams::default();
+        
+        let mut response = String::new();
+        let stream = self.committee.qwen_provider.prompt(prompt, &params);
+        let stream = Box::pin(stream);
+
+        while let Some(chunk) = stream.next().await {
+            match chunk {
+                CandleCompletionChunk::Text(text) => response.push_str(&text),
+                CandleCompletionChunk::Complete { text, .. } => {
+                    response.push_str(&text);
+                    break;
+                }
+                _ => {}
             }
         }
 
-        self.metrics.evaluations_completed.inc();
-        result_array
+        Ok(response)
     }
 
-    /// Get session runtime
-    pub fn session_runtime(&self) -> Duration {
-        self.start_time.elapsed()
-    }
+    /// Multi-provider consensus evaluation using both providers directly
+    pub async fn consensus_evaluate(&self, content: &str) -> Result<f64, CognitiveError> {
+        let evaluation_prompt = format!(
+            "Rate this content quality from 0.0 to 1.0. Return only the number:\n\n{}",
+            content
+        );
 
-    /// Check if session has timed out
-    pub fn is_timed_out(&self) -> bool {
-        self.start_time.elapsed() > self.timeout
+        let prompt = CandlePrompt::new(&evaluation_prompt);
+        let params = CandleCompletionParams::default();
+        let mut scores = Vec::new();
+
+        // Evaluate with KimiK2 provider
+        let mut kimi_response = String::new();
+        let kimi_stream = self.committee.kimi_provider.prompt(prompt.clone(), &params);
+        let kimi_stream = Box::pin(kimi_stream);
+
+        while let Some(chunk) = kimi_stream.next().await {
+            match chunk {
+                CandleCompletionChunk::Text(text) => kimi_response.push_str(&text),
+                CandleCompletionChunk::Complete { text, .. } => {
+                    kimi_response.push_str(&text);
+                    break;
+                }
+                _ => {}
+            }
+        }
+        if let Some(score) = super::committee_types::parse_score_from_response(&kimi_response) {
+            scores.push(score);
+        }
+
+        // Evaluate with Qwen provider
+        let mut qwen_response = String::new();
+        let qwen_stream = self.committee.qwen_provider.prompt(prompt, &params);
+        let qwen_stream = Box::pin(qwen_stream);
+
+        while let Some(chunk) = qwen_stream.next().await {
+            match chunk {
+                CandleCompletionChunk::Text(text) => qwen_response.push_str(&text),
+                CandleCompletionChunk::Complete { text, .. } => {
+                    qwen_response.push_str(&text);
+                    break;
+                }
+                _ => {}
+            }
+        }
+        if let Some(score) = super::committee_types::parse_score_from_response(&qwen_response) {
+            scores.push(score);
+        }
+
+        if scores.is_empty() {
+            return Err(CognitiveError::EvaluationError("No valid scores from providers".to_string()));
+        }
+
+        let consensus = scores.iter().sum::<f64>() / scores.len() as f64;
+        Ok(consensus)
     }
 }

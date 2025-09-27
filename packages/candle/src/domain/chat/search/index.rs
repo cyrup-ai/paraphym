@@ -219,7 +219,7 @@ impl ChatSearchIndex {
 
     /// Add message to search index (legacy future-compatible method)
     pub fn add_message(&self, message: SearchChatMessage) -> Result<(), SearchError> {
-        let mut stream = self.add_message_stream(message);
+        let stream = self.add_message_stream(message);
         match stream.try_next() {
             Some(_) => Ok(()),
             None => Err(SearchError::IndexError {

@@ -3,10 +3,10 @@
 //! This module provides production-ready embedding services with zero-allocation methods,
 //! lock-free caching, and high-performance vector operations.
 
-use std::collections::{hash_map::DefaultHasher, HashMap};
-use std::hash::{Hash, Hasher};
+use std::collections::HashMap;
 
 use ystream::AsyncStream;
+use crate::domain::memory::serialization::content_hash;
 
 /// Error type for vector store operations
 #[derive(Debug, thiserror::Error)]
@@ -141,10 +141,4 @@ impl InMemoryEmbeddingCache {
     }
 }
 
-/// Fast hash function for content-based embedding generation
-#[inline]
-fn content_hash(content: &str) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    content.hash(&mut hasher);
-    hasher.finish()
-}
+

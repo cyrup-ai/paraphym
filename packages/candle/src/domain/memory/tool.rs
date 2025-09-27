@@ -16,7 +16,8 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
 // Removed unused import: serde_json::Value
-use super::{Memory, MemoryError, MemoryNode, MemoryType};
+use super::{Error as MemoryError};
+use crate::memory::memory::{SurrealDBMemoryManager, MemoryNode, MemoryType};
 // Removed unused imports: AsyncStream, AsyncTask, spawn_async
 use crate::domain::error::ZeroAllocError;
 use crate::domain::tool::CandleMcpToolData;
@@ -41,7 +42,7 @@ pub struct MemoryTool {
     #[allow(dead_code)]
     data: CandleMcpToolData,
     /// Shared memory instance for lock-free concurrent access
-    memory: Arc<Memory>,
+    memory: Arc<SurrealDBMemoryManager>,
 }
 /// Memory tool operation types
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,7 +110,7 @@ pub type MemoryToolResult<T> = Result<T, MemoryToolError>;
 
 impl MemoryTool {
     /// Create a new memory tool instance
-    pub fn new(memory: Arc<Memory>) -> Self {
+    pub fn new(memory: Arc<SurrealDBMemoryManager>) -> Self {
         let data = CandleMcpToolData {
             name: "memory".to_string(),
             description: "Memory management tool for storing and retrieving information"
@@ -132,7 +133,7 @@ impl MemoryTool {
 
     /// Get access to the underlying memory instance
     #[inline]
-    pub fn memory(&self) -> &Arc<Memory> {
+    pub fn memory(&self) -> &Arc<SurrealDBMemoryManager> {
         &self.memory
     }
 

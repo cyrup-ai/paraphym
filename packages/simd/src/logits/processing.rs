@@ -165,7 +165,7 @@ unsafe fn apply_temperature_neon(logits: &mut [f32], inv_temp: f32) -> SimdResul
         unsafe {
             // SAFETY: ptr is derived from valid slice bounds (i + chunk_size <= logits.len())
             // and chunk_size is 4, matching NEON 128-bit register size
-            let ptr = logits.as_mut_ptr().add(i) as *mut f32;
+            let ptr = logits.as_mut_ptr().add(i);
             let x = vld1q_f32(ptr);
             let scaled = vmulq_f32(x, inv_temp_vec);
             vst1q_f32(ptr, scaled);

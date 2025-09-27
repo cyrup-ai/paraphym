@@ -14,6 +14,7 @@ pub mod candle;
 // pub mod chunk; // Module not yet implemented
 pub mod core;
 pub mod model;
+pub mod prompt_formatter;
 pub mod request;
 pub mod response;
 /// Completion trait definitions for trait-backed architecture
@@ -27,6 +28,7 @@ pub use candle::{
     CompletionCoreError, CompletionCoreRequest, CompletionCoreResponse, CompletionCoreResult,
     StreamingCoreResponse,
 };
+pub use prompt_formatter::PromptFormatter;
 
 // Type aliases for convenience
 pub type CandleCompletionResult<T> = CompletionCoreResult<T>;

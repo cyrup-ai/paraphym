@@ -12,14 +12,15 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
 
-use crossbeam_channel::{Receiver, Sender, unbounded};
+use crossbeam_channel::unbounded;
 use serde::{Deserialize, Serialize};
-use surrealdb::sql::Value;
+use surrealdb::Value;
 
 use crate::memory::constants::SEARCH_TASK;
 use crate::memory::utils::error::Result;
 use crate::memory::vector::embedding_model::EmbeddingModel;
 use crate::memory::vector::vector_store::VectorStore;
+use crate::providers::bert_embedding::CandleBertEmbeddingProvider;
 
 /// Convert static string to Option<String> for embedding tasks
 #[inline]
@@ -32,7 +33,7 @@ fn task_string(task: &'static str) -> Option<String> {
 /// This function type represents a synchronous keyword search operation.
 /// For concurrent execution, wrap the function call in a thread.
 pub type KeywordSearchFn =
-    Box<dyn Fn(&str, Option<SearchOptions>) -> Result<Vec<SearchResult>> + Send + Sync>;
+    Arc<dyn Fn(&str, Option<SearchOptions>) -> Result<Vec<SearchResult>> + Send + Sync>;
 
 /// Search result with comprehensive metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -177,7 +178,7 @@ impl SearchOptions {
         // Clamp similarity threshold
         if let Some(threshold) = self.min_similarity {
             if threshold < 0.0 || threshold > 1.0 {
-                return Err(crate::utils::error::Error::InvalidInput(
+                return Err(crate::memory::utils::error::Error::InvalidInput(
                     "min_similarity must be between 0.0 and 1.0".to_string(),
                 ));
             }
@@ -233,6 +234,22 @@ impl VectorSearch {
             embedding_model,
             default_options: SearchOptions::default(),
         }
+    }
+
+    /// Create a new VectorSearch with BERT embedding provider
+    ///
+    /// # Arguments
+    /// * `store` - Vector store implementation
+    ///
+    /// # Returns
+    /// Result containing new VectorSearch instance with BERT embeddings
+    pub async fn with_bert_embeddings(store: Arc<dyn VectorStore>) -> Result<Self> {
+        let bert_provider = create_shared_bert_provider().await?;
+        Ok(Self {
+            store,
+            embedding_model: bert_provider as Arc<dyn EmbeddingModel>,
+            default_options: SearchOptions::default(),
+        })
     }
 
     /// Create with custom default options
@@ -291,13 +308,13 @@ impl VectorSearch {
 
         // Validate embedding
         if embedding.is_empty() {
-            return Err(crate::utils::error::Error::InvalidInput(
+            return Err(crate::memory::utils::error::Error::InvalidInput(
                 "Embedding vector cannot be empty".to_string(),
             ));
         }
 
         if embedding.iter().any(|&x| !x.is_finite()) {
-            return Err(crate::utils::error::Error::InvalidInput(
+            return Err(crate::memory::utils::error::Error::InvalidInput(
                 "Embedding vector contains NaN or infinite values".to_string(),
             ));
         }
@@ -392,12 +409,15 @@ impl VectorSearch {
         for (index, embedding) in embeddings.into_iter().enumerate() {
             let sender = sender.clone();
             let store = Arc::clone(&self.store);
+            let embedding_model = Arc::clone(&self.embedding_model);
             let options = options.clone();
 
             let handle = thread::spawn(move || {
+                // Use the actual embedding model for consistency
+                // Even though we don't need it for pure vector search, it's available
                 let search = VectorSearch {
                     store,
-                    embedding_model: Arc::new(DummyEmbedding), // Not used in embedding search
+                    embedding_model,
                     default_options: SearchOptions::default(),
                 };
 
@@ -414,7 +434,7 @@ impl VectorSearch {
         // Wait for all threads and collect results
         for handle in handles {
             if handle.join().is_err() {
-                return Err(crate::utils::error::Error::Other(
+                return Err(crate::memory::utils::error::Error::Other(
                     "Thread execution failed during batch search".to_string(),
                 ));
             }
@@ -453,30 +473,12 @@ impl VectorSearch {
     }
 }
 
-/// Dummy embedding model for internal use (when we only need vector search)
-#[derive(Debug)]
-struct DummyEmbedding;
-
-impl EmbeddingModel for DummyEmbedding {
-    fn embed(&self, _text: &str, _task: Option<String>) -> Result<Vec<f32>> {
-        Err(crate::utils::error::Error::Other(
-            "Not implemented".to_string(),
-        ))
-    }
-
-    fn batch_embed(&self, _texts: &[String], _task: Option<String>) -> Result<Vec<Vec<f32>>> {
-        Err(crate::utils::error::Error::Other(
-            "Not implemented".to_string(),
-        ))
-    }
-
-    fn dimension(&self) -> usize {
-        0 // Dummy implementation - no actual embeddings
-    }
-
-    fn name(&self) -> &str {
-        "dummy-embedding"
-    }
+/// Create a shared BERT embedding provider instance for use across VectorSearch operations
+/// This avoids downloading the model multiple times and ensures consistent embeddings
+async fn create_shared_bert_provider() -> Result<Arc<CandleBertEmbeddingProvider>> {
+    let provider = CandleBertEmbeddingProvider::new().await
+        .map_err(|e| crate::memory::utils::error::Error::ModelError(format!("Failed to create BERT provider: {}", e)))?;
+    Ok(Arc::new(provider))
 }
 
 /// Hybrid search combining vector and keyword search strategies
@@ -577,7 +579,7 @@ impl HybridSearch {
 
         // Wait for threads to complete
         if vector_handle.join().is_err() || keyword_handle.join().is_err() {
-            return Err(crate::utils::error::Error::Other(
+            return Err(crate::memory::utils::error::Error::Other(
                 "Thread execution failed during hybrid search".to_string(),
             ));
         }

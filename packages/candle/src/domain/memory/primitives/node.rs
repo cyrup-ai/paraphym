@@ -594,7 +594,7 @@ impl Default for MemoryNode {
         
         MemoryNode::new(
             MemoryTypeEnum::Semantic,
-            MemoryContent::new("Default memory node".to_string())
+            MemoryContent::text("Default memory node")
         )
     }
 }
@@ -605,7 +605,7 @@ impl cyrup_sugars::prelude::MessageChunk for MemoryNode {
         
         MemoryNode::new(
             MemoryTypeEnum::Semantic,
-            MemoryContent::new(format!("Error: {}", error))
+            MemoryContent::text(format!("Error: {}", error))
         )
     }
 

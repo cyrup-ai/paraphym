@@ -531,7 +531,7 @@ impl VectorConnectionConfig {
     #[inline]
     pub fn new(url: impl Into<Arc<str>>) -> Self {
         Self {
-            url: url.into(),
+            url: url.into().to_string(),
             api_key: None,
             timeout: Duration::from_secs(30),
             max_connections: 10,
@@ -544,7 +544,7 @@ impl VectorConnectionConfig {
     /// Set API key
     #[inline]
     pub fn with_api_key(mut self, api_key: impl Into<Arc<str>>) -> Self {
-        self.api_key = Some(api_key.into());
+        self.api_key = Some(api_key.into().to_string());
         self
     }
 

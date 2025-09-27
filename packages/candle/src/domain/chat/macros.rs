@@ -795,8 +795,8 @@ impl Default for ActionExecutionResult {
 }
 
 impl MessageChunk for ActionExecutionResult {
-    fn bad_chunk(error: String) -> Self {
-        ActionExecutionResult::Error(error)
+    fn bad_chunk(_error: String) -> Self {
+        ActionExecutionResult::Error(_error)
     }
     
     fn error(&self) -> Option<&str> {
@@ -957,10 +957,10 @@ pub struct MacroExecutionResult {
 }
 
 impl MessageChunk for MacroExecutionResult {
-    fn bad_chunk(error: String) -> Self {
+    fn bad_chunk(_error: String) -> Self {
         MacroExecutionResult {
             success: false,
-            message: error,
+            message: _error,
             actions_executed: 0,
             execution_duration: Duration::from_secs(0),
             modified_variables: HashMap::new(),
@@ -1452,7 +1452,7 @@ impl From<MacroSessionId> for Uuid {
 
 /// Implementation of MessageChunk for MacroSessionId to enable streaming
 impl MessageChunk for MacroSessionId {
-    fn bad_chunk(error: String) -> Self {
+    fn bad_chunk(_error: String) -> Self {
         // For errors, we'll generate a nil UUID and log the error
         // This is a fallback since Uuid doesn't have a natural error representation
         MacroSessionId(Uuid::nil())

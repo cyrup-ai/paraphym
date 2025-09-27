@@ -9,6 +9,35 @@ use uuid::Uuid;
 
 use super::primitives::MemoryNode;
 
+/// Wrapper for memory lookup results that implements MessageChunk
+#[derive(Debug, Clone, Default)]
+pub struct MemoryLookupResult {
+    /// The memory node if found
+    pub memory: Option<MemoryNode>,
+}
+
+impl MemoryLookupResult {
+    /// Create a result with a found memory node
+    pub fn found(memory: MemoryNode) -> Self {
+        Self { memory: Some(memory) }
+    }
+    
+    /// Create a result with no memory node found
+    pub fn not_found() -> Self {
+        Self { memory: None }
+    }
+}
+
+impl cyrup_sugars::prelude::MessageChunk for MemoryLookupResult {
+    fn bad_chunk(_error: String) -> Self {
+        Self::default()
+    }
+
+    fn error(&self) -> Option<&str> {
+        None
+    }
+}
+
 /// CandleMemory trait - mirrors paraphym-domain::Memory exactly with Candle prefix
 ///
 /// This trait enables:
@@ -42,8 +71,8 @@ pub trait CandleMemory: Send + Sync + 'static {
     /// * `id` - The unique ID of the memory node
     ///
     /// # Returns
-    /// AsyncStream containing the memory node if found
-    fn get_memory(&self, id: &str) -> AsyncStream<Option<MemoryNode>>;
+    /// AsyncStream containing the memory lookup result
+    fn get_memory(&self, id: &str) -> AsyncStream<MemoryLookupResult>;
 
     /// Delete memory node by ID
     ///
@@ -88,85 +117,23 @@ impl Default for CandleMemoryStats {
     }
 }
 
-/// Concrete memory implementation using the existing Memory struct
-/// This enables trait-backed architecture while preserving existing functionality
-#[derive(Debug, Clone)]
-pub struct CandleMemoryImpl {
-    /// Inner memory instance
-    inner: crate::domain::memory::manager::Memory,
-}
-
-impl CandleMemoryImpl {
-    /// Create new memory implementation with configuration
-    ///
-    /// # Arguments
-    /// * `config` - Memory configuration
-    ///
-    /// # Returns
-    /// AsyncStream containing configured memory implementation
-    pub fn new(config: super::manager::MemoryConfig) -> AsyncStream<Self> {
-        AsyncStream::with_channel(move |sender| {
-            // Spawn task to handle the memory creation
-            std::thread::spawn(move || {
-                let memory_stream = crate::domain::memory::manager::Memory::new(config);
-                let mut memory_stream = Box::pin(memory_stream);
-
-                // Collect the memory instance and wrap it
-
-                if let Some(memory) = memory_stream.next() {
-                    let implementation = Self { inner: memory };
-                    let _ = sender.send(implementation);
-                }
-            });
-        })
+impl cyrup_sugars::prelude::MessageChunk for CandleMemoryStats {
+    fn bad_chunk(_error: String) -> Self {
+        Self {
+            total_memories: 0,
+            total_size_bytes: 0,
+            avg_embedding_dimension: 0.0,
+            uptime_seconds: 0,
+            cache_hit_ratio: 0.0,
+        }
     }
 
-    /// Create memory implementation with default configuration
-    ///
-    /// # Returns
-    /// AsyncStream containing memory implementation with default settings
-    pub fn with_defaults() -> AsyncStream<Self> {
-        let config = super::manager::MemoryConfig::default();
-        Self::new(config)
+    fn error(&self) -> Option<&str> {
+        None // CandleMemoryStats doesn't have an error field
     }
 }
 
-impl CandleMemory for CandleMemoryImpl {
-    fn store_memory(&self, memory_node: &MemoryNode) -> AsyncStream<crate::domain::context::chunk::CandleUnit> {
-        self.inner.store_memory(memory_node)
-    }
-
-    fn search_memory(&self, _query: &str, _limit: usize) -> AsyncStream<MemoryNode> {
-        // TODO: Implement search functionality
-        AsyncStream::with_channel(move |_sender| {
-            // Stub implementation for now
-        })
-    }
-
-    fn get_memory(&self, _id: &str) -> AsyncStream<Option<MemoryNode>> {
-        // TODO: Implement get functionality
-        AsyncStream::with_channel(move |sender| {
-            let _ = sender.send(None);
-        })
-    }
-
-    fn delete_memory(&self, _id: &str) -> AsyncStream<crate::domain::context::chunk::CandleMemoryOperationResult> {
-        // TODO: Implement delete functionality
-        AsyncStream::with_channel(move |sender| {
-            let _ = sender.send(crate::domain::context::chunk::CandleMemoryOperationResult::failure_with_type(
-                "Delete functionality not yet implemented", 
-                "delete"
-            ));
-        })
-    }
-
-    fn get_stats(&self) -> AsyncStream<CandleMemoryStats> {
-        AsyncStream::with_channel(move |sender| {
-            let stats = CandleMemoryStats::default();
-            let _ = sender.send(stats);
-        })
-    }
-}
+// Bridge implementation removed - calling code now uses SurrealDBMemoryManager directly
 
 /// Mock memory implementation for testing
 #[derive(Debug, Clone, Default)]
@@ -207,12 +174,12 @@ impl CandleMemory for MockCandleMemory {
         })
     }
 
-    fn get_memory(&self, id: &str) -> AsyncStream<Option<MemoryNode>> {
+    fn get_memory(&self, id: &str) -> AsyncStream<MemoryLookupResult> {
         let search_uuid = match Uuid::parse_str(id) {
             Ok(uuid) => uuid,
             Err(_) => {
                 return AsyncStream::with_channel(move |sender| {
-                    let _ = sender.send(None);
+                    let _ = sender.send(MemoryLookupResult::not_found());
                 });
             }
         };
@@ -224,9 +191,13 @@ impl CandleMemory for MockCandleMemory {
                     .iter()
                     .find(|node| node.base_memory.id == search_uuid)
                     .cloned();
-                let _ = sender.send(found);
+                let result = match found {
+                    Some(memory) => MemoryLookupResult::found(memory),
+                    None => MemoryLookupResult::not_found(),
+                };
+                let _ = sender.send(result);
             } else {
-                let _ = sender.send(None);
+                let _ = sender.send(MemoryLookupResult::not_found());
             }
         })
     }

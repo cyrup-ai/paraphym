@@ -1,170 +1,194 @@
-// src/cognitive/common/types.rs
-//! Defines common data structures for the cognitive evaluation committee.
-
-use std::collections::HashMap;
+//! Common cognitive types
+//!
+//! Shared types for local cognitive operations.
 
 use serde::{Deserialize, Serialize};
 
-use crate::memory::cognitive::types::{ImpactFactors, OptimizationSpec, RoutingDecision};
-
-/// Consensus decision from committee
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConsensusDecision {
-    pub makes_progress: bool,
-    pub confidence: f64,
-    pub overall_score: f64, // Weighted combination of alignment, quality, safety
-    pub improvement_suggestions: Vec<String>,
-    pub dissenting_opinions: Vec<String>,
-    pub latency_factor: f64,
-    pub memory_factor: f64,
-    pub relevance_factor: f64,
-}
-
-impl From<ConsensusDecision> for ImpactFactors {
-    fn from(decision: ConsensusDecision) -> Self {
-        ImpactFactors {
-            alignment_score: decision.overall_score,
-            quality_score: decision.overall_score,
-            safety_score: decision.overall_score,
-            confidence: decision.confidence,
-            improvement_suggestions: decision.improvement_suggestions,
-            potential_risks: decision.dissenting_opinions,
-            latency_factor: decision.latency_factor,
-            memory_factor: decision.memory_factor,
-            relevance_factor: decision.relevance_factor,
-        }
-    }
-}
-
-/// Individual agent's evaluation
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentEvaluation {
-    pub agent_id: String,
-    pub action: String,
-    pub makes_progress: bool,        // Core question: does this help?
-    pub objective_alignment: f64,    // 0-1: How well aligned with objective
-    pub implementation_quality: f64, // 0-1: How well implemented
-    pub risk_assessment: f64,        // 0-1: How safe/risky (1 = safe)
-    pub reasoning: String,           // Detailed explanation
-    pub suggested_improvements: Vec<String>, // What could be better
-}
-
-/// Evaluation rubric provided to agents
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EvaluationRubric {
-    pub objective: String,
-    pub success_criteria: Vec<String>,
-    pub constraints: Vec<String>,
-    pub scoring_guidelines: HashMap<String, String>,
-}
-
-impl EvaluationRubric {
-    pub fn from_spec(spec: &OptimizationSpec, user_objective: &str) -> Self {
-        let mut scoring_guidelines = HashMap::new();
-        scoring_guidelines.insert(
-            "latency".to_string(),
-            format!("Score 0.0-2.0: How much does this change improve speed? (1.0 = no change, <1.0 = faster, >1.0 = slower). Max acceptable: {:.2}", 
-                1.0 + spec.content_type.restrictions.max_latency_increase / 100.0)
-        );
-        scoring_guidelines.insert(
-            "memory".to_string(),
-            format!("Score 0.0-2.0: How much does this change affect memory usage? (1.0 = no change, <1.0 = less memory, >1.0 = more memory). Max acceptable: {:.2}",
-                1.0 + spec.content_type.restrictions.max_memory_increase / 100.0)
-        );
-        scoring_guidelines.insert(
-            "relevance".to_string(),
-            format!("Score 0.0-2.0: How much does this improve achieving the objective? (1.0 = no change, >1.0 = better, <1.0 = worse). Min required: {:.2}",
-                1.0 + spec.content_type.restrictions.min_relevance_improvement / 100.0)
-        );
-
-        Self {
-            objective: user_objective.to_string(),
-            success_criteria: vec![
-                format!("Achieve: {}", user_objective),
-                format!(
-                    "Maintain latency within {}% increase",
-                    spec.content_type.restrictions.max_latency_increase
-                ),
-                format!(
-                    "Maintain memory within {}% increase",
-                    spec.content_type.restrictions.max_memory_increase
-                ),
-                format!(
-                    "Improve relevance by at least {}%",
-                    spec.content_type.restrictions.min_relevance_improvement
-                ),
-            ],
-            constraints: spec.constraints.clone(),
-            scoring_guidelines,
-        }
-    }
-}
-
-/// Multi-round evaluation phase
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EvaluationPhase {
-    Initial,  // First independent evaluation
-    Review,   // Review others' evaluations
-    Refine,   // Refine based on committee feedback
-    Finalize, // Final scoring round
-}
-
-/// Round of evaluations with phase tracking
-#[derive(Debug, Clone)]
-pub struct EvaluationRound {
-    pub phase: EvaluationPhase,
-    pub evaluations: Vec<AgentEvaluation>,
-    pub consensus: Option<ConsensusDecision>,
-    pub steering_feedback: Option<String>,
-}
-
-/// Configuration for the evaluation committee
+/// Committee configuration for local evaluation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommitteeConfig {
-    pub rounds: usize,
-    pub concurrency: usize,
+    pub members: Vec<String>,
     pub consensus_threshold: f64,
-    pub steering_strength: f64,
-    pub agent_perspectives: HashMap<String, String>,
+    pub evaluation_rounds: u32,
 }
 
 impl Default for CommitteeConfig {
     fn default() -> Self {
-        let mut agent_perspectives = HashMap::new();
-        agent_perspectives.insert("performance".to_string(), "gpt-4".to_string());
-        agent_perspectives.insert("safety".to_string(), "claude-3".to_string());
-        agent_perspectives.insert("maintainability".to_string(), "gpt-4".to_string());
-
         Self {
-            rounds: 3,
-            concurrency: 4,
+            members: vec!["evaluator1".to_string(), "evaluator2".to_string()],
             consensus_threshold: 0.7,
-            steering_strength: 0.8,
-            agent_perspectives,
+            evaluation_rounds: 1,
         }
     }
 }
 
-/// Events emitted by the evaluation committee
+/// Evaluation rubric for quality assessment
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum CommitteeEvent {
-    SteeringDecision(RoutingDecision),
-    EvaluationStarted {
-        action: String,
-        agent_count: usize,
-    },
-    RoundCompleted {
-        round: usize,
-        consensus: Option<ConsensusDecision>,
-    },
-    ConsensusReached {
-        action: String,
-        decision: ConsensusDecision,
-        factors: ImpactFactors,
-        rounds_taken: usize,
-    },
-    ConsensusFailed {
-        action: String,
-        rounds: usize,
-    },
+pub struct EvaluationRubric {
+    pub criteria: Vec<EvaluationCriterion>,
+    pub scoring_method: ScoringMethod,
+}
+
+impl EvaluationRubric {
+    pub fn from_spec(spec: &str) -> Result<Self, String> {
+        if spec.trim().is_empty() {
+            return Err("Specification cannot be empty".to_string());
+        }
+
+        // Try parsing as JSON first
+        if let Ok(json_criteria) = Self::parse_json_spec(spec) {
+            let scoring_method = if json_criteria.iter().any(|c| c.weight != 1.0) {
+                ScoringMethod::Weighted
+            } else {
+                ScoringMethod::Average
+            };
+            return Ok(Self {
+                criteria: json_criteria,
+                scoring_method,
+            });
+        }
+
+        // Fall back to simple delimited format: "name:weight:description;name:weight:description"
+        if let Ok(simple_criteria) = Self::parse_simple_spec(spec) {
+            let scoring_method = if simple_criteria.iter().any(|c| c.weight != 1.0) {
+                ScoringMethod::Weighted
+            } else {
+                ScoringMethod::Average
+            };
+            return Ok(Self {
+                criteria: simple_criteria,
+                scoring_method,
+            });
+        }
+
+        Err(format!("Invalid specification format: {}", spec))
+    }
+
+    fn parse_json_spec(spec: &str) -> Result<Vec<EvaluationCriterion>, String> {
+        #[derive(Deserialize)]
+        struct JsonCriterion {
+            name: String,
+            weight: Option<f64>,
+            description: Option<String>,
+        }
+
+        let json_criteria: Vec<JsonCriterion> = serde_json::from_str(spec)
+            .map_err(|e| format!("JSON parsing error: {}", e))?;
+
+        if json_criteria.is_empty() {
+            return Err("Specification must contain at least one criterion".to_string());
+        }
+
+        let criteria = json_criteria
+            .into_iter()
+            .map(|jc| EvaluationCriterion {
+                name: jc.name,
+                weight: jc.weight.unwrap_or(1.0),
+                description: jc.description.unwrap_or_else(|| "No description provided".to_string()),
+            })
+            .collect();
+
+        Ok(criteria)
+    }
+
+    fn parse_simple_spec(spec: &str) -> Result<Vec<EvaluationCriterion>, String> {
+        let mut criteria = Vec::new();
+        
+        for criterion_spec in spec.split(';') {
+            let parts: Vec<&str> = criterion_spec.trim().split(':').collect();
+            
+            if parts.len() < 1 || parts.len() > 3 {
+                return Err(format!("Invalid criterion format: '{}'. Expected 'name[:weight[:description]]'", criterion_spec));
+            }
+
+            let name = parts[0].trim().to_string();
+            if name.is_empty() {
+                return Err("Criterion name cannot be empty".to_string());
+            }
+
+            let weight = if parts.len() > 1 {
+                parts[1].trim().parse::<f64>()
+                    .map_err(|_| format!("Invalid weight '{}' in criterion '{}'", parts[1], name))?
+            } else {
+                1.0
+            };
+
+            if weight < 0.0 || weight > 10.0 {
+                return Err(format!("Weight {} for criterion '{}' must be between 0.0 and 10.0", weight, name));
+            }
+
+            let description = if parts.len() > 2 {
+                parts[2].trim().to_string()
+            } else {
+                format!("Evaluation criterion: {}", name)
+            };
+
+            criteria.push(EvaluationCriterion {
+                name,
+                weight,
+                description,
+            });
+        }
+
+        if criteria.is_empty() {
+            return Err("Specification must contain at least one criterion".to_string());
+        }
+
+        Ok(criteria)
+    }
+}/// Evaluation criterion for assessment
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvaluationCriterion {
+    pub name: String,
+    pub weight: f64,
+    pub description: String,
+}
+
+impl Default for EvaluationCriterion {
+    fn default() -> Self {
+        Self {
+            name: "quality".to_string(),
+            weight: 1.0,
+            description: "Overall content quality".to_string(),
+        }
+    }
+}
+
+/// Scoring method for evaluation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ScoringMethod {
+    Average,
+    Weighted,
+    Consensus,
+}
+
+/// Impact factors for cognitive evaluation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImpactFactors {
+    pub relevance: f64,
+    pub freshness: f64,
+    pub quality: f64,
+    pub complexity: f64,
+}
+
+impl Default for ImpactFactors {
+    fn default() -> Self {
+        Self {
+            relevance: 1.0,
+            freshness: 0.8,
+            quality: 1.0,
+            complexity: 0.6,
+        }
+    }
+}
+
+impl From<Vec<f64>> for ImpactFactors {
+    fn from(factors: Vec<f64>) -> Self {
+        Self {
+            relevance: factors.get(0).copied().unwrap_or(1.0),
+            freshness: factors.get(1).copied().unwrap_or(0.8),
+            quality: factors.get(2).copied().unwrap_or(1.0),
+            complexity: factors.get(3).copied().unwrap_or(0.6),
+        }
+    }
 }

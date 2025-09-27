@@ -5,8 +5,8 @@ edition = "2024"
 
 
 [dependencies]
-# paraphym_memory = { path = "../memory" }  # Removed - consolidated into candle
 paraphym_simd = { path = "../simd" }
+# quyc = { path = "/Volumes/samsung_t9/quyc/packages/api" }  # Temporarily disabled due to compilation issues
 cyrup_sugars = { git = "https://github.com/cyrup-ai/cyrup-sugars", branch = "main", package = "cyrup_sugars", features = ["all"] }
 ystream = { git = "https://github.com/cyrup-ai/ystream", branch = "main" }
 
@@ -60,13 +60,22 @@ candle-core = { git = "https://github.com/huggingface/candle", branch = "main", 
 candle-nn = { git = "https://github.com/huggingface/candle", branch = "main", default-features = false }
 candle-transformers = { git = "https://github.com/huggingface/candle", branch = "main", default-features = false }
 tokenizers = "0.21.4"
+
 # — Optional acceleration dependencies —
 half = { version = "2.6.0", optional = true }
-
-
-# Platform-specific acceleration dependencies
 metal = { version = "0.32.0", optional = true }
 candle-metal-kernels = { git = "https://github.com/huggingface/candle", branch = "main", optional = true }
+cudarc = { version = "0.17.0", optional = true, default-features = false, features = [
+    "cublas",
+    "cublaslt", 
+    "cudnn",
+    "curand",
+    "dynamic-linking",
+    "f16",
+    "std",
+] }
+bindgen_cuda = { version = "0.1.5", optional = true }
+candle-kernels = { git = "https://github.com/huggingface/candle", branch = "main", optional = true }
 
 # — audio / resampling —
 hound = "3.5.1"
@@ -83,9 +92,15 @@ glob = "0.3.2"
 base64 = "0.22.1"
 tracing = "0.1.41"
 termcolor = { git = "https://github.com/cyrup-ai/termcolor", branch = "main" }
+
+# --- Web dependencies ---
+wasm-bindgen = { version = "0.2.101", optional = true }
+js-sys = { version = "0.3.78", optional = true }
+web-sys = { version = "0.3.78", optional = true }
+console_error_panic_hook = { version = "0.1.7", optional = true }
 jwalk = "0.8.1"
 flume = "0.11.1"
-rayon = "1.10.0"
+rayon = { version = "1.10.0", optional = true }
 gix = "0.73.0"
 yyaml = { git = "https://github.com/cyrup-ai/yyaml", branch = "main"}
 memmap2 = "0.9.7"
@@ -126,7 +141,7 @@ num_cpus = "1.17.0"
 bytes = "1.10.1"
 toml = "0.9.5"
 rkyv = { version = "0.8.11", optional = true }
-bincode = { version = "2.0.1", optional = true }
+bincode = { version = "2.0.1" }
 
 # Note: SurrealDB already defined above, removing duplicate
 serde_cbor = "0.11.2"
@@ -136,7 +151,7 @@ tokio = { version = "1.47.1", features = ["full"] }
 tokio-stream = "0.1.17"
 async-stream = "0.3.6"
 clap = { version = "4.5.42", features = ["derive"] }
-progresshub = { path = "../../../progresshub/packages/progresshub" }
+# progresshub = { git = "https://github.com/cyrup-ai/progresshub", branch = "main", package = "progresshub", default-features = false }
 
 [dev-dependencies]
 # Testing (from memory package)
@@ -156,30 +171,33 @@ hdrhistogram = "7.5.4"
 
 
 [[bin]]
-name = "candle-chat"
+name = "paraphym"
 path = "src/main.rs"
 
 [lib]
 name = "paraphym_candle"
 path = "src/lib.rs"
 
-# GPU features temporarily disabled for warning fixes
-[features]
-# ───────────── default: metal acceleration enabled ─────────────
-default = ["metal", "reqwest_unstable"]
 
-# --- Developer conveniences (opt-in) -----------------------
-dev = ["debug"] # ← enable with `--features dev`
-debug = []                 # extra logging / assertions
+[features]
+default = ["metal", "reqwest_unstable", "cognitive", "api"]
+
+# --- Core build flavours ---
+desktop = ["dep:rayon"]
+web = ["dep:wasm-bindgen", "dep:js-sys", "web-sys/Window", "dep:console_error_panic_hook"]
+
+# --- Developer conveniences ---
+dev = ["debug", "desktop"]
+debug = []
 
 # --- SIMD features ---
 portable_simd = []
 reqwest_unstable = []
 
 # --- Memory package features (migrated) ---
-api = ["axum", "tower", "tower-http"]
-faiss-vector = ["faiss"]
-hnsw-vector = ["hnsw"]
+api = ["dep:axum", "dep:tower", "dep:tower-http"]
+faiss-vector = ["dep:faiss"]
+hnsw-vector = ["dep:hnsw"]
 surreal-vector = []
 openai-embeddings = []
 custom-embeddings = []
@@ -188,10 +206,13 @@ quantum-routing = ["cognitive"]
 evolution = ["cognitive"]
 full-cognitive = ["cognitive", "quantum-routing", "evolution"]
 
-# --- Candle backend features (required for all candle crates) -----
+# --- ProgressHub features ---
+progresshub = []
+
+# --- Candle backend features ---
 cuda = [
     "dep:cudarc",
-    "dep:bindgen_cuda",
+    "dep:bindgen_cuda", 
     "dep:candle-kernels",
     "candle-core/cuda",
     "candle-nn/cuda",
@@ -202,7 +223,7 @@ metal = [
     "dep:metal",
     "dep:candle-metal-kernels",
     "candle-core/metal",
-    "candle-nn/metal",
+    "candle-nn/metal", 
     "candle-transformers/metal",
 ]
 accelerate = [
@@ -221,31 +242,9 @@ mkl = [
 # OS-specific acceleration dependencies
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
 intel-mkl-src = { version = "0.8.1", optional = true }
-cudarc = { version = "0.17.0", optional = true, default-features = false, features = [
-    "cublas",
-    "cublaslt",
-    "cudnn",
-    "curand",
-    "dynamic-linking",
-    "f16",
-    "std",
-] }
-bindgen_cuda = { version = "0.1.5", optional = true }
-candle-kernels = { git = "https://github.com/huggingface/candle", branch = "main", optional = true }
 
 [target.'cfg(all(target_os = "windows", target_arch = "x86_64"))'.dependencies]
 intel-mkl-src = { version = "0.8.1", optional = true }
-cudarc = { version = "0.17.0", optional = true, default-features = false, features = [
-    "cublas",
-    "cublaslt",
-    "cudnn",
-    "curand",
-    "dynamic-linking",
-    "f16",
-    "std",
-] }
-bindgen_cuda = { version = "0.1.5", optional = true }
-candle-kernels = { git = "https://github.com/huggingface/candle", branch = "main", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 accelerate-src = { version = "0.3.2", optional = true }

@@ -31,7 +31,7 @@ pub trait EmbeddingModel: Send + Sync + Clone {
         // Convert AsyncTask to AsyncStream using with_channel pattern for pure streams
         crate::AsyncStream::with_channel(move |sender| {
             // Spawn task to handle the embedding computation
-            crate::spawn_task(move || {
+            ystream::spawn_task(move || {
                 match embedding_task.collect() {
                     Ok(embedding) => {
                         let processed = handler(embedding);

@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use super::super::manager::MemoryConfig;
+use super::memory::MemoryConfig;
 use super::super::SurrealDBMemoryManager;
 use crate::domain::init::globals::{CONFIG_CACHE, LOCAL_CONFIG};
 

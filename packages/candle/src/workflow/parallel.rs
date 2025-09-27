@@ -43,7 +43,6 @@ use cyrup_sugars::prelude::MessageChunk;
 /// - No blocking on slowest operation
 /// - Linear scaling with CPU core availability
 /// - Minimal synchronization overhead
-#[derive(Clone)]
 pub struct ParallelN<In, Out>
 where
     In: Clone + Send + Sync + 'static,
@@ -51,6 +50,19 @@ where
 {
     operations: SmallVec<Box<dyn DynOp<In, Out> + Send + Sync>, 16>,
     _phantom: std::marker::PhantomData<(In, Out)>,
+}
+
+impl<In, Out> Clone for ParallelN<In, Out>
+where
+    In: Clone + Send + Sync + 'static,
+    Out: Send + Sync + Clone + Default + MessageChunk + 'static,
+{
+    fn clone(&self) -> Self {
+        Self {
+            operations: self.operations.iter().map(|op| op.clone_boxed()).collect(),
+            _phantom: std::marker::PhantomData,
+        }
+    }
 }
 
 impl<In, Out> ParallelN<In, Out>
@@ -151,7 +163,7 @@ where
     /// AsyncStream of ParallelResult<Out> values in completion order
     #[inline]
     pub fn execute(self, input: In) -> AsyncStream<ParallelResult<Out>> {
-        self.call(input)
+        <Self as Op<In, ParallelResult<Out>>>::call(&self, input)
     }
 }
 
@@ -191,7 +203,8 @@ where
     /// - Individual operation failures don't stop others
     /// - Graceful degradation on resource exhaustion
     fn call(&self, input: In) -> AsyncStream<ParallelResult<Out>> {
-        let operations = self.operations.clone();
+        let operations: SmallVec<Box<dyn DynOp<In, Out> + Send + Sync>, 16> = 
+            self.operations.iter().map(|op| op.clone_boxed()).collect();
         let operation_count = operations.len();
 
         // Handle edge case: no operations
@@ -203,6 +216,7 @@ where
 
         AsyncStream::with_channel(move |sender| {
             // Use crossbeam scoped threads for bounded resource management
+            let sender_clone = sender.clone();
             let scope_result = crossbeam::thread::scope(move |scope| {
                 // Create channel for streaming results as they complete
                 let (result_tx, result_rx) = mpsc::channel::<ParallelResult<Out>>();
@@ -238,14 +252,14 @@ where
                 
                 // Collect and stream results as they arrive from any operation
                 while let Ok(parallel_result) = result_rx.recv() {
-                    if sender.send(parallel_result).is_err() {
+                    if sender_clone.send(parallel_result).is_err() {
                         // Main receiver dropped, stop streaming all results
                         tracing::debug!("Main parallel receiver dropped - terminating all operations");
                         break;
                     }
                 }
                 
-                Ok(())
+                Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
             });
 
             // Handle thread scope errors (resource exhaustion, panics, etc.)

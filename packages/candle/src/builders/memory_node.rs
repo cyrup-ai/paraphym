@@ -123,7 +123,7 @@ impl MemoryNodeBuilder {
         self
     }
 
-    /// Build the memory node with validation
+    /// Build the memory node with validation using pool for zero-allocation
     pub fn build(self) -> MemoryResult<MemoryNode> {
         let memory_type = self
             .memory_type
@@ -133,7 +133,16 @@ impl MemoryNodeBuilder {
 
         let id = self.id.unwrap_or_else(Uuid::new_v4);
 
-        let mut node = MemoryNode::with_id(id, memory_type, content);
+        // Try to use pooled node for zero-allocation
+        let mut node = if let Some(mut pooled_node) = crate::domain::memory::pool::acquire_pooled_node() {
+            // Initialize the pooled node
+            pooled_node.initialize(content.text.to_string(), memory_type);
+            // Take ownership from pool
+            pooled_node.take().unwrap_or_else(|| MemoryNode::with_id(id, memory_type, content))
+        } else {
+            // Fallback to direct allocation if pool unavailable
+            MemoryNode::with_id(id, memory_type, content)
+        };
 
         // Set embedding if provided
         if let Some(embedding) = self.embedding {

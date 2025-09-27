@@ -112,7 +112,7 @@ impl FlatIndex {
 impl VectorIndex for FlatIndex {
     fn add(&mut self, id: String, vector: Vec<f32>) -> Result<()> {
         if vector.len() != self.config.dimensions {
-            return Err(crate::utils::error::Error::InvalidInput(format!(
+            return Err(crate::memory::utils::error::Error::InvalidInput(format!(
                 "Vector dimension mismatch: expected {}, got {}",
                 self.config.dimensions,
                 vector.len()
@@ -130,7 +130,7 @@ impl VectorIndex for FlatIndex {
 
     fn search(&self, query: &[f32], k: usize) -> Result<Vec<(String, f32)>> {
         if query.len() != self.config.dimensions {
-            return Err(crate::utils::error::Error::InvalidInput(format!(
+            return Err(crate::memory::utils::error::Error::InvalidInput(format!(
                 "Query dimension mismatch: expected {}, got {}",
                 self.config.dimensions,
                 query.len()
@@ -364,7 +364,7 @@ struct HNSWParams {
 impl VectorIndex for HNSWIndex {
     fn add(&mut self, id: String, vector: Vec<f32>) -> Result<()> {
         if vector.len() != self.config.dimensions {
-            return Err(crate::utils::error::Error::InvalidInput(format!(
+            return Err(crate::memory::utils::error::Error::InvalidInput(format!(
                 "Vector dimension mismatch: expected {}, got {}",
                 self.config.dimensions,
                 vector.len()
@@ -373,7 +373,7 @@ impl VectorIndex for HNSWIndex {
 
         // Check if ID already exists
         if self.id_to_index.contains_key(&id) {
-            return Err(crate::utils::error::Error::InvalidInput(format!(
+            return Err(crate::memory::utils::error::Error::InvalidInput(format!(
                 "Vector with ID '{}' already exists",
                 id
             )));
@@ -411,7 +411,7 @@ impl VectorIndex for HNSWIndex {
 
             Ok(())
         } else {
-            Err(crate::utils::error::Error::NotFound(format!(
+            Err(crate::memory::utils::error::Error::NotFound(format!(
                 "Vector with ID '{}' not found",
                 id
             )))
@@ -420,7 +420,7 @@ impl VectorIndex for HNSWIndex {
 
     fn search(&self, query: &[f32], k: usize) -> Result<Vec<(String, f32)>> {
         if query.len() != self.config.dimensions {
-            return Err(crate::utils::error::Error::InvalidInput(format!(
+            return Err(crate::memory::utils::error::Error::InvalidInput(format!(
                 "Query dimension mismatch: expected {}, got {}",
                 self.config.dimensions,
                 query.len()

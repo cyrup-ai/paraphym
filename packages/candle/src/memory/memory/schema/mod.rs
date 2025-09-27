@@ -3,14 +3,14 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::memory::primitives::MemoryType;
+use crate::memory::memory::primitives::types::MemoryTypeEnum;
 use crate::memory::utils; // For utility functions like generate_id and current_timestamp_ms
 
 /// Represents a memory node in the system.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Memory<T: MemoryType> {
+pub struct Memory {
     pub id: String,
-    pub r#type: T, // Renamed to avoid keyword conflict with `type`
+    pub r#type: MemoryTypeEnum, // Renamed to avoid keyword conflict with `type`
     pub content: String,
     pub embedding: Option<Vec<f32>>,
     pub metadata: serde_json::Value,
@@ -20,9 +20,9 @@ pub struct Memory<T: MemoryType> {
     pub score: Option<f32>,    // Optional score, e.g., from search results
 }
 
-impl<T: MemoryType> Memory<T> {
+impl Memory {
     /// Creates a new memory node.
-    pub fn new(content: String, memory_type: T) -> Self {
+    pub fn new(content: String, memory_type: MemoryTypeEnum) -> Self {
         let now = utils::current_timestamp_ms();
         Self {
             id: utils::generate_id(),
@@ -63,4 +63,6 @@ impl<T: MemoryType> Memory<T> {
         }
         self.updated_at = utils::current_timestamp_ms();
     }
+
+
 }

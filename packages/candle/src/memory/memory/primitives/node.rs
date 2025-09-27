@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 
 use super::metadata::MemoryMetadata;
-use super::types::MemoryTypeEnum;
+use super::types::{MemoryTypeEnum, MemoryContent};
 
 /// A memory node in the memory system
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,7 +15,7 @@ pub struct MemoryNode {
     /// Unique identifier for the memory
     pub id: String,
     /// Content of the memory
-    pub content: String,
+    pub content: MemoryContent,
     /// Type of memory
     pub memory_type: MemoryTypeEnum,
     /// Creation timestamp
@@ -30,7 +30,7 @@ pub struct MemoryNode {
 
 impl MemoryNode {
     /// Create a new memory node
-    pub fn new(content: String, memory_type: MemoryTypeEnum) -> Self {
+    pub fn new(memory_type: MemoryTypeEnum, content: MemoryContent) -> Self {
         let id = uuid::Uuid::new_v4().to_string();
         let now = Utc::now();
 
@@ -46,7 +46,7 @@ impl MemoryNode {
     }
 
     /// Create a new memory node with a specific ID
-    pub fn with_id(id: String, content: String, memory_type: MemoryTypeEnum) -> Self {
+    pub fn with_id(id: String, memory_type: MemoryTypeEnum, content: MemoryContent) -> Self {
         let now = Utc::now();
 
         Self {
@@ -91,5 +91,20 @@ impl MemoryNode {
     pub fn update_last_accessed(&mut self) {
         self.metadata.last_accessed_at = Some(Utc::now());
         self.updated_at = Utc::now();
+    }
+
+    /// Get the importance value from metadata
+    pub fn importance(&self) -> f32 {
+        self.metadata.importance
+    }
+
+    /// Get the last accessed timestamp
+    pub fn last_accessed(&self) -> Option<DateTime<Utc>> {
+        self.metadata.last_accessed_at
+    }
+
+    /// Get base memory representation - returns a reference to self for now
+    pub fn base_memory(&self) -> &Self {
+        self
     }
 }

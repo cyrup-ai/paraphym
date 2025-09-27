@@ -62,8 +62,7 @@ pub enum CandleMcpError {
     InvalidResponse,
 }
 
-// Type alias for ergonomics within the domain module
-type McpError = CandleMcpError;
+// CandleMcpError is used directly for clarity in the public API
 
 /// MessageChunk wrapper for MCP transport send operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -428,7 +427,7 @@ impl<T: CandleTransport> CandleClient<T> {
     ///
     /// # Returns
     ///
-    /// Returns the tool's result as a JSON `Value` on success, or `CandleMcpError` on failure.
+    /// Returns the tool's result as a JSON `Value` on success, or `McpError` on failure.
     ///
     /// # Errors
     ///
@@ -443,14 +442,7 @@ impl<T: CandleTransport> CandleClient<T> {
         let request_timeout = self.request_timeout;
         let name = name.to_string();
 
-        AsyncStream::builder()
-            .on_chunk(|result: Result<Value, McpError>| -> McpToolResult {
-                match result {
-                    Ok(value) => McpToolResult::success(value),
-                    Err(error) => McpToolResult::bad_chunk(format!("{:?}", error)),
-                }
-            })
-            .with_channel(move |stream_sender| {
+        AsyncStream::with_channel(move |stream_sender| {
                 std::thread::spawn(move || {
                     let start_time = Instant::now();
 
@@ -466,60 +458,61 @@ impl<T: CandleTransport> CandleClient<T> {
 
                     let mut buffer = Vec::with_capacity(1024);
                     if let Err(_) = serde_json::to_writer(&mut buffer, &request) {
-                        let _ = stream_sender.send_result(Err(McpError::SerializationFailed));
+                        let _ = stream_sender.send(McpToolResult::failure("Serialization failed"));
                         return;
                     }
 
-                let mut send_stream = transport.send(&buffer);
+                let send_stream = transport.send(&buffer);
                 if let Some(send_result) = send_stream.try_next() {
-                    if let Err(e) = send_result {
-                        let _ = stream_sender.send_result(Err(e));
+                    if !send_result.success {
+                        let error_msg = send_result.error_message.unwrap_or_else(|| "Send failed".to_string());
+                        let _ = stream_sender.send(McpToolResult::failure(error_msg));
                         return;
                     }
                 }
 
                 loop {
                     if start_time.elapsed() > request_timeout {
-                        let _ = stream_sender.send_result(Err(McpError::Timeout));
+                        let _ = stream_sender.send(McpToolResult::failure("Request timeout"));
                         return;
                     }
 
-                    let mut receive_stream = transport.receive();
-                    if let Some(response_result) = receive_stream.try_next() {
-                        match response_result {
-                            Ok(response_data) => {
-                                let response: JsonRpcResponse =
-                                    match serde_json::from_slice(&response_data) {
-                                        Ok(r) => r,
-                                        Err(_) => {
-                                            let _ = stream_sender
-                                                .send_result(Err(McpError::SerializationFailed));
-                                            return;
-                                        }
-                                    };
+                    let receive_stream = transport.receive();
+                    if let Some(receive_result) = receive_stream.try_next() {
+                        if let Some(error_msg) = receive_result.error_message {
+                            let _ = stream_sender.send(McpToolResult::failure(format!("Transport error: {}", error_msg)));
+                            return;
+                        }
 
-                                if response.id == request_id {
-                                    if let Some(error) = response.error {
-                                        let _ = stream_sender
-                                            .send_result(Err(McpError::ExecutionFailed(error.message)));
-                                        return;
-                                    }
-
-                                    let result = response.result.ok_or(McpError::InvalidResponse);
-                                    let _ = stream_sender.send_result(result);
+                        let response: JsonRpcResponse =
+                            match serde_json::from_slice(&receive_result.data) {
+                                Ok(r) => r,
+                                Err(_) => {
+                                    let _ = stream_sender
+                                        .send(McpToolResult::failure("Deserialization failed"));
                                     return;
                                 }
+                            };
 
-                                // Cache response for other requests
-                                if let Ok(mut cache) = response_cache.try_write() {
-                                    if let Some(result) = response.result {
-                                        cache.insert(response.id, result);
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                let _ = stream_sender.send_result(Err(e));
+                        if response.id == request_id {
+                            if let Some(error) = response.error {
+                                let _ = stream_sender
+                                    .send(McpToolResult::failure(format!("Execution failed: {}", error.message)));
                                 return;
+                            }
+
+                            if let Some(result) = response.result {
+                                let _ = stream_sender.send(McpToolResult::success(result));
+                            } else {
+                                let _ = stream_sender.send(McpToolResult::failure("No result in response"));
+                            }
+                            return;
+                        }
+
+                        // Cache response for other requests
+                        if let Ok(mut cache) = response_cache.try_write() {
+                            if let Some(result) = response.result {
+                                cache.insert(response.id, result);
                             }
                         }
                     }
@@ -549,19 +542,12 @@ impl<T: CandleTransport> CandleClient<T> {
     #[inline]
     pub fn list_tools(&self) -> AsyncStream<McpToolListResult> {
         let client = self.clone();
-        AsyncStream::builder()
-            .on_chunk(|result: Result<Vec<CandleMcpToolData>, McpError>| -> McpToolListResult {
-                match result {
-                    Ok(tools) => McpToolListResult::success(tools),
-                    Err(error) => McpToolListResult::bad_chunk(format!("{:?}", error)),
-                }
-            })
-            .with_channel(|stream_sender| {
+        AsyncStream::with_channel(move |stream_sender| {
                 std::thread::spawn(move || {
-                    let mut internal_stream = client.call_tool_internal("tools/list", Value::Null);
+                    let internal_stream = client.call_tool_internal("tools/list", Value::Null);
                     if let Some(result) = internal_stream.try_next() {
-                        match result {
-                            Ok(result_value) => {
+                        match result.result {
+                            Some(result_value) => {
                                 if let Value::Object(obj) = result_value {
                                     if let Some(Value::Array(tools)) = obj.get("tools") {
                                         let mut parsed_tools = Vec::with_capacity(tools.len());
@@ -574,14 +560,18 @@ impl<T: CandleTransport> CandleClient<T> {
                                                 parsed_tools.push(parsed);
                                             }
                                         }
-                                        let _ = stream_sender.send_result(Ok(parsed_tools));
+                                        let _ = stream_sender.send(McpToolListResult::success(parsed_tools));
                                         return;
                                     }
                                 }
-                                let _ = stream_sender.send_result(Ok(Vec::new()));
+                                let _ = stream_sender.send(McpToolListResult::success(Vec::new()));
                             }
-                            Err(e) => {
-                                let _ = stream_sender.send_result(Err(e));
+                            None => {
+                                if let Some(error_msg) = result.error_message {
+                                    let _ = stream_sender.send(McpToolListResult::failure(error_msg));
+                                } else {
+                                    let _ = stream_sender.send(McpToolListResult::failure("No result from server"));
+                                }
                             }
                         }
                     }
@@ -600,15 +590,8 @@ impl<T: CandleTransport> CandleClient<T> {
         let request_timeout = self.request_timeout;
         let method = method.to_string();
 
-        AsyncStream::builder()
-            .on_chunk(|result: Result<Value, CandleMcpError>| -> McpToolResult {
-                match result {
-                    Ok(value) => McpToolResult::success(value),
-                    Err(error) => McpToolResult::bad_chunk(format!("{:?}", error)),
-                }
-            })
-            .with_channel(move |stream_sender| {
-                std::thread::spawn(move || {
+        AsyncStream::with_channel(move |stream_sender| {
+            std::thread::spawn(move || {
                     let start_time = Instant::now();
 
                     let request = JsonRpcRequest {
@@ -620,56 +603,59 @@ impl<T: CandleTransport> CandleClient<T> {
 
                     let mut buffer = Vec::with_capacity(512);
                     if let Err(_) = serde_json::to_writer(&mut buffer, &request) {
-                        let _ = stream_sender.send_result(Err(CandleMcpError::SerializationFailed));
+                        let _ = stream_sender.send(McpToolResult::failure("Serialization failed"));
                         return;
                     }
 
-                    let mut send_stream = transport.send(&buffer);
+                    let send_stream = transport.send(&buffer);
                     if let Some(send_result) = send_stream.try_next() {
-                        if let Err(e) = send_result {
-                            let _ = stream_sender.send_result(Err(e));
+                        if !send_result.success {
+                            let error_msg = send_result.error_message.unwrap_or_else(|| "Send failed".to_string());
+                            let _ = stream_sender.send(McpToolResult::failure(error_msg));
                             return;
                         }
                 }
 
                 loop {
                     if start_time.elapsed() > request_timeout {
-                        let _ = stream_sender.send_result(Err(CandleMcpError::Timeout));
+                        let _ = stream_sender.send(McpToolResult::failure("Request timeout"));
                         return;
                     }
 
-                    let mut receive_stream = transport.receive();
+                    let receive_stream = transport.receive();
                     if let Some(response_result) = receive_stream.try_next() {
-                        match response_result {
-                            Ok(response_data) => {
+                        if let Some(error_msg) = response_result.error_message {
+                            let _ = stream_sender.send(McpToolResult::failure(format!("Transport error: {}", error_msg)));
+                            return;
+                        }
+                        
+                        let response_data = response_result.data;
+                        {
                                 let response: JsonRpcResponse =
                                     match serde_json::from_slice(&response_data) {
                                         Ok(r) => r,
                                         Err(_) => {
                                             let _ = stream_sender
-                                                .send_result(Err(CandleMcpError::SerializationFailed));
+                                                .send(McpToolResult::failure("Deserialization failed"));
                                             return;
                                         }
                                     };
 
                                 if response.id == request_id {
                                     if let Some(error) = response.error {
-                                        let _ = stream_sender.send_result(Err(
-                                            CandleMcpError::ExecutionFailed(error.message),
+                                        let _ = stream_sender.send(McpToolResult::failure(
+                                            format!("Execution failed: {}", error.message),
                                         ));
                                         return;
                                     }
 
-                                    let result =
-                                        response.result.ok_or(CandleMcpError::InvalidResponse);
-                                    let _ = stream_sender.send_result(result);
+                                    if let Some(result) = response.result {
+                                        let _ = stream_sender.send(McpToolResult::success(result));
+                                    } else {
+                                        let _ = stream_sender.send(McpToolResult::failure("No result in response"));
+                                    }
                                     return;
                                 }
-                            }
-                            Err(e) => {
-                                let _ = stream_sender.send_result(Err(e));
-                                return;
-                            }
                         }
                     }
 

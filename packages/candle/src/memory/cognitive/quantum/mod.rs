@@ -1,30 +1,41 @@
-//! Production-grade quantum-inspired routing system
+//! Local Quantum-Inspired Cognitive Operations
 //!
-//! This module implements quantum-inspired algorithms for cognitive routing,
-//! including superposition states, entanglement networks, and quantum measurement.
+//! Quantum-inspired patterns for local cognitive processing without cloud dependencies.
 
-pub mod complex;
+pub mod router;
+pub mod types;
+pub mod measurement;
 pub mod entanglement;
 pub mod error_correction;
-pub mod hardware;
-pub mod measurement;
-pub mod metrics;
-pub mod ml_decoder;
-pub mod router;
 pub mod state;
-pub mod types;
 
-pub use complex::Complex64;
-pub use entanglement::{EntanglementGraph, EntanglementLink};
-pub use error_correction::{ErrorCorrectionCode, QuantumErrorCorrection};
-pub use hardware::{QuantumConfig, QuantumHardwareBackend};
-pub use measurement::{BasisType, MeasurementBasis, MeasurementOperator};
-pub use metrics::QuantumMetrics;
-pub use ml_decoder::{MLDecoder, MLModelType, QuantumLayer};
-pub use router::QuantumRouter;
-pub use state::{PhaseEvolution, SuperpositionState, TimeDependentTerm};
-pub use types::*;
+// Re-export key types
+pub use router::{QuantumRouter, QuantumRouterError};
+pub use types::{RoutingStrategy, EnhancedQuery, TemporalContext, TemporalType, CognitiveError};
+pub use measurement::{MeasurementBasis, MeasurementMetadata};
+pub use entanglement::EntanglementLink;
+pub use state::QuantumState;
 
-pub use crate::memory::cognitive::types::EntanglementType;
+/// Quantum signature for cognitive operations
+#[derive(Debug, Clone)]
+pub struct QuantumSignature {
+    pub entanglement_id: String,
+    pub coherence_level: f64,
+    pub measurement_basis: String,
+}
 
-// Tests are located in the tests/ directory
+impl QuantumSignature {
+    pub fn new() -> Self {
+        Self {
+            entanglement_id: "local-quantum".to_string(),
+            coherence_level: 0.8,
+            measurement_basis: "computational".to_string(),
+        }
+    }
+}
+
+impl Default for QuantumSignature {
+    fn default() -> Self {
+        Self::new()
+    }
+}

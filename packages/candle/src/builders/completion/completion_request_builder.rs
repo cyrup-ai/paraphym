@@ -10,17 +10,19 @@ use crate::domain::{
         CandleCompletionRequest as CompletionRequest,
     },
     context::CandleDocument as Document,
-    http::requests::completion::{FunctionDefinition, ToolDefinition, ToolType},
-    model::CandleValidationError as ValidationError,
+    model::{CandleValidationError as ValidationError},
     tool::CandleTool,
     CandleZeroOneOrMany as ZeroOneOrMany,
 };
+use crate::memory::memory::ops::retrieval::RetrievalResult;
+use crate::domain::tool::{FunctionDefinition, ToolDefinition, ToolType};
 
 /// Builder for completion requests
 pub struct CompletionRequestBuilder {
     system_prompt: String,
     chat_history: ZeroOneOrMany<ChatMessage>,
     documents: ZeroOneOrMany<Document>,
+    memories: ZeroOneOrMany<RetrievalResult>,
     tools: ZeroOneOrMany<Box<dyn CandleTool>>,
     temperature: f64,
     max_tokens: Option<NonZeroU64>,
@@ -47,6 +49,7 @@ impl CompletionRequestBuilder {
             system_prompt: String::new(),
             chat_history: ZeroOneOrMany::None,
             documents: ZeroOneOrMany::None,
+            memories: ZeroOneOrMany::None,
             tools: ZeroOneOrMany::None,
             temperature: 1.0,
             max_tokens: None,
@@ -70,6 +73,12 @@ impl CompletionRequestBuilder {
     /// Set the documents
     pub fn documents(mut self, docs: ZeroOneOrMany<Document>) -> Self {
         self.documents = docs;
+        self
+    }
+
+    /// Set the memories
+    pub fn memories(mut self, memories: ZeroOneOrMany<RetrievalResult>) -> Self {
+        self.memories = memories;
         self
     }
 
@@ -112,36 +121,30 @@ impl CompletionRequestBuilder {
         let converted_tools = match self.tools {
             ZeroOneOrMany::None => ZeroOneOrMany::None,
             ZeroOneOrMany::One(tool) => {
+                // Create a generic tool from the CandleTool trait
+                let function_def = FunctionDefinition::new(
+                    tool.name(),
+                    tool.description(),
+                    tool.parameters().clone(),
+                );
                 let tool_def = ToolDefinition {
                     tool_type: ToolType::Function,
-                    function: FunctionDefinition::new(
-                        tool.name(),
-                        tool.description(),
-                        tool.parameters().clone(),
-                    )
-                    .map_err(|_| {
-                        CompletionRequestError::InvalidParameter(
-                            "Failed to create function definition".to_string(),
-                        )
-                    })?,
+                    function: function_def,
                 };
                 ZeroOneOrMany::One(tool_def)
             }
             ZeroOneOrMany::Many(tools) => {
                 let mut tool_defs = Vec::new();
                 for tool in tools {
+                    // Create a generic tool from the CandleTool trait
+                    let function_def = FunctionDefinition::new(
+                        tool.name(),
+                        tool.description(),
+                        tool.parameters().clone(),
+                    );
                     let tool_def = ToolDefinition {
                         tool_type: ToolType::Function,
-                        function: FunctionDefinition::new(
-                            tool.name(),
-                            tool.description(),
-                            tool.parameters().clone(),
-                        )
-                        .map_err(|_| {
-                            CompletionRequestError::InvalidParameter(
-                                "Failed to create function definition".to_string(),
-                            )
-                        })?,
+                        function: function_def,
                     };
                     tool_defs.push(tool_def);
                 }
@@ -153,6 +156,7 @@ impl CompletionRequestBuilder {
             system_prompt: self.system_prompt,
             chat_history: self.chat_history,
             documents: self.documents,
+            memories: self.memories,
             tools: converted_tools,
             temperature: self.temperature,
             max_tokens: self.max_tokens,

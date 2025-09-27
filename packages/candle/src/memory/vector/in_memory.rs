@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use paraphym_simd::cosine_similarity;
-use surrealdb::sql::Value;
+use surrealdb::Value;
 
 use super::vector_store::{VectorMetadata, VectorSearchResult, VectorStore};
 use crate::memory::constants::ERROR_VECTOR_NOT_FOUND;
@@ -150,7 +150,7 @@ impl VectorStore for InMemoryVectorStore {
         Ok(())
     }
 
-    fn get_vector(&self, id: &str) -> Result<(Vec<f32>, VectorMetadata)> {
+    fn get_vector(&self, id: &str) -> Result<(Vec<f32>, Option<VectorMetadata>)> {
         if let Some(vector) = self.vectors.get(id) {
             let metadata = self.metadata.get(id).cloned();
             Ok((vector.clone(), metadata))
@@ -291,7 +291,7 @@ impl VectorStore for InMemoryVectorStore {
         Ok(())
     }
 
-    fn get_metadata(&self, id: &str) -> Result<VectorMetadata> {
+    fn get_metadata(&self, id: &str) -> Result<Option<VectorMetadata>> {
         Ok(self.metadata.get(id).cloned())
     }
 

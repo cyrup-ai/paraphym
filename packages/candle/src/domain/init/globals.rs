@@ -13,11 +13,12 @@ use once_cell::sync::Lazy;
 
 use crate::domain::error::SimpleCircuitBreaker;
 // Temporarily disabled to break circular dependency
-// use paraphym_candle::memory::{MemoryConfig, SurrealDBMemoryManager};
-// use paraphym_candle::memory::memory::MemoryMetadata;
+// use crate::memory::{MemoryConfig, SurrealDBMemoryManager};
+// use crate::memory::memory::MemoryMetadata;
 
 // Use stub types from memory::manager
-use crate::domain::memory::manager::{MemoryConfig, SurrealDBMemoryManager};
+use crate::domain::memory::MemoryConfig;
+use crate::memory::memory::manager::surreal::SurrealDBMemoryManager;
 
 /// Global configuration cache with copy-on-write semantics for zero-allocation access
 pub static CONFIG_CACHE: Lazy<ArcSwap<MemoryConfig>> =

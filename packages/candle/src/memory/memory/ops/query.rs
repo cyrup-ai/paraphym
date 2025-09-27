@@ -154,7 +154,7 @@ impl MemoryQueryExecutor {
         &self,
         query: &MemoryQuery,
         manager: &dyn crate::memory::MemoryManager,
-    ) -> Result<Vec<crate::memory::MemoryNode>, crate::utils::error::Error> {
+    ) -> Result<Vec<crate::memory::MemoryNode>, crate::memory::utils::error::Error> {
         use futures_util::StreamExt;
 
         // Use the config for optimization and caching decisions

@@ -350,17 +350,17 @@ impl MemorySDKBuilder {
     /// Build the MemorySDK
     pub fn build(self) -> Result<MemorySDK> {
         let memory_manager = self.memory_manager
-            .ok_or_else(|| crate::utils::error::MemoryError::InvalidArgument(
+            .ok_or_else(|| crate::memory::utils::error::MemoryError::InvalidArgument(
                 "Memory manager is required".to_string()
             ))?;
         
         let vector_search = self.vector_search
-            .ok_or_else(|| crate::utils::error::MemoryError::InvalidArgument(
+            .ok_or_else(|| crate::memory::utils::error::MemoryError::InvalidArgument(
                 "Vector search is required".to_string()
             ))?;
         
         let completion_provider = self.completion_provider
-            .ok_or_else(|| crate::utils::error::MemoryError::InvalidArgument(
+            .ok_or_else(|| crate::memory::utils::error::MemoryError::InvalidArgument(
                 "Completion provider is required".to_string()
             ))?;
         

@@ -38,6 +38,7 @@ impl MemoryRepository {
         Self {
             memories: HashMap::new(),
             type_index: HashMap::new(),
+            user_index: HashMap::new(),
             agent_index: HashMap::new(),
             tag_index: HashMap::new(),
             time_index: BTreeMap::new(),
@@ -46,7 +47,7 @@ impl MemoryRepository {
     }
 
     /// Create and add a memory to the repository
-    pub fn create(&mut self, id: &str, memory: &MemoryNode) -> crate::utils::Result<MemoryNode> {
+    pub fn create(&mut self, id: &str, memory: &MemoryNode) -> crate::memory::utils::Result<MemoryNode> {
         // Create a new memory with the provided ID
         let mut new_memory = memory.clone();
         new_memory.id = id.to_string();
@@ -101,7 +102,16 @@ impl MemoryRepository {
 
     /// Get a memory by its ID
     pub fn get(&self, id: &str) -> Option<Arc<MemoryNode>> {
-        self.memories.get(id).cloned()
+        let result = self.memories.get(id).cloned();
+        
+        // Record cache performance metrics
+        if result.is_some() {
+            crate::domain::memory::ops::record_cache_hit();
+        } else {
+            crate::domain::memory::ops::record_cache_miss();
+        }
+        
+        result
     }
 
     /// Delete a memory by its ID

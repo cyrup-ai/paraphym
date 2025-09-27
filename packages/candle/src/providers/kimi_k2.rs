@@ -13,6 +13,7 @@ use candle_transformers::models::llama::LlamaConfig;
 use ystream::AsyncStream;
 // SIMD optimizations for high-performance inference
 use paraphym_simd::get_cpu_features;
+#[cfg(feature = "progresshub")]
 use progresshub::{ProgressHub, types::ZeroOneOrMany as ProgressHubZeroOneOrMany};
 
 use serde::{Deserialize, Serialize};
@@ -28,8 +29,10 @@ use crate::domain::{
 /// CandleKimiK2Provider for local Kimi K2 model inference using Candle ML framework
 #[derive(Debug, Clone)]
 pub struct CandleKimiK2Provider {
-    /// Model path on filesystem
+    /// Model cache directory path
     model_path: String,
+    /// GGUF model file path
+    gguf_file_path: String,
     /// Provider configuration
     config: CandleKimiK2Config,
     /// Model configuration for inference
@@ -121,6 +124,7 @@ impl CandleKimiK2Provider {
     }
 
     /// Create provider with custom configuration and automatic download
+    #[cfg(feature = "progresshub")]
     pub async fn with_config_async(
         config: CandleKimiK2Config,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
@@ -163,6 +167,14 @@ impl CandleKimiK2Provider {
         Self::with_config_sync_gguf(model_cache_dir, gguf_file_path, config)
     }
 
+    /// Create provider with custom configuration and automatic download (fallback when progresshub not available)
+    #[cfg(not(feature = "progresshub"))]
+    pub async fn with_config_async(
+        _config: CandleKimiK2Config,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Err("ProgressHub feature not enabled. Use with_config_sync_gguf() with local model path".into())
+    }
+
     /// Create provider with custom configuration and existing model path
     pub fn with_config_sync(
         model_path: String,
@@ -195,7 +207,8 @@ impl CandleKimiK2Provider {
         };
 
         Ok(Self {
-            model_path,
+            model_path: model_path.clone(),
+            gguf_file_path: model_path, // For sync method, assume model_path is the GGUF file
             config,
             model_config,
         })
@@ -303,6 +316,7 @@ impl CandleKimiK2Provider {
 
         Ok(Self {
             model_path: model_cache_dir,
+            gguf_file_path,
             config,
             model_config,
         })
@@ -405,6 +419,7 @@ impl CandleCompletionModel for CandleKimiK2Provider {
 
         // Create TextGenerator and perform local inference
         let model_path = self.model_path.clone();
+        let gguf_file_path = self.gguf_file_path.clone();
         let config = self.config.clone();
         let model_config = self.model_config.clone();
 
@@ -412,7 +427,7 @@ impl CandleCompletionModel for CandleKimiK2Provider {
             use crate::core::generation::{
                 generator::TextGenerator,
                 tokens::SpecialTokens,
-                models::CandleModel as CoreCandleModel,
+                // models::CandleModel as CoreCandleModel, // Reserved for future candle model integration
             };
             use candle_core::Device;
             use tokenizers::Tokenizer;
@@ -430,17 +445,51 @@ impl CandleCompletionModel for CandleKimiK2Provider {
                 }
             };
 
-            // Create mock model implementation - TODO: implement real model loading
-            struct MockKimiModel;
-            impl CoreCandleModel for MockKimiModel {
-                fn forward(&self, _input: &candle_core::Tensor, _position: usize) -> Result<candle_core::Tensor, Box<dyn std::error::Error + Send + Sync>> {
-                    Err("Model loading not yet implemented".into())
-                }
-            }
+            // Create real quantized model implementation
+            use crate::core::generation::models::ModelFactory;
+            use crate::core::ModelConfig as CandleConfig;
+            use std::sync::Arc;
 
-            // Create TextGenerator
+            // Create model configuration for the quantized model
+            let candle_model_config = Arc::new(CandleConfig::new(
+                &gguf_file_path,
+                format!("{}/tokenizer.json", model_path),
+                crate::core::ModelArchitecture::Llama(candle_transformers::models::llama::Config {
+                    hidden_size: model_config.hidden_size,
+                    intermediate_size: model_config.intermediate_size,
+                    vocab_size: model_config.vocab_size,
+                    num_hidden_layers: model_config.num_hidden_layers,
+                    num_attention_heads: model_config.num_attention_heads,
+                    num_key_value_heads: model_config.num_key_value_heads.unwrap_or(model_config.num_attention_heads),
+                    use_flash_attn: false,
+                    rms_norm_eps: model_config.rms_norm_eps,
+                    rope_theta: model_config.rope_theta,
+                    bos_token_id: model_config.bos_token_id,
+                    eos_token_id: model_config.eos_token_id.clone(),
+                    rope_scaling: model_config.rope_scaling.clone(),
+                    max_position_embeddings: model_config.max_position_embeddings,
+                    tie_word_embeddings: model_config.tie_word_embeddings.unwrap_or(false),
+                }),
+                "kimi-k2",
+                "kimi-k2",
+            )
+            .with_vocab_size(model_config.vocab_size)
+            .with_context_length(config.max_context as usize)
+            .with_dtype(config.dtype));
+
+            // Load the real quantized model
+            let quantized_model = match ModelFactory::create_quantized_llama(&gguf_file_path, candle_model_config, device.clone()) {
+                Ok(model) => model,
+                Err(e) => {
+                    let error_chunk = CandleCompletionChunk::Error(format!("Failed to load quantized model: {}", e));
+                    let _ = sender.send(error_chunk);
+                    return;
+                }
+            };
+
+            // Create TextGenerator with real model
             let text_generator = TextGenerator::new(
-                Box::new(MockKimiModel),
+                Box::new(quantized_model),
                 tokenizer,
                 device,
                 _sampling_config,
@@ -448,10 +497,10 @@ impl CandleCompletionModel for CandleKimiK2Provider {
 
             // Set up special tokens
             let special_tokens = SpecialTokens {
-                bos_token_id: model_config.bos_token_id.unwrap_or(1),
+                bos_token_id: Some(model_config.bos_token_id.unwrap_or(1)),
                 eos_token_id: match &model_config.eos_token_id {
-                    Some(candle_transformers::models::llama::LlamaEosToks::Single(id)) => *id,
-                    _ => 2,
+                    Some(candle_transformers::models::llama::LlamaEosToks::Single(id)) => Some(*id),
+                    _ => Some(2),
                 },
                 pad_token_id: None,
             };
@@ -459,18 +508,22 @@ impl CandleCompletionModel for CandleKimiK2Provider {
             // Generate text using TextGenerator
             let text_stream = text_generator.generate(
                 _prompt_text,
-                _max_tokens,
+                _max_tokens.try_into().unwrap(),
                 special_tokens,
             );
 
-            // Convert CandleStringChunk to CandleCompletionChunk
-            text_stream.for_each(|string_chunk| {
-                let completion_chunk = CandleCompletionChunk::Text(string_chunk.0);
-                if sender.send(completion_chunk).is_err() {
-                    return; // Client disconnected
+            // Convert CandleStringChunk to CandleCompletionChunk using ystream async pattern
+            ystream::spawn_task(move || async move {
+                use futures_util::StreamExt;
+                let mut stream = text_stream;
+                while let Some(string_chunk) = stream.next().await {
+                    let completion_chunk = CandleCompletionChunk::Text(string_chunk.0);
+                    if sender.send(completion_chunk).is_err() {
+                        break; // Client disconnected
+                    }
                 }
             });
-        });
+        })
     }
 }
 
@@ -537,10 +590,29 @@ pub fn validate_model_path(path: &str) -> Result<(), Box<dyn std::error::Error +
 
 impl Default for CandleKimiK2Provider {
     fn default() -> Self {
+        let config = CandleKimiK2Config::default();
+        // KimiK2 IS the default instance - use its configuration
+        let model_config = LlamaConfig {
+            vocab_size: config.vocab_size as usize,
+            hidden_size: 4096,
+            intermediate_size: 11008,
+            num_hidden_layers: 32,
+            num_attention_heads: 32,
+            num_key_value_heads: Some(32),
+            max_position_embeddings: config.max_context as usize,
+            rms_norm_eps: 1e-6,
+            rope_theta: 10000.0,
+            bos_token_id: Some(1),
+            eos_token_id: Some(candle_transformers::models::llama::LlamaEosToks::Single(2)),
+            rope_scaling: None,
+            tie_word_embeddings: Some(false),
+        };
+        
         Self {
             model_path: String::new(),
-            config: CandleKimiK2Config::default(),
-            model_config: LlamaConfig::default(),
+            gguf_file_path: String::new(),
+            config,
+            model_config,
         }
     }
 }

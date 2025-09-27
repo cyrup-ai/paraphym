@@ -1,16 +1,10 @@
-// src/cognitive/committee/mod.rs
-//! A modular, multi-agent evaluation committee for code optimization.
+//! Committee Evaluation System Using Existing Providers
+//!
+//! Provides committee evaluation using existing CandleKimiK2Provider and CandleQwen3CoderProvider.
 
-// Expose the sub-modules.
-pub mod agent;
-pub mod committee_consensus;
-pub mod committee_evaluators;
-pub mod committee_evaluators_extension;
 pub mod committee_types;
-pub mod orchestrator;
-pub mod relaxed_counter;
+pub mod committee_evaluators;
 
-// Re-export the primary public-facing types for easy access.
-pub use orchestrator::EvaluationCommittee;
-
-pub use crate::memory::cognitive::common::types::CommitteeEvent;
+// Re-export key types
+pub use committee_types::{Committee, CommitteeConfig};
+pub use committee_evaluators::ProviderCommitteeEvaluator;

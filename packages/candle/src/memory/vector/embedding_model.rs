@@ -38,7 +38,7 @@ pub trait EmbeddingModel: Send + Sync + std::fmt::Debug {
     ///
     /// # Example
     /// ```rust,no_run
-    /// use paraphym_candle::memory::vector::embedding_model::EmbeddingModel;
+    /// use crate::memory::vector::embedding_model::EmbeddingModel;
     ///
     /// fn generate_embedding(model: &dyn EmbeddingModel) -> Result<(), Box<dyn std::error::Error>> {
     ///     let embedding = model.embed("Hello world", Some("search".to_string()))?;
@@ -72,7 +72,7 @@ pub trait EmbeddingModel: Send + Sync + std::fmt::Debug {
     ///
     /// # Example
     /// ```rust,no_run
-    /// use paraphym_candle::memory::vector::embedding_model::EmbeddingModel;
+    /// use crate::memory::vector::embedding_model::EmbeddingModel;
     ///
     /// fn batch_process(model: &dyn EmbeddingModel) -> Result<(), Box<dyn std::error::Error>> {
     ///     let texts = vec!["First text".to_string(), "Second text".to_string()];
@@ -95,7 +95,7 @@ pub trait EmbeddingModel: Send + Sync + std::fmt::Debug {
     ///
     /// # Example
     /// ```rust,no_run
-    /// use paraphym_candle::memory::vector::embedding_model::EmbeddingModel;
+    /// use crate::memory::vector::embedding_model::EmbeddingModel;
     ///
     /// fn check_dimensions(model: &dyn EmbeddingModel) {
     ///     let dim = model.dimension();
@@ -117,7 +117,7 @@ pub trait EmbeddingModel: Send + Sync + std::fmt::Debug {
     ///
     /// # Example
     /// ```rust,no_run
-    /// use paraphym_candle::memory::vector::embedding_model::EmbeddingModel;
+    /// use crate::memory::vector::embedding_model::EmbeddingModel;
     ///
     /// fn log_model_info(model: &dyn EmbeddingModel) {
     ///     println!("Using embedding model: {}", model.name());
@@ -141,13 +141,13 @@ pub trait EmbeddingModel: Send + Sync + std::fmt::Debug {
     /// - `InvalidInput` if text fails model-specific validation
     fn validate_input(&self, text: &str) -> Result<()> {
         if text.is_empty() {
-            return Err(crate::utils::error::Error::InvalidInput(
+            return Err(crate::memory::utils::error::Error::InvalidInput(
                 "Input text cannot be empty".to_string(),
             ));
         }
 
         if text.len() > 1_000_000 {
-            return Err(crate::utils::error::Error::InvalidInput(
+            return Err(crate::memory::utils::error::Error::InvalidInput(
                 "Input text exceeds maximum length (1M characters)".to_string(),
             ));
         }
@@ -169,20 +169,20 @@ pub trait EmbeddingModel: Send + Sync + std::fmt::Debug {
     /// - `InvalidInput` if batch is empty or any text fails validation
     fn validate_batch(&self, texts: &[String]) -> Result<()> {
         if texts.is_empty() {
-            return Err(crate::utils::error::Error::InvalidInput(
+            return Err(crate::memory::utils::error::Error::InvalidInput(
                 "Batch cannot be empty".to_string(),
             ));
         }
 
         if texts.len() > 10_000 {
-            return Err(crate::utils::error::Error::InvalidInput(
+            return Err(crate::memory::utils::error::Error::InvalidInput(
                 "Batch size exceeds maximum (10,000 texts)".to_string(),
             ));
         }
 
         for (index, text) in texts.iter().enumerate() {
             self.validate_input(text).map_err(|e| {
-                crate::utils::error::Error::InvalidInput(format!(
+                crate::memory::utils::error::Error::InvalidInput(format!(
                     "Text at index {} failed validation: {}",
                     index, e
                 ))

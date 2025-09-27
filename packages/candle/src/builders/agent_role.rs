@@ -673,9 +673,10 @@ where
                     let completion_stream = provider.prompt(prompt, &params);
 
                     // Convert CandleCompletionChunk to CandleMessageChunk and forward
-                    tokio::spawn(async move {
-                        let mut stream = Box::pin(completion_stream);
-                        while let Some(completion_chunk) = stream.next().await {
+                    // Use ystream spawn pattern instead of tokio::spawn for proper thread safety
+                    let _background_stream = ystream::spawn_stream(move |stream_sender| {
+                        let completion_results = completion_stream.collect();
+                        for completion_chunk in completion_results {
                             let message_chunk = match completion_chunk {
                                 CandleCompletionChunk::Text(text) => CandleMessageChunk::Text(text),
                                 CandleCompletionChunk::Complete {
@@ -701,9 +702,7 @@ where
                                 CandleCompletionChunk::Error(error) => CandleMessageChunk::Error(error),
                             };
 
-                            if sender.send(message_chunk).is_err() {
-                                return; // Client disconnected
-                            }
+                            ystream::emit!(stream_sender, message_chunk);
                         }
                     });
                 }
@@ -734,7 +733,7 @@ where
         let system_prompt = self.system_prompt.clone();
         let user_message = message.into();
 
-        AsyncStream::with_channel(move |sender| {
+        AsyncStream::with_channel(move |_sender| {
             let full_prompt = if let Some(sys_prompt) = system_prompt {
                 format!("{}\n\nUser: {}", sys_prompt, user_message)
             } else {
@@ -750,9 +749,10 @@ where
 
             let completion_stream = provider.prompt(prompt, &params);
 
-            tokio::spawn(async move {
-                let mut stream = Box::pin(completion_stream);
-                while let Some(completion_chunk) = stream.next().await {
+            // Use ystream spawn pattern instead of tokio::spawn for proper thread safety
+            let _background_stream = ystream::spawn_stream(move |stream_sender| {
+                let completion_results = completion_stream.collect();
+                for completion_chunk in completion_results {
                     let message_chunk = match completion_chunk {
                         CandleCompletionChunk::Text(text) => CandleMessageChunk::Text(text),
                         CandleCompletionChunk::Complete {
@@ -778,9 +778,7 @@ where
                         CandleCompletionChunk::Error(error) => CandleMessageChunk::Error(error),
                     };
 
-                    if sender.send(message_chunk).is_err() {
-                        return;
-                    }
+                    ystream::emit!(stream_sender, message_chunk);
                 }
             });
         })

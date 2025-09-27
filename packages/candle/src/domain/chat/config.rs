@@ -11,8 +11,7 @@ use std::sync::RwLock;
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
-#[cfg(feature = "bincode")]
-use bincode;
+
 use crossbeam_queue::SegQueue;
 use ystream::{emit, AsyncStream};
 #[cfg(feature = "rkyv")]
@@ -1486,7 +1485,7 @@ impl Default for CandleConfigUpdate {
 }
 
 impl MessageChunk for CandlePersistenceEvent {
-    fn bad_chunk(error: String) -> Self {
+    fn bad_chunk(_error: String) -> Self { // Error parameter reserved for future use
         Self {
             timestamp_nanos: 0,
             previous_timestamp_nanos: 0,

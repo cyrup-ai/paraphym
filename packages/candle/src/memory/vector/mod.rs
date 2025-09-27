@@ -34,22 +34,22 @@ pub enum DistanceMetric {
 
 /// A pending vector operation
 pub struct PendingVectorOp {
-    rx: oneshot::Receiver<crate::utils::Result<()>>,
+    rx: oneshot::Receiver<crate::memory::utils::Result<()>>,
 }
 
 impl PendingVectorOp {
-    pub fn new(rx: oneshot::Receiver<crate::utils::Result<()>>) -> Self {
+    pub fn new(rx: oneshot::Receiver<crate::memory::utils::Result<()>>) -> Self {
         Self { rx }
     }
 }
 
 impl Future for PendingVectorOp {
-    type Output = crate::utils::Result<()>;
+    type Output = crate::memory::utils::Result<()>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match Pin::new(&mut self.rx).poll(cx) {
             Poll::Ready(Ok(result)) => Poll::Ready(result),
-            Poll::Ready(Err(_)) => Poll::Ready(Err(crate::utils::error::Error::Internal(
+            Poll::Ready(Err(_)) => Poll::Ready(Err(crate::memory::utils::error::Error::Internal(
                 "Vector operation task failed".to_string(),
             ))),
             Poll::Pending => Poll::Pending,
@@ -59,22 +59,22 @@ impl Future for PendingVectorOp {
 
 /// A pending vector search
 pub struct PendingVectorSearch {
-    rx: oneshot::Receiver<crate::utils::Result<Vec<VectorSearchResult>>>,
+    rx: oneshot::Receiver<crate::memory::utils::Result<Vec<VectorSearchResult>>>,
 }
 
 impl PendingVectorSearch {
-    pub fn new(rx: oneshot::Receiver<crate::utils::Result<Vec<VectorSearchResult>>>) -> Self {
+    pub fn new(rx: oneshot::Receiver<crate::memory::utils::Result<Vec<VectorSearchResult>>>) -> Self {
         Self { rx }
     }
 }
 
 impl Future for PendingVectorSearch {
-    type Output = crate::utils::Result<Vec<VectorSearchResult>>;
+    type Output = crate::memory::utils::Result<Vec<VectorSearchResult>>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match Pin::new(&mut self.rx).poll(cx) {
             Poll::Ready(Ok(result)) => Poll::Ready(result),
-            Poll::Ready(Err(_)) => Poll::Ready(Err(crate::utils::error::Error::Internal(
+            Poll::Ready(Err(_)) => Poll::Ready(Err(crate::memory::utils::error::Error::Internal(
                 "Vector search task failed".to_string(),
             ))),
             Poll::Pending => Poll::Pending,
@@ -84,22 +84,22 @@ impl Future for PendingVectorSearch {
 
 /// A pending embedding generation
 pub struct PendingEmbedding {
-    rx: oneshot::Receiver<crate::utils::Result<Vec<f32>>>,
+    rx: oneshot::Receiver<crate::memory::utils::Result<Vec<f32>>>,
 }
 
 impl PendingEmbedding {
-    pub fn new(rx: oneshot::Receiver<crate::utils::Result<Vec<f32>>>) -> Self {
+    pub fn new(rx: oneshot::Receiver<crate::memory::utils::Result<Vec<f32>>>) -> Self {
         Self { rx }
     }
 }
 
 impl Future for PendingEmbedding {
-    type Output = crate::utils::Result<Vec<f32>>;
+    type Output = crate::memory::utils::Result<Vec<f32>>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match Pin::new(&mut self.rx).poll(cx) {
             Poll::Ready(Ok(result)) => Poll::Ready(result),
-            Poll::Ready(Err(_)) => Poll::Ready(Err(crate::utils::error::Error::Internal(
+            Poll::Ready(Err(_)) => Poll::Ready(Err(crate::memory::utils::error::Error::Internal(
                 "Embedding task failed".to_string(),
             ))),
             Poll::Pending => Poll::Pending,

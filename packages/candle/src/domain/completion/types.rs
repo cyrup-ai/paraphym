@@ -88,8 +88,8 @@ impl CandleCompletionParams {
     }
 }
 
-// Note: Tool definitions are now handled by CandleTool trait in domain::tool
-// Remove over-engineered CandleToolDefinition - use CandleTool trait instead
+// Re-export existing tool definitions from the tool module
+pub use crate::domain::tool::ToolDefinition;
 
 /// Model-specific parameters for completion requests
 #[repr(C)]

@@ -12,6 +12,30 @@ use std::marker::PhantomData;
 use ystream::AsyncStream;
 use serde_json::Value;
 
+/// Wrapper for JSON values that implements MessageChunk
+#[derive(Debug, Clone, Default)]
+pub struct JsonValueResult {
+    /// The JSON value
+    pub value: Value,
+}
+
+impl JsonValueResult {
+    /// Create a result with a JSON value
+    pub fn new(value: Value) -> Self {
+        Self { value }
+    }
+}
+
+impl cyrup_sugars::prelude::MessageChunk for JsonValueResult {
+    fn bad_chunk(_error: String) -> Self {
+        Self::default()
+    }
+
+    fn error(&self) -> Option<&str> {
+        None
+    }
+}
+
 /// Candle marker type for Perplexity tool
 #[derive(Debug, Clone)]
 pub struct CandlePerplexity;
@@ -31,8 +55,8 @@ pub trait CandleTool: Send + Sync + fmt::Debug {
     /// Get the JSON schema for the tool's input parameters
     fn parameters(&self) -> &Value;
 
-    /// Execute the tool with given arguments - returns AsyncStream<Value>
-    fn execute(&self, args: Value) -> AsyncStream<Value>;
+    /// Execute the tool with given arguments - returns AsyncStream<JsonValueResult>
+    fn execute(&self, args: Value) -> AsyncStream<JsonValueResult>;
 }
 
 /// MCP tool trait - EXACT REPLICA of domain McpTool trait
@@ -113,7 +137,7 @@ where
         &self.parameters
     }
 
-    fn execute(&self, args: Value) -> AsyncStream<Value> {
+    fn execute(&self, args: Value) -> AsyncStream<JsonValueResult> {
         let config = self.config.clone();
 
         AsyncStream::with_channel(move |sender| {
@@ -126,7 +150,7 @@ where
             }
 
             let result = Value::Object(result_data.into_iter().collect());
-            let _ = sender.send(result);
+            let _ = sender.send(JsonValueResult::new(result));
         })
     }
 }
@@ -190,7 +214,7 @@ impl CandleTool for CandleNamedTool {
         &self.parameters
     }
 
-    fn execute(&self, args: Value) -> AsyncStream<Value> {
+    fn execute(&self, args: Value) -> AsyncStream<JsonValueResult> {
         let name = self.name.clone();
         let bin_path = self.bin_path.clone();
 
@@ -225,7 +249,7 @@ impl CandleTool for CandleNamedTool {
                 Err(e) => Value::String(format!("Failed to execute {}: {}", command, e)),
             };
 
-            let _ = sender.send(result);
+            let _ = sender.send(JsonValueResult::new(result));
         })
     }
 }

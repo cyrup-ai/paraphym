@@ -40,7 +40,7 @@ impl Future for PendingRetrieval {
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match Pin::new(&mut self.rx).poll(cx) {
             Poll::Ready(Ok(result)) => Poll::Ready(result),
-            Poll::Ready(Err(_)) => Poll::Ready(Err(crate::utils::error::Error::Internal(
+            Poll::Ready(Err(_)) => Poll::Ready(Err(crate::memory::utils::error::Error::Internal(
                 "Retrieval task failed".to_string(),
             ))),
             Poll::Pending => Poll::Pending,
@@ -63,7 +63,7 @@ pub trait RetrievalStrategy: Send + Sync {
 }
 
 /// Result from memory retrieval
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RetrievalResult {
     /// Memory ID
     pub id: String,
@@ -415,7 +415,7 @@ impl RetrievalStrategy for TemporalRetrieval {
                         // Base relevance score (could be enhanced with content matching)
                         let relevance_score = if !query.is_empty() {
                             // Simple content matching score
-                            let content_lower = memory.content.to_lowercase();
+                            let content_lower = memory.content.text.to_lowercase();
                             let query_lower = query.to_lowercase();
 
                             if content_lower.contains(&query_lower) {
@@ -547,7 +547,7 @@ impl<V: VectorStore + Clone + Send + Sync + 'static> RetrievalManager<V> {
         &self,
         query_vector: Vec<f32>,
         limit: usize,
-    ) -> Result<Vec<crate::vector::VectorSearchResult>> {
+    ) -> Result<Vec<crate::memory::vector::VectorSearchResult>> {
         let filter = crate::memory::filter::MemoryFilter::new();
         self.vector_store
             .search(query_vector, limit, Some(filter))
@@ -569,7 +569,7 @@ impl<V: VectorStore + Clone + Send + Sync + 'static> RetrievalManager<V> {
                 .retrieve(query.to_string(), limit, filter.cloned())
                 .await
         } else {
-            Err(crate::utils::error::Error::InvalidInput(format!(
+            Err(crate::memory::utils::error::Error::InvalidInput(format!(
                 "Unknown retrieval strategy: {strategy_name}"
             )))
         }

@@ -549,7 +549,7 @@ impl Default for TypingCleanupEvent {
 }
 
 impl MessageChunk for TypingCleanupEvent {
-    fn bad_chunk(error: String) -> Self {
+    fn bad_chunk(_error: String) -> Self {
         Self {
             expired_count: 0,
             remaining_active: 0,

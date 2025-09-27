@@ -94,11 +94,10 @@ impl ProcessingContext {
         }
 
         // Check max new tokens
-        if let Some(max_tokens) = self.max_new_tokens {
-            if generated_count >= max_tokens {
+        if let Some(max_tokens) = self.max_new_tokens
+            && generated_count >= max_tokens {
                 return true;
             }
-        }
 
         // Check for max sequence length (safety check)
         if self.token_history.len() > 4096 {

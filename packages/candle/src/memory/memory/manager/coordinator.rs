@@ -8,8 +8,12 @@ use std::task::{Context, Poll};
 use tokio::sync::{Mutex, RwLock, oneshot};
 
 use crate::memory::{
-    MemoryMetadata, MemoryNode, MemoryRelationship, MemoryType, filter::MemoryFilter,
-    primitives::types::MemoryTypeEnum, repository::MemoryRepository, storage::MemoryStorage,
+    MemoryMetadata, MemoryRelationship, MemoryType, filter::MemoryFilter,
+    repository::MemoryRepository, storage::MemoryStorage,
+};
+use crate::domain::memory::primitives::{
+    types::MemoryTypeEnum,
+    node::MemoryNode,
 };
 use crate::memory::utils::{Error, Result};
 use crate::memory::vector::VectorStore;
@@ -47,26 +51,39 @@ where
         metadata: MemoryMetadata,
     ) -> Result<MemoryNode> {
         // Create memory node
-        let mut memory = MemoryNode::new(content, memory_type);
-        memory.metadata = metadata;
+        let content_struct = crate::domain::memory::primitives::types::MemoryContent::text(content);
+        let mut memory = MemoryNode::new(memory_type, content_struct);
+        // Convert MemoryMetadata to MemoryNodeMetadata
+        let node_metadata = crate::domain::memory::primitives::node::MemoryNodeMetadata {
+            importance: metadata.importance,
+            keywords: metadata.keywords.into_iter().map(|k| k.into()).collect(),
+            tags: metadata.tags.into_iter().map(|t| t.into()).collect(),
+            custom: std::collections::HashMap::new(),
+            version: 1,
+        };
+        memory.metadata = std::sync::Arc::new(crossbeam_utils::CachePadded::new(node_metadata));
 
         // Generate embedding for the content
-        let embedding = self.generate_embedding(&memory.content).await?;
-        memory.embedding = Some(embedding.clone());
+        let content_text = memory.content().to_string();
+        let embedding_vec = self.generate_embedding(&content_text).await?;
+        memory.embedding = Some(crate::domain::memory::primitives::node::AlignedEmbedding::new(embedding_vec.clone()));
 
         // Add to vector store
         {
             let vector_store = self.vector_store.lock().await;
             (*vector_store)
-                .add(memory.id.clone(), embedding.clone(), None)
+                .add(memory.id().to_string(), embedding_vec.clone(), None)
                 .await?;
         }
 
+        // Convert domain MemoryNode to memory MemoryNode for storage
+        let memory_for_storage = self.convert_domain_to_memory_node(&memory);
+
         // Store in persistent storage
-        self.storage.store(memory.clone()).await?;
+        self.storage.store(memory_for_storage.clone()).await?;
 
         // Add to repository
-        self.repository.write().await.add(memory.clone());
+        self.repository.write().await.add(memory_for_storage);
 
         Ok(memory)
     }
@@ -82,10 +99,10 @@ where
 
         // Update content if provided
         if let Some(new_content) = content {
-            memory.content = new_content;
+            memory.content = super::super::primitives::types::MemoryContent::new(&new_content);
 
             // Re-generate embedding for updated content
-            let embedding = self.generate_embedding(&memory.content).await?;
+            let embedding = self.generate_embedding(&memory.content.text).await?;
             memory.embedding = Some(embedding.clone());
 
             // Update in vector store
@@ -108,7 +125,8 @@ where
         // Update in repository
         self.repository.write().await.update(memory.clone());
 
-        Ok(memory)
+        // Convert to domain MemoryNode for return
+        Ok(self.convert_memory_to_domain_node(&memory))
     }
 
     /// Delete a memory
@@ -149,11 +167,11 @@ where
                 .await?
         };
 
-        // Retrieve full memory nodes
+        // Retrieve full memory nodes and convert to domain nodes
         let mut memories = Vec::new();
         for result in results {
             if let Ok(memory) = self.storage.retrieve(result.id.clone()).await {
-                memories.push(memory);
+                memories.push(self.convert_memory_to_domain_node(&memory));
             }
         }
 
@@ -165,7 +183,7 @@ where
         let memories = self.repository.read().await.filter(&filter);
         Ok(memories
             .into_iter()
-            .map(|arc_memory| (*arc_memory).clone())
+            .map(|arc_memory| self.convert_memory_to_domain_node(&*arc_memory))
             .collect())
     }
 
@@ -198,6 +216,112 @@ where
     /// Get relationships for a memory
     pub async fn get_relationships(&self, memory_id: &str) -> Result<Vec<MemoryRelationship>> {
         self.storage.get_relationships(memory_id.to_string()).await
+    }
+
+    /// Convert domain MemoryNode to memory MemoryNode for storage compatibility
+    fn convert_domain_to_memory_node(&self, domain_node: &crate::domain::memory::primitives::node::MemoryNode) -> crate::memory::memory::primitives::node::MemoryNode {
+        use chrono::Utc;
+        use crate::memory::memory::primitives::{
+            node::MemoryNode as MemoryMemoryNode,
+            metadata::MemoryMetadata as MemoryMemoryMetadata,
+            types::MemoryContent as MemoryMemoryContent,
+            types::MemoryTypeEnum as MemoryMemoryTypeEnum,
+        };
+
+        let embedding_vec = domain_node.embedding().map(|aligned_emb| aligned_emb.to_vec());
+        
+        // Create memory system metadata from domain metadata
+        let memory_metadata = MemoryMemoryMetadata {
+            user_id: None,
+            agent_id: None,
+            context: "default".to_string(),
+            importance: domain_node.metadata.importance,
+            keywords: domain_node.metadata.keywords.iter().map(|k| k.to_string()).collect(),
+            tags: domain_node.metadata.tags.iter().map(|t| t.to_string()).collect(),
+            category: "general".to_string(),
+            source: None,
+            created_at: chrono::Utc::now(),
+            last_accessed_at: None,
+            embedding: embedding_vec.clone(),
+            custom: serde_json::Value::Object(serde_json::Map::new()),
+        };
+
+        // Create memory content
+        let memory_content = MemoryMemoryContent::new(&domain_node.content().to_string());
+
+        // Convert memory type - map to closest equivalent
+        let memory_type = match domain_node.memory_type() {
+            crate::domain::memory::primitives::types::MemoryTypeEnum::Semantic => MemoryMemoryTypeEnum::Semantic,
+            crate::domain::memory::primitives::types::MemoryTypeEnum::Episodic => MemoryMemoryTypeEnum::Episodic,
+            crate::domain::memory::primitives::types::MemoryTypeEnum::Procedural => MemoryMemoryTypeEnum::Procedural,
+            crate::domain::memory::primitives::types::MemoryTypeEnum::Working => MemoryMemoryTypeEnum::Working,
+            crate::domain::memory::primitives::types::MemoryTypeEnum::LongTerm => MemoryMemoryTypeEnum::LongTerm,
+            // Map additional domain variants to closest memory system equivalents
+            crate::domain::memory::primitives::types::MemoryTypeEnum::Fact => MemoryMemoryTypeEnum::Semantic,
+            crate::domain::memory::primitives::types::MemoryTypeEnum::Episode => MemoryMemoryTypeEnum::Episodic,
+            crate::domain::memory::primitives::types::MemoryTypeEnum::Declarative => MemoryMemoryTypeEnum::Semantic,
+            crate::domain::memory::primitives::types::MemoryTypeEnum::Implicit => MemoryMemoryTypeEnum::Procedural,
+            crate::domain::memory::primitives::types::MemoryTypeEnum::Explicit => MemoryMemoryTypeEnum::Semantic,
+            crate::domain::memory::primitives::types::MemoryTypeEnum::Contextual => MemoryMemoryTypeEnum::Semantic,
+            crate::domain::memory::primitives::types::MemoryTypeEnum::Temporal => MemoryMemoryTypeEnum::Episodic,
+            crate::domain::memory::primitives::types::MemoryTypeEnum::Spatial => MemoryMemoryTypeEnum::Episodic,
+            crate::domain::memory::primitives::types::MemoryTypeEnum::Associative => MemoryMemoryTypeEnum::Semantic,
+            crate::domain::memory::primitives::types::MemoryTypeEnum::Emotional => MemoryMemoryTypeEnum::Episodic,
+        };
+
+        MemoryMemoryNode {
+            id: domain_node.id().to_string(),
+            content: memory_content,
+            memory_type,
+            created_at: Utc::now(), // Use current time as approximation
+            updated_at: Utc::now(),
+            embedding: embedding_vec,
+            metadata: memory_metadata,
+        }
+    }
+
+    /// Convert memory MemoryNode to domain MemoryNode for API compatibility
+    fn convert_memory_to_domain_node(&self, memory_node: &crate::memory::memory::primitives::node::MemoryNode) -> crate::domain::memory::primitives::node::MemoryNode {
+        use uuid::Uuid;
+        use crate::domain::memory::primitives::{
+            node::{MemoryNode as DomainMemoryNode, MemoryNodeMetadata, AlignedEmbedding},
+            types::{MemoryContent as DomainMemoryContent, MemoryTypeEnum as DomainMemoryTypeEnum},
+        };
+
+        // Convert memory type - map to closest equivalent
+        let domain_memory_type = match memory_node.memory_type {
+            crate::memory::memory::primitives::types::MemoryTypeEnum::Semantic => DomainMemoryTypeEnum::Semantic,
+            crate::memory::memory::primitives::types::MemoryTypeEnum::Episodic => DomainMemoryTypeEnum::Episodic,
+            crate::memory::memory::primitives::types::MemoryTypeEnum::Procedural => DomainMemoryTypeEnum::Procedural,
+            crate::memory::memory::primitives::types::MemoryTypeEnum::Working => DomainMemoryTypeEnum::Working,
+            crate::memory::memory::primitives::types::MemoryTypeEnum::LongTerm => DomainMemoryTypeEnum::LongTerm,
+        };
+
+        // Create domain content
+        let domain_content = DomainMemoryContent::text(&memory_node.content.text);
+
+        // Parse UUID from string ID
+        let uuid = Uuid::parse_str(&memory_node.id).unwrap_or_else(|_| Uuid::new_v4());
+
+        // Create domain node
+        let mut domain_node = DomainMemoryNode::with_id(uuid, domain_memory_type, domain_content);
+
+        // Convert embedding if present
+        if let Some(embedding_vec) = &memory_node.embedding {
+            domain_node.embedding = Some(AlignedEmbedding::new(embedding_vec.clone()));
+        }
+
+        // Convert metadata
+        let domain_metadata = MemoryNodeMetadata {
+            importance: memory_node.metadata.importance,
+            keywords: memory_node.metadata.keywords.iter().map(|k| k.clone().into()).collect(),
+            tags: memory_node.metadata.tags.iter().map(|t| t.clone().into()).collect(),
+            custom: std::collections::HashMap::new(),
+            version: 1,
+        };
+        domain_node.metadata = std::sync::Arc::new(crossbeam_utils::CachePadded::new(domain_metadata));
+
+        domain_node
     }
 
     /// Generate embedding for text content

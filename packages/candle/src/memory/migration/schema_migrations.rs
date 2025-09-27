@@ -47,7 +47,7 @@ impl SchemaTracker {
         let record = MigrationRecord {
             version,
             name,
-            applied_at: Utc::now(),
+            applied_at: crate::domain::memory::cache::get_cached_utc(),
             checksum,
         };
         self.applied.insert(version, record);

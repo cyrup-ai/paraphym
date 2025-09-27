@@ -2,15 +2,15 @@
 
 use std::collections::HashMap;
 
-use surrealdb::sql::Value;
+use surrealdb::Value;
 
 use crate::memory::utils::error::Result;
 
 /// Type alias for vector metadata
-pub type VectorMetadata = Option<HashMap<String, Value>>;
+pub type VectorMetadata = HashMap<String, Value>;
 
 /// Type alias for vector search results
-pub type VectorSearchResult = (String, Vec<f32>, f32, VectorMetadata);
+pub type VectorSearchResult = (String, Vec<f32>, f32, Option<VectorMetadata>);
 
 /// Trait for vector store implementations - SYNCHRONOUS OPERATIONS ONLY
 ///
@@ -35,7 +35,7 @@ pub trait VectorStore: Send + Sync {
     ///
     /// # Returns
     /// Result containing the vector data and optional metadata
-    fn get_vector(&self, id: &str) -> Result<(Vec<f32>, VectorMetadata)>;
+    fn get_vector(&self, id: &str) -> Result<(Vec<f32>, Option<VectorMetadata>)>;
 
     /// Update a vector
     ///
@@ -102,9 +102,9 @@ pub trait VectorStore: Send + Sync {
     ///
     /// # Returns
     /// Result indicating success or failure of the operation
-    fn add_metadata(&mut self, id: &str, metadata: HashMap<String, Value>) -> Result<()> {
+    fn add_metadata(&mut self, _id: &str, _metadata: HashMap<String, Value>) -> Result<()> {
         // Default implementation returns error - implementations should override
-        Err(crate::utils::error::Error::Other(
+        Err(crate::memory::utils::error::Error::Other(
             "Metadata operations not supported by this vector store".to_string(),
         ))
     }
@@ -116,7 +116,7 @@ pub trait VectorStore: Send + Sync {
     ///
     /// # Returns
     /// Result containing the metadata if it exists
-    fn get_metadata(&self, id: &str) -> Result<VectorMetadata> {
+    fn get_metadata(&self, _id: &str) -> Result<Option<VectorMetadata>> {
         // Default implementation returns None
         Ok(None)
     }
@@ -129,9 +129,9 @@ pub trait VectorStore: Send + Sync {
     ///
     /// # Returns
     /// Result indicating success or failure of the operation
-    fn update_metadata(&mut self, id: &str, metadata: HashMap<String, Value>) -> Result<()> {
+    fn update_metadata(&mut self, _id: &str, _metadata: HashMap<String, Value>) -> Result<()> {
         // Default implementation returns error - implementations should override
-        Err(crate::utils::error::Error::Other(
+        Err(crate::memory::utils::error::Error::Other(
             "Metadata operations not supported by this vector store".to_string(),
         ))
     }
@@ -143,9 +143,9 @@ pub trait VectorStore: Send + Sync {
     ///
     /// # Returns
     /// Result indicating success or failure of the operation
-    fn remove_metadata(&mut self, id: &str) -> Result<()> {
+    fn remove_metadata(&mut self, _id: &str) -> Result<()> {
         // Default implementation returns error - implementations should override
-        Err(crate::utils::error::Error::Other(
+        Err(crate::memory::utils::error::Error::Other(
             "Metadata operations not supported by this vector store".to_string(),
         ))
     }

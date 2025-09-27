@@ -63,7 +63,7 @@ pub fn topk_filtering_simd(logits: &mut [f32], k: usize) -> SimdResult<()> {
     let threshold = values[kth].1;
 
     // Apply mask
-    for (_i, x) in logits.iter_mut().enumerate() {
+    for x in logits.iter_mut() {
         if *x < threshold {
             *x = f32::NEG_INFINITY;
         }
@@ -175,7 +175,7 @@ unsafe fn simd_top_k_large_neon(logits: &mut [f32], k: usize) -> SimdResult<()> 
     let mut i = 0;
 
     while i + chunk_size <= logits.len() {
-        let ptr = unsafe { logits.as_mut_ptr().add(i) } as *mut f32;
+        let ptr = unsafe { logits.as_mut_ptr().add(i) };
         let x = unsafe { vld1q_f32(ptr) };
         let mask = vcltq_f32(x, threshold_vec);
         let masked = vbslq_f32(mask, inf_vec, x);

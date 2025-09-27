@@ -183,8 +183,8 @@ where
     A: Op<In, Mid> + 'static,
     B: Op<Mid, Out> + 'static,
     In: Send + Sync + Clone + 'static,
-    Mid: Send + Sync + Clone + 'static,
-    Out: Send + Sync + Clone + 'static,
+    Mid: Send + Sync + Clone + cyrup_sugars::prelude::MessageChunk + Default + 'static,
+    Out: Send + Sync + Clone + cyrup_sugars::prelude::MessageChunk + Default + 'static,
 {
     #[inline]
     fn call(&self, input: In) -> AsyncStream<Out> {
@@ -194,12 +194,12 @@ where
         // Create streaming composition using correct AsyncStream patterns
         AsyncStream::with_channel(move |sender| {
             // Execute first operation to get intermediate stream
-            let mut first_stream = first.call(input);
+            let first_stream = first.call(input);
 
             // Process each intermediate value through second operation
             while let Some(mid_value) = first_stream.try_next() {
                 // Execute second operation with intermediate value
-                let mut second_stream = second.call(mid_value);
+                let second_stream = second.call(mid_value);
 
                 // Forward all outputs from second operation
                 while let Some(output) = second_stream.try_next() {
@@ -236,8 +236,8 @@ where
     O: Op<In, Out> + 'static,
     F: Fn(Out) -> NewOut + Send + Sync + Clone + 'static,
     In: Send + Sync + Clone + 'static,
-    Out: Send + Sync + Clone + 'static,
-    NewOut: Send + Sync + Clone + 'static,
+    Out: Send + Sync + Clone + cyrup_sugars::prelude::MessageChunk + Default + 'static,
+    NewOut: Send + Sync + Clone + cyrup_sugars::prelude::MessageChunk + Default + 'static,
 {
     #[inline]
     fn call(&self, input: In) -> AsyncStream<NewOut> {
@@ -245,7 +245,7 @@ where
         let func = self.func.clone();
 
         AsyncStream::with_channel(move |sender| {
-            let mut stream = op.call(input);
+            let stream = op.call(input);
 
             // Apply transformation function to each output
             while let Some(output) = stream.try_next() {
@@ -278,7 +278,7 @@ pub struct Passthrough<T> {
 
 impl<T> Op<T, T> for Passthrough<T>
 where
-    T: Send + Sync + Clone + 'static,
+    T: Send + Sync + Clone + cyrup_sugars::prelude::MessageChunk + Default + 'static,
 {
     #[inline]
     fn call(&self, input: T) -> AsyncStream<T> {
@@ -309,7 +309,7 @@ impl<F, In, Out> Op<In, Out> for FuncOp<F, In, Out>
 where
     F: Fn(In) -> Out + Send + Sync + Clone + 'static,
     In: Send + Sync + Clone + 'static,
-    Out: Send + Sync + Clone + 'static,
+    Out: Send + Sync + Clone + cyrup_sugars::prelude::MessageChunk + Default + 'static,
 {
     #[inline]
     fn call(&self, input: In) -> AsyncStream<Out> {

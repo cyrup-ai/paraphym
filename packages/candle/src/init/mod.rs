@@ -3,9 +3,9 @@
 pub mod globals;
 
 use std::sync::Arc;
-use paraphym_candle::memory::memory::manager::surreal::SurrealDBMemoryManager;
-use paraphym_candle::memory::utils::config::MemoryConfig;
-use surrealdb::{Surreal, engine::any::{connect, Any}};
+use crate::memory::memory::manager::surreal::SurrealDBMemoryManager;
+use crate::memory::utils::config::MemoryConfig;
+use surrealdb::{Surreal, engine::any::{self, Any}};
 use crate::core::DomainInitError;
 
 /// Initialize memory service with default configuration
@@ -31,13 +31,13 @@ pub async fn initialize_memory_service_with_config(
     config: MemoryConfig,
 ) -> Result<SurrealDBMemoryManager, DomainInitError> {
     // Connect to SurrealDB using the real SDK
-    let db: Surreal<Any> = connect(&config.database.connection_string)
+    let db = any::connect(&config.database.connection_string)
         .await
         .map_err(|e| DomainInitError::DatabaseConnectionFailed(e.to_string()))?;
 
     // Use namespace and database
     db.use_ns(&config.database.namespace)
-        .use_db(&config.database.database_name)
+        .use_db(&config.database.database)
         .await
         .map_err(|e| DomainInitError::DatabaseInitializationFailed(e.to_string()))?;
 
