@@ -52,7 +52,7 @@ fn bench_memory_serialization(c: &mut Criterion) {
 
 fn bench_memory_storage(c: &mut Criterion) {
     c.bench_function("memory_storage", |b| {
-        b.to_async(tokio::runtime::Runtime::new().expect("Failed to create async runtime"))
+        b.to_async(paraphym_candle::runtime::shared_runtime())
             .iter(|| async {
                 let memory_manager = get_memory_manager().await;
                 let memory = create_test_memory("test_id");
@@ -66,7 +66,7 @@ fn bench_memory_storage(c: &mut Criterion) {
 
 fn bench_memory_retrieval(c: &mut Criterion) {
     c.bench_function("memory_retrieval", |b| {
-        b.to_async(tokio::runtime::Runtime::new().expect("Failed to create async runtime"))
+        b.to_async(paraphym_candle::runtime::shared_runtime())
             .iter(|| async {
                 let memory_manager = get_memory_manager().await;
                 let memory = create_test_memory("test_id");
@@ -89,7 +89,7 @@ fn bench_memory_retrieval(c: &mut Criterion) {
 
 fn bench_memory_search(c: &mut Criterion) {
     c.bench_function("memory_search", |b| {
-        b.to_async(tokio::runtime::Runtime::new().expect("Failed to create async runtime"))
+        b.to_async(paraphym_candle::runtime::shared_runtime())
             .iter(|| async {
                 let memory_manager = get_memory_manager().await;
 
@@ -117,7 +117,7 @@ fn bench_batch_operations(c: &mut Criterion) {
 
     for size in [10, 100, 1000].iter() {
         group.bench_with_input(BenchmarkId::new("batch_store", size), size, |b, &size| {
-            b.to_async(tokio::runtime::Runtime::new().expect("Failed to create async runtime"))
+            b.to_async(paraphym_candle::runtime::shared_runtime())
                 .iter(|| async {
                     let memory_manager = get_memory_manager().await;
                     let memories: Vec<MemoryNode> = (0..size)

@@ -201,12 +201,20 @@ pub struct EmbeddingConfig {
 pub enum EmbeddingModelType {
     /// OpenAI embedding models
     OpenAI = 0,
-    /// Sentence transformers
+    /// Sentence transformers (BERT-based)
     SentenceTransformers = 1,
     /// Cohere embeddings
     Cohere = 2,
     /// Custom model
     Custom = 3,
+    /// Stella embedding models
+    Stella = 4,
+    /// GTE-Qwen embedding models  
+    GteQwen = 5,
+    /// NVIDIA NVEmbed models
+    NvEmbed = 6,
+    /// Jina-BERT embedding models
+    JinaBert = 7,
 }
 
 /// Normalization strategies for embeddings
@@ -265,6 +273,62 @@ impl EmbeddingConfig {
             enable_caching: true,
             cache_size: 1_000,
             cache_ttl: Duration::from_secs(1800),
+            enable_compression: true,
+        }
+    }
+
+    /// Create Stella 1024-dim embedding configuration
+    pub fn stella_1024() -> Self {
+        Self {
+            model_type: EmbeddingModelType::Stella,
+            model_name: "dunzhang/stella_en_1.5B_v5".to_string(),
+            dimension: 1024,
+            normalization: NormalizationStrategy::L2,
+            enable_caching: true,
+            cache_size: 2_000,
+            cache_ttl: Duration::from_secs(3600),
+            enable_compression: true,
+        }
+    }
+
+    /// Create GTE-Qwen2 1536-dim embedding configuration  
+    pub fn gte_qwen() -> Self {
+        Self {
+            model_type: EmbeddingModelType::GteQwen,
+            model_name: "Alibaba-NLP/gte-Qwen2-1.5B-instruct".to_string(),
+            dimension: 1536,
+            normalization: NormalizationStrategy::L2,
+            enable_caching: true,
+            cache_size: 1_000,
+            cache_ttl: Duration::from_secs(3600),
+            enable_compression: true,
+        }
+    }
+
+    /// Create NVEmbed v2 4096-dim embedding configuration
+    pub fn nvembed_v2() -> Self {
+        Self {
+            model_type: EmbeddingModelType::NvEmbed,
+            model_name: "nvidia/NV-Embed-v2".to_string(),
+            dimension: 4096,
+            normalization: NormalizationStrategy::L2,
+            enable_caching: true,
+            cache_size: 500,
+            cache_ttl: Duration::from_secs(3600),
+            enable_compression: true,
+        }
+    }
+
+    /// Create Jina-BERT 768-dim embedding configuration
+    pub fn jina_bert() -> Self {
+        Self {
+            model_type: EmbeddingModelType::JinaBert,
+            model_name: "jinaai/jina-embeddings-v2-base-en".to_string(),
+            dimension: 768,
+            normalization: NormalizationStrategy::L2,
+            enable_caching: true,
+            cache_size: 3_000,
+            cache_ttl: Duration::from_secs(3600),
             enable_compression: true,
         }
     }

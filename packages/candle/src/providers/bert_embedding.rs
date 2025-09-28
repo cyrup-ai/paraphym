@@ -5,6 +5,7 @@
 
 
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
@@ -48,8 +49,8 @@ pub struct CandleBertEmbeddingProvider {
     model_path: String,
     /// Model configuration
     config: CandleBertConfig,
-    /// Loaded BERT model
-    model: BertModel,
+    /// Loaded BERT model (thread-safe)
+    model: Mutex<BertModel>,
     /// Tokenizer for text processing
     tokenizer: Tokenizer,
     /// Device for inference
@@ -170,7 +171,7 @@ impl CandleBertEmbeddingProvider {
         Ok(Self {
             model_path,
             config,
-            model,
+            model: Mutex::new(model),
             tokenizer,
             device,
         })
@@ -215,8 +216,10 @@ impl CandleBertEmbeddingProvider {
         let token_type_ids = token_ids.zeros_like()
             .map_err(|e| MemoryError::ModelError(format!("Tensor creation failed: {}", e)))?;
 
-        // Forward pass (exact pattern from example line 178)
-        let embeddings = self.model
+        // Forward pass with thread-safe model access
+        let model = self.model.lock()
+            .map_err(|e| MemoryError::ModelError(format!("Failed to acquire model lock: {}", e)))?;
+        let embeddings = model
             .forward(&token_ids, &token_type_ids, Some(&attention_mask))
             .map_err(|e| MemoryError::ModelError(format!("BERT forward pass failed: {}", e)))?;
 

@@ -463,8 +463,7 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
             // Create node in database using async operations
             let pending_node = db.create_node(node.properties);
             // Since we're in a sync context, we need to use a runtime to await the result
-            let rt = tokio::runtime::Runtime::new()
-                .map_err(|e| GraphError::Other(format!("Failed to create runtime: {}", e)))?;
+            let rt = crate::runtime::shared_runtime();
             rt.block_on(pending_node)
         })?;
 
@@ -485,8 +484,7 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
         // Execute database operation synchronously
         self.execute_db_operation(move |db| {
             let node_query = db.get_node(&id);
-            let rt = tokio::runtime::Runtime::new()
-                .map_err(|e| GraphError::Other(format!("Failed to create runtime: {}", e)))?;
+            let rt = crate::runtime::shared_runtime();
             
             match rt.block_on(node_query)? {
                 Some(node) => {
@@ -514,8 +512,7 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
         // Execute database operation synchronously
         self.execute_db_operation(move |db| {
             let node_update = db.update_node(&entity_id, node.properties);
-            let rt = tokio::runtime::Runtime::new()
-                .map_err(|e| GraphError::Other(format!("Failed to create runtime: {}", e)))?;
+            let rt = crate::runtime::shared_runtime();
             rt.block_on(node_update)?;
             Ok(())
         })?;
@@ -529,8 +526,7 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
         // Execute database operation synchronously
         self.execute_db_operation(move |db| {
             let node_delete = db.delete_node(&id);
-            let rt = tokio::runtime::Runtime::new()
-                .map_err(|e| GraphError::Other(format!("Failed to create runtime: {}", e)))?;
+            let rt = crate::runtime::shared_runtime();
             rt.block_on(node_delete)
         })
     }
@@ -546,8 +542,7 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
         // Execute database operation synchronously
         self.execute_db_operation(move |db| {
             let node_stream = db.get_nodes_by_type(&entity_type);
-            let rt = tokio::runtime::Runtime::new()
-                .map_err(|e| GraphError::Other(format!("Failed to create runtime: {}", e)))?;
+            let rt = crate::runtime::shared_runtime();
             
             // Collect nodes from stream with pagination
             let mut entities = Vec::new();
@@ -607,8 +602,7 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
         let json_value = serde_json::to_value(&attribute_value)
             .map_err(|e| GraphError::ConversionError(format!("Failed to convert attribute value: {}", e)))?;
         
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| GraphError::Other(format!("Failed to create runtime: {}", e)))?;
+        let rt = crate::runtime::shared_runtime();
         
         let entities = rt.block_on(async {
             use crate::memory::graph::graph_db::GraphQueryOptions;
@@ -651,8 +645,7 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
             // Build count query
             let query = format!("SELECT COUNT(*) FROM {}", entity_type);
             let node_stream = db.query(&query, Some(GraphQueryOptions::default()));
-            let rt = tokio::runtime::Runtime::new()
-                .map_err(|e| GraphError::Other(format!("Failed to create runtime: {}", e)))?;
+            let rt = crate::runtime::shared_runtime();
             
             // Get count from query result
             let mut count = 0;
@@ -691,8 +684,7 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
 
         // Execute batch database operation
         self.execute_db_operation(move |db| {
-            let rt = tokio::runtime::Runtime::new()
-                .map_err(|e| GraphError::Other(format!("Failed to create runtime: {}", e)))?;
+            let rt = crate::runtime::shared_runtime();
             
             // Create all nodes in parallel
             let create_futures: Vec<_> = nodes.into_iter().map(|node| {

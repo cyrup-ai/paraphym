@@ -371,10 +371,12 @@ mod tests {
             content: "Test".to_string(),
             memory_type: "semantic".to_string(),
             created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
             last_accessed_at: chrono::Utc::now(),
             importance: 0.5,
+            embedding: None,
             tags: vec![],
-            metadata: Some(serde_json::Value::Object(serde_json::Map::new())),
+            metadata: serde_json::Value::Object(serde_json::Map::new()),
         };
         data.memories
             .push(serde_json::to_value(memory).expect("Failed to serialize memory"));
@@ -457,10 +459,12 @@ mod tests {
             content: "Test".to_string(),
             memory_type: "semantic".to_string(),
             created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
             last_accessed_at: chrono::Utc::now(),
             importance: 0.5,
+            embedding: None,
             tags: vec![],
-            metadata: Some(serde_json::Value::Object(memory_metadata)),
+            metadata: serde_json::Value::Object(memory_metadata),
         };
         data.memories
             .push(serde_json::to_value(memory).expect("Failed to serialize memory"));

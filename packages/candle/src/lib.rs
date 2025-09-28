@@ -43,6 +43,8 @@ pub mod providers;
 pub mod workflow;
 /// Memory system with cognitive features and vector storage
 pub mod memory;
+/// Shared Tokio runtime for avoiding multiple runtime creation
+pub mod runtime;
 
 // Essential Candle re-exports for public API (minimal set)
 // Domain types will be added as they become available

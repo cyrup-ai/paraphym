@@ -1,8 +1,9 @@
 // src/memory/tests/schema.rs
 //! Tests for the memory schema.
 
-use crate::memory::primitives::MemoryTypeEnum;
-use crate::memory::schema::Memory;
+use chrono::Utc;
+use crate::memory::memory::primitives::types::MemoryTypeEnum;
+use crate::memory::schema::memory_schema::Memory;
 
 #[test]
 fn test_new_memory() {
@@ -12,10 +13,10 @@ fn test_new_memory() {
 
     assert!(!memory.id.is_empty());
     assert_eq!(memory.content, content);
-    assert_eq!(memory.r#type, memory_type);
+    assert_eq!(memory.memory_type, memory_type.to_string());
     assert!(memory.embedding.is_none());
-    assert!(memory.metadata.is_empty());
-    assert!(memory.created_at > 0);
+    assert!(memory.metadata.as_object().unwrap().is_empty());
+    assert!(memory.created_at < Utc::now());
     assert_eq!(memory.created_at, memory.updated_at);
     assert_eq!(memory.created_at, memory.last_accessed_at);
 }

@@ -30,6 +30,9 @@ pub enum Error {
     #[error("Configuration error: {0}")]
     Config(String),
 
+    #[error("Invalid configuration: {0}")]
+    InvalidConfig(String),
+
     #[error("API error: {0}")]
     Api(String),
 
@@ -115,6 +118,7 @@ impl axum::response::IntoResponse for Error {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Configuration error: {}", e),
             ),
+            Error::InvalidConfig(e) => (StatusCode::BAD_REQUEST, e),
             Error::Api(e) => (StatusCode::BAD_REQUEST, format!("API error: {}", e)),
             Error::Migration(e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,

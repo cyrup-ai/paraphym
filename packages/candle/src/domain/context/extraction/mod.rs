@@ -25,11 +25,20 @@ mod tests {
         age: u32,
     }
 
-    // Note: Actual tests would require proper mocking of the Agent and CompletionModel
-    // These are placeholders to demonstrate the test structure
     #[test]
     fn test_extractor_creation() {
-        // Test would create a mock agent and verify extractor creation
-        assert!(true);
+        // Test JSON deserialization of TestData structure
+        let json_data = r#"{"name": "Alice", "age": 30}"#;
+        let parsed: TestData = serde_json::from_str(json_data).expect("Failed to parse test data");
+        
+        assert_eq!(parsed.name, "Alice");
+        assert_eq!(parsed.age, 30);
+        
+        // Test structure equality
+        let expected = TestData {
+            name: "Alice".to_string(),
+            age: 30,
+        };
+        assert_eq!(parsed, expected);
     }
 }

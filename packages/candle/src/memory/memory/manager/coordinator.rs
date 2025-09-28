@@ -1,15 +1,19 @@
 //! High-level memory management functionality
 
 use std::sync::Arc;
-use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::time::SystemTime;
 
-use tokio::sync::{RwLock, oneshot};
+use tokio::sync::RwLock;
+use chrono;
+
+use crate::providers::bert_embedding::CandleBertEmbeddingProvider;
+use crate::memory::vector::embedding_model::EmbeddingModel;
 
 use crate::memory::{
-    MemoryMetadata, MemoryRelationship, MemoryType, filter::MemoryFilter,
+    MemoryMetadata, MemoryRelationship, 
     repository::MemoryRepository,
 };
+use crate::memory::memory::ops::filter::MemoryFilter;
 use crate::domain::memory::primitives::{
     types::MemoryTypeEnum,
     node::MemoryNode,
@@ -22,15 +26,20 @@ use futures_util::StreamExt;
 pub struct MemoryCoordinator {
     surreal_manager: Arc<SurrealDBMemoryManager>,
     repository: Arc<RwLock<MemoryRepository>>,
+    embedding_model: Arc<dyn EmbeddingModel>,
 }
 
 impl MemoryCoordinator {
     /// Create a new memory coordinator with SurrealDB
-    pub fn new(surreal_manager: Arc<SurrealDBMemoryManager>) -> Self {
-        Self {
+    pub async fn new(surreal_manager: Arc<SurrealDBMemoryManager>) -> Result<Self> {
+        // Initialize BERT embedding model
+        let embedding_model = Arc::new(CandleBertEmbeddingProvider::new().await?) as Arc<dyn EmbeddingModel>;
+
+        Ok(Self {
             surreal_manager,
             repository: Arc::new(RwLock::new(MemoryRepository::new())),
-        }
+            embedding_model,
+        })
     }
 
     /// Add a new memory using SurrealDB's native capabilities
@@ -38,11 +47,28 @@ impl MemoryCoordinator {
         &self,
         content: String,
         memory_type: MemoryTypeEnum,
-        _metadata: MemoryMetadata,
+        metadata: MemoryMetadata,
     ) -> Result<MemoryNode> {
         // Create domain memory node first
         let content_struct = crate::domain::memory::primitives::types::MemoryContent::text(content.clone());
         let mut domain_memory = MemoryNode::new(memory_type.clone(), content_struct);
+        domain_memory.set_importance(metadata.importance)
+            .map_err(|e| Error::Internal(format!("Failed to set importance: {}", e)))?;
+
+        // Apply metadata keywords and tags
+        for keyword in &metadata.keywords {
+            domain_memory.set_custom_metadata(
+                format!("keyword_{}", keyword),
+                serde_json::Value::String(keyword.clone())
+            );
+        }
+
+        for tag in &metadata.tags {
+            domain_memory.set_custom_metadata(
+                format!("tag_{}", tag),
+                serde_json::Value::String(tag.clone())
+            );
+        }
 
         // Generate embedding for the content
         let embedding_vec = self.generate_embedding(&content).await?;
@@ -58,7 +84,7 @@ impl MemoryCoordinator {
         self.repository.write().await.add(memory_for_storage);
 
         // Convert stored memory back to domain format for return
-        Ok(self.convert_memory_to_domain_node(&stored_memory))
+        Ok(self.convert_memory_to_domain_node(&stored_memory)?)
     }
 
     /// Update an existing memory using SurrealDB's native capabilities
@@ -95,7 +121,7 @@ impl MemoryCoordinator {
         self.repository.write().await.update(updated_memory);
 
         // Convert to domain MemoryNode for return
-        Ok(self.convert_memory_to_domain_node(&stored_memory))
+        Ok(self.convert_memory_to_domain_node(&stored_memory)?)
     }
 
     /// Delete a memory using SurrealDB's native capabilities
@@ -119,51 +145,97 @@ impl MemoryCoordinator {
         // Generate embedding for the query using the same method as add_memory
         let query_embedding = self.generate_embedding(query).await?;
 
-        let surreal_manager = Arc::clone(&self.surreal_manager);
+        // Use SurrealDB's native vector similarity search directly
+        let memory_stream = self.surreal_manager.search_by_vector(query_embedding, top_k);
 
-        // Use ystream pattern: async work INSIDE spawned task, synchronous collection
-        let memory_stream = ystream::AsyncStream::<crate::memory::memory::primitives::node::MemoryNode, 1024>::with_channel(move |sender| {
-            tokio::runtime::Handle::current().block_on(async move {
-                // Use SurrealDB's native vector similarity search INSIDE spawned task
-                let memory_stream = surreal_manager.search_by_vector(query_embedding, top_k);
+        // Collect results using StreamExt::collect()
+        let memories: Vec<_> = memory_stream.collect().await;
 
-                // Collect from SurrealDB stream (this is futures_util::StreamExt)
-                let memories: Vec<_> = memory_stream.collect().await;
-
-                // Emit each memory to the ystream
-                for memory_result in memories {
-                    match memory_result {
-                        Ok(memory) => ystream::emit!(sender, memory),
-                        Err(_) => {} // Skip errors for now
-                    }
+        // Convert to domain MemoryNodes with proper error handling
+        let mut result_memories = Vec::new();
+        for memory_result in memories {
+            match memory_result {
+                Ok(memory) => {
+                    let domain_memory = self.convert_memory_to_domain_node(&memory)?;
+                    result_memories.push(domain_memory);
                 }
-            });
-        });
-
-        // Synchronous collection from ystream
-        let memories: Vec<crate::memory::memory::primitives::node::MemoryNode> = memory_stream.collect();
+                Err(e) => return Err(Error::Internal(format!("Search failed: {}", e))),
+            }
+        }
 
         // Apply filter if provided
-        let filtered_memories = if let Some(_filter) = filter {
-            // TODO: Apply filter - for now returning all results
-            memories
+        let filtered_memories = if let Some(filter) = filter {
+            result_memories.into_iter()
+                .filter(|memory| {
+                    // Apply memory type filter
+                    if let Some(memory_types) = &filter.memory_types {
+                        let domain_memory_type = memory.memory_type();
+                        let converted_type = match domain_memory_type {
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::Semantic => crate::memory::memory::primitives::types::MemoryTypeEnum::Semantic,
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::Episodic => crate::memory::memory::primitives::types::MemoryTypeEnum::Episodic,
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::Procedural => crate::memory::memory::primitives::types::MemoryTypeEnum::Procedural,
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::Working => crate::memory::memory::primitives::types::MemoryTypeEnum::Working,
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::LongTerm => crate::memory::memory::primitives::types::MemoryTypeEnum::LongTerm,
+                            // Map additional domain variants to closest memory system equivalents
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::Fact => crate::memory::memory::primitives::types::MemoryTypeEnum::Semantic,
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::Episode => crate::memory::memory::primitives::types::MemoryTypeEnum::Episodic,
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::Declarative => crate::memory::memory::primitives::types::MemoryTypeEnum::Semantic,
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::Implicit => crate::memory::memory::primitives::types::MemoryTypeEnum::Procedural,
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::Explicit => crate::memory::memory::primitives::types::MemoryTypeEnum::Semantic,
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::Contextual => crate::memory::memory::primitives::types::MemoryTypeEnum::Semantic,
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::Temporal => crate::memory::memory::primitives::types::MemoryTypeEnum::Episodic,
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::Spatial => crate::memory::memory::primitives::types::MemoryTypeEnum::Episodic,
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::Associative => crate::memory::memory::primitives::types::MemoryTypeEnum::Semantic,
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::Emotional => crate::memory::memory::primitives::types::MemoryTypeEnum::Episodic,
+                        };
+                        if !memory_types.contains(&converted_type) {
+                            return false;
+                        }
+                    }
+
+                    // Apply importance range filter
+                    if let Some((min_importance, max_importance)) = filter.importance_range {
+                        let importance = memory.importance();
+                        if importance < min_importance || importance > max_importance {
+                            return false;
+                        }
+                    }
+
+                    // Apply time range filter
+                    if let Some(time_range) = &filter.time_range {
+                        if let Some(start) = time_range.start {
+                            let start_system_time = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(start.timestamp() as u64);
+                            if memory.base_memory.created_at < start_system_time {
+                                return false;
+                            }
+                        }
+                        if let Some(end) = time_range.end {
+                            let end_system_time = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(end.timestamp() as u64);
+                            if memory.base_memory.created_at >= end_system_time {
+                                return false;
+                            }
+                        }
+                    }
+
+                    true
+                })
+                .collect()
         } else {
-            memories
+            result_memories
         };
 
-        // Convert memory system nodes to domain nodes
-        Ok(filtered_memories.into_iter()
-            .map(|memory| self.convert_memory_to_domain_node(&memory))
-            .collect())
+        Ok(filtered_memories)
     }
 
     /// Get memories by filter
     pub async fn get_memories(&self, filter: MemoryFilter) -> Result<Vec<MemoryNode>> {
         let memories = self.repository.read().await.filter(&filter);
-        Ok(memories
-            .into_iter()
-            .map(|arc_memory| self.convert_memory_to_domain_node(&*arc_memory))
-            .collect())
+        let mut result_memories = Vec::new();
+        for arc_memory in memories {
+            let domain_memory = self.convert_memory_to_domain_node(&*arc_memory)?;
+            result_memories.push(domain_memory);
+        }
+        Ok(result_memories)
     }
 
     /// Add a relationship between memories using SurrealDB's native capabilities
@@ -194,35 +266,26 @@ impl MemoryCoordinator {
 
     /// Get relationships for a memory using SurrealDB's native capabilities
     pub async fn get_relationships(&self, memory_id: &str) -> Result<Vec<MemoryRelationship>> {
-        let surreal_manager = Arc::clone(&self.surreal_manager);
-        let memory_id = memory_id.to_string();
+        // Use SurrealDB's native relationship retrieval directly
+        let relationship_stream = self.surreal_manager.get_relationships(memory_id);
 
-        // Use ystream pattern: async work INSIDE spawned task
-        let relationship_stream = ystream::AsyncStream::<MemoryRelationship, 1024>::with_channel(move |sender| {
-            tokio::runtime::Handle::current().block_on(async move {
-                let relationship_stream = surreal_manager.get_relationships(&memory_id);
+        // Collect results using StreamExt::collect()
+        let relationships: Vec<_> = relationship_stream.collect().await;
 
-                // Collect from SurrealDB stream (futures_util::StreamExt)
-                let relationships: Vec<_> = relationship_stream.collect().await;
+        // Convert to MemoryRelationships with proper error handling
+        let mut result_relationships = Vec::new();
+        for relationship_result in relationships {
+            match relationship_result {
+                Ok(relationship) => result_relationships.push(relationship),
+                Err(e) => return Err(Error::Internal(format!("Failed to retrieve relationships: {}", e))),
+            }
+        }
 
-                // Emit each relationship to the ystream
-                for relationship_result in relationships {
-                    match relationship_result {
-                        Ok(relationship) => ystream::emit!(sender, relationship),
-                        Err(_) => {} // Skip errors for now
-                    }
-                }
-            });
-        });
-
-        // Synchronous collection from ystream
-        let relationships: Vec<MemoryRelationship> = relationship_stream.collect();
-        Ok(relationships)
+        Ok(result_relationships)
     }
 
     /// Convert domain MemoryNode to memory MemoryNode for storage compatibility
     fn convert_domain_to_memory_node(&self, domain_node: &crate::domain::memory::primitives::node::MemoryNode) -> crate::memory::memory::primitives::node::MemoryNode {
-        use chrono::Utc;
         use crate::memory::memory::primitives::{
             node::MemoryNode as MemoryMemoryNode,
             metadata::MemoryMetadata as MemoryMemoryMetadata,
@@ -232,20 +295,33 @@ impl MemoryCoordinator {
 
         let embedding_vec = domain_node.embedding().map(|aligned_emb| aligned_emb.to_vec());
         
-        // Create memory system metadata from domain metadata
+        // Create memory system metadata preserving domain metadata
         let memory_metadata = MemoryMemoryMetadata {
-            user_id: None,
-            agent_id: None,
-            context: "default".to_string(),
-            importance: domain_node.metadata.importance,
+            user_id: domain_node.metadata.custom.get("user_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            agent_id: domain_node.metadata.custom.get("agent_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            context: domain_node.metadata.custom.get("context")
+                .and_then(|v| v.as_str())
+                .unwrap_or("default")
+                .to_string(),
+            importance: domain_node.importance(),
             keywords: domain_node.metadata.keywords.iter().map(|k| k.to_string()).collect(),
             tags: domain_node.metadata.tags.iter().map(|t| t.to_string()).collect(),
-            category: "general".to_string(),
-            source: None,
-            created_at: chrono::Utc::now(),
-            last_accessed_at: None,
+            category: domain_node.metadata.custom.get("category")
+                .and_then(|v| v.as_str())
+                .unwrap_or("general")
+                .to_string(),
+            source: domain_node.metadata.custom.get("source")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            created_at: domain_node.base_memory.created_at.into(),
+            last_accessed_at: Some(chrono::DateTime::<chrono::Utc>::from(domain_node.last_accessed())),
             embedding: embedding_vec.clone(),
-            custom: serde_json::Value::Object(serde_json::Map::new()),
+            custom: serde_json::to_value(&domain_node.metadata.custom)
+                .unwrap_or_else(|_| serde_json::Value::Object(serde_json::Map::new())),
         };
 
         // Create memory content
@@ -275,15 +351,15 @@ impl MemoryCoordinator {
             id: domain_node.id().to_string(),
             content: memory_content,
             memory_type,
-            created_at: Utc::now(), // Use current time as approximation
-            updated_at: Utc::now(),
+            created_at: domain_node.base_memory.created_at.into(),
+            updated_at: domain_node.base_memory.updated_at.into(),
             embedding: embedding_vec,
             metadata: memory_metadata,
         }
     }
 
     /// Convert memory MemoryNode to domain MemoryNode for API compatibility
-    fn convert_memory_to_domain_node(&self, memory_node: &crate::memory::memory::primitives::node::MemoryNode) -> crate::domain::memory::primitives::node::MemoryNode {
+    fn convert_memory_to_domain_node(&self, memory_node: &crate::memory::memory::primitives::node::MemoryNode) -> Result<crate::domain::memory::primitives::node::MemoryNode> {
         use uuid::Uuid;
         use crate::domain::memory::primitives::{
             node::{MemoryNode as DomainMemoryNode, MemoryNodeMetadata, AlignedEmbedding},
@@ -302,8 +378,9 @@ impl MemoryCoordinator {
         // Create domain content
         let domain_content = DomainMemoryContent::text(&memory_node.content.text);
 
-        // Parse UUID from string ID
-        let uuid = Uuid::parse_str(&memory_node.id).unwrap_or_else(|_| Uuid::new_v4());
+        // Parse UUID from string ID - fail fast on corruption
+        let uuid = Uuid::parse_str(&memory_node.id)
+            .map_err(|e| Error::Internal(format!("Invalid UUID in memory node {}: {}", memory_node.id, e)))?;
 
         // Create domain node
         let mut domain_node = DomainMemoryNode::with_id(uuid, domain_memory_type, domain_content);
@@ -318,97 +395,26 @@ impl MemoryCoordinator {
             importance: memory_node.metadata.importance,
             keywords: memory_node.metadata.keywords.iter().map(|k| k.clone().into()).collect(),
             tags: memory_node.metadata.tags.iter().map(|t| t.clone().into()).collect(),
-            custom: std::collections::HashMap::new(),
+            custom: memory_node.metadata.custom
+                .as_object()
+                .map(|obj| obj.iter()
+                    .map(|(k, v)| (Arc::from(k.as_str()), Arc::new(v.clone())))
+                    .collect())
+                .unwrap_or_default(),
             version: 1,
         };
         domain_node.metadata = std::sync::Arc::new(crossbeam_utils::CachePadded::new(domain_metadata));
 
-        domain_node
+        Ok(domain_node)
     }
 
-    /// Generate embedding for text content
+    /// Generate embedding for text content using BERT model
     async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>> {
-        // Use a simple hash-based embedding for demonstration
-        // In production, this would call an actual embedding service like OpenAI, Cohere, etc.
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        let mut hasher = DefaultHasher::new();
-        text.hash(&mut hasher);
-        let hash = hasher.finish();
-
-        // Convert hash to a simple 384-dimensional embedding
-        let mut embedding = Vec::with_capacity(384);
-        let mut current_hash = hash;
-
-        for _ in 0..384 {
-            // Use different parts of the hash to generate diverse values
-            current_hash = current_hash.wrapping_mul(1103515245).wrapping_add(12345);
-            let normalized = (current_hash % 10000) as f32 / 10000.0 - 0.5; // Range: -0.5 to 0.5
-            embedding.push(normalized);
-        }
-
-        // Normalize the embedding vector
-        let magnitude: f32 = embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
-        if magnitude > 0.0 {
-            for value in &mut embedding {
-                *value /= magnitude;
-            }
-        }
-
+        // Use existing BERT embedding provider
+        let embedding = self.embedding_model.embed(text, None)
+            .map_err(|e| Error::Internal(format!("BERT embedding failed: {}", e)))?;
         Ok(embedding)
     }
 }
 
-/// Future type for memory operations
-pub struct MemoryFuture<T> {
-    rx: oneshot::Receiver<Result<T>>,
-}
 
-impl<T> MemoryFuture<T> {
-    pub fn new(rx: oneshot::Receiver<Result<T>>) -> Self {
-        Self { rx }
-    }
-}
-
-impl<T> Future for MemoryFuture<T> {
-    type Output = Result<T>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match Pin::new(&mut self.rx).poll(cx) {
-            Poll::Ready(Ok(result)) => Poll::Ready(result),
-            Poll::Ready(Err(_)) => Poll::Ready(Err(Error::Internal(
-                "Memory operation task failed".to_string(),
-            ))),
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-
-/// Trait for memory management operations
-pub trait MemoryManagement: Send + Sync {
-    /// Add a new memory
-    fn add(
-        &self,
-        content: String,
-        memory_type: &dyn MemoryType,
-        metadata: MemoryMetadata,
-    ) -> MemoryFuture<MemoryNode>;
-
-    /// Update an existing memory
-    fn update(
-        &self,
-        id: &str,
-        content: Option<String>,
-        metadata: Option<MemoryMetadata>,
-    ) -> MemoryFuture<MemoryNode>;
-
-    /// Delete a memory
-    fn delete(&self, id: &str) -> MemoryFuture<()>;
-
-    /// Search for memories
-    fn search(&self, query: &str, top_k: usize) -> MemoryFuture<Vec<MemoryNode>>;
-
-    /// Get memories by filter
-    fn filter(&self, filter: MemoryFilter) -> MemoryFuture<Vec<MemoryNode>>;
-}

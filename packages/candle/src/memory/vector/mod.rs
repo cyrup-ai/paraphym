@@ -1,5 +1,6 @@
 //! Vector operations and storage for memory embeddings
 
+pub mod embedding_factory;
 pub mod embedding_model;
 pub mod in_memory;
 pub mod vector_index;
@@ -12,6 +13,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+pub use embedding_factory::{EmbeddingModelFactory, ModelInfo};
 pub use embedding_model::*;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
