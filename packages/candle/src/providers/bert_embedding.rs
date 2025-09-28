@@ -9,7 +9,6 @@ use std::collections::HashMap;
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::bert::{BertModel, Config, DTYPE};
-#[cfg(feature = "progresshub")]
 use progresshub::{ProgressHub, types::ZeroOneOrMany as ProgressHubZeroOneOrMany};
 use tokenizers::{Tokenizer, PaddingParams, TruncationParams};
 
@@ -86,8 +85,7 @@ impl CandleBertEmbeddingProvider {
     }
 
     /// Create provider with custom configuration
-    pub async fn with_config(_config: CandleBertConfig) -> Result<Self> { // Config parameter reserved for future use
-        #[cfg(feature = "progresshub")]
+    pub async fn with_config(config: CandleBertConfig) -> Result<Self> { // Config parameter reserved for future use
         {
             // Download model using ProgressHub (following CandleKimiK2Provider pattern)
             let results = ProgressHub::builder()
@@ -115,13 +113,6 @@ impl CandleBertEmbeddingProvider {
             };
 
             Self::with_config_and_path(config, model_cache_dir).await
-        }
-        #[cfg(not(feature = "progresshub"))]
-        {
-            // Fallback: Return error indicating progresshub feature needed for automatic download
-            Err(MemoryError::ModelError(
-                "ProgressHub feature not enabled. Use with_config_and_path() with local model path".to_string()
-            ))
         }
     }
 

@@ -499,7 +499,6 @@ impl VectorIndex for HNSWIndex {
 ///
 /// # Performance
 /// Optimized for cache efficiency and vectorization
-
 #[inline]
 fn euclidean_distance(a: &[f32], b: &[f32]) -> f32 {
     a.iter()

@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use ahash::RandomState;
 use dashmap::{DashMap, DashSet};
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 
 use crate::domain::model::error::{CandleModelError, CandleResult};
 use crate::domain::model::traits::CandleModel;
@@ -65,7 +65,7 @@ impl Default for CandleModelRegistryInner {
 }
 
 /// The global model registry
-static GLOBAL_REGISTRY: Lazy<CandleModelRegistryInner> = Lazy::new(Default::default);
+static GLOBAL_REGISTRY: LazyLock<CandleModelRegistryInner> = LazyLock::new(Default::default);
 
 /// A registry for managing model instances
 ///
@@ -220,13 +220,13 @@ impl CandleModelRegistry {
     ///
     /// # Returns
     /// A result containing the model as the requested trait object
-    pub fn get_as<T: 'static>(
+    pub fn get_as<T>(
         &self,
         provider: &'static str,
         name: &'static str,
     ) -> CandleResult<Option<Arc<T>>>
     where
-        T: Send + Sync + Sized,
+        T: Send + Sync + Sized + 'static,
     {
         let provider_models = match GLOBAL_REGISTRY.models.get(provider) {
             Some(provider) => provider,
@@ -264,13 +264,13 @@ impl CandleModelRegistry {
     ///
     /// # Returns
     /// A result containing the model as a boxed trait object
-    pub fn get_boxed<T: 'static + ?Sized>(
+    pub fn get_boxed<T>(
         &self,
         provider: &'static str,
         name: &'static str,
     ) -> CandleResult<Option<Box<T>>>
     where
-        T: Send + Sync,
+        T: Send + Sync + 'static + ?Sized,
     {
         let provider_models = match GLOBAL_REGISTRY.models.get(provider) {
             Some(provider) => provider,
@@ -298,13 +298,13 @@ impl CandleModelRegistry {
     ///
     /// # Returns
     /// A result containing the model as the requested trait object
-    pub fn get_required_as<T: 'static>(
+    pub fn get_required_as<T>(
         &self,
         provider: &'static str,
         name: &'static str,
     ) -> CandleResult<Arc<T>>
     where
-        T: Send + Sync + Sized,
+        T: Send + Sync + Sized + 'static,
     {
         self.get_as(provider, name)?
             .ok_or_else(|| CandleModelError::ModelNotFound {
@@ -321,13 +321,13 @@ impl CandleModelRegistry {
     ///
     /// # Returns
     /// A result containing the model as a boxed trait object
-    pub fn get_required_boxed<T: 'static>(
+    pub fn get_required_boxed<T>(
         &self,
         provider: &'static str,
         name: &'static str,
     ) -> CandleResult<Box<T>>
     where
-        T: Send + Sync + Sized,
+        T: Send + Sync + Sized + 'static,
     {
         self.get_boxed(provider, name)?
             .ok_or_else(|| CandleModelError::ModelNotFound {

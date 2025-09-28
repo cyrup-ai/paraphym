@@ -1,20 +1,15 @@
-#[cfg(feature = "progresshub")]
-use std::io;
-
+use std::io::{self, Write};
 use clap::Parser;
 
 
-#[cfg(feature = "progresshub")]
 use paraphym_candle::providers::{kimi_k2::CandleKimiK2Provider, qwen3_coder::CandleQwen3CoderProvider};
 
-#[cfg(feature = "progresshub")]
 use paraphym_candle::{
-    builders::CandleFluentAi,
+    builders::{CandleFluentAi, CandleAgentRoleBuilder, CandleAgentBuilder},
     domain::{
         chat::CandleChatLoop,
-        completion::{CandleCompletionParams, CandlePrompt},
-        context::chunk::CandleMessageChunk,
     },
+    CandleMessageChunk,
 };
 
 #[derive(Parser)]
@@ -55,7 +50,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create the provider based on the model argument
     match args.model.as_str() {
-        #[cfg(feature = "progresshub")]
         "kimi-k2" => {
             println!("🚀 Initializing Kimi-K2 provider with ProgressHub...");
             let provider = CandleKimiK2Provider::new()
@@ -69,7 +63,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
             .await
         }
-        #[cfg(feature = "progresshub")]
         "qwen-coder" => {
             println!("🚀 Initializing Qwen3-Coder provider with ProgressHub...");
             let provider = CandleQwen3CoderProvider::new()
@@ -93,8 +86,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-#[cfg(feature = "progresshub")]
-#[cfg(feature = "progresshub")]
 async fn run_chat(
     provider: CandleKimiK2Provider,
     temperature: f64,
@@ -116,7 +107,9 @@ async fn run_chat(
                 CandleMessageChunk::Complete { text, .. } => print!("{}", text),
                 other => print!("{:?}", other),
             }
-            io::stdout().flush().unwrap();
+            if let Err(e) = io::stdout().flush() {
+                eprintln!("Warning: Failed to flush stdout: {}", e);
+            }
             chunk
         })
         .into_agent()
@@ -137,67 +130,44 @@ async fn run_chat(
     Ok(())
 }
 
-#[cfg(feature = "progresshub")]
-#[cfg(feature = "progresshub")]
 async fn run_chat_qwen(
     provider: CandleQwen3CoderProvider,
-    _temperature: f64,
-    _max_tokens: u64,
-    _system_prompt: &str,
+    temperature: f64,
+    max_tokens: u64,
+    system_prompt: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("✅ Provider ready! Starting chat...");
 
-    // For Qwen3-Coder, we'll implement basic streaming for now since it doesn't have the full CandleCompletionModel trait
-    println!("🤖 Qwen3-Coder: Hello! I'm ready to help you with coding tasks.");
-    println!(
-        "💻 Ask me anything about programming, and I'll generate code using the Qwen3-Coder model."
-    );
-    println!("📝 Type 'quit', 'exit', or 'bye' to end the chat.\n");
-
-    loop {
-        print!("You: ");
-        io::stdout().flush()?;
-
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
-        let input = input.trim();
-
-        match input.to_lowercase().as_str() {
-            "quit" | "exit" | "bye" => {
-                println!("\n👋 Goodbye!");
-                break;
+    // Use the same fluent API as KimiK2
+    let _stream = CandleFluentAi::agent_role("helpful-coder")
+        .completion_provider(provider)
+        .temperature(temperature)
+        .max_tokens(max_tokens)
+        .system_prompt(system_prompt)
+        .on_chunk(|chunk| {
+            match &chunk {
+                CandleMessageChunk::Text(text) => print!("{}", text),
+                CandleMessageChunk::Complete { text, .. } => print!("{}", text),
+                other => print!("{:?}", other),
             }
-            _ => {
-                print!("🤖 Qwen3-Coder: ");
-                io::stdout().flush()?;
-
-                // Use the provider's prompt method (new API)
-                use std::num::NonZeroU64;
-                let candle_prompt = CandlePrompt::new(input);
-                let mut params = CandleCompletionParams::default();
-                params.temperature = 0.7;
-                params.max_tokens = NonZeroU64::new(1000);
-                let mut stream = provider.prompt(candle_prompt, &params);
-
-                while let Some(chunk) = stream.next() {
-                    use paraphym_candle::domain::completion::CandleCompletionChunk;
-                    match chunk {
-                        CandleCompletionChunk::Text(text) => {
-                            print!("{}", text);
-                            io::stdout().flush()?;
-                        }
-                        CandleCompletionChunk::Complete { .. } => break,
-                        CandleCompletionChunk::Error(err) => {
-                            println!("Error: {}", err);
-                            break;
-                        }
-                        _ => {}
-                    }
+            if let Err(e) = io::stdout().flush() {
+                eprintln!("Warning: Failed to flush stdout: {}", e);
+            }
+            chunk
+        })
+        .into_agent()
+        .chat(|conversation| {
+            let user_input = conversation.latest_user_message();
+            match user_input.to_lowercase().as_str() {
+                "quit" | "exit" | "bye" => {
+                    println!("\n👋 Goodbye!");
+                    CandleChatLoop::Break
+                },
+                _ => {
+                    CandleChatLoop::Reprompt("Hello, can you help me with coding tasks using Qwen3-Coder?".to_string())
                 }
-                println!(); // New line after response
             }
-        }
-    }
+        });
 
     Ok(())
 }

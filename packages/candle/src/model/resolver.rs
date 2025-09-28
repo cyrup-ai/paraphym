@@ -10,7 +10,7 @@ use ahash::RandomState;
 use dashmap::DashMap;
 use ystream::AsyncStream;
 #[cfg(test)]
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 // Removed unused import: once_cell::sync::Lazy
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -489,7 +489,7 @@ mod tests {
         let mut registry = ModelRegistry::new();
 
         // Register some test models
-        static INFO1: Lazy<ModelInfo> = Lazy::new(|| {
+        static INFO1: LazyLock<ModelInfo> = LazyLock::new(|| {
             ModelInfo::builder()
                 .provider_name("openai")
                 .name("gpt-3.5-turbo")
@@ -497,7 +497,7 @@ mod tests {
                 .unwrap()
         });
 
-        static INFO2: Lazy<ModelInfo> = Lazy::new(|| {
+        static INFO2: LazyLock<ModelInfo> = LazyLock::new(|| {
             ModelInfo::builder()
                 .provider_name("anthropic")
                 .name("claude-2")

@@ -2,14 +2,14 @@
 
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
-    Arc,
+    Arc, LazyLock,
 };
 
 use arrayvec::ArrayVec;
 use atomic_counter::RelaxedCounter;
 use crossbeam_utils::CachePadded;
 use cyrup_sugars::prelude::MessageChunk;
-use once_cell::sync::Lazy;
+
 use thiserror::Error;
 use chrono::Utc;
 // StreamExt not currently used but may be needed for future async operations
@@ -35,12 +35,12 @@ const MAX_RELEVANT_MEMORIES: usize = 10;
 
 /// Global atomic counter for memory node creation
 #[allow(dead_code)] // TODO: Implement in memory node creation system
-static MEMORY_NODE_COUNTER: Lazy<CachePadded<RelaxedCounter>> =
-    Lazy::new(|| CachePadded::new(RelaxedCounter::new(0)));
+static MEMORY_NODE_COUNTER: LazyLock<CachePadded<RelaxedCounter>> =
+    LazyLock::new(|| CachePadded::new(RelaxedCounter::new(0)));
 
 /// Global atomic counter for attention scoring operations
-static ATTENTION_SCORE_COUNTER: Lazy<CachePadded<AtomicUsize>> =
-    Lazy::new(|| CachePadded::new(AtomicUsize::new(0)));
+static ATTENTION_SCORE_COUNTER: LazyLock<CachePadded<AtomicUsize>> =
+    LazyLock::new(|| CachePadded::new(AtomicUsize::new(0)));
 
 /// Chat error types for memory-enhanced agent conversations
 #[derive(Debug, thiserror::Error)]

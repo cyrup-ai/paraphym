@@ -35,7 +35,6 @@ use serde::{Deserialize, Serializer};
 /// // Result: {"key1": "value1", "key2": "value2"}
 /// ```
 #[inline(always)]
-#[allow(dead_code)] // TODO: Use in provider implementations
 pub fn merge(mut a: serde_json::Value, b: serde_json::Value) -> serde_json::Value {
     match (&mut a, b) {
         (serde_json::Value::Object(a_map), serde_json::Value::Object(b_map)) => {
@@ -143,7 +142,6 @@ pub mod stringified_json {
 /// }
 /// ```
 #[inline(always)]
-#[allow(dead_code)] // TODO: Use in provider configurations
 pub fn string_or_vec<'de, T, D>(deserializer: D) -> Result<Vec<T>, D::Error>
 where
     T: Deserialize<'de> + FromStr,
@@ -230,7 +228,6 @@ where
 /// }
 /// ```
 #[inline(always)]
-#[allow(dead_code)] // TODO: Use in provider configurations
 pub fn null_or_vec<'de, T, D>(deserializer: D) -> Result<Vec<T>, D::Error>
 where
     T: Deserialize<'de>,
@@ -292,7 +289,6 @@ where
 /// Merge JSON value into existing object, creating object if necessary
 /// Performance: Zero allocation if target is already an object
 #[inline(always)]
-#[allow(dead_code)] // TODO: Use in provider implementations
 pub fn ensure_object_and_merge(target: &mut serde_json::Value, source: serde_json::Value) {
     if !target.is_object() {
         *target = serde_json::Value::Object(serde_json::Map::new());
@@ -303,7 +299,6 @@ pub fn ensure_object_and_merge(target: &mut serde_json::Value, source: serde_jso
 /// Get mutable reference to object map, creating empty object if necessary
 /// Performance: Zero allocation if already an object
 #[inline(always)]
-#[allow(dead_code)] // TODO: Use in provider implementations
 pub fn ensure_object_map(
     value: &mut serde_json::Value,
 ) -> Option<&mut serde_json::Map<String, serde_json::Value>> {
@@ -316,7 +311,6 @@ pub fn ensure_object_map(
 /// Insert key-value pair, creating object if necessary
 /// Performance: Zero allocation if target is already an object
 #[inline(always)]
-#[allow(dead_code)] // TODO: Use in provider implementations
 pub fn insert_or_create(target: &mut serde_json::Value, key: String, value: serde_json::Value) {
     if let Some(map) = ensure_object_map(target) {
         map.insert(key, value);
@@ -326,7 +320,6 @@ pub fn insert_or_create(target: &mut serde_json::Value, key: String, value: serd
 /// Merge multiple JSON values in sequence with optimal allocation
 /// Performance: Reuses first value's allocation, extends efficiently
 #[inline(always)]
-#[allow(dead_code)] // TODO: Use in provider implementations
 pub fn merge_multiple<I>(values: I) -> serde_json::Value
 where
     I: IntoIterator<Item = serde_json::Value>,
@@ -347,7 +340,6 @@ where
 /// Check if JSON value is empty (null, empty object, empty array)
 /// Performance: Inlined, no allocations
 #[inline(always)]
-#[allow(dead_code)] // TODO: Use in provider implementations
 pub fn is_empty_value(value: &serde_json::Value) -> bool {
     match value {
         serde_json::Value::Null => true,
@@ -368,7 +360,6 @@ pub fn to_compact_string(value: &serde_json::Value) -> String {
 /// Pretty JSON serialization with controlled formatting
 /// Performance: Single allocation for output string, optimized formatting
 #[inline(always)]
-#[allow(dead_code)] // TODO: Use in provider implementations
 pub fn to_pretty_string(value: &serde_json::Value) -> Result<String, serde_json::Error> {
     serde_json::to_string_pretty(value)
 }

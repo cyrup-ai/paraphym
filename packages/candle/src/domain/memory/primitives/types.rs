@@ -519,7 +519,7 @@ impl<'de> Deserialize<'de> for BaseMemory {
             }
         }
 
-        const FIELDS: &'static [&'static str] =
+        const FIELDS: &[&str] =
             &["id", "memory_type", "content", "created_at", "updated_at"];
         deserializer.deserialize_struct("BaseMemory", FIELDS, BaseMemoryVisitor)
     }

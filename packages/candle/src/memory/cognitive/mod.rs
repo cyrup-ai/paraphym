@@ -4,14 +4,12 @@
 //! This module implements cognitive patterns using local model inference only.
 
 // Local cognitive modules
-#[cfg(feature = "progresshub")]
 pub mod committee;
 pub mod common;
 pub mod quantum;
 pub mod types;
 
 // Re-export key types
-#[cfg(feature = "progresshub")]
 pub use committee::{Committee, CommitteeConfig, ProviderCommitteeEvaluator};
 pub use common::models::{LocalModel, LocalModelType};
 pub use quantum::{QuantumSignature, QuantumRouter};

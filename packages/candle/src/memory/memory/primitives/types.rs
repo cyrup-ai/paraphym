@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::fmt::{self, Debug};
+use std::str::FromStr;
 
 use base64::Engine;
 use chrono::{DateTime, Utc};
@@ -59,6 +60,20 @@ impl fmt::Display for MemoryTypeEnum {
             MemoryTypeEnum::Working => write!(f, "working"),
             MemoryTypeEnum::LongTerm => write!(f, "long_term"),
         }
+    }
+}
+
+impl FromStr for MemoryTypeEnum {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        Self::from_string(s)
+    }
+}
+
+impl Default for MemoryTypeEnum {
+    fn default() -> Self {
+        Self::LongTerm // As indicated by comment "Long-term memory (default)"
     }
 }
 
@@ -213,6 +228,12 @@ impl MemoryContent {
             video_data,
             custom,
         })
+    }
+}
+
+impl Default for MemoryContent {
+    fn default() -> Self {
+        Self::new("") // Use existing new() method
     }
 }
 

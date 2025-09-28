@@ -403,43 +403,64 @@ where
 mod tests {
     use super::*;
     use crate::workflow::ops::map;
+    use crate::parallel;
+    
+    // Simple test wrapper for i32 that implements MessageChunk
+    #[derive(Debug, Clone, Default)]
+    struct TestChunk(i32);
+    
+    impl cyrup_sugars::prelude::MessageChunk for TestChunk {
+        fn bad_chunk(_error: String) -> Self {
+            Self::default()
+        }
+        
+        fn error(&self) -> Option<&str> {
+            None
+        }
+    }
+    
+    impl From<i32> for TestChunk {
+        fn from(value: i32) -> Self {
+            TestChunk(value)
+        }
+    }
 
     #[test]
     fn test_parallel_n_creation() {
-        let parallel: ParallelN<i32, i32> = ParallelN::new();
+        let parallel: ParallelN<i32, TestChunk> = ParallelN::new();
         assert_eq!(parallel.operation_count(), 0);
         assert!(parallel.is_stack_allocated());
     }
 
     #[test]
     fn test_parallel_builder() {
-        let builder: ParallelBuilder<i32, i32> = ParallelBuilder::new();
+        let builder: ParallelBuilder<i32, TestChunk> = ParallelBuilder::new();
         assert_eq!(builder.operation_count(), 0);
         assert!(builder.is_stack_allocated());
     }
 
     #[test]
     fn test_stack_allocation_threshold() {
-        let mut parallel = ParallelN::new();
+        let mut parallel: ParallelN<i32, TestChunk> = ParallelN::new();
         
         // Add 16 operations - should still be stack allocated
         for _ in 0..16 {
-            parallel = parallel.add(map(|x: i32| x + 1));
+            parallel = parallel.add(map(|x: i32| TestChunk::from(x + 1)));
         }
         assert!(parallel.is_stack_allocated());
         assert_eq!(parallel.operation_count(), 16);
         
         // Add 17th operation - should trigger heap allocation
-        parallel = parallel.add(map(|x: i32| x + 1));
+        parallel = parallel.add(map(|x: i32| TestChunk::from(x + 1)));
         assert!(!parallel.is_stack_allocated());
         assert_eq!(parallel.operation_count(), 17);
     }
 
     #[test]
     fn test_parallel_macro() {
-        let op1 = map(|x: i32| x + 1);
-        let op2 = map(|x: i32| x * 2);
-        let op3 = map(|x: i32| x - 1);
+        let op1 = map(|x: i32| TestChunk::from(x + 1));
+        let op2 = map(|x: i32| TestChunk::from(x * 2));
+        let op3 = map(|x: i32| TestChunk::from(x - 1));
 
         let parallel_ops = parallel![op1, op2, op3];
         assert_eq!(parallel_ops.operation_count(), 3);

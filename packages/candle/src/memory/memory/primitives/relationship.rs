@@ -5,6 +5,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use cyrup_sugars::prelude::*;
 
 /// Represents the direction of a relationship
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -71,5 +72,36 @@ impl MemoryRelationship {
     pub fn with_metadata(mut self, metadata: Value) -> Self {
         self.metadata = Some(metadata);
         self
+    }
+}
+
+impl Default for MemoryRelationship {
+    fn default() -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            source_id: String::new(),
+            target_id: String::new(),
+            relationship_type: "unknown".to_string(),
+            metadata: None,
+        }
+    }
+}
+
+impl MessageChunk for MemoryRelationship {
+    fn bad_chunk(error: String) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            source_id: "error".to_string(),
+            target_id: "error".to_string(),
+            relationship_type: "error".to_string(),
+            metadata: Some(serde_json::json!({"error": error})),
+        }
+    }
+
+    fn error(&self) -> Option<&str> {
+        self.metadata
+            .as_ref()
+            .and_then(|m| m.get("error"))
+            .and_then(|e| e.as_str())
     }
 }

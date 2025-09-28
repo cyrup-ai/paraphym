@@ -1,12 +1,12 @@
 //! Core domain types and traits
 
-use std::sync::atomic::AtomicUsize;
+use std::sync::{atomic::AtomicUsize, LazyLock};
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
 use crossbeam_channel;
 use crossbeam_utils::CachePadded;
-use once_cell::sync::Lazy;
+
 
 use crate::domain::memory::primitives::types::MemoryError;
 use crate::AsyncTask;
@@ -87,8 +87,8 @@ pub fn channel<T: Send + 'static>() -> (
 }
 
 /// Global state for circuit breaker pattern
-static CIRCUIT_BREAKER: Lazy<ArcSwap<CircuitBreaker>> =
-    Lazy::new(|| ArcSwap::from_pointee(CircuitBreaker::new()));
+static CIRCUIT_BREAKER: LazyLock<ArcSwap<CircuitBreaker>> =
+    LazyLock::new(|| ArcSwap::from_pointee(CircuitBreaker::new()));
 
 /// Circuit breaker state
 struct CircuitBreaker {

@@ -2,7 +2,7 @@
 
 pub mod globals;
 
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use crate::memory::memory::manager::surreal::SurrealDBMemoryManager;
 use crate::domain::memory::MemoryConfig;
@@ -66,8 +66,8 @@ pub fn get_default_memory_config() -> MemoryConfig {
 /// Memory service connection pool for efficient resource management
 ///
 /// Uses Arc<SurrealDBMemoryManager> for shared ownership across threads
-static MEMORY_SERVICE_POOL: once_cell::sync::Lazy<crossbeam_queue::SegQueue<Arc<SurrealDBMemoryManager>>> =
-    once_cell::sync::Lazy::new(|| crossbeam_queue::SegQueue::new());
+static MEMORY_SERVICE_POOL: LazyLock<crossbeam_queue::SegQueue<Arc<SurrealDBMemoryManager>>> =
+    LazyLock::new(|| crossbeam_queue::SegQueue::new());
 
 /// Get a memory manager from the connection pool
 ///

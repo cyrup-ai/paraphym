@@ -117,6 +117,12 @@ impl std::fmt::Debug for ChatSearchIndex {
     }
 }
 
+impl Default for ChatSearchIndex {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ChatSearchIndex {
     /// Create a new search index
     pub fn new() -> Self {

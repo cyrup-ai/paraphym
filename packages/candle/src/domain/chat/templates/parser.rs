@@ -114,10 +114,9 @@ impl TemplateParser {
                 if brace_count == 0 {
                     chars.next(); // consume second '}'
                     break;
-                } else {
-                    content.push(ch);
-                    brace_count -= 1;
                 }
+                content.push(ch);
+                brace_count -= 1;
             } else if ch == '{' && chars.peek() == Some(&'{') {
                 content.push(ch);
                 brace_count += 1;
@@ -344,8 +343,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(variables.len(), 2);
-        assert!(variables.iter().any(|v| v.name.as_ref() == "name"));
-        assert!(variables.iter().any(|v| v.name.as_ref() == "count"));
+        assert!(variables.iter().any(|v| v.name.as_str() == "name"));
+        assert!(variables.iter().any(|v| v.name.as_str() == "count"));
     }
 
     #[test]

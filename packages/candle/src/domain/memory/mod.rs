@@ -35,7 +35,6 @@ pub mod pool;
 pub mod serialization;
 
 /// Memory workflow management - removed fake implementation
-
 /// Memory trait definitions for trait-backed architecture
 pub mod traits;
 
@@ -207,7 +206,7 @@ impl MemorySystemConfig {
                 EmbeddingConfig::default(),
                 1536,
             )?
-            .with_index_config(IndexConfig::optimized(IndexType::IVFPQ, 1536, 1000000))
+            .with_index_config(IndexConfig::optimized(IndexType::IVFPQ, 1536, 1_000_000))
             .with_performance_config(PerformanceConfig::optimized(VectorStoreType::FAISS)),
             llm: LLMConfig::default(),
             enable_cognitive: true,

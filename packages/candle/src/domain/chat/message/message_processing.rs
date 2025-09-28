@@ -24,7 +24,6 @@ pub fn process_message(message: CandleMessage) -> AsyncStream<CandleMessage> {
 
         // Always emit the processed message - validation handled by on_chunk handler
         let _ = sender.send(processed_message);
-        ()
     })
 }
 
@@ -40,7 +39,6 @@ pub fn validate_message(message: CandleMessage) -> AsyncStream<CandleMessage> {
     AsyncStream::with_channel(move |sender| {
         // Always emit the message - the on_chunk handler decides validation behavior
         let _ = sender.send(message);
-        ()
     })
 }
 
@@ -120,13 +118,13 @@ mod tests {
             timestamp: None,
         };
 
-        let mut valid_stream = validate_message(valid_message);
-        let valid_result = valid_stream.next().unwrap();
-        assert_eq!(valid_result.content, "Hello, world!");
+        let valid_stream = validate_message(valid_message);
+        let valid_results: Vec<CandleMessage> = valid_stream.collect();
+        assert_eq!(valid_results[0].content, "Hello, world!");
 
-        let mut empty_stream = validate_message(empty_message);
-        let empty_result = empty_stream.next().unwrap();
-        assert_eq!(empty_result.content, "   "); // Validation is now handled by on_chunk handler
+        let empty_stream = validate_message(empty_message);
+        let empty_results: Vec<CandleMessage> = empty_stream.collect();
+        assert_eq!(empty_results[0].content, "   "); // Validation is now handled by on_chunk handler
     }
 
     #[test]

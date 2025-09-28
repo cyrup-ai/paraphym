@@ -13,7 +13,6 @@ use candle_transformers::models::llama::LlamaConfig;
 use ystream::AsyncStream;
 // SIMD optimizations for high-performance inference
 use paraphym_simd::get_cpu_features;
-#[cfg(feature = "progresshub")]
 use progresshub::{ProgressHub, types::ZeroOneOrMany as ProgressHubZeroOneOrMany};
 use serde::{Deserialize, Serialize};
 
@@ -21,8 +20,10 @@ use crate::domain::chat::message::types::CandleMessageChunk;
 use crate::domain::completion::{
     CandleCompletionChunk, CandleCompletionModel, CandleCompletionParams,
 };
+use crate::domain::context::CandleStringChunk;
 use crate::domain::model::{info::CandleModelInfo, traits::CandleModel};
 use crate::domain::prompt::CandlePrompt;
+use ystream::emit;
 
 /// Builder trait for Qwen3 Coder completion providers
 pub trait BuilderCandleQwen3CoderProvider: Send + Sync + 'static {
@@ -139,7 +140,6 @@ impl CandleQwen3CoderProvider {
     }
 
     /// Create provider with custom configuration and automatic download
-    #[cfg(feature = "progresshub")]
     pub async fn with_config_async(
         config: CandleQwen3CoderConfig,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
@@ -182,13 +182,6 @@ impl CandleQwen3CoderProvider {
         Self::with_config_sync_gguf(model_cache_dir, gguf_file_path, config)
     }
 
-    /// Create provider with custom configuration and automatic download (fallback when progresshub not available)
-    #[cfg(not(feature = "progresshub"))]
-    pub async fn with_config_async(
-        _config: CandleQwen3CoderConfig,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        Err("ProgressHub feature not enabled. Use with_config_sync_gguf() with local model path".into())
-    }
 
     /// Create provider with custom configuration and existing model path
     pub fn with_config_sync(
@@ -395,31 +388,26 @@ impl CandleQwen3CoderProvider {
 
         // Convert CandleCompletionChunk to legacy CandleMessageChunk format
         AsyncStream::with_channel(move |sender| {
-            ystream::spawn_task(move || async move {
-                use futures_util::StreamExt;
-                let mut stream = completion_stream;
-                while let Some(completion_chunk) = stream.next().await {
-                    let message_chunk = match completion_chunk {
-                        crate::domain::completion::CandleCompletionChunk::Text(text) => {
-                            CandleMessageChunk::Text(text)
-                        }
-                        crate::domain::completion::CandleCompletionChunk::Complete {
-                            text,
-                            finish_reason,
-                            usage,
-                        } => CandleMessageChunk::Complete {
-                            text,
-                            finish_reason: finish_reason.map(|f| format!("{:?}", f)),
-                            usage: usage.map(|u| format!("{:?}", u)),
-                        },
-                        _ => CandleMessageChunk::Error("Unknown completion chunk type".to_string()),
-                    };
-
-                    if sender.send(message_chunk).is_err() {
-                        break; // Client disconnected
+            let completion_chunks: Vec<crate::domain::completion::CandleCompletionChunk> = completion_stream.collect();
+            for completion_chunk in completion_chunks {
+                let message_chunk = match completion_chunk {
+                    crate::domain::completion::CandleCompletionChunk::Text(text) => {
+                        CandleMessageChunk::Text(text)
                     }
-                }
-            });
+                    crate::domain::completion::CandleCompletionChunk::Complete {
+                        text,
+                        finish_reason,
+                        usage,
+                    } => CandleMessageChunk::Complete {
+                        text,
+                        finish_reason: finish_reason.map(|f| format!("{:?}", f)),
+                        usage: usage.map(|u| format!("{:?}", u)),
+                    },
+                    _ => CandleMessageChunk::Error("Unknown completion chunk type".to_string()),
+                };
+
+                emit!(sender, message_chunk);
+            }
         })
     }
 }
@@ -599,17 +587,12 @@ impl CandleCompletionModel for CandleQwen3CoderProvider {
                 special_tokens,
             );
 
-            // Convert CandleStringChunk to CandleCompletionChunk using ystream async pattern
-            ystream::spawn_task(move || async move {
-                use futures_util::StreamExt;
-                let mut stream = text_stream;
-                while let Some(string_chunk) = stream.next().await {
-                    let completion_chunk = CandleCompletionChunk::Text(string_chunk.0);
-                    if sender.send(completion_chunk).is_err() {
-                        break; // Client disconnected
-                    }
-                }
-            });
+            // Convert CandleStringChunk to CandleCompletionChunk using correct ystream pattern
+            let text_chunks: Vec<CandleStringChunk> = text_stream.collect();
+            for string_chunk in text_chunks {
+                let completion_chunk = CandleCompletionChunk::Text(string_chunk.0);
+                emit!(sender, completion_chunk);
+            }
         })
     }
 }
@@ -622,6 +605,7 @@ impl CandleModel for CandleQwen3CoderProvider {
 
 /// Qwen3 Coder completion request format for HTTP API compatibility
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 struct CandleQwenCompletionRequest {
     prompt: String,
     temperature: f64,

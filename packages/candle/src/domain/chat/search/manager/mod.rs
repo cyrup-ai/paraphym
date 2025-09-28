@@ -23,6 +23,12 @@ pub struct CandleEnhancedHistoryManager {
     message_timestamps: Arc<SkipMap<i64, String>>,
 }
 
+impl Default for CandleEnhancedHistoryManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CandleEnhancedHistoryManager {
     /// Create a new enhanced history manager
     pub fn new() -> Self {

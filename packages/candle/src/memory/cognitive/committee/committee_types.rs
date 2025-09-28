@@ -8,7 +8,6 @@ use std::sync::Arc;
 // StreamExt not currently used but may be needed for future async operations
 
 use crate::memory::cognitive::types::CognitiveError;
-#[cfg(feature = "progresshub")]
 use crate::providers::{CandleKimiK2Provider, CandleQwen3CoderProvider};
 use crate::domain::{
     completion::{CandleCompletionModel, CandleCompletionParams},
@@ -42,14 +41,11 @@ impl Default for CommitteeConfig {
 #[derive(Debug)]
 pub struct Committee {
     pub config: CommitteeConfig,
-    #[cfg(feature = "progresshub")]
     pub kimi_provider: Arc<CandleKimiK2Provider>,
-    #[cfg(feature = "progresshub")]
     pub qwen_provider: Arc<CandleQwen3CoderProvider>,
 }
 
 impl Committee {
-    #[cfg(feature = "progresshub")]
     pub async fn new(config: CommitteeConfig) -> Result<Self, CognitiveError> {
         let kimi_provider = Arc::new(CandleKimiK2Provider::new().await
             .map_err(|e| CognitiveError::InitializationError(e.to_string()))?);
@@ -59,15 +55,8 @@ impl Committee {
         Ok(Self { config, kimi_provider, qwen_provider })
     }
 
-    #[cfg(not(feature = "progresshub"))]
-    pub async fn new(_config: CommitteeConfig) -> Result<Self, CognitiveError> {
-        Err(CognitiveError::InitializationError(
-            "Committee requires progresshub feature to be enabled".to_string()
-        ))
-    }
 
     /// Evaluate content using KimiK2 provider directly
-    #[cfg(feature = "progresshub")]
     pub async fn evaluate(&self, content: &str) -> Result<f64, CognitiveError> {
         let evaluation_prompt = format!(
             "Evaluate the quality of this content on a scale from 0.0 to 1.0, considering factors like clarity, relevance, and completeness. Return only a decimal number between 0.0 and 1.0.\n\nContent:\n{}",
@@ -97,12 +86,6 @@ impl Committee {
         Ok(score)
     }
 
-    #[cfg(not(feature = "progresshub"))]
-    pub async fn evaluate(&self, _content: &str) -> Result<f64, CognitiveError> {
-        Err(CognitiveError::InitializationError(
-            "Committee evaluation requires progresshub feature to be enabled".to_string()
-        ))
-    }
 }
 
 /// Parse numerical score from AI response

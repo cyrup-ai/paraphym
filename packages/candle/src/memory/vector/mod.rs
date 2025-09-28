@@ -2,7 +2,6 @@
 
 pub mod embedding_model;
 pub mod in_memory;
-pub mod in_memory_async;
 pub mod vector_index;
 pub mod vector_repository;
 pub mod vector_search;
@@ -14,9 +13,9 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 pub use embedding_model::*;
-pub use in_memory_async::InMemoryVectorStore;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
+use uuid;
 pub use vector_index::*;
 pub use vector_repository::*;
 pub use vector_search::*;
@@ -134,14 +133,14 @@ pub trait VectorStore: Send + Sync {
         query: Vec<f32>,
         limit: usize,
         filter: Option<crate::memory::filter::MemoryFilter>,
-    ) -> PendingVectorSearch;
+    ) -> ystream::AsyncStream<VectorSearchResult, 1024>;
 
     /// Generate embedding for text
     fn embed(&self, text: String) -> PendingEmbedding;
 }
 
 /// Vector search result
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct VectorSearchResult {
     /// ID of the result
     pub id: String,
@@ -151,4 +150,23 @@ pub struct VectorSearchResult {
 
     /// Optional metadata
     pub metadata: Option<serde_json::Value>,
+}
+
+impl cyrup_sugars::prelude::MessageChunk for VectorSearchResult {
+    fn bad_chunk(error: String) -> Self {
+        Self {
+            id: format!("error-{}", uuid::Uuid::new_v4()),
+            score: 0.0,
+            metadata: Some(serde_json::json!({
+                "error": error
+            })),
+        }
+    }
+
+    fn error(&self) -> Option<&str> {
+        self.metadata
+            .as_ref()
+            .and_then(|m| m.get("error"))
+            .and_then(|e| e.as_str())
+    }
 }

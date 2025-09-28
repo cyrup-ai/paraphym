@@ -6,9 +6,10 @@ edition = "2024"
 
 [dependencies]
 paraphym_simd = { path = "../simd" }
-# quyc = { path = "/Volumes/samsung_t9/quyc/packages/api" }  # Temporarily disabled due to compilation issues
+quyc = { git = "https://github.com/cyrup-ai/quyc", branch = "main", package = "quyc" }  
 cyrup_sugars = { git = "https://github.com/cyrup-ai/cyrup-sugars", branch = "main", package = "cyrup_sugars", features = ["all"] }
-ystream = { git = "https://github.com/cyrup-ai/ystream", branch = "main" }
+ystream = { git = "https://github.com/cyrup-ai/ystream", branch = "main", package = "ystream" }
+progresshub = { git = "https://github.com/cyrup-ai/progresshub", branch = "main", package = "progresshub" }
 
 # SurrealDB and its features
 surrealdb = { path = "../../forks/surrealdb/crates/sdk", features = ["http", "protocol-http", "kv-surrealkv", "kv-mem"] }
@@ -151,7 +152,6 @@ tokio = { version = "1.47.1", features = ["full"] }
 tokio-stream = "0.1.17"
 async-stream = "0.3.6"
 clap = { version = "4.5.42", features = ["derive"] }
-# progresshub = { git = "https://github.com/cyrup-ai/progresshub", branch = "main", package = "progresshub", default-features = false }
 
 [dev-dependencies]
 # Testing (from memory package)
@@ -206,8 +206,7 @@ quantum-routing = ["cognitive"]
 evolution = ["cognitive"]
 full-cognitive = ["cognitive", "quantum-routing", "evolution"]
 
-# --- ProgressHub features ---
-progresshub = []
+# --- ProgressHub is always required (not optional) ---
 
 # --- Candle backend features ---
 cuda = [

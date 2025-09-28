@@ -1,14 +1,14 @@
 //! Candle Agent role trait and implementation - EXACT REPLICA of domain with Candle prefixes
 
 use std::fmt;
-use std::sync::atomic::AtomicUsize;
+use std::sync::{atomic::AtomicUsize, LazyLock};
 
 // Ultra-high-performance zero-allocation imports
 use atomic_counter::RelaxedCounter;
 use crossbeam_utils::CachePadded;
 use cyrup_sugars::ZeroOneOrMany;
 use hashbrown::HashMap;
-use once_cell::sync::Lazy;
+
 use serde_json::Value;
 
 use crate::domain::chat::CandleMessageRole;
@@ -20,13 +20,13 @@ const MAX_RELEVANT_MEMORIES: usize = 10;
 
 /// Global atomic counter for memory node creation
 #[allow(dead_code)] // TODO: Implement in memory node creation system
-static MEMORY_NODE_COUNTER: Lazy<CachePadded<RelaxedCounter>> =
-    Lazy::new(|| CachePadded::new(RelaxedCounter::new(0)));
+static MEMORY_NODE_COUNTER: LazyLock<CachePadded<RelaxedCounter>> =
+    LazyLock::new(|| CachePadded::new(RelaxedCounter::new(0)));
 
 /// Global atomic counter for attention scoring operations
 #[allow(dead_code)] // TODO: Implement in attention scoring system
-static ATTENTION_SCORE_COUNTER: Lazy<CachePadded<AtomicUsize>> =
-    Lazy::new(|| CachePadded::new(AtomicUsize::new(0)));
+static ATTENTION_SCORE_COUNTER: LazyLock<CachePadded<AtomicUsize>> =
+    LazyLock::new(|| CachePadded::new(AtomicUsize::new(0)));
 
 /// MCP Server configuration
 #[derive(Debug, Clone)]

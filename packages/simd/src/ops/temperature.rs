@@ -48,8 +48,8 @@ unsafe fn avx2_temperature_scale(logits: &mut [f32], temperature: f32) -> SimdRe
 
     // Handle remainder scalar
     let inv_temp_scalar = 1.0 / temperature;
-    for j in i..len {
-        logits[j] *= inv_temp_scalar;
+    for logit in logits.iter_mut().skip(i) {
+        *logit *= inv_temp_scalar;
     }
 
     Ok(())
@@ -80,8 +80,8 @@ unsafe fn sse41_temperature_scale(logits: &mut [f32], temperature: f32) -> SimdR
 
     // Handle remainder scalar
     let inv_temp_scalar = 1.0 / temperature;
-    for j in i..len {
-        logits[j] *= inv_temp_scalar;
+    for logit in logits.iter_mut().skip(i) {
+        *logit *= inv_temp_scalar;
     }
 
     Ok(())
@@ -112,8 +112,8 @@ unsafe fn neon_temperature_scale(logits: &mut [f32], temperature: f32) -> SimdRe
 
     // Handle remainder scalar
     let inv_temp_scalar = 1.0 / temperature;
-    for j in i..len {
-        logits[j] *= inv_temp_scalar;
+    for logit in logits.iter_mut().skip(i) {
+        *logit *= inv_temp_scalar;
     }
 
     Ok(())

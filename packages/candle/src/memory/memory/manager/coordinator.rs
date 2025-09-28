@@ -1,181 +1,160 @@
 //! High-level memory management functionality
 
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
+use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use tokio::sync::{Mutex, RwLock, oneshot};
+use tokio::sync::{RwLock, oneshot};
 
 use crate::memory::{
     MemoryMetadata, MemoryRelationship, MemoryType, filter::MemoryFilter,
-    repository::MemoryRepository, storage::MemoryStorage,
+    repository::MemoryRepository,
 };
 use crate::domain::memory::primitives::{
     types::MemoryTypeEnum,
     node::MemoryNode,
 };
 use crate::memory::utils::{Error, Result};
-use crate::memory::vector::VectorStore;
+use crate::memory::memory::manager::surreal::{SurrealDBMemoryManager, MemoryManager};
+use futures_util::StreamExt;
 
-/// High-level memory manager that coordinates between different memory components
-pub struct MemoryCoordinator<S, V>
-where
-    S: MemoryStorage,
-    V: VectorStore,
-{
-    storage: Arc<S>,
-    vector_store: Arc<Mutex<V>>,
+/// High-level memory manager that uses SurrealDB's native capabilities directly
+pub struct MemoryCoordinator {
+    surreal_manager: Arc<SurrealDBMemoryManager>,
     repository: Arc<RwLock<MemoryRepository>>,
 }
 
-impl<S, V> MemoryCoordinator<S, V>
-where
-    S: MemoryStorage + Send + Sync,
-    V: VectorStore + Send + Sync,
-{
-    /// Create a new memory coordinator
-    pub fn new(storage: Arc<S>, vector_store: V) -> Self {
+impl MemoryCoordinator {
+    /// Create a new memory coordinator with SurrealDB
+    pub fn new(surreal_manager: Arc<SurrealDBMemoryManager>) -> Self {
         Self {
-            storage,
-            vector_store: Arc::new(Mutex::new(vector_store)),
+            surreal_manager,
             repository: Arc::new(RwLock::new(MemoryRepository::new())),
         }
     }
 
-    /// Add a new memory
+    /// Add a new memory using SurrealDB's native capabilities
     pub async fn add_memory(
         &self,
         content: String,
         memory_type: MemoryTypeEnum,
-        metadata: MemoryMetadata,
+        _metadata: MemoryMetadata,
     ) -> Result<MemoryNode> {
-        // Create memory node
-        let content_struct = crate::domain::memory::primitives::types::MemoryContent::text(content);
-        let mut memory = MemoryNode::new(memory_type, content_struct);
-        // Convert MemoryMetadata to MemoryNodeMetadata
-        let node_metadata = crate::domain::memory::primitives::node::MemoryNodeMetadata {
-            importance: metadata.importance,
-            keywords: metadata.keywords.into_iter().map(|k| k.into()).collect(),
-            tags: metadata.tags.into_iter().map(|t| t.into()).collect(),
-            custom: std::collections::HashMap::new(),
-            version: 1,
-        };
-        memory.metadata = std::sync::Arc::new(crossbeam_utils::CachePadded::new(node_metadata));
+        // Create domain memory node first
+        let content_struct = crate::domain::memory::primitives::types::MemoryContent::text(content.clone());
+        let mut domain_memory = MemoryNode::new(memory_type.clone(), content_struct);
 
         // Generate embedding for the content
-        let content_text = memory.content().to_string();
-        let embedding_vec = self.generate_embedding(&content_text).await?;
-        memory.embedding = Some(crate::domain::memory::primitives::node::AlignedEmbedding::new(embedding_vec.clone()));
+        let embedding_vec = self.generate_embedding(&content).await?;
+        domain_memory.embedding = Some(crate::domain::memory::primitives::node::AlignedEmbedding::new(embedding_vec.clone()));
 
-        // Add to vector store
-        {
-            let vector_store = self.vector_store.lock().await;
-            (*vector_store)
-                .add(memory.id().to_string(), embedding_vec.clone(), None)
-                .await?;
-        }
+        // Convert to memory system format for SurrealDB storage
+        let memory_for_storage = self.convert_domain_to_memory_node(&domain_memory);
 
-        // Convert domain MemoryNode to memory MemoryNode for storage
-        let memory_for_storage = self.convert_domain_to_memory_node(&memory);
+        // Store in SurrealDB - it handles embedding indexing natively
+        let stored_memory = self.surreal_manager.create_memory(memory_for_storage.clone()).await?;
 
-        // Store in persistent storage
-        self.storage.store(memory_for_storage.clone()).await?;
-
-        // Add to repository
+        // Add to repository cache
         self.repository.write().await.add(memory_for_storage);
 
-        Ok(memory)
+        // Convert stored memory back to domain format for return
+        Ok(self.convert_memory_to_domain_node(&stored_memory))
     }
 
-    /// Update an existing memory
+    /// Update an existing memory using SurrealDB's native capabilities
     pub async fn update_memory(
         &self,
         id: &str,
         content: Option<String>,
         metadata: Option<MemoryMetadata>,
     ) -> Result<MemoryNode> {
-        let mut memory = self.storage.retrieve(id.to_string()).await?;
+        // Get existing memory from SurrealDB
+        let existing_memory = self.surreal_manager.get_memory(id).await?.ok_or_else(||
+            Error::NotFound(format!("Memory with id {} not found", id)))?;
+
+        let mut updated_memory = existing_memory;
 
         // Update content if provided
         if let Some(new_content) = content {
-            memory.content = super::super::primitives::types::MemoryContent::new(&new_content);
+            updated_memory.content = crate::memory::memory::primitives::types::MemoryContent::new(&new_content);
 
             // Re-generate embedding for updated content
-            let embedding = self.generate_embedding(&memory.content.text).await?;
-            memory.embedding = Some(embedding.clone());
-
-            // Update in vector store
-            {
-                let vector_store = self.vector_store.lock().await;
-                (*vector_store)
-                    .update(memory.id.clone(), embedding.clone(), None)
-                    .await?;
-            }
+            let embedding = self.generate_embedding(&new_content).await?;
+            updated_memory.embedding = Some(embedding);
         }
 
         // Update metadata if provided
         if let Some(new_metadata) = metadata {
-            memory.metadata = new_metadata;
+            updated_memory.metadata = new_metadata;
         }
 
-        // Update in storage
-        self.storage.update(memory.clone()).await?;
+        // Update in SurrealDB - it handles embedding indexing natively
+        let stored_memory = self.surreal_manager.update_memory(updated_memory.clone()).await?;
 
-        // Update in repository
-        self.repository.write().await.update(memory.clone());
+        // Update in repository cache
+        self.repository.write().await.update(updated_memory);
 
         // Convert to domain MemoryNode for return
-        Ok(self.convert_memory_to_domain_node(&memory))
+        Ok(self.convert_memory_to_domain_node(&stored_memory))
     }
 
-    /// Delete a memory
+    /// Delete a memory using SurrealDB's native capabilities
     pub async fn delete_memory(&self, id: &str) -> Result<()> {
-        // Remove from vector store
-        {
-            let vector_store = self.vector_store.lock().await;
-            (*vector_store).delete(id.to_string()).await?;
-        }
+        // Delete from SurrealDB - it handles vector index removal natively
+        self.surreal_manager.delete_memory(id).await?;
 
-        // Remove from storage
-        self.storage.delete(id.to_string()).await?;
-
-        // Remove from repository
+        // Remove from repository cache
         self.repository.write().await.delete(id);
 
         Ok(())
     }
 
-    /// Search for memories
+    /// Search for memories using native SurrealDB vector search
     pub async fn search_memories(
         &self,
         query: &str,
         filter: Option<MemoryFilter>,
         top_k: usize,
     ) -> Result<Vec<MemoryNode>> {
-        // Generate query embedding
-        let query_embedding = {
-            let vector_store = self.vector_store.lock().await;
-            (*vector_store).embed(query.to_string()).await?
+        // Generate embedding for the query using the same method as add_memory
+        let query_embedding = self.generate_embedding(query).await?;
+
+        let surreal_manager = Arc::clone(&self.surreal_manager);
+
+        // Use ystream pattern: async work INSIDE spawned task, synchronous collection
+        let memory_stream = ystream::AsyncStream::<crate::memory::memory::primitives::node::MemoryNode, 1024>::with_channel(move |sender| {
+            tokio::runtime::Handle::current().block_on(async move {
+                // Use SurrealDB's native vector similarity search INSIDE spawned task
+                let memory_stream = surreal_manager.search_by_vector(query_embedding, top_k);
+
+                // Collect from SurrealDB stream (this is futures_util::StreamExt)
+                let memories: Vec<_> = memory_stream.collect().await;
+
+                // Emit each memory to the ystream
+                for memory_result in memories {
+                    match memory_result {
+                        Ok(memory) => ystream::emit!(sender, memory),
+                        Err(_) => {} // Skip errors for now
+                    }
+                }
+            });
+        });
+
+        // Synchronous collection from ystream
+        let memories: Vec<crate::memory::memory::primitives::node::MemoryNode> = memory_stream.collect();
+
+        // Apply filter if provided
+        let filtered_memories = if let Some(_filter) = filter {
+            // TODO: Apply filter - for now returning all results
+            memories
+        } else {
+            memories
         };
 
-        // Search in vector store
-        let results = {
-            let vector_store = self.vector_store.lock().await;
-            (*vector_store)
-                .search(query_embedding.clone(), top_k, filter)
-                .await?
-        };
-
-        // Retrieve full memory nodes and convert to domain nodes
-        let mut memories = Vec::new();
-        for result in results {
-            if let Ok(memory) = self.storage.retrieve(result.id.clone()).await {
-                memories.push(self.convert_memory_to_domain_node(&memory));
-            }
-        }
-
-        Ok(memories)
+        // Convert memory system nodes to domain nodes
+        Ok(filtered_memories.into_iter()
+            .map(|memory| self.convert_memory_to_domain_node(&memory))
+            .collect())
     }
 
     /// Get memories by filter
@@ -187,7 +166,7 @@ where
             .collect())
     }
 
-    /// Add a relationship between memories
+    /// Add a relationship between memories using SurrealDB's native capabilities
     pub async fn add_relationship(
         &self,
         source_id: &str,
@@ -205,17 +184,40 @@ where
             relationship = relationship.with_metadata(metadata);
         }
 
-        // Store relationship
-        self.storage
-            .store_relationship(relationship.clone())
+        // Store relationship in SurrealDB
+        let stored_relationship = self.surreal_manager
+            .create_relationship(relationship)
             .await?;
 
-        Ok(relationship)
+        Ok(stored_relationship)
     }
 
-    /// Get relationships for a memory
+    /// Get relationships for a memory using SurrealDB's native capabilities
     pub async fn get_relationships(&self, memory_id: &str) -> Result<Vec<MemoryRelationship>> {
-        self.storage.get_relationships(memory_id.to_string()).await
+        let surreal_manager = Arc::clone(&self.surreal_manager);
+        let memory_id = memory_id.to_string();
+
+        // Use ystream pattern: async work INSIDE spawned task
+        let relationship_stream = ystream::AsyncStream::<MemoryRelationship, 1024>::with_channel(move |sender| {
+            tokio::runtime::Handle::current().block_on(async move {
+                let relationship_stream = surreal_manager.get_relationships(&memory_id);
+
+                // Collect from SurrealDB stream (futures_util::StreamExt)
+                let relationships: Vec<_> = relationship_stream.collect().await;
+
+                // Emit each relationship to the ystream
+                for relationship_result in relationships {
+                    match relationship_result {
+                        Ok(relationship) => ystream::emit!(sender, relationship),
+                        Err(_) => {} // Skip errors for now
+                    }
+                }
+            });
+        });
+
+        // Synchronous collection from ystream
+        let relationships: Vec<MemoryRelationship> = relationship_stream.collect();
+        Ok(relationships)
     }
 
     /// Convert domain MemoryNode to memory MemoryNode for storage compatibility

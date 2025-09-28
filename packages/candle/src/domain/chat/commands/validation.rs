@@ -4,9 +4,7 @@
 //! validation algorithms for production-ready security and error handling.
 
 use std::collections::HashMap;
-
-
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use regex::Regex;
 
 use super::types::ImmutableChatCommand;
@@ -613,7 +611,7 @@ pub enum ValidationError {
 }
 
 /// Global validator instance
-static GLOBAL_VALIDATOR: Lazy<CommandValidator> = Lazy::new(CommandValidator::new);
+static GLOBAL_VALIDATOR: LazyLock<CommandValidator> = LazyLock::new(CommandValidator::new);
 
 /// Get global validator
 pub fn get_global_validator() -> &'static CommandValidator {

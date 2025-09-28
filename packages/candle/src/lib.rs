@@ -1,4 +1,5 @@
 //! Fluent AI Candle Library
+#![recursion_limit = "256"]
 #![feature(impl_trait_in_fn_trait_return)]
 #![feature(impl_trait_in_assoc_type)]
 #![feature(negative_impls)]
@@ -36,7 +37,6 @@ pub mod core;
 /// Candle domain types (replaces paraphym_domain dependency)  
 pub mod domain;
 /// Candle macros for ARCHITECTURE.md syntax support
-
 /// Candle model providers for local inference
 pub mod providers;
 /// Real workflow execution system with streams-only architecture
@@ -74,7 +74,6 @@ pub mod prelude {
             CandleExecToText,
         },
     };
-    #[cfg(feature = "progresshub")]
     pub use crate::providers::{
         CandleKimiK2Config, CandleKimiK2Provider, CandleQwen3CoderConfig, CandleQwen3CoderProvider,
     };
@@ -129,41 +128,31 @@ pub mod prelude {
             ystream::AsyncStream::with_channel(move |sender| {
                 match model_type {
                     CandleModels::KimiK2 => {
-                        #[cfg(feature = "progresshub")]
-                        {
-                            // Route to KimiK2Provider with async handling
-                            ystream::spawn_task(|| async move {
-                                // Create provider with default config
-                                let provider_result =
-                                    crate::providers::kimi_k2::CandleKimiK2Provider::new().await;
+                        // Route to KimiK2Provider with async handling
+                        ystream::spawn_task(|| async move {
+                            // Create provider with default config
+                            let provider_result =
+                                crate::providers::kimi_k2::CandleKimiK2Provider::new().await;
 
-                                match provider_result {
-                                    Ok(_provider) => {
-                                        // For now, return a placeholder until full inference is implemented
-                                        let chunk =
-                                            crate::domain::completion::CandleCompletionChunk::Text(
-                                                format!("KimiK2 completion: {}", prompt.content()),
-                                            );
-                                        let _ = sender.send(chunk);
-                                    }
-                                    Err(_err) => {
-                                        // Send error chunk if provider creation fails
-                                        let error_chunk =
-                                            crate::domain::completion::CandleCompletionChunk::Error(
-                                                "Failed to initialize KimiK2 provider".to_string(),
-                                            );
-                                        let _ = sender.send(error_chunk);
-                                    }
+                            match provider_result {
+                                Ok(_provider) => {
+                                    // For now, return a placeholder until full inference is implemented
+                                    let chunk =
+                                        crate::domain::completion::CandleCompletionChunk::Text(
+                                            format!("KimiK2 completion: {}", prompt.content()),
+                                        );
+                                    let _ = sender.send(chunk);
                                 }
-                            });
-                        }
-                        #[cfg(not(feature = "progresshub"))]
-                        {
-                            let chunk = crate::domain::completion::CandleCompletionChunk::Text(
-                                format!("KimiK2 provider disabled (progresshub feature not enabled): {}", prompt.content()),
-                            );
-                            let _ = sender.send(chunk);
-                        }
+                                Err(_err) => {
+                                    // Send error chunk if provider creation fails
+                                    let error_chunk =
+                                        crate::domain::completion::CandleCompletionChunk::Error(
+                                            "Failed to initialize KimiK2 provider".to_string(),
+                                        );
+                                    let _ = sender.send(error_chunk);
+                                }
+                            }
+                        });
                     }
                     CandleModels::Qwen3Coder | CandleModels::Llama => {
                         // TODO: Route to other providers

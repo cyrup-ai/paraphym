@@ -389,7 +389,7 @@ impl MacroSystem {
         // Create a new recording session with the correct fields
         let new_session = MacroRecordingSession {
             id: session_id,
-            name: name,
+            name,
             start_time: Utc::now(),
             actions: SegQueue::new(),
             state: MacroRecordingState::Recording,
@@ -672,7 +672,7 @@ impl MacroSystem {
                             Err(e) => {
                                 handle_error!(e, "Action execution failed");
                             }
-                            _ => continue,
+                            _ => {},
                         }
                     }
 
@@ -704,7 +704,7 @@ impl MacroSystem {
                                     ctx.loop_stack.pop();
                                     handle_error!(e, "Loop action execution failed");
                                 }
-                                _ => continue,
+                                _ => {},
                             }
                         }
                     }

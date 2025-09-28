@@ -13,7 +13,6 @@ use candle_transformers::models::llama::LlamaConfig;
 use ystream::AsyncStream;
 // SIMD optimizations for high-performance inference
 use paraphym_simd::get_cpu_features;
-#[cfg(feature = "progresshub")]
 use progresshub::{ProgressHub, types::ZeroOneOrMany as ProgressHubZeroOneOrMany};
 
 use serde::{Deserialize, Serialize};
@@ -22,9 +21,10 @@ use crate::builders::agent_role::CandleCompletionProvider as BuilderCandleComple
 use crate::domain::model::{info::CandleModelInfo, traits::CandleModel};
 use crate::domain::{
     completion::{CandleCompletionModel, CandleCompletionParams},
-    context::chunk::CandleCompletionChunk,
+    context::{chunk::CandleCompletionChunk, CandleStringChunk},
     prompt::CandlePrompt,
 };
+use ystream::emit;
 
 /// CandleKimiK2Provider for local Kimi K2 model inference using Candle ML framework
 #[derive(Debug, Clone)]
@@ -124,7 +124,6 @@ impl CandleKimiK2Provider {
     }
 
     /// Create provider with custom configuration and automatic download
-    #[cfg(feature = "progresshub")]
     pub async fn with_config_async(
         config: CandleKimiK2Config,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
@@ -167,13 +166,6 @@ impl CandleKimiK2Provider {
         Self::with_config_sync_gguf(model_cache_dir, gguf_file_path, config)
     }
 
-    /// Create provider with custom configuration and automatic download (fallback when progresshub not available)
-    #[cfg(not(feature = "progresshub"))]
-    pub async fn with_config_async(
-        _config: CandleKimiK2Config,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        Err("ProgressHub feature not enabled. Use with_config_sync_gguf() with local model path".into())
-    }
 
     /// Create provider with custom configuration and existing model path
     pub fn with_config_sync(
@@ -512,17 +504,12 @@ impl CandleCompletionModel for CandleKimiK2Provider {
                 special_tokens,
             );
 
-            // Convert CandleStringChunk to CandleCompletionChunk using ystream async pattern
-            ystream::spawn_task(move || async move {
-                use futures_util::StreamExt;
-                let mut stream = text_stream;
-                while let Some(string_chunk) = stream.next().await {
-                    let completion_chunk = CandleCompletionChunk::Text(string_chunk.0);
-                    if sender.send(completion_chunk).is_err() {
-                        break; // Client disconnected
-                    }
-                }
-            });
+            // Convert CandleStringChunk to CandleCompletionChunk using correct ystream pattern
+            let text_chunks: Vec<CandleStringChunk> = text_stream.collect();
+            for string_chunk in text_chunks {
+                let completion_chunk = CandleCompletionChunk::Text(string_chunk.0);
+                emit!(sender, completion_chunk);
+            }
         })
     }
 }
@@ -562,6 +549,7 @@ impl CandleModel for CandleKimiK2Provider {
 
 /// Kimi K2 completion request format for HTTP API compatibility
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 struct CandleKimiCompletionRequest {
     prompt: String,
     temperature: f64,

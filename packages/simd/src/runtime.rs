@@ -62,7 +62,7 @@ pub fn get_cpu_features() -> CpuFeatures {
     let cached = CPU_FEATURES.load(Ordering::Relaxed);
     if cached != 0xFF {
         // SAFETY: We only store valid CpuFeatures values
-        return unsafe { std::mem::transmute(cached) };
+        return unsafe { std::mem::transmute::<u8, CpuFeatures>(cached) };
     }
 
     let features = detect_cpu_features();

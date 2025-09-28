@@ -43,6 +43,12 @@ impl Clone for CommandExecutor {
     }
 }
 
+impl Default for CommandExecutor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CommandExecutor {
     /// Create a new command executor (zero-allocation, lock-free)
     pub fn new() -> Self {

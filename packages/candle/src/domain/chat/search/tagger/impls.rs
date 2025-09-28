@@ -30,6 +30,12 @@ pub struct CandleConversationTagger {
     total_tagged_messages: AtomicUsize,
 }
 
+impl Default for CandleConversationTagger {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CandleConversationTagger {
     /// Create a new conversation tagger
     pub fn new() -> Self {

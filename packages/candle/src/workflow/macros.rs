@@ -22,7 +22,6 @@
 /// - Binary tree structure for optimal parallel execution
 /// - Tuple flattening eliminates type complexity
 /// - Template specialization for concrete operation types
-
 /// Public macro for ergonomic N-way parallel execution
 ///
 /// Creates a ParallelN combinator that executes all provided operations
@@ -100,7 +99,6 @@ macro_rules! parallel {
 /// to implement and provides consistent type patterns. Future versions
 /// could implement full tuple flattening for completely flat output types
 /// if needed for specific use cases.
-
 /// Helper macro to count the number of operations for compile-time optimization
 ///
 /// Counts the number of comma-separated expressions at compile time,

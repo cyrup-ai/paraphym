@@ -210,7 +210,7 @@ impl Default for MemoryRetentionConfig {
             cleanup_interval_seconds: 3600,        // 1 hour
             enable_archiving: true,
             archive_threshold_seconds: 86400 * 90, // 90 days
-            max_active_memories: 100000,
+            max_active_memories: 100_000,
             importance_threshold: 0.5,
         }
     }
@@ -278,7 +278,7 @@ impl MemoryConfig {
         let mut config = Self::default();
         config.performance.max_concurrent_operations = num_cpus::get() * 8;
         config.performance.cache_size = 50000;
-        config.retention.max_active_memories = 1000000;
+        config.retention.max_active_memories = 1_000_000;
         config.security.enable_encryption = true;
         config.security.enable_integrity_checks = true;
         config.monitoring.metrics_interval_seconds = 30; // 30 seconds

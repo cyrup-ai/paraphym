@@ -545,7 +545,7 @@ mod tests {
             role: CandleMessageRole::User,
             content: "Hello, world!".to_string(),
             id: Some("123".to_string()),
-            timestamp: Some(1234567890),
+            timestamp: Some(1_234_567_890),
         };
 
         assert_eq!(message.role, CandleMessageRole::User);

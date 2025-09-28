@@ -119,10 +119,12 @@ impl<V: VectorStore> HybridRetrieval<V> {
         limit: usize,
     ) -> Result<Vec<RetrievalResult>> {
         let filter = crate::memory::filter::MemoryFilter::new();
-        let results = self
+        let search_stream = self
             .vector_store
-            .search(query_vector, limit, Some(filter))
-            .await?;
+            .search(query_vector, limit, Some(filter));
+        
+        // Collect all results from the stream
+        let results = search_stream.collect();
         let retrieval_results = results
             .into_iter()
             .map(|result| RetrievalResult {
@@ -228,7 +230,10 @@ impl<V: VectorStore + Send + Sync + 'static> RetrievalStrategy for SemanticRetri
                 let query_embedding = vector_store.embed(query).await?;
 
                 // Search in vector store
-                let results = vector_store.search(query_embedding, limit, filter).await?;
+                let search_stream = vector_store.search(query_embedding, limit, filter);
+                
+                // Collect all results from the stream
+                let results = search_stream.collect();
 
                 let retrieval_results = results
                     .into_iter()
@@ -549,9 +554,13 @@ impl<V: VectorStore + Clone + Send + Sync + 'static> RetrievalManager<V> {
         limit: usize,
     ) -> Result<Vec<crate::memory::vector::VectorSearchResult>> {
         let filter = crate::memory::filter::MemoryFilter::new();
-        self.vector_store
-            .search(query_vector, limit, Some(filter))
-            .await
+        let search_stream = self.vector_store
+            .search(query_vector, limit, Some(filter));
+        
+        // Collect all results from the stream
+        let results = search_stream.collect();
+        
+        Ok(results)
     }
 
     /// Retrieve memories using the specified strategy

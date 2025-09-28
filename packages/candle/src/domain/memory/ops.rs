@@ -21,7 +21,7 @@ use atomic_counter::{AtomicCounter, RelaxedCounter};
 // Removed unused import: futures::stream::StreamExt
 // Removed unused import: jemalloc_sys as jemalloc
 // Removed unused imports: Mmap, MmapOptions
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 // Removed unused import: smallvec::SmallVec
 // SIMD and performance dependencies
 // use packed_simd::f32x8; // Replaced with wide for Rust 1.78+ compatibility
@@ -48,11 +48,11 @@ pub const VECTOR_POOL_SIZE: usize = 1024;
 
 /// Performance statistics with atomic counters
 #[allow(dead_code)]
-static SIMD_OPERATIONS_COUNT: Lazy<RelaxedCounter> = Lazy::new(|| RelaxedCounter::new(0));
+static SIMD_OPERATIONS_COUNT: LazyLock<RelaxedCounter> = LazyLock::new(|| RelaxedCounter::new(0));
 #[allow(dead_code)]
-static CACHE_HITS: Lazy<RelaxedCounter> = Lazy::new(|| RelaxedCounter::new(0));
+static CACHE_HITS: LazyLock<RelaxedCounter> = LazyLock::new(|| RelaxedCounter::new(0));
 #[allow(dead_code)]
-static CACHE_MISSES: Lazy<RelaxedCounter> = Lazy::new(|| RelaxedCounter::new(0));
+static CACHE_MISSES: LazyLock<RelaxedCounter> = LazyLock::new(|| RelaxedCounter::new(0));
 
 /// CPU feature detection for runtime SIMD selection
 #[derive(Debug, Clone, Copy)]

@@ -5,14 +5,13 @@
 
 // Removed unused import: std::future::Future
 // Removed unused import: std::pin::Pin
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{atomic::{AtomicUsize, Ordering}, Arc, LazyLock};
 
 // Ultra-high-performance zero-allocation imports
 // Removed unused import: arrayvec::ArrayVec
 use crossbeam_queue::SegQueue;
 use crossbeam_utils::CachePadded;
-use once_cell::sync::Lazy;
+
 use serde::{Deserialize, Serialize};
 
 // Removed unused import: serde_json::Value
@@ -29,11 +28,11 @@ const MAX_MEMORY_TOOL_RESULTS: usize = 1000;
 const MAX_STREAMING_RESULTS: usize = 100;
 
 /// Global result aggregation statistics
-static TOOL_STATS: Lazy<CachePadded<AtomicUsize>> =
-    Lazy::new(|| CachePadded::new(AtomicUsize::new(0)));
+static TOOL_STATS: LazyLock<CachePadded<AtomicUsize>> =
+    LazyLock::new(|| CachePadded::new(AtomicUsize::new(0)));
 
 /// Lock-free result queue for aggregation
-static RESULT_QUEUE: Lazy<SegQueue<MemoryNode>> = Lazy::new(|| SegQueue::new());
+static RESULT_QUEUE: LazyLock<SegQueue<MemoryNode>> = LazyLock::new(|| SegQueue::new());
 
 /// Zero-allocation memory tool with lock-free cognitive search
 #[derive(Debug, Clone)]

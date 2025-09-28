@@ -366,7 +366,7 @@ mod tests {
         };
 
         // Add a test memory
-        let memory = crate::schema::memory_schema::Memory {
+        let memory = crate::memory::schema::memory_schema::Memory {
             id: "test-memory".to_string(),
             content: "Test".to_string(),
             memory_type: "semantic".to_string(),
@@ -381,7 +381,7 @@ mod tests {
 
         // Add a test relationship
         let relationship =
-            crate::schema::relationship_schema::Relationship::new("source", "target", "related_to");
+            crate::memory::schema::relationship_schema::Relationship::new("source", "target", "related_to");
         data.relationships
             .push(serde_json::to_value(relationship).expect("Failed to serialize relationship"));
 
@@ -452,7 +452,7 @@ mod tests {
         memory_metadata.insert("schema_version".to_string(), serde_json::json!("0.2.0"));
         memory_metadata.insert("advanced_features".to_string(), serde_json::json!(true));
 
-        let memory = crate::schema::memory_schema::Memory {
+        let memory = crate::memory::schema::memory_schema::Memory {
             id: "test-memory".to_string(),
             content: "Test".to_string(),
             memory_type: "semantic".to_string(),
@@ -467,7 +467,7 @@ mod tests {
 
         // Add a test relationship with schema version
         let mut relationship =
-            crate::schema::relationship_schema::Relationship::new("source", "target", "related_to");
+            crate::memory::schema::relationship_schema::Relationship::new("source", "target", "related_to");
         let mut rel_metadata = serde_json::Map::new();
         rel_metadata.insert("schema_version".to_string(), serde_json::json!("0.2.0"));
         rel_metadata.insert("advanced_features".to_string(), serde_json::json!(true));

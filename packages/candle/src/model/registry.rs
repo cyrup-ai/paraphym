@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use ahash::RandomState;
 use dashmap::{DashMap, DashSet};
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 
 use crate::domain::model::error::{CandleModelError as ModelError, CandleResult as Result};
 use crate::model::info::ModelInfo;
@@ -152,7 +152,7 @@ impl Default for ModelRegistryInner {
 }
 
 /// The global model registry
-static GLOBAL_REGISTRY: Lazy<ModelRegistryInner> = Lazy::new(Default::default);
+static GLOBAL_REGISTRY: LazyLock<ModelRegistryInner> = LazyLock::new(Default::default);
 
 /// A registry for managing model instances
 ///

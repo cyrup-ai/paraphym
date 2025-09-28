@@ -5,7 +5,7 @@
 
 use std::fmt;
 // Removed unused import: std::marker::PhantomData
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{atomic::{AtomicU64, Ordering}, LazyLock};
 use std::time::{Duration, Instant};
 
 use atomic_counter::{AtomicCounter, RelaxedCounter};
@@ -736,8 +736,8 @@ impl ErrorAggregator {
 }
 
 /// Global error aggregator instance
-static ERROR_AGGREGATOR: once_cell::sync::Lazy<ErrorAggregator> =
-    once_cell::sync::Lazy::new(|| ErrorAggregator::new(1000, Duration::from_secs(60)));
+static ERROR_AGGREGATOR: LazyLock<ErrorAggregator> =
+    LazyLock::new(|| ErrorAggregator::new(1000, Duration::from_secs(60)));
 
 /// Record error in global aggregator
 #[inline(always)]

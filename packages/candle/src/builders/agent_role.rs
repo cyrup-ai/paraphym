@@ -30,6 +30,7 @@ impl CandleCompletionProvider for NoProvider {}
 // CandleChatLoop is now imported from domain::chat
 
 /// Agent conversation
+#[derive(Default)]
 pub struct CandleAgentConversation {
     messages: Vec<CandleMessage>,
     current_user_input: String,
@@ -209,7 +210,7 @@ pub trait CandleAgentRoleBuilder: Sized + Send {
 
     /// Convert to agent - EXACT syntax: .into_agent()
     #[must_use]
-    fn into_agent(self) -> impl CandleAgentBuilder + Send;
+    fn into_agent(self) -> impl CandleAgentBuilder;
 
     /// Chat with closure - EXACT syntax: .chat(|conversation| ChatLoop)
     fn chat<F>(self, handler: F) -> AsyncStream<CandleMessageChunk>
@@ -421,7 +422,7 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
     }
 
     /// Convert to agent - EXACT syntax: .into_agent()
-    fn into_agent(self) -> impl CandleAgentBuilder + Send {
+    fn into_agent(self) -> impl CandleAgentBuilder {
         // This shouldn't be called for no-provider builder, but return a placeholder
         NoProviderAgent { _inner: self }
     }
@@ -603,7 +604,7 @@ where
         })
     }
 
-    fn into_agent(self) -> impl CandleAgentBuilder + Send {
+    fn into_agent(self) -> impl CandleAgentBuilder {
         self
     }
 }

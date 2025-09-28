@@ -5,6 +5,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json;
+use cyrup_sugars::prelude::*;
 
 use super::metadata::MemoryMetadata;
 use super::types::{MemoryTypeEnum, MemoryContent};
@@ -106,5 +107,36 @@ impl MemoryNode {
     /// Get base memory representation - returns a reference to self for now
     pub fn base_memory(&self) -> &Self {
         self
+    }
+}
+
+impl Default for MemoryNode {
+    fn default() -> Self {
+        let now = Utc::now();
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            content: MemoryContent::default(),
+            memory_type: MemoryTypeEnum::default(),
+            created_at: now,
+            updated_at: now,
+            embedding: None,
+            metadata: MemoryMetadata::default(),
+        }
+    }
+}
+
+impl MessageChunk for MemoryNode {
+    fn bad_chunk(error: String) -> Self {
+        let mut node = Self::default();
+        node.content = MemoryContent::new(&format!("ERROR: {}", error));
+        node
+    }
+
+    fn error(&self) -> Option<&str> {
+        if self.content.text.starts_with("ERROR: ") {
+            Some(&self.content.text)
+        } else {
+            None
+        }
     }
 }

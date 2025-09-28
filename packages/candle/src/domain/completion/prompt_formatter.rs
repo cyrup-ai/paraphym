@@ -240,25 +240,30 @@ mod tests {
         // Create test memory
         let memory = RetrievalResult {
             id: "mem1".to_string(),
-            content: "User prefers coffee over tea".to_string(),
             score: 0.85,
             method: crate::memory::memory::ops::retrieval::RetrievalMethod::Semantic,
-            metadata: HashMap::new(),
+            metadata: {
+                let mut meta = HashMap::new();
+                meta.insert("content".to_string(), serde_json::Value::String("User prefers coffee over tea".to_string()));
+                meta
+            },
         };
 
         // Create test document
         let mut doc_metadata = HashMap::new();
         doc_metadata.insert("title".to_string(), serde_json::Value::String("User Guide".to_string()));
         let document = Document {
-            content: "This is a user guide for the application".to_string(),
-            metadata: doc_metadata,
+            data: "This is a user guide for the application".to_string(),
+            format: None,
+            media_type: None,
+            additional_props: doc_metadata,
         };
 
         let memories = ZeroOneOrMany::One(memory);
         let documents = ZeroOneOrMany::One(document);
         let chat_history = ZeroOneOrMany::None;
 
-        let formatted = formatter.format_prompt(
+        let result = formatter.format_prompt(
             &memories,
             &documents,
             &chat_history,
@@ -266,16 +271,16 @@ mod tests {
         );
 
         // Verify sectioning
-        assert!(formatted.contains("--- RELEVANT MEMORIES ---"));
-        assert!(formatted.contains("--- CONTEXT DOCUMENTS ---"));
-        assert!(formatted.contains("User prefers coffee"));
-        assert!(formatted.contains("User Guide"));
-        assert!(formatted.contains("User: What drink should I have?"));
+        assert!(result.contains("--- RELEVANT MEMORIES ---"));
+        assert!(result.contains("--- CONTEXT DOCUMENTS ---"));
+        assert!(result.contains("User prefers coffee"));
+        assert!(result.contains("User Guide"));
+        assert!(result.contains("User: What drink should I have?"));
 
         // Verify order (memories first, then context, then user message)
-        let memory_pos = formatted.find("RELEVANT MEMORIES").unwrap();
-        let context_pos = formatted.find("CONTEXT DOCUMENTS").unwrap();
-        let user_pos = formatted.find("User: What drink").unwrap();
+        let memory_pos = result.find("RELEVANT MEMORIES").unwrap();
+        let context_pos = result.find("CONTEXT DOCUMENTS").unwrap();
+        let user_pos = result.find("User: What drink").unwrap();
 
         assert!(memory_pos < context_pos);
         assert!(context_pos < user_pos);

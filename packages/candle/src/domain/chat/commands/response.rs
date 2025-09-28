@@ -4,6 +4,7 @@
 //! for production-ready performance and ergonomic APIs.
 
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
 
 use serde_json::{Map, Value};
@@ -491,8 +492,8 @@ pub enum ResponseError {
 }
 
 /// Global response formatter
-static GLOBAL_FORMATTER: once_cell::sync::Lazy<ResponseFormatter> =
-    once_cell::sync::Lazy::new(ResponseFormatter::new);
+static GLOBAL_FORMATTER: LazyLock<ResponseFormatter> =
+    LazyLock::new(ResponseFormatter::new);
 
 /// Get global response formatter
 pub fn get_global_formatter() -> &'static ResponseFormatter {

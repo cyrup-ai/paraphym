@@ -10,8 +10,7 @@ use thiserror::Error;
 use ystream::AsyncStream;
 
 use crate::domain::completion::CandleCompletionResponse;
-// use crate::domain::completion::traits::CandleCompletionModel; // Reserved for future completion model integration
-#[cfg(feature = "progresshub")]
+use crate::domain::completion::traits::CandleCompletionModel;
 use crate::providers::{CandleKimiK2Provider, CandleQwen3CoderProvider};
 
 /// Local engine errors
@@ -74,7 +73,7 @@ impl LocalEngine {
     /// Process completion request using local providers
     pub fn complete(
         &self,
-        _prompt: String,
+        prompt: String,
     ) -> AsyncStream<CandleCompletionResponse<'static>> {
         // Increment request counter
         self.request_count.fetch_add(1, Ordering::Relaxed);
@@ -89,12 +88,22 @@ impl LocalEngine {
             // Route to appropriate provider based on model name
             match model_name.as_str() {
                 "kimi-k2" => {
-                    // Create runtime for async provider creation
-                    let _rt = match tokio::runtime::Runtime::new() {
-                        Ok(_rt) => _rt,
-                        Err(e) => {
+                    // Use spawn_task pattern for provider initialization (no async runtime conflicts)
+                    use ystream::spawn_task;
+                    
+                    let provider_task = spawn_task(|| {
+                        // Initialize provider synchronously in background thread
+                        let config = crate::providers::kimi_k2::CandleKimiK2Config::default();
+                        let model_path = std::env::var("KIMI_MODEL_PATH").unwrap_or_else(|_| "./models/kimi-k2".to_string());
+                        CandleKimiK2Provider::with_config_sync(model_path, config)
+                            .map_err(|e| format!("Provider initialization failed: {}", e))
+                    });
+                    
+                    let provider_result = match provider_task.collect() {
+                        Ok(result) => result,
+                        Err(task_error) => {
                             let error_response = CandleCompletionResponse {
-                                text: format!("Failed to create async runtime: {}", e).into(),
+                                text: format!("Kimi-K2 provider task execution failed: {}", task_error).into(),
                                 model: model_name.clone().into(),
                                 provider: Some("candle-local".into()),
                                 usage: None,
@@ -107,16 +116,34 @@ impl LocalEngine {
                             return;
                         }
                     };
-
-                    // Use KimiK2 provider with real inference
-                    #[cfg(feature = "progresshub")]
-                    match _rt.block_on(CandleKimiK2Provider::new()) {
+                    
+                    match provider_result {
                         Ok(provider) => {
-                            // Create completion parameters
+                            // Create completion parameters with safe non-zero conversions
+                            let max_tokens = _max_tokens.and_then(|t| std::num::NonZeroU64::new(t as u64));
+                            let n = match std::num::NonZeroU8::new(1) {
+                                Some(val) => val,
+                                None => {
+                                    // This should never happen for value 1, but handle gracefully
+                                    let error_response = CandleCompletionResponse {
+                                        text: "Internal error: failed to create NonZeroU8 value".into(),
+                                        model: model_name.clone().into(),
+                                        provider: Some("candle-local".into()),
+                                        usage: None,
+                                        finish_reason: Some("error".into()),
+                                        response_time_ms: None,
+                                        generation_time_ms: Some(0),
+                                        tokens_per_second: Some(0.0),
+                                    };
+                                    let _ = sender.send(error_response);
+                                    return;
+                                }
+                            };
+                            
                             let completion_params = crate::domain::completion::CandleCompletionParams {
                                 temperature: _temperature.unwrap_or(0.7) as f64,
-                                max_tokens: _max_tokens.map(|t| std::num::NonZeroU64::new(t as u64).unwrap()),
-                                n: std::num::NonZeroU8::new(1).unwrap(),
+                                max_tokens,
+                                n,
                                 stream: true,
                                 additional_params: None,
                             };
@@ -126,43 +153,56 @@ impl LocalEngine {
                             
                             // Get real completion stream from provider
                             let completion_stream = provider.prompt(candle_prompt, &completion_params);
-                            
-                            // Process completion stream using proper ystream pattern
-                            ystream::spawn_task(move || async move {
-                                let mut stream = completion_stream;
-                                while let Some(chunk) = stream.next().await {
-                                    let response = match chunk {
-                                        crate::domain::context::chunk::CandleCompletionChunk::Text(text) => {
-                                            CandleCompletionResponse {
-                                                text: text.into(),
-                                                model: model_name.clone().into(),
-                                                provider: Some("candle-local".into()),
-                                                usage: None,
-                                                finish_reason: None,
-                                                response_time_ms: None,
-                                                generation_time_ms: None,
-                                                tokens_per_second: None,
-                                            }
-                                        },
-                                        crate::domain::context::chunk::CandleCompletionChunk::Error(err) => {
-                                            CandleCompletionResponse {
-                                                text: format!("Error: {}", err).into(),
-                                                model: model_name.clone().into(),
-                                                provider: Some("candle-local".into()),
-                                                usage: None,
-                                                finish_reason: Some("error".into()),
-                                                response_time_ms: None,
-                                                generation_time_ms: None,
-                                                tokens_per_second: None,
-                                            }
-                                        },
-                                    };
-                                    
-                                    if sender.send(response).is_err() {
-                                        break; // Client disconnected
-                                    }
+
+                            // Use ystream collect pattern instead of async runtime
+                            let chunks: Vec<_> = completion_stream.collect();
+
+                            // Process collected chunks using ystream pattern (no async runtime conflicts)
+                            for chunk in chunks {
+                                let response = match chunk {
+                                    crate::domain::context::chunk::CandleCompletionChunk::Text(text) => {
+                                        CandleCompletionResponse {
+                                            text: text.into(),
+                                            model: model_name.clone().into(),
+                                            provider: Some("candle-local".into()),
+                                            usage: None,
+                                            finish_reason: None,
+                                            response_time_ms: None,
+                                            generation_time_ms: None,
+                                            tokens_per_second: None,
+                                        }
+                                    },
+                                    crate::domain::context::chunk::CandleCompletionChunk::Error(err) => {
+                                        CandleCompletionResponse {
+                                            text: format!("Error: {}", err).into(),
+                                            model: model_name.clone().into(),
+                                            provider: Some("candle-local".into()),
+                                            usage: None,
+                                            finish_reason: Some("error".into()),
+                                            response_time_ms: None,
+                                            generation_time_ms: None,
+                                            tokens_per_second: None,
+                                        }
+                                    },
+                                    crate::domain::context::chunk::CandleCompletionChunk::Complete { text, .. } => {
+                                        CandleCompletionResponse {
+                                            text: text.into(),
+                                            model: model_name.clone().into(),
+                                            provider: Some("candle-local".into()),
+                                            usage: None,
+                                            finish_reason: Some("complete".into()),
+                                            response_time_ms: None,
+                                            generation_time_ms: None,
+                                            tokens_per_second: None,
+                                        }
+                                    },
+                                    _ => continue, // Skip other chunk types like tool calls
+                                };
+
+                                if sender.send(response).is_err() {
+                                    break; // Client disconnected
                                 }
-                            });
+                            }
                         }
                         Err(e) => {
                             let error_response = CandleCompletionResponse {
@@ -178,29 +218,23 @@ impl LocalEngine {
                             let _ = sender.send(error_response);
                         }
                     }
-
-                    #[cfg(not(feature = "progresshub"))]
-                    {
-                        let error_response = CandleCompletionResponse {
-                            text: "KimiK2 provider requires progresshub feature to be enabled".into(),
-                            model: model_name.into(),
-                            provider: Some("candle-local".into()),
-                            usage: None,
-                            finish_reason: Some("error".into()),
-                            response_time_ms: None,
-                            generation_time_ms: Some(0),
-                            tokens_per_second: Some(0.0),
-                        };
-                        let _ = sender.send(error_response);
-                    }
                 }
                 "qwen3-coder" => {
-                    // Create runtime for async provider creation
-                    let _rt = match tokio::runtime::Runtime::new() {
-                        Ok(_rt) => _rt,
-                        Err(e) => {
+                    // Use spawn_task pattern for provider initialization (no async runtime conflicts)
+                    use ystream::spawn_task;
+                    
+                    let provider_task = spawn_task(|| {
+                        // Initialize provider synchronously in background thread
+                        let config = crate::providers::qwen3_coder::CandleQwen3CoderConfig::default();
+                        let model_path = std::env::var("QWEN3_MODEL_PATH").unwrap_or_else(|_| "./models/qwen3-coder".to_string());
+                        CandleQwen3CoderProvider::with_config_sync(model_path, config)
+                            .map_err(|e| format!("Qwen3Coder provider initialization failed: {}", e))
+                    });
+                    let provider_result = match provider_task.collect() {
+                        Ok(result) => result,
+                        Err(task_error) => {
                             let error_response = CandleCompletionResponse {
-                                text: format!("Failed to create async runtime: {}", e).into(),
+                                text: format!("Qwen3-Coder provider task execution failed: {}", task_error).into(),
                                 model: model_name.clone().into(),
                                 provider: Some("candle-local".into()),
                                 usage: None,
@@ -213,16 +247,34 @@ impl LocalEngine {
                             return;
                         }
                     };
-
-                    // Use Qwen3Coder provider
-                    #[cfg(feature = "progresshub")]
-                    match _rt.block_on(CandleQwen3CoderProvider::new()) {
+                    
+                    match provider_result {
                         Ok(provider) => {
-                            // Create completion parameters for Qwen3-Coder
+                            // Create completion parameters with safe non-zero conversions
+                            let max_tokens = _max_tokens.and_then(|t| std::num::NonZeroU64::new(t as u64));
+                            let n = match std::num::NonZeroU8::new(1) {
+                                Some(val) => val,
+                                None => {
+                                    // This should never happen for value 1, but handle gracefully
+                                    let error_response = CandleCompletionResponse {
+                                        text: "Internal error: failed to create NonZeroU8 value".into(),
+                                        model: model_name.clone().into(),
+                                        provider: Some("candle-local".into()),
+                                        usage: None,
+                                        finish_reason: Some("error".into()),
+                                        response_time_ms: None,
+                                        generation_time_ms: Some(0),
+                                        tokens_per_second: Some(0.0),
+                                    };
+                                    let _ = sender.send(error_response);
+                                    return;
+                                }
+                            };
+                            
                             let completion_params = crate::domain::completion::CandleCompletionParams {
                                 temperature: _temperature.unwrap_or(0.7) as f64,
-                                max_tokens: _max_tokens.map(|t| std::num::NonZeroU64::new(t as u64).unwrap()),
-                                n: std::num::NonZeroU8::new(1).unwrap(),
+                                max_tokens,
+                                n,
                                 stream: true,
                                 additional_params: None,
                             };
@@ -233,45 +285,55 @@ impl LocalEngine {
                             // Get real completion stream from Qwen3-Coder provider
                             let completion_stream = provider.prompt(candle_prompt, &completion_params);
 
-                            // Process completion stream using proper ystream pattern
-                            ystream::spawn_task(move || async move {
-                                use futures_util::StreamExt;
+                            // Use ystream collect pattern instead of async runtime blocking
+                            let chunks: Vec<_> = completion_stream.collect();
 
-                                let mut stream = completion_stream;
-                                while let Some(chunk) = stream.next().await {
-                                    let response = match chunk {
-                                        crate::domain::context::chunk::CandleCompletionChunk::Text(text) => {
-                                            CandleCompletionResponse {
-                                                text: text.into(),
-                                                model: model_name.clone().into(),
-                                                provider: Some("candle-local".into()),
-                                                usage: None,
-                                                finish_reason: None,
-                                                response_time_ms: None,
-                                                generation_time_ms: None,
-                                                tokens_per_second: None,
-                                            }
-                                        },
-                                        crate::domain::context::chunk::CandleCompletionChunk::Error(err) => {
-                                            CandleCompletionResponse {
-                                                text: format!("Error: {}", err).into(),
-                                                model: model_name.clone().into(),
-                                                provider: Some("candle-local".into()),
-                                                usage: None,
-                                                finish_reason: Some("error".into()),
-                                                response_time_ms: None,
-                                                generation_time_ms: None,
-                                                tokens_per_second: None,
-                                            }
-                                        },
-                                        _ => continue, // Skip other chunk types
-                                    };
+                            // Process collected chunks using ystream pattern (no async runtime conflicts)
+                            for chunk in chunks {
+                                let response = match chunk {
+                                    crate::domain::context::chunk::CandleCompletionChunk::Text(text) => {
+                                        CandleCompletionResponse {
+                                            text: text.into(),
+                                            model: model_name.clone().into(),
+                                            provider: Some("candle-local".into()),
+                                            usage: None,
+                                            finish_reason: None,
+                                            response_time_ms: None,
+                                            generation_time_ms: None,
+                                            tokens_per_second: None,
+                                        }
+                                    },
+                                    crate::domain::context::chunk::CandleCompletionChunk::Error(err) => {
+                                        CandleCompletionResponse {
+                                            text: format!("Error: {}", err).into(),
+                                            model: model_name.clone().into(),
+                                            provider: Some("candle-local".into()),
+                                            usage: None,
+                                            finish_reason: Some("error".into()),
+                                            response_time_ms: None,
+                                            generation_time_ms: None,
+                                            tokens_per_second: None,
+                                        }
+                                    },
+                                    crate::domain::context::chunk::CandleCompletionChunk::Complete { text, .. } => {
+                                        CandleCompletionResponse {
+                                            text: text.into(),
+                                            model: model_name.clone().into(),
+                                            provider: Some("candle-local".into()),
+                                            usage: None,
+                                            finish_reason: Some("complete".into()),
+                                            response_time_ms: None,
+                                            generation_time_ms: None,
+                                            tokens_per_second: None,
+                                        }
+                                    },
+                                    _ => continue, // Skip other chunk types like tool calls
+                                };
 
-                                    if sender.send(response).is_err() {
-                                        break; // Client disconnected
-                                    }
+                                if sender.send(response).is_err() {
+                                    break; // Client disconnected
                                 }
-                            });
+                            }
                         }
                         Err(e) => {
                             let error_response = CandleCompletionResponse {
@@ -286,21 +348,6 @@ impl LocalEngine {
                             };
                             let _ = sender.send(error_response);
                         }
-                    }
-
-                    #[cfg(not(feature = "progresshub"))]
-                    {
-                        let error_response = CandleCompletionResponse {
-                            text: "Qwen3-Coder provider requires progresshub feature to be enabled".into(),
-                            model: model_name.into(),
-                            provider: Some("candle-local".into()),
-                            usage: None,
-                            finish_reason: Some("error".into()),
-                            response_time_ms: None,
-                            generation_time_ms: Some(0),
-                            tokens_per_second: Some(0.0),
-                        };
-                        let _ = sender.send(error_response);
                     }
                 }
                 _ => {
