@@ -228,15 +228,19 @@ impl CandleJinaBertEmbeddingProvider {
 }
 
 impl EmbeddingModelTrait for CandleJinaBertEmbeddingProvider {
-    fn embed(&self, text: &str, _task: Option<String>) -> Result<Vec<f32>> {
+    fn embed(&self, text: &str, task: Option<String>) -> Result<Vec<f32>> {
         self.validate_input(text)?;
+        // Jina-BERT doesn't use task-specific instructions, but parameter should be accepted
+        let _ = task; // Explicitly acknowledge parameter
         let embeddings = self.forward_pass(&[text])?;
         embeddings.into_iter().next()
             .ok_or_else(|| MemoryError::ModelError("No embeddings generated".to_string()))
     }
 
-    fn batch_embed(&self, texts: &[String], _task: Option<String>) -> Result<Vec<Vec<f32>>> {
+    fn batch_embed(&self, texts: &[String], task: Option<String>) -> Result<Vec<Vec<f32>>> {
         self.validate_batch(texts)?;
+        // Jina-BERT doesn't use task-specific instructions, but parameter should be accepted
+        let _ = task; // Explicitly acknowledge parameter
         let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
         self.forward_pass(&text_refs)
     }
@@ -247,6 +251,10 @@ impl EmbeddingModelTrait for CandleJinaBertEmbeddingProvider {
 
     fn name(&self) -> &str {
         "jina-bert-embedding"
+    }
+
+    fn supported_dimensions(&self) -> Vec<usize> {
+        vec![768] // Jina-BERT v2 produces 768-dimensional embeddings only
     }
 
     fn config_info(&self) -> HashMap<String, String> {
@@ -270,5 +278,17 @@ impl EmbeddingModelTrait for CandleJinaBertEmbeddingProvider {
 
     fn max_batch_size(&self) -> usize {
         64
+    }
+
+    fn health_check(&self) -> Result<()> {
+        // Verify model is loaded and ready
+        let test_embedding = self.embed("test", None)?;
+        if test_embedding.len() != self.dimension() {
+            return Err(MemoryError::ModelError(
+                format!("Health check failed: expected {} dimensions, got {}", 
+                        self.dimension(), test_embedding.len())
+            ));
+        }
+        Ok(())
     }
 }

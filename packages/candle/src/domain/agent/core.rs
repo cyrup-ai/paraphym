@@ -13,7 +13,7 @@ use crate::domain::memory::{Error as MemoryError, MemoryTool, MemoryToolError};
 use crate::memory::memory::SurrealDBMemoryManager;
 use crate::domain::model::CandleModel as Model;
 use crate::domain::tool::CandleMcpToolData as McpToolData;
-use crate::domain::CandleZeroOneOrMany as ZeroOneOrMany;
+use cyrup_sugars::ZeroOneOrMany;
 
 /// Maximum number of tools per agent (const generic default)
 pub const MAX_AGENT_TOOLS: usize = 32;
@@ -135,7 +135,7 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
                         Err(e) => {
                             let _ = sender.send(crate::domain::context::chunk::CandleResult { 
                                 result: Err(AgentError::Config(
-                                    format!("Failed to initialize memory: {}", e),
+                                    format!("Failed to initialize memory: {e}"),
                                 ))
                             });
                             return;
@@ -238,7 +238,7 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
                         Err(e) => {
                             let _ = sender.send(crate::domain::context::chunk::CandleResult { 
                                 result: Err(AgentError::Config(
-                                    format!("Failed to initialize memory: {}", e),
+                                    format!("Failed to initialize memory: {e}"),
                                 ))
                             });
                             return;
@@ -349,6 +349,7 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
     /// # Performance
     /// Zero allocation with inlined tool addition
     #[inline]
+    #[must_use]
     pub fn add_tool(mut self, tool: McpToolData) -> Self {
         match &mut self.tools {
             ZeroOneOrMany::None => {

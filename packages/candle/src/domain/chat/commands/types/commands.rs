@@ -559,7 +559,7 @@ impl ImmutableChatCommand {
                     "json" | "markdown" | "pdf" | "html" | "csv" | "xml" | "yaml"
                 ) {
                     return Err(CandleCommandError::invalid_arguments(
-                        format!("Invalid export format '{}'. Supported: json, markdown, pdf, html, csv, xml, yaml", format)
+                        format!("Invalid export format '{format}'. Supported: json, markdown, pdf, html, csv, xml, yaml")
                     ));
                 }
             }

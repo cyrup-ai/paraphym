@@ -216,6 +216,18 @@ pub trait CandleAgentRoleBuilder: Sized + Send {
     fn chat<F>(self, handler: F) -> AsyncStream<CandleMessageChunk>
     where
         F: FnOnce(&CandleAgentConversation) -> CandleChatLoop + Send + 'static;
+
+    /// Enable code execution with automatic backend selection - EXACT syntax: .with_code_execution()
+    #[must_use]
+    fn with_code_execution(self) -> impl CandleAgentRoleBuilder;
+
+    /// Enable code execution with persistent named environment - EXACT syntax: .with_persistent_environment("name")
+    #[must_use]
+    fn with_persistent_environment(self, name: impl Into<String>) -> impl CandleAgentRoleBuilder;
+
+    /// Configure code execution timeout - EXACT syntax: .with_execution_timeout(30000)
+    #[must_use]
+    fn with_execution_timeout(self, timeout_ms: u64) -> impl CandleAgentRoleBuilder;
 }
 
 /// MCP server builder for fluent chaining
@@ -278,6 +290,9 @@ struct CandleAgentRoleBuilderImpl {
     temperature: Option<f64>,
     max_tokens: Option<u64>,
     system_prompt: Option<String>,
+    code_execution_enabled: bool,
+    persistent_env_name: Option<String>,
+    execution_timeout: Option<u64>,
 }
 
 impl CandleAgentRoleBuilderImpl {
@@ -288,6 +303,9 @@ impl CandleAgentRoleBuilderImpl {
             temperature: None,
             max_tokens: None,
             system_prompt: None,
+            code_execution_enabled: false,
+            persistent_env_name: None,
+            execution_timeout: None,
         }
     }
 }
@@ -308,6 +326,9 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
             max_tokens: self.max_tokens,
             system_prompt: self.system_prompt,
             provider,
+            code_execution_enabled: self.code_execution_enabled,
+            persistent_env_name: self.persistent_env_name,
+            execution_timeout: self.execution_timeout,
         }
     }
 
@@ -485,6 +506,9 @@ pub struct CandleAgentBuilderImpl<P> {
     max_tokens: Option<u64>,
     system_prompt: Option<String>,
     provider: P,
+    code_execution_enabled: bool,
+    persistent_env_name: Option<String>,
+    execution_timeout: Option<u64>,
 }
 
 // Implementation for with-provider builder (allows all methods)
@@ -506,6 +530,9 @@ where
             max_tokens: self.max_tokens,
             system_prompt: self.system_prompt,
             provider,
+            code_execution_enabled: self.code_execution_enabled,
+            persistent_env_name: self.persistent_env_name,
+            execution_timeout: self.execution_timeout,
         }
     }
 

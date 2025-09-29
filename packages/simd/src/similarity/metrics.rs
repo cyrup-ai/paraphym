@@ -145,7 +145,7 @@ mod tests {
             .collect();
 
         for handle in handles {
-            handle.join().unwrap();
+            handle.join().expect("Thread should not panic during metrics test");
         }
 
         let snapshot = metrics.get_metrics();

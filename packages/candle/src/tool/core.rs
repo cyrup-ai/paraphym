@@ -10,7 +10,6 @@ use serde_json::Value;
 use hashbrown::HashMap;
 
 // Note: The transparent array-tuples syntax [("key", "value")] works automatically
-// through cyrup_sugars transformation without requiring explicit macro imports
 
 /// Marker type for Perplexity
 pub struct Perplexity;
@@ -66,8 +65,7 @@ pub struct Tool<T> {
 impl<T> Tool<T> {
     /// Create new tool with config - EXACT syntax: Tool<Perplexity>::new([("citations", "true")])
     ///
-    /// This method accepts the transparent array-tuples syntax [("key", "value")] which is
-    /// automatically transformed by cyrup_sugars into the appropriate HashMap.
+    /// This method accepts the transparent array-tuples syntax [("key", "value")].
     ///
     /// Examples:
     /// ```rust

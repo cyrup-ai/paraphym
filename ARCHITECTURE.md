@@ -30,7 +30,7 @@ let stream = CandleFluentAi::agent_role("rusty-squire")
             ("citations", "true")
         ]),
         CandleTool::named("cargo").bin("~/.cargo/bin").description("cargo --help".exec_to_text())
-    ) // CandleZeroOneOrMany `CandleTool` || `CandleMcpTool` || CandleNamedTool (WASM)
+    ) // ZeroOneOrMany `CandleTool` || `CandleMcpTool` || CandleNamedTool (WASM)
 
     .additional_params([("beta", "true")])
     .memory(CandleLibrary::named("obsidian_vault"))
@@ -134,7 +134,7 @@ let stream = CandleFluentAi::agent_role("rusty-squire")
             ("citations", "true")
         ]),
         CandleTool::named("cargo").bin("~/.cargo/bin").description("cargo --help".exec_to_text())
-    ) // CandleZeroOneOrMany `CandleTool` || `CandleMcpTool` || CandleNamedTool (WASM)
+    ) // ZeroOneOrMany `CandleTool` || `CandleMcpTool` || CandleNamedTool (WASM)
 
     .additional_params([("beta", "true")])
     .memory(CandleLibrary::named("obsidian_vault"))
@@ -191,7 +191,7 @@ let stream = CandleFluentAi::agent_role("rusty-squire")
             ("citations", "true")
         ]),
         CandleTool::named("cargo").bin("~/.cargo/bin").description("cargo --help".exec_to_text())
-    ) // CandleZeroOneOrMany `CandleTool` || `CandleMcpTool` || CandleNamedTool (WASM)
+    ) // ZeroOneOrMany `CandleTool` || `CandleMcpTool` || CandleNamedTool (WASM)
 
     .additional_params([("beta", "true")])
     .memory(CandleLibrary::named("obsidian_vault"))

@@ -15,6 +15,14 @@ use super::types::commands::{CommandExecutionResult, ImmutableChatCommand, Outpu
 use super::types::events::{CommandEvent, CommandExecutionContext};
 use super::types::metadata::ResourceUsage;
 
+/// Get current timestamp in microseconds since Unix epoch, with fallback for clock errors
+fn current_timestamp_us() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+        .as_micros() as u64
+}
+
 /// Command execution engine with streaming processing (zero-allocation, lock-free)
 #[derive(Debug)]
 pub struct CommandExecutor {
@@ -107,10 +115,7 @@ impl CommandExecutor {
                 CommandEvent::Started {
                     command: command.clone(),
                     execution_id,
-                    timestamp_us: SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_micros() as u64,
+                    timestamp_us: current_timestamp_us(),
                 }
             );
 
@@ -119,9 +124,9 @@ impl CommandExecutor {
                 ImmutableChatCommand::Help { command, extended } => {
                     let message = if let Some(cmd) = command {
                         if extended {
-                            format!("Extended help for command '{}': <detailed help>", cmd)
+                            format!("Extended help for command '{cmd}': <detailed help>")
                         } else {
-                            format!("Help for command '{}'", cmd)
+                            format!("Help for command '{cmd}'")
                         }
                     } else if extended {
                         "Extended help: <comprehensive help text>".to_string()
@@ -136,10 +141,7 @@ impl CommandExecutor {
                             execution_id,
                             content: message.clone(),
                             output_type: OutputType::Text,
-                            timestamp_us: SystemTime::now()
-                                .duration_since(UNIX_EPOCH)
-                                .unwrap()
-                                .as_micros() as u64,
+                            timestamp_us: current_timestamp_us(),
                         }
                     );
                 }
@@ -153,10 +155,7 @@ impl CommandExecutor {
                             execution_id,
                             content: "Chat cleared successfully".to_string(),
                             output_type: OutputType::Text,
-                            timestamp_us: SystemTime::now()
-                                .duration_since(UNIX_EPOCH)
-                                .unwrap()
-                                .as_micros() as u64,
+                            timestamp_us: current_timestamp_us(),
                         }
                     );
                 }
@@ -173,11 +172,8 @@ impl CommandExecutor {
                             CommandEvent::Progress {
                                 execution_id,
                                 progress: progress as f32,
-                                message: format!("Exporting... {}%", progress),
-                                timestamp: SystemTime::now()
-                                    .duration_since(UNIX_EPOCH)
-                                    .unwrap()
-                                    .as_micros() as u64,
+                                message: format!("Exporting... {progress}%"),
+                                timestamp: current_timestamp_us(),
                             }
                         );
 
@@ -193,8 +189,7 @@ impl CommandExecutor {
                         ""
                     };
                     let message = format!(
-                        "Chat exported to '{}' in {} format{}",
-                        output_str, format, metadata_str
+                        "Chat exported to '{output_str}' in {format} format{metadata_str}"
                     );
 
                     ystream::emit!(
@@ -203,10 +198,7 @@ impl CommandExecutor {
                             execution_id,
                             content: message,
                             output_type: OutputType::Text,
-                            timestamp_us: SystemTime::now()
-                                .duration_since(UNIX_EPOCH)
-                                .unwrap()
-                                .as_micros() as u64,
+                            timestamp_us: current_timestamp_us(),
                         }
                     );
                 }
@@ -222,10 +214,7 @@ impl CommandExecutor {
                             execution_id,
                             content: "Configuration updated successfully".to_string(),
                             output_type: OutputType::Text,
-                            timestamp_us: SystemTime::now()
-                                .duration_since(UNIX_EPOCH)
-                                .unwrap()
-                                .as_micros() as u64,
+                            timestamp_us: current_timestamp_us(),
                         }
                     );
                 }
@@ -243,11 +232,8 @@ impl CommandExecutor {
                             CommandEvent::Progress {
                                 execution_id,
                                 progress: progress as f32,
-                                message: format!("Searching... {}%", progress),
-                                timestamp: SystemTime::now()
-                                    .duration_since(UNIX_EPOCH)
-                                    .unwrap()
-                                    .as_micros() as u64,
+                                message: format!("Searching... {progress}%"),
+                                timestamp: current_timestamp_us(),
                             }
                         );
 
@@ -256,14 +242,13 @@ impl CommandExecutor {
                     }
 
                     // Build search result message
-                    let scope_str = format!("{:?}", scope).to_lowercase();
+                    let scope_str = format!("{scope:?}").to_lowercase();
                     let limit_str = limit
-                        .map(|l| format!(" (limit: {})", l))
+                        .map(|l| format!(" (limit: {l})"))
                         .unwrap_or_default();
                     let context_str = if include_context { " with context" } else { "" };
                     let message = format!(
-                        "Search for '{}' in {} scope{}{} completed",
-                        query, scope_str, limit_str, context_str
+                        "Search for '{query}' in {scope_str} scope{limit_str}{context_str} completed"
                     );
 
                     ystream::emit!(
@@ -272,10 +257,7 @@ impl CommandExecutor {
                             execution_id,
                             content: message,
                             output_type: OutputType::Text,
-                            timestamp_us: SystemTime::now()
-                                .duration_since(UNIX_EPOCH)
-                                .unwrap()
-                                .as_micros() as u64,
+                            timestamp_us: current_timestamp_us(),
                         }
                     );
                 }
@@ -287,10 +269,7 @@ impl CommandExecutor {
                             execution_id,
                             content: "Command executed successfully".to_string(),
                             output_type: OutputType::Text,
-                            timestamp_us: SystemTime::now()
-                                .duration_since(UNIX_EPOCH)
-                                .unwrap()
-                                .as_micros() as u64,
+                            timestamp_us: current_timestamp_us(),
                         }
                     );
                 }
@@ -343,9 +322,9 @@ impl CommandExecutor {
                 // Generate help message with zero allocation
                 let message = if let Some(cmd) = command {
                     if extended {
-                        format!("Extended help for command '{}': Detailed usage, examples, and advanced options available", cmd)
+                        format!("Extended help for command '{cmd}': Detailed usage, examples, and advanced options available")
                     } else {
-                        format!("Help for command '{}': Basic usage and description", cmd)
+                        format!("Help for command '{cmd}': Basic usage and description")
                     }
                 } else if extended {
                     "Extended help: All commands with detailed descriptions, usage patterns, and examples".to_string()
@@ -405,7 +384,7 @@ impl CommandExecutor {
                 // Execute clear operation with zero allocation
                 let message = if confirm {
                     if let Some(n) = keep_last {
-                        format!("Chat cleared successfully, keeping last {} messages", n)
+                        format!("Chat cleared successfully, keeping last {n} messages")
                     } else {
                         "Chat cleared completely - all messages removed".to_string()
                     }
@@ -489,7 +468,7 @@ impl CommandExecutor {
                         CommandEvent::Progress {
                             execution_id,
                             progress: progress as f32,
-                            message: format!("Exporting... {}%", progress),
+                            message: format!("Exporting... {progress}%"),
                             timestamp: std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH)
                                 .unwrap()
@@ -504,8 +483,7 @@ impl CommandExecutor {
                     ""
                 };
                 let message = format!(
-                    "Chat exported to '{}' in {} format{}",
-                    output_str, format, metadata_str
+                    "Chat exported to '{output_str}' in {format} format{metadata_str}"
                 );
 
                 // Emit output and completion
@@ -573,7 +551,7 @@ impl CommandExecutor {
                 } else if let (Some(k), Some(v)) = (key.as_ref(), value.as_ref()) {
                     format!("Configuration updated: {} = {}", k, v)
                 } else if let Some(k) = key {
-                    format!("Configuration value for {}: <value>", k)
+                    format!("Configuration value for {k}: <value>")
                 } else {
                     "Use --show to display current configuration".to_string()
                 };
@@ -638,7 +616,7 @@ impl CommandExecutor {
                         CommandEvent::Progress {
                             execution_id,
                             progress: progress as f32,
-                            message: format!("Searching... {}%", progress),
+                            message: format!("Searching... {progress}%"),
                             timestamp: std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH)
                                 .unwrap()
@@ -664,13 +642,12 @@ impl CommandExecutor {
                 };
 
                 let limit_str = limit
-                    .map(|n| format!(" (limit: {})", n))
+                    .map(|n| format!(" (limit: {n})"))
                     .unwrap_or_default();
                 let context_str = if include_context { " with context" } else { "" };
 
                 let message = format!(
-                    "Searching for '{}' in {}{}{}\nSearch completed - 0 results found",
-                    query, scope_str, limit_str, context_str
+                    "Searching for '{query}' in {scope_str}{limit_str}{context_str}\nSearch completed - 0 results found"
                 );
 
                 // Emit output event
@@ -735,10 +712,7 @@ impl CommandExecutor {
                         CommandEvent::Started {
                             command: command.clone(),
                             execution_id,
-                            timestamp_us: SystemTime::now()
-                                .duration_since(UNIX_EPOCH)
-                                .unwrap()
-                                .as_micros() as u64,
+                            timestamp_us: current_timestamp_us(),
                         }
                     );
 
@@ -749,10 +723,7 @@ impl CommandExecutor {
                             execution_id,
                             content: format!("Command executed successfully"),
                             output_type: OutputType::Text,
-                            timestamp_us: SystemTime::now()
-                                .duration_since(UNIX_EPOCH)
-                                .unwrap()
-                                .as_micros() as u64,
+                            timestamp_us: current_timestamp_us(),
                         }
                     );
 
@@ -766,10 +737,7 @@ impl CommandExecutor {
                             ),
                             duration_us: 0, // TODO: Calculate actual duration
                             resource_usage: ResourceUsage::default(),
-                            timestamp_us: SystemTime::now()
-                                .duration_since(UNIX_EPOCH)
-                                .unwrap()
-                                .as_micros() as u64,
+                            timestamp_us: current_timestamp_us(),
                         }
                     );
                 }
@@ -779,14 +747,11 @@ impl CommandExecutor {
                         sender,
                         CommandEvent::Failed {
                             execution_id,
-                            error: format!("Parse error: {}", e),
+                            error: format!("Parse error: {e}"),
                             error_code: 1001, // Parse error code
                             duration_us: 0,
                             resource_usage: ResourceUsage::default(),
-                            timestamp_us: SystemTime::now()
-                                .duration_since(UNIX_EPOCH)
-                                .unwrap()
-                                .as_micros() as u64,
+                            timestamp_us: current_timestamp_us(),
                         }
                     );
                 }

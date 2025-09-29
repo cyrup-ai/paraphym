@@ -9,6 +9,7 @@ use std::hash::Hash;
 use ahash::RandomState;
 use dashmap::DashMap;
 use ystream::AsyncStream;
+use cyrup_sugars::prelude::MessageChunk;
 #[cfg(test)]
 use std::sync::LazyLock;
 // Removed unused import: once_cell::sync::Lazy
@@ -22,6 +23,32 @@ use crate::model::registry::ModelRegistry;
 // Removed unused import: strsim::jaro_winkler
 use crate::model::registry::RegisteredModel;
 use crate::model::traits::Model;
+
+/// Wrapper for Optional RegisteredModel that implements MessageChunk
+#[derive(Debug, Clone)]
+pub struct ModelResult<M: Model> {
+    pub model: Option<RegisteredModel<M>>,
+}
+
+impl<M: Model> Default for ModelResult<M> {
+    fn default() -> Self {
+        Self { model: None }
+    }
+}
+
+impl<M: Model> MessageChunk for ModelResult<M> {
+    fn bad_chunk(_error: String) -> Self {
+        Self { model: None }
+    }
+
+    fn error(&self) -> Option<&str> {
+        if self.model.is_none() {
+            Some("Model not found")
+        } else {
+            None
+        }
+    }
+}
 
 /// A pattern that can be used to match model names
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -127,7 +154,7 @@ pub enum RuleCondition {
     FeatureEnabled { name: String }}
 
 /// A model resolution result
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ModelResolution {
     /// The resolved provider name
     pub provider: String,
@@ -143,6 +170,26 @@ pub struct ModelResolution {
 
     /// The score of the match (higher is better)
     pub score: f64}
+
+impl MessageChunk for ModelResolution {
+    fn bad_chunk(_error: String) -> Self {
+        Self {
+            provider: "error".to_string(),
+            model: "error".to_string(),
+            info: None,
+            rule: None,
+            score: 0.0,
+        }
+    }
+
+    fn error(&self) -> Option<&str> {
+        if self.provider == "error" || self.score <= 0.0 {
+            Some("Model resolution failed")
+        } else {
+            None
+        }
+    }
+}
 
 impl ModelResolution {
     /// Create a new resolution result
@@ -323,7 +370,7 @@ impl ModelResolver {
         &self,
         model_name: &str,
         provider: Option<&str>,
-    ) -> AsyncStream<Option<RegisteredModel<M>>> {
+    ) -> AsyncStream<ModelResult<M>> {
         let resolver = self.clone();
         let model_name = model_name.to_string();
         let provider = provider.map(|s| s.to_string());
@@ -340,17 +387,17 @@ impl ModelResolver {
                         .get::<M>(&resolution.provider, &resolution.model)
                     {
                         Ok(Some(model)) => {
-                            let _ = sender.send(Some(model));
+                            let _ = sender.send(ModelResult { model: Some(model) });
                         }
                         _ => {
-                            let _ = sender.send(None);
+                            let _ = sender.send(ModelResult { model: None });
                         }
                     }
                 } else {
-                    let _ = sender.send(None);
+                    let _ = sender.send(ModelResult { model: None });
                 }
             } else {
-                let _ = sender.send(None);
+                let _ = sender.send(ModelResult { model: None });
             }
         })
     }
@@ -473,13 +520,15 @@ mod tests {
 
         // Test resolution with a rule
         let resolution_stream = resolver.resolve::<TestModel>("gpt-4", None);
-        let resolution = resolution_stream.collect().into_iter().next().unwrap();
+        let resolution = resolution_stream.collect().into_iter().next()
+            .expect("Should resolve gpt-4 to a model");
         assert_eq!(resolution.provider, "openai");
         assert_eq!(resolution.model, "gpt-3.5-turbo");
 
         // Test resolution with an alias
         let resolution_stream = resolver.resolve::<TestModel>("chat", None);
-        let resolution = resolution_stream.collect().into_iter().next().unwrap();
+        let resolution = resolution_stream.collect().into_iter().next()
+            .expect("Should resolve chat alias to a model");
         assert_eq!(resolution.provider, "openai");
         assert_eq!(resolution.model, "gpt-3.5-turbo");
     }
@@ -494,7 +543,7 @@ mod tests {
                 .provider_name("openai")
                 .name("gpt-3.5-turbo")
                 .build()
-                .unwrap()
+                .expect("Static model info should build successfully")
         });
 
         static INFO2: LazyLock<ModelInfo> = LazyLock::new(|| {
@@ -502,21 +551,23 @@ mod tests {
                 .provider_name("anthropic")
                 .name("claude-2")
                 .build()
-                .unwrap()
+                .expect("Static model info should build successfully")
         });
 
         let model1 = TestModel { info: &*INFO1 };
         let model2 = TestModel { info: &*INFO2 };
 
-        registry.register("openai", model1).unwrap();
-        registry.register("anthropic", model2).unwrap();
+        registry.register("openai", model1)
+            .expect("Should register openai model in test");
+        registry.register("anthropic", model2)
+            .expect("Should register anthropic model in test");
 
         let resolver = ModelResolver::new();
 
         // Test fuzzy matching with a typo
         let resolution = resolver
             .resolve_with_registry::<TestModel>(&registry, "gpt-3.5-turbo-16k", None)
-            .unwrap();
+            .expect("Should resolve fuzzy match for gpt-3.5-turbo-16k");
 
         assert_eq!(resolution.provider, "openai");
         assert_eq!(resolution.model, "gpt-3.5-turbo");
@@ -525,7 +576,7 @@ mod tests {
         // Test fuzzy matching with a different casing
         let resolution = resolver
             .resolve_with_registry::<TestModel>(&registry, "GPT-3.5-TURBO", None)
-            .unwrap();
+            .expect("Should resolve fuzzy match for GPT-3.5-TURBO");
 
         assert_eq!(resolution.provider, "openai");
         assert_eq!(resolution.model, "gpt-3.5-turbo");

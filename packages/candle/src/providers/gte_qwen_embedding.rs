@@ -51,6 +51,17 @@ impl CandleGteQwenConfig {
             device,
         }
     }
+
+    /// Validate dimension is supported (GTE-Qwen2 only supports 1536 dimensions)
+    fn validate_dimension(dimension: usize) -> Result<()> {
+        if dimension != 1536 {
+            return Err(MemoryError::Config(format!(
+                "Unsupported dimension: {}. GTE-Qwen2-1.5B-instruct natively supports only 1536 dimensions",
+                dimension
+            )));
+        }
+        Ok(())
+    }
 }
 
 /// GTE-Qwen2 embedding provider using Candle ML framework  
@@ -76,6 +87,9 @@ impl CandleGteQwenEmbeddingProvider {
     }
 
     pub async fn with_config(config: CandleGteQwenConfig) -> Result<Self> {
+        // Validate dimension support before proceeding
+        CandleGteQwenConfig::validate_dimension(config.dimension)?;
+        
         // Download model using ProgressHub
         let results = ProgressHub::builder()
             .model("Alibaba-NLP/gte-Qwen2-1.5B-instruct")
@@ -186,11 +200,21 @@ impl CandleGteQwenEmbeddingProvider {
         })
     }
 
-    fn forward_pass(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
-        // Format input with instruction prefix following GTE specification
-        let formatted_texts: Vec<String> = texts.iter()
-            .map(|text| format!("Instruct: Given a web search query, retrieve relevant passages that answer the query.\nQuery: {}", text))
-            .collect();
+
+
+    fn forward_pass_with_task(&self, texts: &[&str], task: Option<&str>) -> Result<Vec<Vec<f32>>> {
+        // Format input with task-specific instruction prefix
+        let formatted_texts: Vec<String> = match task {
+            Some("search_query") => texts.iter()
+                .map(|text| format!("Instruct: Given a web search query, retrieve relevant passages that answer the query.\nQuery: {}", text))
+                .collect(),
+            Some("search_document") | None => texts.iter()
+                .map(|text| format!("Instruct: Given a web search query, retrieve relevant passages that answer the query.\nPassage: {}", text))
+                .collect(),
+            Some(custom_task) => texts.iter()
+                .map(|text| format!("Instruct: {}.\nText: {}", custom_task, text))
+                .collect(),
+        };
 
         // Tokenize
         let tokens = self.tokenizer
@@ -203,8 +227,16 @@ impl CandleGteQwenEmbeddingProvider {
                 .map_err(|e| MemoryError::ModelError(format!("Tensor creation failed: {}", e)))
         }).collect::<Result<Vec<_>>>()?;
 
+        let attention_mask = tokens.iter().map(|tokens| {
+            let tokens = tokens.get_attention_mask().to_vec();
+            Tensor::new(tokens.as_slice(), &self.device)
+                .map_err(|e| MemoryError::ModelError(format!("Tensor creation failed: {}", e)))
+        }).collect::<Result<Vec<_>>>()?;
+
         let token_ids = Tensor::stack(&token_ids, 0)
             .map_err(|e| MemoryError::ModelError(format!("Tensor stack failed: {}", e)))?;
+        let attention_mask = Tensor::stack(&attention_mask, 0)
+            .map_err(|e| MemoryError::ModelError(format!("Attention mask tensor stack failed: {}", e)))?;
 
         // Forward pass with Mutex for thread-safe interior mutability
         let mut model = self.model.lock()
@@ -212,14 +244,31 @@ impl CandleGteQwenEmbeddingProvider {
         let logits = model.forward(&token_ids, 0, None)
             .map_err(|e| MemoryError::ModelError(format!("Forward pass failed: {}", e)))?;
 
-        // Extract last hidden state (decoder-only model pattern)
-        let (_batch_size, seq_len, _hidden_size) = logits.dims3()
+        // Apply attention-masked last token pooling (decoder-only pattern with proper masking)
+        let (_batch_size, _seq_len, _hidden_size) = logits.dims3()
             .map_err(|e| MemoryError::ModelError(format!("Invalid logits shape: {}", e)))?;
 
-        let embeddings = logits.narrow(1, seq_len - 1, 1)  // Get last token embeddings
-            .map_err(|e| MemoryError::ModelError(format!("Failed to extract last hidden state: {}", e)))?
-            .squeeze(1)  // Remove sequence dimension
-            .map_err(|e| MemoryError::ModelError(format!("Failed to squeeze tensor: {}", e)))?;
+        // Find actual last tokens using attention mask
+        let last_indices = attention_mask.sum(1)
+            .map_err(|e| MemoryError::ModelError(format!("Failed to sum attention mask: {}", e)))?
+            .to_vec1::<u32>()
+            .map_err(|e| MemoryError::ModelError(format!("Failed to convert indices: {}", e)))?
+            .into_iter()
+            .map(|len| (len - 1) as usize)  // Convert to 0-based last token index
+            .collect::<Vec<_>>();
+
+        // Extract embeddings for each sequence's actual last token
+        let mut batch_embeddings = Vec::new();
+        for (i, &last_idx) in last_indices.iter().enumerate() {
+            let seq_embeddings = logits.get(i)
+                .map_err(|e| MemoryError::ModelError(format!("Failed to get sequence {}: {}", i, e)))?
+                .get(last_idx)
+                .map_err(|e| MemoryError::ModelError(format!("Failed to get token {}: {}", last_idx, e)))?;
+            batch_embeddings.push(seq_embeddings);
+        }
+
+        let embeddings = Tensor::stack(&batch_embeddings, 0)
+            .map_err(|e| MemoryError::ModelError(format!("Failed to stack embeddings: {}", e)))?;
 
         let embeddings_data = embeddings.to_vec2::<f32>()
             .map_err(|e| MemoryError::ModelError(format!("Failed to convert embeddings: {}", e)))?;
@@ -229,17 +278,17 @@ impl CandleGteQwenEmbeddingProvider {
 }
 
 impl EmbeddingModelTrait for CandleGteQwenEmbeddingProvider {
-    fn embed(&self, text: &str, _task: Option<String>) -> Result<Vec<f32>> {
+    fn embed(&self, text: &str, task: Option<String>) -> Result<Vec<f32>> {
         self.validate_input(text)?;
-        let embeddings = self.forward_pass(&[text])?;
+        let embeddings = self.forward_pass_with_task(&[text], task.as_deref())?;
         embeddings.into_iter().next()
             .ok_or_else(|| MemoryError::ModelError("No embeddings generated".to_string()))
     }
 
-    fn batch_embed(&self, texts: &[String], _task: Option<String>) -> Result<Vec<Vec<f32>>> {
+    fn batch_embed(&self, texts: &[String], task: Option<String>) -> Result<Vec<Vec<f32>>> {
         self.validate_batch(texts)?;
         let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
-        self.forward_pass(&text_refs)
+        self.forward_pass_with_task(&text_refs, task.as_deref())
     }
 
     fn dimension(&self) -> usize {
@@ -248,6 +297,10 @@ impl EmbeddingModelTrait for CandleGteQwenEmbeddingProvider {
 
     fn name(&self) -> &str {
         "gte-qwen2-1.5b-instruct"
+    }
+
+    fn supported_dimensions(&self) -> Vec<usize> {
+        vec![1536] // GTE-Qwen2 1.5B produces 1536-dimensional embeddings only
     }
 
     fn config_info(&self) -> HashMap<String, String> {
@@ -261,6 +314,9 @@ impl EmbeddingModelTrait for CandleGteQwenEmbeddingProvider {
         info.insert("device".to_string(), format!("{:?}", self.device));
         info.insert("architecture".to_string(), "decoder-only".to_string());
         info.insert("padding".to_string(), "left".to_string());
+        info.insert("pooling".to_string(), "attention-masked-last-token".to_string());
+        info.insert("instruction_masking".to_string(), "enabled".to_string());
+        info.insert("supported_tasks".to_string(), "search_query,search_document".to_string());
         info
     }
 
@@ -270,5 +326,17 @@ impl EmbeddingModelTrait for CandleGteQwenEmbeddingProvider {
 
     fn max_batch_size(&self) -> usize {
         16
+    }
+
+    fn health_check(&self) -> Result<()> {
+        // Verify model is loaded and ready
+        let test_embedding = self.embed("test", None)?;
+        if test_embedding.len() != self.dimension() {
+            return Err(MemoryError::ModelError(
+                format!("Health check failed: expected {} dimensions, got {}", 
+                        self.dimension(), test_embedding.len())
+            ));
+        }
+        Ok(())
     }
 }

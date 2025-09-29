@@ -5,7 +5,7 @@ use paraphym_simd::ops::{argmax, scale_temperature, softmax};
 fn test_temperature_scale_empty() {
     let mut logits: Vec<f32> = vec![];
     let result = scale_temperature(&mut logits, 1.0);
-    assert!(result.is_ok(), "Expected Ok for empty logits");
+    assert!(result.is_err(), "Expected error for empty logits");
 }
 
 #[test]
@@ -40,7 +40,7 @@ fn test_temperature_scale_large_vector() {
     let temperature = 1.5;
     scale_temperature(&mut logits, temperature).expect("Temperature scaling failed");
     for (i, &val) in logits.iter().enumerate() {
-        assert_float_eq!(val, (i as f32) / temperature, abs <= 1e-6);
+        assert_float_eq!(val, (i as f32) / temperature, rel <= 1e-6);
     }
 }
 

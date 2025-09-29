@@ -138,6 +138,11 @@ pub static TEMPERATURE_DISPATCH: Lazy<TemperatureDispatch> = Lazy::new(create_te
 /// # Returns
 /// * `SimdResult<()>` - Success or error if temperature is invalid
 pub fn scale_temperature(logits: &mut [f32], temperature: f32) -> SimdResult<()> {
+    if logits.is_empty() {
+        return Err(crate::error::SimdError::InvalidInput(
+            "Logits array cannot be empty".to_string(),
+        ));
+    }
     TEMPERATURE_DISPATCH.call(logits, temperature)
 }
 

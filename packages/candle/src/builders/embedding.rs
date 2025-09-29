@@ -4,7 +4,7 @@
 
 use std::marker::PhantomData;
 use crate::domain::embedding::Embedding;
-use crate::domain::{AsyncTask, CandleZeroOneOrMany as ZeroOneOrMany, spawn_task as spawn_async};
+use crate::domain::{AsyncTask, ZeroOneOrMany as ZeroOneOrMany, spawn_task as spawn_async};
 
 /// Embedding builder trait - elegant zero-allocation builder pattern
 pub trait EmbeddingBuilder: Sized {

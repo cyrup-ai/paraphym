@@ -16,10 +16,10 @@ use std::sync::mpsc;
 use smallvec::SmallVec;
 use crossbeam;
 use ystream::AsyncStream;
+use cyrup_sugars::prelude::MessageChunk;
 
 use crate::workflow::ops::{Op, DynOp};
 use crate::domain::context::chunk::ParallelResult;
-use cyrup_sugars::prelude::MessageChunk;
 
 /// N-way parallel execution combinator for true concurrent processing
 ///

@@ -65,7 +65,7 @@ impl CommandRegistry {
             let alias_key = alias.clone();
             if self.aliases.contains_key(&alias_key) {
                 return Err(CandleCommandError::ConfigurationError {
-                    detail: format!("Alias '{}' already registered", alias),
+                    detail: format!("Alias '{alias}' already registered"),
                 });
             }
         }
@@ -314,7 +314,7 @@ impl CommandRegistry {
         let commands: Vec<CommandInfo> = self.list_commands();
         serde_json::to_string_pretty(&commands).map_err(|e| {
             CandleCommandError::ConfigurationError {
-                detail: format!("Failed to export registry: {}", e),
+                detail: format!("Failed to export registry: {e}"),
             }
         })
     }
@@ -323,7 +323,7 @@ impl CommandRegistry {
     pub fn import_from_json(&self, json: &str) -> Result<(), CandleCommandError> {
         let commands: Vec<CommandInfo> =
             serde_json::from_str(json).map_err(|e| CandleCommandError::ConfigurationError {
-                detail: format!("Failed to import registry: {}", e),
+                detail: format!("Failed to import registry: {e}"),
             })?;
 
         // Clear existing registry
@@ -352,8 +352,8 @@ pub struct CommandRegistryStats {
 }
 
 /// Global command registry instance
-static GLOBAL_REGISTRY: once_cell::sync::Lazy<CommandRegistry> =
-    once_cell::sync::Lazy::new(CommandRegistry::new);
+static GLOBAL_REGISTRY: std::sync::LazyLock<CommandRegistry> =
+    std::sync::LazyLock::new(CommandRegistry::new);
 
 /// Get global command registry
 pub fn get_global_registry() -> &'static CommandRegistry {

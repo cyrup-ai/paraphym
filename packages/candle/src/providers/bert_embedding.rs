@@ -183,6 +183,48 @@ impl CandleBertEmbeddingProvider {
         Ok(embeddings.broadcast_div(&embeddings.sqr()?.sum_keepdim(1)?.sqrt()?)?)
     }
 
+    /// Attention-mask-aware mean pooling (fixes critical correctness bug)
+    /// This is the CORRECT way to pool BERT embeddings - excluding padding tokens
+    fn mean_pooling(&self, hidden_states: &Tensor, attention_mask: &Tensor) -> Result<Tensor> {
+        // Convert attention mask to float and expand dimensions to match hidden states
+        let attention_mask_f32 = attention_mask.to_dtype(DType::F32)
+            .map_err(|e| MemoryError::ModelError(format!("Failed to convert attention mask to F32: {}", e)))?;
+        
+        let expanded_mask = attention_mask_f32.unsqueeze(2)
+            .map_err(|e| MemoryError::ModelError(format!("Failed to expand attention mask dimensions: {}", e)))?
+            .expand(hidden_states.shape())
+            .map_err(|e| MemoryError::ModelError(format!("Failed to expand mask to hidden states shape: {}", e)))?;
+
+        // Apply mask to hidden states (zero out padding tokens)
+        let masked_hidden = (hidden_states * &expanded_mask)
+            .map_err(|e| MemoryError::ModelError(format!("Failed to apply attention mask to hidden states: {}", e)))?;
+
+        // Sum along sequence dimension (dim=1)
+        let sum_hidden = masked_hidden.sum(1)
+            .map_err(|e| MemoryError::ModelError(format!("Failed to sum masked hidden states: {}", e)))?;
+
+        // Sum attention mask for proper normalization (count of non-padding tokens)
+        let sum_mask = expanded_mask.sum(1)
+            .map_err(|e| MemoryError::ModelError(format!("Failed to sum attention mask: {}", e)))?;
+
+        // Add small epsilon to avoid division by zero for sequences with all padding
+        let epsilon_val = Tensor::new(&[1e-9f32], &self.device)
+            .map_err(|e| MemoryError::ModelError(format!("Failed to create epsilon tensor: {}", e)))?;
+        let ones = Tensor::ones_like(&sum_mask)
+            .map_err(|e| MemoryError::ModelError(format!("Failed to create ones tensor: {}", e)))?;
+        let epsilon = ones.mul(&epsilon_val)
+            .map_err(|e| MemoryError::ModelError(format!("Failed to broadcast epsilon: {}", e)))?;
+
+        let sum_mask_safe = sum_mask.add(&epsilon)
+            .map_err(|e| MemoryError::ModelError(format!("Failed to add epsilon to mask sum: {}", e)))?;
+
+        // Calculate mean pooling: sum_hidden / sum_mask (proper mean of non-padding tokens)
+        let mean_pooled = sum_hidden.div(&sum_mask_safe)
+            .map_err(|e| MemoryError::ModelError(format!("Failed to calculate mean pooling: {}", e)))?;
+
+        Ok(mean_pooled)
+    }
+
     /// Process text through BERT model (exact pattern from approved example)
     fn forward_pass(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
         // Tokenize using exact pattern from approved BERT example (lines 156-176)
@@ -223,15 +265,11 @@ impl CandleBertEmbeddingProvider {
             .forward(&token_ids, &token_type_ids, Some(&attention_mask))
             .map_err(|e| MemoryError::ModelError(format!("BERT forward pass failed: {}", e)))?;
 
-        // Mean pooling (exact pattern from example line 182)
-        let (_n_sentence, n_tokens, _hidden_size) = embeddings.dims3()
-            .map_err(|e| MemoryError::ModelError(format!("Embedding dims failed: {}", e)))?;
-        let embeddings = (embeddings.sum(1)
-            .map_err(|e| MemoryError::ModelError(format!("Sum failed: {}", e)))? / (n_tokens as f64))
-            .map_err(|e| MemoryError::ModelError(format!("Division failed: {}", e)))?;
+        // Apply attention-mask-aware mean pooling (CRITICAL FIX - excludes padding tokens)
+        let pooled_embeddings = self.mean_pooling(&embeddings, &attention_mask)?;
 
         // L2 normalization (exact pattern from example)
-        let normalized = Self::normalize_l2(&embeddings)?;
+        let normalized = Self::normalize_l2(&pooled_embeddings)?;
 
         // Convert to Vec<Vec<f32>>
         let embeddings_data = normalized.to_vec2::<f32>()
@@ -242,17 +280,21 @@ impl CandleBertEmbeddingProvider {
 }
 
 impl EmbeddingModel for CandleBertEmbeddingProvider {
-    fn embed(&self, text: &str, _task: Option<String>) -> Result<Vec<f32>> {
+    fn embed(&self, text: &str, task: Option<String>) -> Result<Vec<f32>> {
         self.validate_input(text)?;
         
+        // BERT doesn't use task-specific instructions, but parameter should be accepted
+        let _ = task; // Explicitly acknowledge parameter
         let embeddings = self.forward_pass(&[text])?;
         embeddings.into_iter().next()
             .ok_or_else(|| MemoryError::ModelError("No embeddings generated".to_string()))
     }
 
-    fn batch_embed(&self, texts: &[String], _task: Option<String>) -> Result<Vec<Vec<f32>>> {
+    fn batch_embed(&self, texts: &[String], task: Option<String>) -> Result<Vec<Vec<f32>>> {
         self.validate_batch(texts)?;
         
+        // BERT doesn't use task-specific instructions, but parameter should be accepted
+        let _ = task; // Explicitly acknowledge parameter
         let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
         self.forward_pass(&text_refs)
     }
@@ -263,6 +305,10 @@ impl EmbeddingModel for CandleBertEmbeddingProvider {
 
     fn name(&self) -> &str {
         "bert-embedding"
+    }
+
+    fn supported_dimensions(&self) -> Vec<usize> {
+        vec![384] // BERT all-MiniLM-L6-v2 produces 384-dimensional embeddings only
     }
 
     fn config_info(&self) -> HashMap<String, String> {

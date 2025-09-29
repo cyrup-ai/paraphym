@@ -142,44 +142,15 @@ unsafe fn sse41_argmax(logits: &[f32]) -> SimdResult<usize> {
 #[cfg(target_arch = "aarch64")]
 #[target_feature(enable = "neon")]
 unsafe fn neon_argmax(logits: &[f32]) -> SimdResult<usize> {
-    use std::arch::aarch64::*;
-
     if logits.is_empty() {
         return Err(crate::error::SimdError::InvalidInput(
             "Logits slice is empty".to_string(),
         ));
     }
 
-    let len = logits.len();
-    let mut maxv = vdupq_n_f32(f32::NEG_INFINITY);
-    let mut i = 0;
-
-    while i + 4 <= len {
-        let v = unsafe { vld1q_f32(logits.as_ptr().add(i)) };
-        maxv = vmaxq_f32(maxv, v);
-        i += 4;
-    }
-
-    // Reduce maxv
-    let mut max_arr = [f32::NEG_INFINITY; 4];
-    unsafe { vst1q_f32(max_arr.as_mut_ptr(), maxv) };
-    let mut max_scalar = f32::NEG_INFINITY;
-    for &val in max_arr.iter() {
-        if val > max_scalar {
-            max_scalar = val;
-        }
-    }
-
-    // Handle remainder and find indices
-    let mut best_idx: usize = 0;
-    for (j, &val) in logits.iter().enumerate() {
-        if val > max_scalar {
-            max_scalar = val;
-            best_idx = j;
-        }
-    }
-
-    Ok(best_idx)
+    // For NEON, fall back to scalar implementation for correct index tracking
+    // The SIMD complexity of tracking indices correctly isn't worth it for most use cases
+    scalar_argmax(logits)
 }
 
 fn create_argmax_dispatch() -> ArgmaxDispatch {

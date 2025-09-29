@@ -112,8 +112,9 @@ pub mod stringified_json {
     where
         D: Deserializer<'de>,
     {
-        let s = <&str>::deserialize(deserializer)?;
-        serde_json::from_str(s).map_err(serde::de::Error::custom)
+        use std::borrow::Cow;
+        let s = <Cow<'de, str>>::deserialize(deserializer)?;
+        serde_json::from_str(&s).map_err(serde::de::Error::custom)
     }
 }
 
@@ -438,10 +439,12 @@ mod tests {
             v: Vec<bool>,
         }
 
-        let w1: Wrapper = serde_json::from_str(r#"{"v":[true,false]}"#).unwrap();
+        let w1: Wrapper = serde_json::from_str(r#"{"v":[true,false]}"#)
+            .expect("Valid JSON should deserialize successfully");
         assert_eq!(w1.v, vec![true, false]);
 
-        let w2: Wrapper = serde_json::from_str(r#"{"v":null}"#).unwrap();
+        let w2: Wrapper = serde_json::from_str(r#"{"v":null}"#)
+            .expect("Valid JSON with null should deserialize successfully");
         assert!(w2.v.is_empty());
     }
 

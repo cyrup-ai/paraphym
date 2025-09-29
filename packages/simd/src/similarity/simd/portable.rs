@@ -136,7 +136,7 @@ mod tests {
         let b = [8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0];
 
         let result = sim.cosine_similarity(&a, &b);
-        let expected = 0.72192016; // Precomputed value
+        let expected = 0.5882353; // Correct value: dot=120, norm=204, cosine=120/204=0.5882353
         assert_relative_eq!(result, expected, epsilon = 1e-6);
 
         // Test with vectors that have a remainder
@@ -144,7 +144,7 @@ mod tests {
         let b = [5.0, 4.0, 3.0, 2.0, 1.0];
 
         let result = sim.cosine_similarity(&a, &b);
-        let expected = 0.8411215; // Precomputed value
+        let expected = 0.6363636; // Correct value: dot=35, norm=55, cosine=35/55=0.6363636
         assert_relative_eq!(result, expected, epsilon = 1e-6);
     }
 

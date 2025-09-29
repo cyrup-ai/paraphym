@@ -193,7 +193,7 @@ mod tests {
         let b = [4.0, 3.0, 2.0, 1.0];
 
         let result = sim.cosine_similarity(&a, &b);
-        let expected = 0.8; // Precomputed value
+        let expected = 0.6666667; // Correct value: dot=20, norm=30, cosine=20/30=0.6667
         assert_relative_eq!(result, expected, epsilon = 1e-6);
 
         // Test with 8-element vectors (two NEON chunks)
@@ -201,7 +201,7 @@ mod tests {
         let b = [8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0];
 
         let result = sim.cosine_similarity(&a, &b);
-        let expected = 0.72192016; // Precomputed value
+        let expected = 0.5882353; // Correct value: dot=120, norm=204, cosine=120/204=0.5882353
         assert_relative_eq!(result, expected, epsilon = 1e-6);
 
         // Test with remainder elements (6 elements = 1 chunk + 2 remainder)
@@ -209,7 +209,7 @@ mod tests {
         let b = [6.0, 5.0, 4.0, 3.0, 2.0, 1.0];
 
         let result = sim.cosine_similarity(&a, &b);
-        let expected = 0.7857143; // Precomputed value
+        let expected = 0.61538464; // Correct value: dot=56, norm=91, cosine=56/91=0.61538464
         assert_relative_eq!(result, expected, epsilon = 1e-6);
     }
 

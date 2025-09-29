@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// Candle-specific collection type supporting zero, one, or many items
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum CandleZeroOneOrMany<T> {
+pub enum ZeroOneOrMany<T> {
     /// No items
     None,
     /// Exactly one item
@@ -13,13 +13,13 @@ pub enum CandleZeroOneOrMany<T> {
     Many(Vec<T>),
 }
 
-impl<T> Default for CandleZeroOneOrMany<T> {
+impl<T> Default for ZeroOneOrMany<T> {
     fn default() -> Self {
         Self::None
     }
 }
 
-impl<T> CandleZeroOneOrMany<T> {
+impl<T> ZeroOneOrMany<T> {
     /// Create a new collection with one item
     pub fn one(item: T) -> Self {
         Self::One(item)
@@ -76,30 +76,30 @@ impl<T> CandleZeroOneOrMany<T> {
     }
 
     /// Iterate over the items
-    pub fn iter(&self) -> CandleZeroOneOrManyIter<'_, T> {
+    pub fn iter(&self) -> ZeroOneOrManyIter<'_, T> {
         match self {
-            Self::None => CandleZeroOneOrManyIter::None,
-            Self::One(item) => CandleZeroOneOrManyIter::One(Some(item)),
-            Self::Many(items) => CandleZeroOneOrManyIter::Many(items.iter()),
+            Self::None => ZeroOneOrManyIter::None,
+            Self::One(item) => ZeroOneOrManyIter::One(Some(item)),
+            Self::Many(items) => ZeroOneOrManyIter::Many(items.iter()),
         }
     }
 }
 
-impl<T> IntoIterator for CandleZeroOneOrMany<T> {
+impl<T> IntoIterator for ZeroOneOrMany<T> {
     type Item = T;
-    type IntoIter = CandleZeroOneOrManyIntoIter<T>;
+    type IntoIter = ZeroOneOrManyIntoIter<T>;
 
     fn into_iter(self) -> Self::IntoIter {
         match self {
-            Self::None => CandleZeroOneOrManyIntoIter::None,
-            Self::One(item) => CandleZeroOneOrManyIntoIter::One(Some(item)),
-            Self::Many(items) => CandleZeroOneOrManyIntoIter::Many(items.into_iter()),
+            Self::None => ZeroOneOrManyIntoIter::None,
+            Self::One(item) => ZeroOneOrManyIntoIter::One(Some(item)),
+            Self::Many(items) => ZeroOneOrManyIntoIter::Many(items.into_iter()),
         }
     }
 }
 
-/// Iterator for CandleZeroOneOrMany references
-pub enum CandleZeroOneOrManyIter<'a, T> {
+/// Iterator for ZeroOneOrMany references
+pub enum ZeroOneOrManyIter<'a, T> {
     /// No items to iterate
     None,
     /// Single item to iterate
@@ -108,7 +108,7 @@ pub enum CandleZeroOneOrManyIter<'a, T> {
     Many(std::slice::Iter<'a, T>),
 }
 
-impl<'a, T> Iterator for CandleZeroOneOrManyIter<'a, T> {
+impl<'a, T> Iterator for ZeroOneOrManyIter<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -120,8 +120,8 @@ impl<'a, T> Iterator for CandleZeroOneOrManyIter<'a, T> {
     }
 }
 
-/// IntoIterator for CandleZeroOneOrMany
-pub enum CandleZeroOneOrManyIntoIter<T> {
+/// IntoIterator for ZeroOneOrMany
+pub enum ZeroOneOrManyIntoIter<T> {
     /// No items to iterate
     None,
     /// Single item to iterate
@@ -130,7 +130,7 @@ pub enum CandleZeroOneOrManyIntoIter<T> {
     Many(std::vec::IntoIter<T>),
 }
 
-impl<T> Iterator for CandleZeroOneOrManyIntoIter<T> {
+impl<T> Iterator for ZeroOneOrManyIntoIter<T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -142,19 +142,19 @@ impl<T> Iterator for CandleZeroOneOrManyIntoIter<T> {
     }
 }
 
-impl<T> From<T> for CandleZeroOneOrMany<T> {
+impl<T> From<T> for ZeroOneOrMany<T> {
     fn from(item: T) -> Self {
         Self::One(item)
     }
 }
 
-impl<T> From<Vec<T>> for CandleZeroOneOrMany<T> {
+impl<T> From<Vec<T>> for ZeroOneOrMany<T> {
     fn from(items: Vec<T>) -> Self {
         Self::many(items)
     }
 }
 
-impl<T> From<Option<T>> for CandleZeroOneOrMany<T> {
+impl<T> From<Option<T>> for ZeroOneOrMany<T> {
     fn from(option: Option<T>) -> Self {
         match option {
             Some(item) => Self::One(item),

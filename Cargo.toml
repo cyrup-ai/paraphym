@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "packages/simd",
     "packages/candle",
+    "packages/cylo",
 ]
 exclude = ["tmp/candle", "tmp/*", "forks/surrealdb"]
 

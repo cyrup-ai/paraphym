@@ -152,7 +152,7 @@ impl CompactCompletionResponseBuilder {
     pub fn build(self) -> AsyncStream<CompactCompletionResponse> {
         AsyncStream::with_channel(move |sender| {
             let response = CompactCompletionResponse {
-                content: self.content.map(|s| s.to_string()).unwrap_or_else(|| String::new()),
+                content: self.content.map(|s| s.to_string()).unwrap_or_default(),
                 model: self.model.map(|s| s.to_string()).unwrap_or_else(|| "unknown".to_string()),
                 provider: self.provider.map(|s| s.to_string()).unwrap_or_else(|| "unknown".to_string()),
                 tokens_used: self.tokens_used,

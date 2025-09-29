@@ -68,7 +68,7 @@ pub trait LogitsProcessor: Send + Sync {
 pub fn process_logits_scalar(
     logits: &mut [f32],
     context: &ProcessingContext,
-    config: &ProcessorConfig,
+    _config: &ProcessorConfig,
 ) -> LogitsResult<()> {
     // Apply temperature scaling
     let temp = context.temperature;
@@ -80,14 +80,14 @@ pub fn process_logits_scalar(
     }
 
     // Apply top-k filtering if enabled
-    if let Some(k) = context.top_k.filter(|_| config.top_k.is_some())
+    if let Some(k) = context.top_k
         && k < logits.len() {
             // Find the k-th largest element
             let mut sorted: Vec<f32> = logits.to_vec();
             sorted.sort_unstable_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
 
             // Set all elements below the k-th to negative infinity
-            let threshold = sorted[k];
+            let threshold = sorted[k-1];
             for x in logits.iter_mut() {
                 if *x < threshold {
                     *x = f32::NEG_INFINITY;
@@ -96,7 +96,7 @@ pub fn process_logits_scalar(
         }
 
     // Apply nucleus sampling if enabled
-    if let Some(p) = context.top_p.filter(|_| config.top_p.is_some())
+    if let Some(p) = context.top_p
         && p > 0.0 && p < 1.0 {
             // Find max logit for numerical stability (zero allocation)
             let max_logit = logits.iter().fold(f32::NEG_INFINITY, |acc, &x| acc.max(x));

@@ -50,13 +50,19 @@ pub enum ChatError {
     Memory(#[from] MemoryError),
     /// Memory tool error
     #[error("Memory tool error: {0}")]
-    MemoryTool(#[from] MemoryToolError),
+    MemoryTool(Box<MemoryToolError>),
     /// Message processing error
     #[error("Message processing error: {0}")]
     Message(String),
     /// System error
     #[error("System error: {0}")]
     System(String),
+}
+
+impl From<MemoryToolError> for ChatError {
+    fn from(error: MemoryToolError) -> Self {
+        Self::MemoryTool(Box::new(error))
+    }
 }
 
 /// Context injection result with relevance scoring
@@ -83,7 +89,7 @@ impl Default for ContextInjectionResult {
 impl MessageChunk for ContextInjectionResult {
     fn bad_chunk(error: String) -> Self {
         ContextInjectionResult {
-            injected_context: format!("Error: {}", error),
+            injected_context: format!("Error: {error}"),
             relevance_score: 0.0,
             memory_nodes_used: 0,
         }
@@ -122,7 +128,7 @@ impl Default for MemoryEnhancedChatResponse {
 impl MessageChunk for MemoryEnhancedChatResponse {
     fn bad_chunk(error: String) -> Self {
         MemoryEnhancedChatResponse {
-            response: format!("Error: {}", error),
+            response: format!("Error: {error}"),
             context_injection: ContextInjectionResult::default(),
             memorized_nodes: ArrayVec::new(),
         }
@@ -169,7 +175,7 @@ impl CandleAgentRoleImpl {
 
         // Create engine instance with real TextGenerator integration
         let engine = Engine::new(engine_config)
-            .map_err(|e| ChatError::System(format!("Failed to create Engine: {}", e)))?;
+            .map_err(|e| ChatError::System(format!("Failed to create Engine: {e}")))?;
 
         // Use PromptFormatter for proper memory vs context sectioning
         let formatter = PromptFormatter::new()
@@ -375,7 +381,8 @@ impl CandleAgentRoleImpl {
             let memories_zero_one_many = if retrieval_results.is_empty() {
                 ZeroOneOrMany::None
             } else if retrieval_results.len() == 1 {
-                ZeroOneOrMany::One(retrieval_results.into_iter().next().unwrap())
+                ZeroOneOrMany::One(retrieval_results.into_iter().next()
+                    .expect("Vector with length 1 should have exactly one element"))
             } else {
                 ZeroOneOrMany::Many(retrieval_results)
             };
@@ -388,7 +395,7 @@ impl CandleAgentRoleImpl {
 
             let memory_nodes_used = relevant_memories.len();
             let avg_relevance_score = if memory_nodes_used > 0 {
-                total_relevance_score / memory_nodes_used as f64
+                total_relevance_score / (memory_nodes_used as f64)
             } else {
                 0.0
             };
@@ -429,8 +436,8 @@ impl CandleAgentRoleImpl {
 
         // Basic content length similarity (normalized)
         let length_similarity = 1.0
-            - ((message_len as f64 - memory_len as f64).abs()
-                / (message_len.max(memory_len) as f64 + 1.0));
+            - (((message_len as f64) - (memory_len as f64)).abs()
+                / ((message_len.max(memory_len) as f64) + 1.0));
 
         // Memory node importance factor
         let importance_factor = memory_node.metadata.importance;
@@ -501,8 +508,7 @@ impl CandleAgentRoleImpl {
                     let context_memory = MemoryNode::new(
                         MemoryTypeEnum::Working,
                         MemoryContent::text(&format!(
-                            "Conversation: {} -> {}",
-                            user_message, assistant_response
+                            "Conversation: {user_message} -> {assistant_response}"
                         )),
                     );
 

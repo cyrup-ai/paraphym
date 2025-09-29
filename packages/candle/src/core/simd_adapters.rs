@@ -21,6 +21,13 @@ const SAMPLING_CACHE_SIZE: usize = 1024;
 /// # Returns
 /// * `CandleResult<()>` - Success or error with fallback recommendation
 pub fn simd_temperature_scale(logits: &mut LogitsBuffer, temperature: f32) -> CandleResult<()> {
+    // Validate inputs before delegating to SIMD layer
+    if logits.is_empty() {
+        return Err(CandleError::InvalidInput(
+            "Cannot scale temperature on empty logits buffer".into(),
+        ));
+    }
+
     match scale_temperature(logits.as_mut_slice(), temperature) {
         Ok(()) => Ok(()),
         Err(simd_err) => {

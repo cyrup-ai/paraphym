@@ -183,8 +183,8 @@ where
     A: Op<In, Mid> + 'static,
     B: Op<Mid, Out> + 'static,
     In: Send + Sync + Clone + 'static,
-    Mid: Send + Sync + Clone + cyrup_sugars::prelude::MessageChunk + Default + 'static,
-    Out: Send + Sync + Clone + cyrup_sugars::prelude::MessageChunk + Default + 'static,
+    Mid: Send + Sync + Clone + Default + 'static + cyrup_sugars::prelude::MessageChunk,
+    Out: Send + Sync + Clone + Default + 'static + cyrup_sugars::prelude::MessageChunk,
 {
     #[inline]
     fn call(&self, input: In) -> AsyncStream<Out> {
@@ -236,8 +236,8 @@ where
     O: Op<In, Out> + 'static,
     F: Fn(Out) -> NewOut + Send + Sync + Clone + 'static,
     In: Send + Sync + Clone + 'static,
-    Out: Send + Sync + Clone + cyrup_sugars::prelude::MessageChunk + Default + 'static,
-    NewOut: Send + Sync + Clone + cyrup_sugars::prelude::MessageChunk + Default + 'static,
+    Out: Send + Sync + Clone + Default + 'static + cyrup_sugars::prelude::MessageChunk,
+    NewOut: Send + Sync + Clone + Default + 'static + cyrup_sugars::prelude::MessageChunk,
 {
     #[inline]
     fn call(&self, input: In) -> AsyncStream<NewOut> {
@@ -278,7 +278,7 @@ pub struct Passthrough<T> {
 
 impl<T> Op<T, T> for Passthrough<T>
 where
-    T: Send + Sync + Clone + cyrup_sugars::prelude::MessageChunk + Default + 'static,
+    T: Send + Sync + Clone + Default + 'static + cyrup_sugars::prelude::MessageChunk,
 {
     #[inline]
     fn call(&self, input: T) -> AsyncStream<T> {
@@ -309,7 +309,7 @@ impl<F, In, Out> Op<In, Out> for FuncOp<F, In, Out>
 where
     F: Fn(In) -> Out + Send + Sync + Clone + 'static,
     In: Send + Sync + Clone + 'static,
-    Out: Send + Sync + Clone + cyrup_sugars::prelude::MessageChunk + Default + 'static,
+    Out: Send + Sync + Clone + Default + 'static + cyrup_sugars::prelude::MessageChunk,
 {
     #[inline]
     fn call(&self, input: In) -> AsyncStream<Out> {

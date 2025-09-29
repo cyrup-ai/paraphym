@@ -2,7 +2,7 @@
 //!
 //! All secure MCP tool construction logic and builder patterns.
 
-use paraphym_cylo::{Cylo, CyloInstance};
+use cylo::{Cylo, CyloInstance};
 use crate::tool::SecureMcpTool;
 use serde_json::Value;
 

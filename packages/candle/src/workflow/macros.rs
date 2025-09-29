@@ -85,7 +85,6 @@ macro_rules! parallel {
 /// - Clean error composition without nested Result types
 /// - Compile-time error type validation and consistency
 // try_parallel_internal macro REMOVED - depended on TryOp trait that violated streams-only architecture
-
 // try_parallel macro REMOVED - violated streams-only architecture with Result-wrapped streams
 
 /// Compile-time tuple flattening utilities for clean output types

@@ -153,6 +153,8 @@ mod tests {
 
         ctx_with_stop.start_timer();
         std::thread::sleep(std::time::Duration::from_millis(10));
-        assert!(ctx_with_stop.elapsed().unwrap() > std::time::Duration::from_millis(5));
+        let elapsed = ctx_with_stop.elapsed()
+            .expect("Timer should be started before calling elapsed in test");
+        assert!(elapsed > std::time::Duration::from_millis(5));
     }
 }

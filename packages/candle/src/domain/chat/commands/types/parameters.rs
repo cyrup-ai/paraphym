@@ -65,21 +65,20 @@ impl ParameterType {
             Self::String => Ok(()),
             Self::Integer => {
                 i64::from_str(value).map_err(|_| {
-                    CandleCommandError::validation_failed(format!("Invalid integer: {}", value))
+                    CandleCommandError::validation_failed(format!("Invalid integer: {value}"))
                 })?;
                 Ok(())
             }
             Self::Float => {
                 f64::from_str(value).map_err(|_| {
-                    CandleCommandError::validation_failed(format!("Invalid float: {}", value))
+                    CandleCommandError::validation_failed(format!("Invalid float: {value}"))
                 })?;
                 Ok(())
             }
             Self::Boolean => match value.to_lowercase().as_str() {
                 "true" | "false" | "1" | "0" | "yes" | "no" | "on" | "off" => Ok(()),
                 _ => Err(CandleCommandError::validation_failed(format!(
-                    "Invalid boolean: {}",
-                    value
+                    "Invalid boolean: {value}"
                 ))),
             },
             Self::StringArray => {
@@ -110,14 +109,13 @@ impl ParameterType {
                     Ok(())
                 } else {
                     Err(CandleCommandError::validation_failed(format!(
-                        "Invalid URL format: {}",
-                        value
+                        "Invalid URL format: {value}"
                     )))
                 }
             }
             Self::Json => {
                 serde_json::from_str::<serde_json::Value>(value).map_err(|_| {
-                    CandleCommandError::validation_failed(format!("Invalid JSON: {}", value))
+                    CandleCommandError::validation_failed(format!("Invalid JSON: {value}"))
                 })?;
                 Ok(())
             }
@@ -126,8 +124,7 @@ impl ParameterType {
                     Ok(())
                 } else {
                     Err(CandleCommandError::validation_failed(format!(
-                        "Invalid enum value: {}. Allowed: {:?}",
-                        value, values
+                        "Invalid enum value: {value}. Allowed: {values:?}"
                     )))
                 }
             }
@@ -137,8 +134,7 @@ impl ParameterType {
                     Ok(())
                 } else {
                     Err(CandleCommandError::validation_failed(format!(
-                        "Invalid duration format: {}",
-                        value
+                        "Invalid duration format: {value}"
                     )))
                 }
             }
@@ -148,16 +144,14 @@ impl ParameterType {
                     Ok(())
                 } else {
                     Err(CandleCommandError::validation_failed(format!(
-                        "Invalid size format: {}",
-                        value
+                        "Invalid size format: {value}"
                     )))
                 }
             }
             Self::Regex => {
                 regex::Regex::new(value).map_err(|_| {
                     CandleCommandError::validation_failed(format!(
-                        "Invalid regex pattern: {}",
-                        value
+                        "Invalid regex pattern: {value}"
                     ))
                 })?;
                 Ok(())
@@ -167,8 +161,7 @@ impl ParameterType {
                     Ok(())
                 } else {
                     Err(CandleCommandError::validation_failed(format!(
-                        "Invalid email format: {}",
-                        value
+                        "Invalid email format: {value}"
                     )))
                 }
             }
@@ -177,8 +170,7 @@ impl ParameterType {
                     Ok(())
                 } else {
                     Err(CandleCommandError::validation_failed(format!(
-                        "Invalid IP address: {}",
-                        value
+                        "Invalid IP address: {value}"
                     )))
                 }
             }

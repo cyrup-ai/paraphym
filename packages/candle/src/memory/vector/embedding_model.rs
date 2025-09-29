@@ -126,6 +126,104 @@ pub trait EmbeddingModel: Send + Sync + std::fmt::Debug {
     /// ```
     fn name(&self) -> &str;
 
+    /// Get all dimensions supported by this embedding model
+    ///
+    /// Returns a vector of all dimension sizes that this model can produce embeddings for.
+    /// This is used for dimension validation and capability discovery.
+    ///
+    /// # Returns
+    /// Vector of supported dimension sizes
+    ///
+    /// # Performance Notes
+    /// - Implementation should return a static/cached vector for zero allocation
+    /// - Called frequently for validation, must be blazing fast
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use crate::memory::vector::embedding_model::EmbeddingModel;
+    ///
+    /// fn check_model_capabilities(model: &dyn EmbeddingModel) {
+    ///     let supported = model.supported_dimensions();
+    ///     println!("Model supports dimensions: {:?}", supported);
+    /// }
+    /// ```
+    fn supported_dimensions(&self) -> Vec<usize>;
+
+    /// Check if this model supports a specific dimension size
+    ///
+    /// This is a convenience method that checks if the requested dimension
+    /// is in the supported_dimensions() list.
+    ///
+    /// # Arguments
+    /// * `dim` - Dimension size to check
+    ///
+    /// # Returns
+    /// True if the dimension is supported, false otherwise
+    ///
+    /// # Performance Notes
+    /// - Zero allocation implementation using contains()
+    /// - Optimized for frequent validation calls
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use crate::memory::vector::embedding_model::EmbeddingModel;
+    ///
+    /// fn validate_dimension(model: &dyn EmbeddingModel, requested_dim: usize) {
+    ///     if model.supports_dimension(requested_dim) {
+    ///         println!("Dimension {} is supported", requested_dim);
+    ///     } else {
+    ///         println!("Dimension {} is not supported", requested_dim);
+    ///     }
+    /// }
+    /// ```
+    fn supports_dimension(&self, dim: usize) -> bool {
+        self.supported_dimensions().contains(&dim)
+    }
+
+    /// Validate a dimension request with comprehensive error messages
+    ///
+    /// Checks if the requested dimension is supported by this model and provides
+    /// actionable error messages with suggestions for valid alternatives.
+    ///
+    /// # Arguments
+    /// * `dim` - Requested dimension size
+    ///
+    /// # Returns
+    /// Result indicating validation success or detailed error
+    ///
+    /// # Errors
+    /// - `InvalidConfig` if dimension is not supported, with suggested alternatives
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use crate::memory::vector::embedding_model::EmbeddingModel;
+    ///
+    /// fn create_embedding_with_validation(model: &dyn EmbeddingModel, dim: usize) -> Result<(), Box<dyn std::error::Error>> {
+    ///     model.validate_dimension_request(dim)?;
+    ///     // Proceed with embedding creation
+    ///     Ok(())
+    /// }
+    /// ```
+    fn validate_dimension_request(&self, dim: usize) -> Result<()> {
+        if self.supports_dimension(dim) {
+            return Ok(());
+        }
+
+        let supported = self.supported_dimensions();
+        let supported_str = supported.iter()
+            .map(|d| d.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        Err(crate::memory::utils::error::Error::Config(format!(
+            "Model '{}' does not support {}D embeddings. Supported dimensions: [{}]. \
+             Please choose from the supported dimensions or use a different model.",
+            self.name(),
+            dim,
+            supported_str
+        )))
+    }
+
     /// Validate input text before processing (optional override)
     ///
     /// Default implementation performs basic validation. Models can override

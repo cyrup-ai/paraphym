@@ -68,6 +68,14 @@ pub enum CandleContentFormat {
     Html,
     /// Markdown formatted content
     Markdown,
+    /// JSON formatted content
+    Json,
+    /// XML formatted content
+    Xml,
+    /// YAML formatted content
+    Yaml,
+    /// CSV formatted content
+    Csv,
 }
 
 /// Candle document media type enum for classifying document formats
@@ -83,18 +91,32 @@ pub enum CandleDocumentMediaType {
     RTF,
     /// OpenDocument Text format
     ODT,
+    /// JSON document format
+    Json,
+    /// HTML document format
+    Html,
+    /// Markdown document format
+    Markdown,
+    /// XML document format
+    Xml,
+    /// YAML document format
+    Yaml,
+    /// CSV document format
+    Csv,
+    /// Plain text document format
+    PlainText,
+    /// Generic document format
+    Document,
+    /// Image file format
+    Image,
+    /// Binary file format
+    Binary,
 }
 
 // Builder implementations moved to paraphym/src/builders/document.rs
 
 impl CandleDocument {
-    /// Create a new document from file path (simplified version for domain use)
-    /// Full builder functionality is in paraphym/src/builders/document.rs
-    pub fn from_file<P: AsRef<std::path::Path>>(path: P) -> DocumentLoader {
-        DocumentLoader {
-            path: path.as_ref().display().to_string(),
-        }
-    }
+
 
     /// Extract the text content from the document
     pub fn content(&self) -> String {

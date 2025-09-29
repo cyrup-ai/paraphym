@@ -35,7 +35,6 @@ pub mod tool;
 pub mod util;
 pub mod voice;
 // Use ZeroOneOrMany from cyrup_sugars directly
-pub use cyrup_sugars::ZeroOneOrMany as CandleZeroOneOrMany;
 // Re-export from cyrup_sugars for convenience with Candle prefixes
 pub use cyrup_sugars::{ByteSize, OneOrMany};
 // Alias for backward compatibility - people expect async_task module

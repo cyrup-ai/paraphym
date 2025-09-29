@@ -12,6 +12,25 @@ use thiserror::Error;
 use crate::domain::completion::response::CompletionResponse;
 use crate::{spawn_task, AsyncStream, AsyncTask};
 
+/// Parameters for completion execution
+#[derive(Debug, Clone)]
+pub struct CompletionParams {
+    pub request_id: u64,
+    pub model_name: String,
+    pub provider: String,
+    pub api_key: Option<String>,
+    pub timeout: u64,
+    pub max_tokens: Option<u32>,
+    pub temperature: Option<f32>,
+    pub streaming: bool,
+    pub endpoint: Option<String>,
+    pub prompt: String,
+    pub system_prompt: Option<String>,
+    pub history: Vec<String>,
+    pub tools: Vec<String>,
+    pub metadata: Option<String>,
+}
+
 /// Handle errors in streaming context without panicking
 macro_rules! handle_error {
     ($error:expr, $context:literal) => {
@@ -184,13 +203,12 @@ impl EngineConfig {
             ));
         }
 
-        if let Some(temp) = self.temperature {
-            if !(0.0..=1.0).contains(&temp) {
+        if let Some(temp) = self.temperature
+            && !(0.0..=1.0).contains(&temp) {
                 return Err(EngineError::ConfigurationError(
                     "Temperature must be between 0.0 and 1.0".to_string(),
                 ));
             }
-        }
 
         Ok(())
     }
@@ -365,7 +383,7 @@ impl Engine {
 
         spawn_task(move || {
             // Create streaming completion and collect first result for backward compatibility
-            let stream = Self::execute_completion_stream(
+            let params = CompletionParams {
                 request_id,
                 model_name,
                 provider,
@@ -380,7 +398,8 @@ impl Engine {
                 history,
                 tools,
                 metadata,
-            );
+            };
+            let stream = Self::execute_completion_stream(params);
 
             // Try to get the first item from stream
             if let Some(response) = stream.try_next() {
@@ -395,30 +414,17 @@ impl Engine {
 
     /// Execute completion request as stream (internal implementation)
     fn execute_completion_stream(
-        _request_id: u64,
-        model_name: String,
-        provider: String,
-        _api_key: Option<String>,
-        _timeout: u64,
-        _max_tokens: Option<u32>,
-        _temperature: Option<f32>,
-        _streaming: bool,
-        _endpoint: Option<String>,
-        _prompt: String,
-        _system_prompt: Option<String>,
-        _history: Vec<String>,
-        _tools: Vec<String>,
-        _metadata: Option<String>,
+        params: CompletionParams,
     ) -> AsyncStream<CompletionResponse<'static>> {
         AsyncStream::with_channel(move |sender| {
             // Clean delegation pattern: route to appropriate provider
-            if provider == "kimi-k2" {
+            if params.provider == "kimi-k2" {
                 // TODO: Delegate to Kimi-K2 provider (which uses generation system internally)
                 // Provider handles ALL generation details including model loading, sampling, etc.
                 let error_response = CompletionResponse {
                     text: "Error: Kimi-K2 provider delegation not yet implemented. Provider should handle all generation internally.".into(),
-                    model: model_name.into(),
-                    provider: Some(provider.into()),
+                    model: params.model_name.into(),
+                    provider: Some(params.provider.into()),
                     usage: None,
                     finish_reason: Some("error".into()),
                     response_time_ms: Some(0),
@@ -429,9 +435,9 @@ impl Engine {
             } else {
                 // For other providers, return a proper error response
                 let error_response = CompletionResponse {
-                    text: format!("Error: Provider '{}' not supported by Candle engine. Only 'kimi-k2' provider is currently implemented.", provider).into(),
-                    model: model_name.into(),
-                    provider: Some(provider.into()),
+                    text: format!("Error: Provider '{}' not supported by Candle engine. Only 'kimi-k2' provider is currently implemented.", params.provider).into(),
+                    model: params.model_name.into(),
+                    provider: Some(params.provider.into()),
                     usage: None,
                     finish_reason: Some("error".into()),
                     response_time_ms: Some(0),
@@ -482,7 +488,7 @@ impl Engine {
         let metadata = request.metadata.map(|s| s.to_string());
 
         AsyncStream::with_channel(move |sender| {
-            let completion_stream = Self::execute_completion_stream(
+            let params = CompletionParams {
                 request_id,
                 model_name,
                 provider,
@@ -497,7 +503,8 @@ impl Engine {
                 history,
                 tools,
                 metadata,
-            );
+            };
+            let completion_stream = Self::execute_completion_stream(params);
 
             // Process completion responses from the stream using try_next
             while let Some(response) = completion_stream.try_next() {

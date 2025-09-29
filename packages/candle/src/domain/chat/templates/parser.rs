@@ -97,7 +97,8 @@ impl TemplateParser {
         // Return single node or block
         match nodes.len() {
             0 => Ok(TemplateAst::Text("".to_string())),
-            1 => Ok(nodes.into_iter().next().unwrap()),
+            1 => Ok(nodes.into_iter().next()
+                .expect("Vector with length 1 should have exactly one element")),
             _ => Ok(TemplateAst::Block(nodes.into())),
         }
     }
@@ -325,7 +326,8 @@ mod tests {
     #[test]
     fn test_simple_variable_parsing() {
         let parser = TemplateParser::new();
-        let result = parser.parse("Hello {{name}}!").unwrap();
+        let result = parser.parse("Hello {{name}}!")
+            .expect("Simple template should parse successfully");
 
         match result {
             TemplateAst::Block(nodes) => {
@@ -340,7 +342,7 @@ mod tests {
         let parser = TemplateParser::new();
         let variables = parser
             .extract_variables("Hello {{name}}, you have {{count}} messages.")
-            .unwrap();
+            .expect("Variable extraction should succeed for valid template");
 
         assert_eq!(variables.len(), 2);
         assert!(variables.iter().any(|v| v.name.as_str() == "name"));

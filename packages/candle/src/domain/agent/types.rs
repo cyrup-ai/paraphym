@@ -7,7 +7,7 @@ use serde_json::Value;
 use crate::domain::chat::message::types::CandleMessageRole as MessageRole;
 use crate::domain::context::CandleContext;
 use crate::domain::tool::CandleTool;
-use crate::domain::CandleZeroOneOrMany as ZeroOneOrMany;
+use cyrup_sugars::ZeroOneOrMany as ZeroOneOrMany;
 // Type aliases for trait objects
 type Context = Box<dyn CandleContext + Send + Sync>;
 type Tool = Box<dyn CandleTool + Send + Sync>;

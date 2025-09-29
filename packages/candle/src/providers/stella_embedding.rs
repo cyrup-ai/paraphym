@@ -1,7 +1,10 @@
 //! Stella embedding provider for local inference using Candle ML framework
 //!
 //! This provider uses dunzhang/stella_en_400M_v5 or dunzhang/stella_en_1.5B_v5 models 
-//! for generating configurable-dimensional embeddings with ProgressHub download and Candle inference.
+//! for generating MRL-trained dimensional embeddings with ProgressHub download and Candle inference.
+//! 
+//! Supports only trained MRL projection dimensions: 256, 768, 1024, 2048, 4096, 6144, 8192.
+//! Architecture follows the real Candle EmbeddingModel pattern with native lm_head projections.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -15,12 +18,12 @@ use tokenizers::{Tokenizer, PaddingParams, PaddingDirection, PaddingStrategy, Tr
 use crate::memory::utils::error::{Error as MemoryError, Result};
 use crate::memory::vector::embedding_model::EmbeddingModel as EmbeddingModelTrait;
 
-/// Configuration for Stella embedding model
+/// Configuration for Stella embedding model with proper embed_head support
 #[derive(Debug, Clone)]
 pub struct StellaConfig {
     /// Maximum sequence length for tokenization
     pub max_length: usize,
-    /// Model dimension (configurable: 256/768/1024/2048/4096/6144/8192)
+    /// Model dimension (native EmbedDim only: 256/768/1024/2048/4096/6144/8192)
     pub dimension: usize,
     /// Model variant (400M or 1.5B)
     pub variant: ModelVariant,
@@ -60,38 +63,31 @@ impl StellaConfig {
         match dimension {
             256 | 768 | 1024 | 2048 | 4096 | 6144 | 8192 => Ok(()),
             _ => Err(MemoryError::Config(format!(
-                "Unsupported dimension: {}. Supported: 256, 768, 1024, 2048, 4096, 6144, 8192",
+                "Unsupported dimension: {}. Stella natively supports: 256, 768, 1024, 2048, 4096, 6144, 8192",
                 dimension
             ))),
         }
     }
 
-    /// Convert dimension to EmbedDim enum
-    fn embed_dim(&self) -> EmbedDim {
+    /// Convert dimension to EmbedDim enum for MRL trained projection heads
+    fn embed_dim(&self) -> Option<EmbedDim> {
         match self.dimension {
-            256 => EmbedDim::Dim256,
-            768 => EmbedDim::Dim768,
-            1024 => EmbedDim::Dim1024,
-            2048 => EmbedDim::Dim2048,
-            4096 => EmbedDim::Dim4096,
-            6144 => EmbedDim::Dim6144,
-            8192 => EmbedDim::Dim8192,
-            _ => EmbedDim::Dim1024, // fallback
+            256 => Some(EmbedDim::Dim256),
+            768 => Some(EmbedDim::Dim768),
+            1024 => Some(EmbedDim::Dim1024),
+            2048 => Some(EmbedDim::Dim2048),
+            4096 => Some(EmbedDim::Dim4096),
+            6144 => Some(EmbedDim::Dim6144),
+            8192 => Some(EmbedDim::Dim8192),
+            _ => None,
         }
     }
 
-    /// Get embedding head directory name for this dimension
-    fn embed_head_dir(&self) -> &'static str {
-        match self.dimension {
-            256 => "2_Dense_256",
-            768 => "2_Dense_768", 
-            1024 => "2_Dense_1024",
-            2048 => "2_Dense_2048",
-            4096 => "2_Dense_4096",
-            6144 => "2_Dense_6144",
-            8192 => "2_Dense_8192",
-            _ => "2_Dense_1024", // fallback
-        }
+
+
+    /// Get embedding head directory name for MRL trained projection weights
+    fn embed_head_dir(&self) -> String {
+        format!("2_Dense_{}", self.dimension)
     }
 
     /// Get model repository name
@@ -115,16 +111,19 @@ impl Default for StellaConfig {
     }
 }
 
-/// Stella embedding provider using Candle ML framework
+
+
+/// Stella embedding provider using proper Candle EmbeddingModel architecture
 ///
 /// Provides high-performance local embeddings using dunzhang/stella models
 /// with automatic model download via ProgressHub and configurable output dimensions.
+/// Uses integrated lm_head projection following real Candle patterns.
 pub struct StellaEmbeddingProvider {
     /// Model cache directory path
     model_path: String,
     /// Model configuration
     config: StellaConfig,
-    /// Loaded Stella model (thread-safe)
+    /// Stella embedding model with MRL projection head (thread-safe)
     model: Mutex<EmbeddingModel>,
     /// Tokenizer for text processing
     tokenizer: Tokenizer,
@@ -188,7 +187,7 @@ impl StellaEmbeddingProvider {
         let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
             .map_err(|e| MemoryError::ModelError(format!("Failed to load tokenizer: {}", e)))?;
 
-        // Configure tokenizer based on model variant (following example pattern)
+        // Configure tokenizer based on model variant (following exact Candle example pattern)
         match config.variant {
             ModelVariant::Large => {
                 // 1.5B model uses left padding with <|endoftext|> token
@@ -227,31 +226,10 @@ impl StellaEmbeddingProvider {
                 MemoryError::ModelError(format!("Failed to set tokenizer truncation: {}", e)))?;
         }
 
-        // Load Stella model configuration
-        let stella_config = match config.variant {
-            ModelVariant::Large => Config::new_1_5_b_v5(config.embed_dim()),
-            ModelVariant::Small => Config::new_400_m_v5(config.embed_dim()),
-        };
-
-        // Load base model weights
-        let base_weights_path = format!("{}/model.safetensors", model_path);
-        let base_vb = unsafe {
-            VarBuilder::from_mmaped_safetensors(&[base_weights_path], config.dtype, &config.device)
-                .map_err(|e| MemoryError::ModelError(format!("Failed to load base model weights: {}", e)))?
-        };
-
-        // Load embedding head weights  
-        let embed_head_path = format!("{}/{}/model.safetensors", model_path, config.embed_head_dir());
-        let embed_vb = unsafe {
-            VarBuilder::from_mmaped_safetensors(&[embed_head_path], DType::F32, &config.device)
-                .map_err(|e| MemoryError::ModelError(format!("Failed to load embedding head weights: {}", e)))?
-        };
-
-        // Create Stella model
-        let model = EmbeddingModel::new(&stella_config, base_vb, embed_vb)
-            .map_err(|e| MemoryError::ModelError(format!("Failed to create Stella model: {}", e)))?;
-
+        // Create embedding model following exact Candle pattern
+        let model = Self::create_embedding_model(&config, &model_path)?;
         let device = config.device.clone();
+
         Ok(Self {
             model_path,
             config,
@@ -261,19 +239,72 @@ impl StellaEmbeddingProvider {
         })
     }
 
-    /// Process text through Stella model
-    fn forward_pass(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
-        // Tokenize texts
+    /// Create embedding model following exact Candle EmbeddingModel pattern
+    fn create_embedding_model(config: &StellaConfig, model_path: &str) -> Result<EmbeddingModel> {
+        let embed_dim = config.embed_dim()
+            .ok_or_else(|| MemoryError::Config(format!("Unsupported dimension: {}", config.dimension)))?;
+
+        // Load Stella model configuration (following exact pattern from stella_en_v5.rs)
+        let stella_config = match config.variant {
+            ModelVariant::Large => Config::new_1_5_b_v5(embed_dim),
+            ModelVariant::Small => Config::new_400_m_v5(embed_dim),
+        };
+
+        // Load base model weights (following exact VarBuilder pattern from example)
+        let base_weights_path = format!("{}/model.safetensors", model_path);
+        let base_vb = unsafe {
+            VarBuilder::from_mmaped_safetensors(&[base_weights_path], config.dtype, &config.device)
+                .map_err(|e| MemoryError::ModelError(format!("Failed to load base model weights: {}", e)))?
+        };
+
+        // Load embedding head weights (following exact pattern from example)
+        let embed_head_path = format!("{}/{}/model.safetensors", model_path, config.embed_head_dir());
+        let embed_vb = unsafe {
+            VarBuilder::from_mmaped_safetensors(&[embed_head_path], DType::F32, &config.device)
+                .map_err(|e| MemoryError::ModelError(format!("Failed to load embedding head weights: {}", e)))?
+        };
+
+        // Create Stella model (following exact EmbeddingModel::new pattern)
+        EmbeddingModel::new(&stella_config, base_vb, embed_vb)
+            .map_err(|e| MemoryError::ModelError(format!("Failed to create Stella model: {}", e)))
+    }
+
+
+
+    /// Format texts with task-specific instruction prefix following canonical Stella example
+    fn format_with_instruction(&self, texts: &[&str], task: Option<&str>) -> Vec<String> {
+        let instruct = match task {
+            Some("s2p") => "Given a web search query, retrieve relevant passages that answer the query.",
+            Some("s2s") => "Retrieve semantically similar text.",
+            Some("search_query") => "Given a web search query, retrieve relevant passages that answer the query.", // Map to s2p
+            Some("search_document") => "Given a web search query, retrieve relevant passages that answer the query.", // Map to s2p
+            Some("classification") => "Retrieve semantically similar text.", // Map to s2s
+            Some("clustering") => "Retrieve semantically similar text.", // Map to s2s
+            Some("retrieval") => "Given a web search query, retrieve relevant passages that answer the query.", // Map to s2p
+            _ => "Given a web search query, retrieve relevant passages that answer the query.", // Default to s2p
+        };
+
+        texts.iter()
+            .map(|text| format!("Instruct: {}\nQuery: {}", instruct, text))
+            .collect()
+    }
+
+    /// Process text through Stella model with integrated projection and task support
+    fn forward_pass_with_task(&self, texts: &[&str], task: Option<&str>) -> Result<Vec<Vec<f32>>> {
+        // Format texts with task-specific instructions (following canonical example)
+        let formatted_texts = self.format_with_instruction(texts, task);
+        let text_refs: Vec<&str> = formatted_texts.iter().map(|s| s.as_str()).collect();
+        
+        // Tokenize formatted texts
         let tokens = self.tokenizer
-            .encode_batch(texts.to_vec(), true)
+            .encode_batch(text_refs, true)
             .map_err(|e| MemoryError::ModelError(format!("Tokenization failed: {}", e)))?;
 
         if tokens.is_empty() {
             return Ok(vec![]);
         }
 
-        // Create input tensors
-        
+        // Create input tensors (following exact pattern from example)
         let mut input_ids = Vec::new();
         let mut attention_masks = Vec::new();
 
@@ -295,7 +326,7 @@ impl StellaEmbeddingProvider {
         let attention_mask = Tensor::stack(&attention_masks, 0)
             .map_err(|e| MemoryError::ModelError(format!("Failed to stack attention_mask: {}", e)))?;
 
-        // Forward pass with thread-safe model access
+        // Forward pass using native Stella EmbeddingModel (thread-safe)
         let mut model = self.model.lock()
             .map_err(|e| MemoryError::ModelError(format!("Failed to acquire model lock: {}", e)))?;
         
@@ -311,19 +342,23 @@ impl StellaEmbeddingProvider {
 }
 
 impl EmbeddingModelTrait for StellaEmbeddingProvider {
-    fn embed(&self, text: &str, _task: Option<String>) -> Result<Vec<f32>> {
+    fn embed(&self, text: &str, task: Option<String>) -> Result<Vec<f32>> {
         self.validate_input(text)?;
         
-        let embeddings = self.forward_pass(&[text])?;
+        // Stella uses task-specific instructions: s2p (retrieval) and s2s (similarity)
+        let task_ref = task.as_deref();
+        let embeddings = self.forward_pass_with_task(&[text], task_ref)?;
         embeddings.into_iter().next()
             .ok_or_else(|| MemoryError::ModelError("No embeddings generated".to_string()))
     }
 
-    fn batch_embed(&self, texts: &[String], _task: Option<String>) -> Result<Vec<Vec<f32>>> {
+    fn batch_embed(&self, texts: &[String], task: Option<String>) -> Result<Vec<Vec<f32>>> {
         self.validate_batch(texts)?;
         
+        // Stella uses task-specific instructions: s2p (retrieval) and s2s (similarity)
         let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
-        self.forward_pass(&text_refs)
+        let task_ref = task.as_deref();
+        self.forward_pass_with_task(&text_refs, task_ref)
     }
 
     fn dimension(&self) -> usize {
@@ -337,6 +372,11 @@ impl EmbeddingModelTrait for StellaEmbeddingProvider {
         }
     }
 
+    fn supported_dimensions(&self) -> Vec<usize> {
+        // Stella MRL framework supports these learned projection dimensions only
+        vec![256, 768, 1024, 2048, 4096, 6144, 8192]
+    }
+
     fn config_info(&self) -> HashMap<String, String> {
         let mut info = HashMap::new();
         info.insert("name".to_string(), self.name().to_string());
@@ -345,6 +385,9 @@ impl EmbeddingModelTrait for StellaEmbeddingProvider {
         info.insert("variant".to_string(), format!("{:?}", self.config.variant));
         info.insert("max_length".to_string(), self.config.max_length.to_string());
         info.insert("device".to_string(), format!("{:?}", self.device));
+        info.insert("architecture".to_string(), "EmbeddingModel+lm_head".to_string());
+        info.insert("instruction_masking".to_string(), "enabled".to_string());
+        info.insert("supported_tasks".to_string(), "s2p,s2s,search_query,search_document,classification,clustering,retrieval".to_string());
         info
     }
 

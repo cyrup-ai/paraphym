@@ -8,7 +8,7 @@ use std::time::SystemTime;
 use std::collections::HashMap;
 
 use crate::domain::{
-    CandleZeroOneOrMany, 
+    ZeroOneOrMany, 
     memory::{
         CandleMemoryNode, CandleMemoryTypeEnum, CandleMemoryContent, CandleBaseMemory, CandleMemoryMetadata,
         CandleMemoryNodeMetadata, CandleAlignedEmbedding, CandleMemoryResult, CandleMemoryError,

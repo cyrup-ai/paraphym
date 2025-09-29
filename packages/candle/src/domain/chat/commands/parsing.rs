@@ -578,7 +578,7 @@ impl CommandParser {
             "config" => self.parse_config_command(args),
             "search" => self.parse_search_args(args),
             _ => Err(ParseError::InvalidSyntax {
-                detail: format!("Unknown command: {}", command_name),
+                detail: format!("Unknown command: {command_name}"),
             }),
         }
     }

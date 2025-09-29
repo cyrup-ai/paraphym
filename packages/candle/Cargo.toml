@@ -6,6 +6,7 @@ edition = "2024"
 
 [dependencies]
 paraphym_simd = { path = "../simd" }
+cylo = { path = "../cylo" }
 quyc = { git = "https://github.com/cyrup-ai/quyc", branch = "main", package = "quyc" }  
 cyrup_sugars = { git = "https://github.com/cyrup-ai/cyrup-sugars", branch = "main", package = "cyrup_sugars", features = ["all"] }
 ystream = { git = "https://github.com/cyrup-ai/ystream", branch = "main", package = "ystream" }
@@ -199,7 +200,6 @@ api = ["dep:axum", "dep:tower", "dep:tower-http"]
 faiss-vector = ["dep:faiss"]
 hnsw-vector = ["dep:hnsw"]
 surreal-vector = []
-openai-embeddings = []
 custom-embeddings = []
 cognitive = []
 quantum-routing = ["cognitive"]

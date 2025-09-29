@@ -16,7 +16,7 @@ pub mod validation;
 use std::sync::{Arc, RwLock};
 
 pub use execution::CommandExecutor;
-use once_cell::sync::Lazy;
+
 pub use parsing::{CommandParser, ParseError, ParseResult};
 pub use registry::CommandRegistry;
 pub use response::ResponseFormatter;
@@ -26,8 +26,8 @@ pub use validation::CommandValidator;
 use crate::AsyncStream;
 
 /// Global Candle command executor instance - PURE SYNC (no futures)
-static CANDLE_COMMAND_EXECUTOR: Lazy<Arc<RwLock<Option<CommandExecutor>>>> =
-    Lazy::new(|| Arc::new(RwLock::new(None)));
+static CANDLE_COMMAND_EXECUTOR: std::sync::LazyLock<Arc<RwLock<Option<CommandExecutor>>>> =
+    std::sync::LazyLock::new(|| Arc::new(RwLock::new(None)));
 
 /// Initialize global Candle command executor - PURE SYNC (no futures)
 pub fn initialize_candle_command_executor(context: &CommandExecutionContext) {

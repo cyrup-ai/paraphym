@@ -305,7 +305,7 @@ impl ResourceUsage {
         let duration_us = self.duration_us();
 
         if duration_us < 1000 {
-            format!("{}μs", duration_us)
+            format!("{duration_us}μs")
         } else if duration_us < 1_000_000 {
             format!("{:.1}ms", duration_us as f64 / 1000.0)
         } else if duration_us < 60_000_000 {
@@ -313,7 +313,7 @@ impl ResourceUsage {
         } else {
             let minutes = duration_us / 60_000_000;
             let seconds = (duration_us % 60_000_000) / 1_000_000;
-            format!("{}m{}s", minutes, seconds)
+            format!("{minutes}m{seconds}s")
         }
     }
 

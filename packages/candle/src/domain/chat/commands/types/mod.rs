@@ -10,7 +10,7 @@ use crossbeam_skiplist::SkipMap;
 
 // Re-export all submodule types for convenient access - zero allocation re-exports
 pub use self::{
-    actions::*, commands::*, errors::*, events::*, metadata::ResourceUsage, metadata::*,
+    actions::*, code_execution::*, commands::*, errors::*, events::*, metadata::ResourceUsage, metadata::*,
     parameters::*,
 };
 use crate::AsyncStream;
@@ -108,6 +108,7 @@ impl cyrup_sugars::prelude::MessageChunk for CommandExecutionResult {
 
 // Submodules with clear separation of concerns and single responsibilities
 pub mod actions; // Action type definitions for command variants
+pub mod code_execution; // Code execution tool definitions and structures
 pub mod commands; // Main ImmutableChatCommand enum and variants
 pub mod errors; // Command errors and result types
 pub mod events; // Command execution events and context tracking
@@ -644,9 +645,7 @@ impl DomainCommandExecutor for DomainHelpExecutor {
             let result = CommandExecutionResult::Success(
                 "Domain help command executed successfully".to_string(),
             );
-            if sender.send(result).is_err() {
-                return;
-            }
+            let _ = sender.send(result);
         })
     }
 
@@ -673,9 +672,7 @@ impl DomainCommandExecutor for DomainClearExecutor {
             let result = CommandExecutionResult::Success(
                 "Domain clear command executed successfully".to_string(),
             );
-            if sender.send(result).is_err() {
-                return;
-            }
+            let _ = sender.send(result);
         })
     }
 
@@ -713,9 +710,7 @@ impl DomainCommandExecutor for DomainExportExecutor {
                     .map(|d| d.as_secs())
                     .unwrap_or(0)
             }));
-            if sender.send(result).is_err() {
-                return;
-            }
+            let _ = sender.send(result);
         })
     }
 
@@ -742,9 +737,7 @@ impl DomainCommandExecutor for DomainConfigExecutor {
             let result = CommandExecutionResult::Success(
                 "Domain configuration updated successfully".to_string(),
             );
-            if sender.send(result).is_err() {
-                return;
-            }
+            let _ = sender.send(result);
         })
     }
 
@@ -771,9 +764,7 @@ impl DomainCommandExecutor for DomainTemplateExecutor {
             let result = CommandExecutionResult::Success(
                 "Domain template processed successfully".to_string(),
             );
-            if sender.send(result).is_err() {
-                return;
-            }
+            let _ = sender.send(result);
         })
     }
 
@@ -799,9 +790,7 @@ impl DomainCommandExecutor for DomainMacroExecutor {
         AsyncStream::with_channel(|sender| {
             let result =
                 CommandExecutionResult::Success("Domain macro executed successfully".to_string());
-            if sender.send(result).is_err() {
-                return;
-            }
+            let _ = sender.send(result);
         })
     }
 
@@ -831,9 +820,7 @@ impl DomainCommandExecutor for DomainSearchExecutor {
                 "total_count": 0,
                 "status": "success"
             }));
-            if sender.send(result).is_err() {
-                return;
-            }
+            let _ = sender.send(result);
         })
     }
 
@@ -860,9 +847,7 @@ impl DomainCommandExecutor for DomainBranchExecutor {
             let result = CommandExecutionResult::Success(
                 "Domain branch operation completed successfully".to_string(),
             );
-            if sender.send(result).is_err() {
-                return;
-            }
+            let _ = sender.send(result);
         })
     }
 
@@ -891,9 +876,7 @@ impl DomainCommandExecutor for DomainSessionExecutor {
                 "status": "active",
                 "session_id": uuid::Uuid::new_v4().to_string()
             }));
-            if sender.send(result).is_err() {
-                return;
-            }
+            let _ = sender.send(result);
         })
     }
 
@@ -919,9 +902,7 @@ impl DomainCommandExecutor for DomainToolExecutor {
         AsyncStream::with_channel(|sender| {
             let result =
                 CommandExecutionResult::Success("Domain tool executed successfully".to_string());
-            if sender.send(result).is_err() {
-                return;
-            }
+            let _ = sender.send(result);
         })
     }
 
@@ -954,9 +935,7 @@ impl DomainCommandExecutor for DomainStatsExecutor {
                 },
                 "status": "success"
             }));
-            if sender.send(result).is_err() {
-                return;
-            }
+            let _ = sender.send(result);
         })
     }
 
@@ -982,9 +961,7 @@ impl DomainCommandExecutor for DomainThemeExecutor {
         AsyncStream::with_channel(|sender| {
             let result =
                 CommandExecutionResult::Success("Domain theme updated successfully".to_string());
-            if sender.send(result).is_err() {
-                return;
-            }
+            let _ = sender.send(result);
         })
     }
 
@@ -1019,9 +996,7 @@ impl DomainCommandExecutor for DomainDebugExecutor {
                 },
                 "status": "success"
             }));
-            if sender.send(result).is_err() {
-                return;
-            }
+            let _ = sender.send(result);
         })
     }
 
@@ -1050,9 +1025,7 @@ impl DomainCommandExecutor for DomainHistoryExecutor {
                 "total_entries": 0,
                 "status": "success"
             }));
-            if sender.send(result).is_err() {
-                return;
-            }
+            let _ = sender.send(result);
         })
     }
 
@@ -1078,9 +1051,7 @@ impl DomainCommandExecutor for DomainSaveExecutor {
         AsyncStream::with_channel(|sender| {
             let result =
                 CommandExecutionResult::Success("Domain data saved successfully".to_string());
-            if sender.send(result).is_err() {
-                return;
-            }
+            let _ = sender.send(result);
         })
     }
 
@@ -1106,9 +1077,7 @@ impl DomainCommandExecutor for DomainLoadExecutor {
         AsyncStream::with_channel(|sender| {
             let result =
                 CommandExecutionResult::Success("Domain data loaded successfully".to_string());
-            if sender.send(result).is_err() {
-                return;
-            }
+            let _ = sender.send(result);
         })
     }
 
@@ -1134,9 +1103,7 @@ impl DomainCommandExecutor for DomainImportExecutor {
         AsyncStream::with_channel(|sender| {
             let result =
                 CommandExecutionResult::Success("Domain data imported successfully".to_string());
-            if sender.send(result).is_err() {
-                return;
-            }
+            let _ = sender.send(result);
         })
     }
 
@@ -1165,9 +1132,7 @@ impl DomainCommandExecutor for DomainSettingsExecutor {
                 "updated": true,
                 "status": "success"
             }));
-            if sender.send(result).is_err() {
-                return;
-            }
+            let _ = sender.send(result);
         })
     }
 
@@ -1194,9 +1159,7 @@ impl DomainCommandExecutor for DomainCustomExecutor {
             let result = CommandExecutionResult::Success(
                 "Domain custom command executed successfully".to_string(),
             );
-            if sender.send(result).is_err() {
-                return;
-            }
+            let _ = sender.send(result);
         })
     }
 
@@ -1223,9 +1186,7 @@ impl DomainCommandExecutor for DomainCopyExecutor {
             let result = CommandExecutionResult::Success(
                 "Domain copy operation completed successfully".to_string(),
             );
-            if sender.send(result).is_err() {
-                return;
-            }
+            let _ = sender.send(result);
         })
     }
 
@@ -1252,9 +1213,7 @@ impl DomainCommandExecutor for DomainRetryExecutor {
             let result = CommandExecutionResult::Success(
                 "Domain retry operation completed successfully".to_string(),
             );
-            if sender.send(result).is_err() {
-                return;
-            }
+            let _ = sender.send(result);
         })
     }
 
@@ -1281,9 +1240,7 @@ impl DomainCommandExecutor for DomainUndoExecutor {
             let result = CommandExecutionResult::Success(
                 "Domain undo operation completed successfully".to_string(),
             );
-            if sender.send(result).is_err() {
-                return;
-            }
+            let _ = sender.send(result);
         })
     }
 
@@ -1310,9 +1267,7 @@ impl DomainCommandExecutor for DomainChatExecutor {
             let result = CommandExecutionResult::Success(
                 "Domain chat command executed successfully".to_string(),
             );
-            if sender.send(result).is_err() {
-                return;
-            }
+            let _ = sender.send(result);
         })
     }
 

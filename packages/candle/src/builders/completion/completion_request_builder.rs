@@ -12,10 +12,10 @@ use crate::domain::{
     context::CandleDocument as Document,
     model::{CandleValidationError as ValidationError},
     tool::CandleTool,
-    CandleZeroOneOrMany as ZeroOneOrMany,
 };
 use crate::memory::memory::ops::retrieval::RetrievalResult;
 use crate::domain::tool::{FunctionDefinition, ToolDefinition, ToolType};
+use cyrup_sugars::ZeroOneOrMany;
 
 /// Builder for completion requests
 pub struct CompletionRequestBuilder {

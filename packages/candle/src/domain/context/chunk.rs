@@ -401,6 +401,43 @@ impl CandleDocumentChunk {
             metadata: HashMap::new(),
         }
     }
+
+    pub fn with_range(mut self, start: usize, end: usize) -> Self {
+        self.byte_range = Some((start, end));
+        self
+    }
+}
+
+impl Default for CandleDocumentChunk {
+    fn default() -> Self {
+        Self {
+            path: None,
+            content: String::new(),
+            byte_range: None,
+            metadata: HashMap::new(),
+        }
+    }
+}
+
+impl MessageChunk for CandleDocumentChunk {
+    fn bad_chunk(error: String) -> Self {
+        let mut metadata = HashMap::new();
+        metadata.insert("error".to_string(), Value::String(error));
+        Self {
+            path: None,
+            content: String::new(),
+            byte_range: None,
+            metadata,
+        }
+    }
+
+    fn error(&self) -> Option<&str> {
+        if let Some(Value::String(error)) = self.metadata.get("error") {
+            Some(error)
+        } else {
+            None
+        }
+    }
 }
 
 impl ChatMessageChunk {
@@ -982,6 +1019,49 @@ impl From<std::time::Duration> for CandleDurationChunk {
     }
 }
 
+/// Wrapper for ZeroOneOrMany to implement MessageChunk without orphan rule violations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CandleZeroOneOrManyChunk<T>(pub ZeroOneOrMany<T>);
+
+impl<T: Default> Default for CandleZeroOneOrManyChunk<T> {
+    fn default() -> Self {
+        CandleZeroOneOrManyChunk(ZeroOneOrMany::None)
+    }
+}
+
+impl<T> MessageChunk for CandleZeroOneOrManyChunk<T> 
+where 
+    T: Default + Clone
+{
+    fn bad_chunk(_error: String) -> Self {
+        CandleZeroOneOrManyChunk(ZeroOneOrMany::None)
+    }
+
+    fn error(&self) -> Option<&str> {
+        None // ZeroOneOrMany doesn't carry error state
+    }
+}
+
+impl<T> From<ZeroOneOrMany<T>> for CandleZeroOneOrManyChunk<T> {
+    fn from(value: ZeroOneOrMany<T>) -> Self {
+        CandleZeroOneOrManyChunk(value)
+    }
+}
+
+impl<T> std::ops::Deref for CandleZeroOneOrManyChunk<T> {
+    type Target = ZeroOneOrMany<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> std::ops::DerefMut for CandleZeroOneOrManyChunk<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 /// Wrapper for DateTime<Utc> to implement MessageChunk without orphan rule violations
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CandleDateTimeChunk(pub chrono::DateTime<chrono::Utc>);
@@ -1031,17 +1111,17 @@ mod duration_serde {
 
 /// Wrapper for ZeroOneOrMany<f32> to implement MessageChunk without orphan rule violations
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CandleZeroOneOrManyF32Chunk(pub cyrup_sugars::ZeroOneOrMany<f32>);
+pub struct ZeroOneOrManyF32Chunk(pub cyrup_sugars::ZeroOneOrMany<f32>);
 
-impl Default for CandleZeroOneOrManyF32Chunk {
+impl Default for ZeroOneOrManyF32Chunk {
     fn default() -> Self {
-        CandleZeroOneOrManyF32Chunk(cyrup_sugars::ZeroOneOrMany::None)
+        ZeroOneOrManyF32Chunk(cyrup_sugars::ZeroOneOrMany::None)
     }
 }
 
-impl MessageChunk for CandleZeroOneOrManyF32Chunk {
+impl MessageChunk for ZeroOneOrManyF32Chunk {
     fn bad_chunk(_error: String) -> Self {
-        CandleZeroOneOrManyF32Chunk(cyrup_sugars::ZeroOneOrMany::None)
+        ZeroOneOrManyF32Chunk(cyrup_sugars::ZeroOneOrMany::None)
     }
 
     fn error(&self) -> Option<&str> {
@@ -1049,14 +1129,14 @@ impl MessageChunk for CandleZeroOneOrManyF32Chunk {
     }
 }
 
-impl From<cyrup_sugars::ZeroOneOrMany<f32>> for CandleZeroOneOrManyF32Chunk {
+impl From<cyrup_sugars::ZeroOneOrMany<f32>> for ZeroOneOrManyF32Chunk {
     fn from(value: cyrup_sugars::ZeroOneOrMany<f32>) -> Self {
-        CandleZeroOneOrManyF32Chunk(value)
+        ZeroOneOrManyF32Chunk(value)
     }
 }
 
-impl From<CandleZeroOneOrManyF32Chunk> for cyrup_sugars::ZeroOneOrMany<f32> {
-    fn from(chunk: CandleZeroOneOrManyF32Chunk) -> Self {
+impl From<ZeroOneOrManyF32Chunk> for cyrup_sugars::ZeroOneOrMany<f32> {
+    fn from(chunk: ZeroOneOrManyF32Chunk) -> Self {
         chunk.0
     }
 }
@@ -1068,5 +1148,5 @@ impl From<CandleZeroOneOrManyF32Chunk> for cyrup_sugars::ZeroOneOrMany<f32> {
 // - Use CandleBoolChunk for bool
 // - Use CandleDurationChunk for Duration
 // - Use CandleDateTimeChunk for DateTime<Utc>
-// - Use CandleZeroOneOrManyF32Chunk for ZeroOneOrMany<f32>
+// - Use ZeroOneOrManyF32Chunk for ZeroOneOrMany<f32>
 

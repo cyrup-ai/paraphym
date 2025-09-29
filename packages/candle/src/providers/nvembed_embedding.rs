@@ -61,6 +61,67 @@ impl CandleNvEmbedEmbeddingProvider {
         Self::with_config(config).await
     }
 
+    /// Format text with task-specific instruction prefix for NVEmbed v2
+    fn format_with_instruction(&self, text: &str, task: Option<&str>) -> String {
+        match task {
+            Some("search_query") => format!("Instruct: Given a web search query, retrieve relevant passages that answer the query.\nQuery: {}", text),
+            Some("search_document") => format!("Instruct: Given a web search query, retrieve relevant passages that answer the query.\nPassage: {}", text),
+            Some("classification") => format!("Instruct: Retrieve semantically similar text.\nText: {}", text),
+            Some("clustering") => format!("Instruct: Identify and group similar text.\nText: {}", text),
+            Some("retrieval") => format!("Instruct: Given a question, retrieve passages that answer the question.\nPassage: {}", text),
+            _ => text.to_string(), // No instruction for default case
+        }
+    }
+
+    /// Create instruction mask that excludes instruction tokens from pooling
+    /// Returns a mask where 1.0 indicates content tokens and 0.0 indicates instruction tokens
+    fn create_instruction_mask(&self, token_ids: &Tensor, formatted_texts: &[String], original_texts: &[&str]) -> Result<Tensor> {
+        let (batch_size, seq_len) = token_ids.dims2()
+            .map_err(|e| MemoryError::ModelError(format!("Invalid token_ids shape: {}", e)))?;
+
+        let mut instruction_mask_data = vec![vec![1.0f32; seq_len]; batch_size];
+
+        for (batch_idx, (formatted_text, original_text)) in formatted_texts.iter().zip(original_texts.iter()).enumerate() {
+            // If text was formatted with instruction, find where original content starts
+            if formatted_text != *original_text {
+                // Find the last occurrence of original text to correctly identify instruction boundary
+                if let Some(content_start_pos) = formatted_text.rfind(original_text) {
+                    // Tokenize both full text and content-only to find instruction token boundary
+                    let full_tokens = self.tokenizer
+                        .encode(formatted_text.as_str(), false)
+                        .map_err(|e| MemoryError::ModelError(format!("Failed to tokenize full text: {}", e)))?;
+
+                    let content_only = &formatted_text[content_start_pos..];
+                    let content_tokens = self.tokenizer
+                        .encode(content_only, false)
+                        .map_err(|e| MemoryError::ModelError(format!("Failed to tokenize content: {}", e)))?;
+
+                    let full_token_count = full_tokens.get_ids().len();
+                    let content_token_count = content_tokens.get_ids().len();
+
+                    // Calculate instruction token count by difference
+                    let instruction_token_count = if full_token_count >= content_token_count {
+                        full_token_count - content_token_count
+                    } else {
+                        // Fallback: use character-based estimation if tokenization is inconsistent
+                        let instruction_char_ratio = content_start_pos as f32 / formatted_text.len() as f32;
+                        (instruction_char_ratio * full_token_count as f32).ceil() as usize
+                    };
+
+                    // Mark instruction tokens as 0.0 (exclude from pooling)
+                    for token_idx in 0..instruction_token_count.min(seq_len) {
+                        instruction_mask_data[batch_idx][token_idx] = 0.0;
+                    }
+                }
+            }
+        }
+
+        // Convert to tensor
+        let flat_data: Vec<f32> = instruction_mask_data.into_iter().flatten().collect();
+        Tensor::from_vec(flat_data, (batch_size, seq_len), &self.device)
+            .map_err(|e| MemoryError::ModelError(format!("Failed to create instruction mask tensor: {}", e)))
+    }
+
     pub async fn with_config(config: CandleNvEmbedConfig) -> Result<Self> {
         // Download model using ProgressHub
         let results = ProgressHub::builder()
@@ -172,10 +233,17 @@ impl CandleNvEmbedEmbeddingProvider {
         })
     }
 
-    fn forward_pass(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
-        // Tokenize texts for NVEmbed (no special instruction formatting needed)
+
+
+    fn forward_pass_with_instruction(&self, texts: &[&str], task: Option<&str>) -> Result<Vec<Vec<f32>>> {
+        // Format texts with task-specific instructions
+        let formatted_texts: Vec<String> = texts.iter()
+            .map(|text| self.format_with_instruction(text, task))
+            .collect();
+
+        // Tokenize formatted texts
         let tokens = self.tokenizer
-            .encode_batch(texts.to_vec(), true)
+            .encode_batch(formatted_texts.clone(), true)
             .map_err(|e| MemoryError::ModelError(format!("Tokenization failed: {}", e)))?;
 
         let token_ids = tokens.iter().map(|tokens| {
@@ -195,8 +263,10 @@ impl CandleNvEmbedEmbeddingProvider {
         let attention_mask = Tensor::stack(&attention_mask, 0)
             .map_err(|e| MemoryError::ModelError(format!("Attention mask tensor stack failed: {}", e)))?;
 
-        // Create pool_mask (same as attention_mask for mean pooling)
-        let pool_mask = attention_mask.clone();
+        // Create instruction-aware pool_mask that excludes instruction tokens
+        let instruction_mask = self.create_instruction_mask(&token_ids, &formatted_texts, texts)?;
+        let pool_mask = (&attention_mask * &instruction_mask)
+            .map_err(|e| MemoryError::ModelError(format!("Failed to apply instruction mask: {}", e)))?;
 
         // Forward pass using real NVEmbed API
         let mut model = self.model.lock()
@@ -212,17 +282,19 @@ impl CandleNvEmbedEmbeddingProvider {
 }
 
 impl EmbeddingModelTrait for CandleNvEmbedEmbeddingProvider {
-    fn embed(&self, text: &str, _task: Option<String>) -> Result<Vec<f32>> {
+    fn embed(&self, text: &str, task: Option<String>) -> Result<Vec<f32>> {
         self.validate_input(text)?;
-        let embeddings = self.forward_pass(&[text])?;
+        let task_ref = task.as_deref();
+        let embeddings = self.forward_pass_with_instruction(&[text], task_ref)?;
         embeddings.into_iter().next()
             .ok_or_else(|| MemoryError::ModelError("No embeddings generated".to_string()))
     }
 
-    fn batch_embed(&self, texts: &[String], _task: Option<String>) -> Result<Vec<Vec<f32>>> {
+    fn batch_embed(&self, texts: &[String], task: Option<String>) -> Result<Vec<Vec<f32>>> {
         self.validate_batch(texts)?;
         let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
-        self.forward_pass(&text_refs)
+        let task_ref = task.as_deref();
+        self.forward_pass_with_instruction(&text_refs, task_ref)
     }
 
     fn dimension(&self) -> usize {
@@ -231,6 +303,10 @@ impl EmbeddingModelTrait for CandleNvEmbedEmbeddingProvider {
 
     fn name(&self) -> &str {
         "nvembed-v2-embedding"
+    }
+
+    fn supported_dimensions(&self) -> Vec<usize> {
+        vec![4096] // NVEmbed v2 produces 4096-dimensional embeddings only
     }
 
     fn config_info(&self) -> HashMap<String, String> {
@@ -243,7 +319,9 @@ impl EmbeddingModelTrait for CandleNvEmbedEmbeddingProvider {
         info.insert("dtype".to_string(), format!("{:?}", self.config.dtype));
         info.insert("device".to_string(), format!("{:?}", self.device));
         info.insert("padding".to_string(), "right".to_string());
-        info.insert("architecture".to_string(), "bert-based".to_string());
+        info.insert("architecture".to_string(), "mistral-decoder".to_string());
+        info.insert("instruction_masking".to_string(), "enabled".to_string());
+        info.insert("supported_tasks".to_string(), "search_query,search_document,classification,clustering,retrieval".to_string());
         info
     }
 
@@ -253,5 +331,17 @@ impl EmbeddingModelTrait for CandleNvEmbedEmbeddingProvider {
 
     fn max_batch_size(&self) -> usize {
         8
+    }
+
+    fn health_check(&self) -> Result<()> {
+        // Verify model is loaded and ready
+        let test_embedding = self.embed("test", None)?;
+        if test_embedding.len() != self.dimension() {
+            return Err(MemoryError::ModelError(
+                format!("Health check failed: expected {} dimensions, got {}", 
+                        self.dimension(), test_embedding.len())
+            ));
+        }
+        Ok(())
     }
 }

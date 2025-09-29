@@ -68,7 +68,7 @@ impl RealtimeChat {
     }
 
     /// Start the real-time chat system
-    pub async fn start(&mut self) -> AsyncStream<crate::domain::context::chunk::CandleUnitChunk> {
+    pub fn start(&mut self) -> AsyncStream<crate::domain::context::chunk::CandleUnitChunk> {
         if self.is_running {
             return AsyncStream::with_channel(|sender| {
                 // Already running - send success immediately

@@ -47,11 +47,11 @@ impl CommandValidator {
             ],
             blocked_patterns: vec![
                 // Prevent command injection
-                Regex::new(r"[;&|`$()]").unwrap(),
+                Regex::new(r"[;&|`$()]").expect("Command injection regex should be valid"),
                 // Prevent path traversal
-                Regex::new(r"\.\.[\\/]").unwrap(),
+                Regex::new(r"\.\.[\\/]").expect("Path traversal regex should be valid"),
                 // Prevent script injection
-                Regex::new(r"<script[^>]*>").unwrap(),
+                Regex::new(r"<script[^>]*>").expect("Script injection regex should be valid"),
             ],
         }
     }
@@ -66,7 +66,7 @@ impl CommandValidator {
             }
             ImmutableChatCommand::Clear { keep_last, .. } => {
                 if let Some(n) = keep_last {
-                    self.validate_integer_parameter("keep_last", *n as i64, Some(1), Some(1000))?;
+                    self.validate_integer_parameter("keep_last", i64::try_from(*n).unwrap_or(i64::MAX), Some(1), Some(1000))?;
                 }
             }
             ImmutableChatCommand::Export { format, output, .. } => {
@@ -90,7 +90,7 @@ impl CommandValidator {
             ImmutableChatCommand::Search { query, limit, .. } => {
                 self.validate_string_parameter("query", query, false)?;
                 if let Some(n) = limit {
-                    self.validate_integer_parameter("limit", *n as i64, Some(1), Some(100))?;
+                    self.validate_integer_parameter("limit", i64::try_from(*n).unwrap_or(i64::MAX), Some(1), Some(100))?;
                 }
             }
             ImmutableChatCommand::Template {
@@ -376,7 +376,8 @@ impl CommandValidator {
         self.validate_string_parameter("key", key, false)?;
 
         // Config keys should be alphanumeric with dots and underscores
-        let config_key_regex = Regex::new(r"^[a-zA-Z0-9._-]+$").unwrap();
+        let config_key_regex = Regex::new(r"^[a-zA-Z0-9._-]+$")
+            .expect("Config key regex should be valid");
         if !config_key_regex.is_match(key) {
             return Err(ValidationError::InvalidParameterFormat {
                 parameter: "key".to_string(),
@@ -399,7 +400,8 @@ impl CommandValidator {
         self.validate_string_parameter(param_name, name, false)?;
 
         // Names should be alphanumeric with underscores and hyphens
-        let name_regex = Regex::new(r"^[a-zA-Z0-9_-]+$").unwrap();
+        let name_regex = Regex::new(r"^[a-zA-Z0-9_-]+$")
+            .expect("Name validation regex should be valid");
         if !name_regex.is_match(name) {
             return Err(ValidationError::InvalidParameterFormat {
                 parameter: "param_name".to_string(),
@@ -423,7 +425,8 @@ impl CommandValidator {
         }
 
         // Check for script injection attempts
-        let script_regex = Regex::new(r"<script[^>]*>.*?</script>").unwrap();
+        let script_regex = Regex::new(r"<script[^>]*>.*?</script>")
+            .expect("Script injection detection regex should be valid");
         if script_regex.is_match(content) {
             return Err(ValidationError::SecurityViolation {
                 parameter: name.to_string(),

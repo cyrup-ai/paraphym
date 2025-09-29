@@ -12,7 +12,7 @@ use cyrup_sugars::prelude::MessageChunk;
 
 use crate::domain::chat::message::types::CandleMessageRole;
 // REMOVED: use ystream::AsyncStream::with_channel;
-use crate::domain::CandleZeroOneOrMany as ZeroOneOrMany;
+use cyrup_sugars::ZeroOneOrMany;
 
 /// Error types for conversation operations
 #[derive(Error, Debug)]

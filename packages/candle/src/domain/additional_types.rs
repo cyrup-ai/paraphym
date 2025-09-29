@@ -38,6 +38,7 @@ impl CandleAdditionalParams {
     }
 
     /// Add a parameter
+    #[must_use]
     pub fn add_param(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.params.insert(key.into(), value.into());
         self
@@ -112,6 +113,7 @@ impl CandleMetadata {
     }
 
     /// Add metadata
+    #[must_use]
     pub fn add_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.metadata.insert(key.into(), value.into());
         self

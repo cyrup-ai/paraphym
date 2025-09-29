@@ -4,6 +4,7 @@ use std::any::TypeId;
 use std::borrow::Cow;
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
+use std::num::NonZeroU32;
 use std::sync::Arc;
 
 use ahash::RandomState;
@@ -34,9 +35,9 @@ impl CandleModelHandle {
             info.name().to_string(),
             info.provider().to_string(),
             "1.0".to_string(), // Default version
-            info.context_length,
+            info.max_input_tokens.map(|t| t.get() as u32).unwrap_or(4096),
             info.supports_streaming,
-            info.supports_tools,
+            info.supports_function_calling,
         );
         Self::Generic(Arc::new(generic_model))
     }
@@ -54,7 +55,28 @@ impl CandleModelHandle {
     /// Get model info with zero allocation
     pub fn info(&self) -> ModelInfo {
         match self {
-            Self::KimiK2(model) => model.model_info(),
+            Self::KimiK2(_model) => {
+                // Create ModelInfo from KimiK2Provider
+                ModelInfo {
+                    name: "kimi-k2-instruct",
+                    provider_name: "moonshot",
+                    max_input_tokens: Some(NonZeroU32::new(131072).unwrap()),
+                    max_output_tokens: Some(NonZeroU32::new(2048).unwrap()),
+                    input_price: None,
+                    output_price: None,
+                    supports_vision: false,
+                    supports_function_calling: true,
+                    supports_streaming: true,
+                    supports_embeddings: false,
+                    requires_max_tokens: false,
+                    supports_thinking: false,
+                    optimal_thinking_budget: None,
+                    system_prompt_prefix: None,
+                    real_name: None,
+                    model_type: None,
+                    patch: None,
+                }
+            },
             Self::Generic(model) => model.info(),
         }
     }
@@ -94,6 +116,7 @@ impl CandleModelHandle {
 pub struct GenericCandleModel {
     name: String,
     provider: String,
+    #[allow(dead_code)]
     version: String,
     context_length: u32,
     supports_streaming: bool,
@@ -123,13 +146,29 @@ impl GenericCandleModel {
     /// Get model info
     pub fn info(&self) -> ModelInfo {
         ModelInfo {
-            name: self.name.clone(),
-            provider: self.provider.clone(),
-            version: self.version.clone(),
-            context_length: self.context_length,
+            name: Box::leak(self.name.clone().into_boxed_str()),
+            provider_name: Box::leak(self.provider.clone().into_boxed_str()),
+            max_input_tokens: Some(NonZeroU32::new(self.context_length).unwrap_or_else(|| NonZeroU32::new(4096).unwrap())),
+            max_output_tokens: Some(NonZeroU32::new(2048).unwrap()),
+            input_price: None,
+            output_price: None,
+            supports_vision: false,
+            supports_function_calling: self.supports_tools,
             supports_streaming: self.supports_streaming,
-            supports_tools: self.supports_tools,
+            supports_embeddings: false,
+            requires_max_tokens: false,
+            supports_thinking: false,
+            optimal_thinking_budget: None,
+            system_prompt_prefix: None,
+            real_name: None,
+            model_type: None,
+            patch: None,
         }
+    }
+
+    /// Get model version
+    pub fn version(&self) -> &str {
+        &self.version
     }
 }
 
@@ -200,10 +239,11 @@ impl ModelRegistry {
         provider_models.insert(model_name, handle.clone());
 
         // Register the model type
-        let type_id = TypeId::of::<M>();
+        let _type_id = TypeId::of::<M>();
+        let type_name = std::any::type_name::<M>();
         let type_entries = GLOBAL_REGISTRY
             .type_registry
-            .entry(type_id)
+            .entry(type_name)
             .or_insert_with(|| DashSet::with_hasher(RandomState::default()));
 
         type_entries.insert((provider, model_name));
@@ -271,10 +311,11 @@ impl ModelRegistry {
     /// # Returns
     /// A vector of registered models of the specified type
     pub fn find_all<M: Model + 'static>(&self) -> Vec<RegisteredModel<M>> {
-        let type_id = TypeId::of::<M>();
+        let _type_id = TypeId::of::<M>();
+        let type_name = std::any::type_name::<M>();
         let mut result = Vec::new();
 
-        if let Some(type_entries) = GLOBAL_REGISTRY.type_registry.get(&type_id) {
+        if let Some(type_entries) = GLOBAL_REGISTRY.type_registry.get(type_name) {
             for entry in type_entries.iter() {
                 let (provider, name) = *entry;
                 if let Some(provider_models) = GLOBAL_REGISTRY.models.get(provider) {
@@ -468,7 +509,4 @@ impl<M: Model + 'static> Hash for RegisteredModel<M> {
     }
 }
 
-/// A builder for configuring and registering models
-
-
-
+// Registry implementation complete

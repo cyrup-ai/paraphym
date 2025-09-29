@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use ystream::AsyncStream;
 use ystream::AsyncTask;
 
-use crate::domain::CandleZeroOneOrMany as ZeroOneOrMany;
+use cyrup_sugars::ZeroOneOrMany as ZeroOneOrMany;
 
 /// Trait defining the core file loading interface
 pub trait Loader<T>: Send + Sync + fmt::Debug + Clone

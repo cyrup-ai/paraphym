@@ -111,7 +111,7 @@ impl ResponseFormatter {
         // Add timestamp if enabled
         if self.include_timestamps {
             let timestamp = chrono::Utc::now().format("%H:%M:%S");
-            result.push_str(&format!(" [{}]", timestamp));
+            result.push_str(&format!(" [{timestamp}]"));
         }
 
         Ok(result)
@@ -198,7 +198,7 @@ impl ResponseFormatter {
                 }
             })?;
             for line in data_str.lines() {
-                result.push_str(&format!("  {}\n", line));
+                result.push_str(&format!("  {line}\n"));
             }
         }
 
@@ -217,7 +217,7 @@ impl ResponseFormatter {
         // Timestamp
         if self.include_timestamps {
             let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC");
-            result.push_str(&format!("Timestamp: {}\n", timestamp));
+            result.push_str(&format!("Timestamp: {timestamp}\n"));
         }
 
         result.push_str("========================\n");
@@ -299,7 +299,7 @@ impl ResponseFormatter {
 
         // Format each category
         for (category, category_commands) in categories {
-            result.push_str(&format!("{}:\n", category));
+            result.push_str(&format!("{category}:\n"));
 
             for command in category_commands {
                 result.push_str(&format!(
@@ -312,10 +312,10 @@ impl ResponseFormatter {
                     let aliases = command
                         .aliases
                         .iter()
-                        .map(|a| format!("/{}", a))
+                        .map(|a| format!("/{a}"))
                         .collect::<Vec<_>>()
                         .join(", ");
-                    result.push_str(&format!("               (aliases: {})\n", aliases));
+                    result.push_str(&format!("               (aliases: {aliases})\n"));
                 }
             }
             result.push('\n');

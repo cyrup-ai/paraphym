@@ -278,9 +278,12 @@ mod tests {
         assert!(result.contains("User: What drink should I have?"));
 
         // Verify order (memories first, then context, then user message)
-        let memory_pos = result.find("RELEVANT MEMORIES").unwrap();
-        let context_pos = result.find("CONTEXT DOCUMENTS").unwrap();
-        let user_pos = result.find("User: What drink").unwrap();
+        let memory_pos = result.find("RELEVANT MEMORIES")
+            .expect("Formatted prompt should contain 'RELEVANT MEMORIES' section");
+        let context_pos = result.find("CONTEXT DOCUMENTS")
+            .expect("Formatted prompt should contain 'CONTEXT DOCUMENTS' section");
+        let user_pos = result.find("User: What drink")
+            .expect("Formatted prompt should contain user message");
 
         assert!(memory_pos < context_pos);
         assert!(context_pos < user_pos);

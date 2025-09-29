@@ -40,12 +40,7 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
         "Vectors must have the same length for cosine similarity"
     );
 
-    // For very small vectors, use scalar implementation
-    if a.len() < 8 {
-        return ScalarSimilarity::new().cosine_similarity(a, b);
-    }
-
-    // Otherwise, use the best available implementation
+    // Always use the global implementation for consistent metrics tracking
     GLOBAL_SIMILARITY.cosine_similarity(a, b)
 }
 

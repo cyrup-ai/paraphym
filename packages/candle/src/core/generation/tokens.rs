@@ -96,13 +96,14 @@ impl Eq for TokenProb {}
 
 impl PartialOrd for TokenProb {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        // Reverse order for max-heap behavior (highest prob first)
+        // Reverse order: higher probability sorts first
         other.prob.partial_cmp(&self.prob)
     }
 }
 
 impl Ord for TokenProb {
     fn cmp(&self, other: &Self) -> Ordering {
+        // Handle NaN values by treating them as equal
         self.partial_cmp(other).unwrap_or(Ordering::Equal)
     }
 }

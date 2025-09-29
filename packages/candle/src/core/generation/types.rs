@@ -47,6 +47,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::assertions_on_constants)]
     fn test_constants_are_reasonable() {
         assert!(SAMPLING_CACHE_SIZE > 0);
         assert!(SIMD_THRESHOLD > 0);

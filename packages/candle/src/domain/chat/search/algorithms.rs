@@ -363,7 +363,7 @@ impl ChatSearchIndex {
                 let mut found_within_distance = false;
                 for &pos1 in positions1 {
                     for &pos2 in positions2 {
-                        if (pos1 as i32 - pos2 as i32).abs() <= distance as i32 {
+                        if (i32::try_from(pos1).unwrap_or(i32::MAX) - i32::try_from(pos2).unwrap_or(i32::MAX)).abs() <= i32::try_from(distance).unwrap_or(i32::MAX) {
                             found_within_distance = true;
                             break;
                         }
