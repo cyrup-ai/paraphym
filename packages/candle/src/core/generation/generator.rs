@@ -8,6 +8,8 @@ use ystream::{emit, handle_error, AsyncStream};
 use tokenizers::Tokenizer;
 
 use crate::domain::context::chunk::CandleStringChunk;
+use paraphym_simd::logits::LogitsProcessor as LogitsProcessorTrait;
+use paraphym_simd::logits::constraints::GenerationConstraint;
 
 use super::{
     config::SamplingConfig,
@@ -17,6 +19,9 @@ use super::{
     tokens::{SpecialTokens, TokenHistory},
     types::CandleResult,
 };
+
+// Import constraint types for schema-based generation
+use paraphym_simd::logits::constraints::{JsonConstraint, json::JsonState};
 
 /// Core text generation engine with SIMD acceleration
 ///
@@ -44,6 +49,12 @@ pub struct TextGenerator {
 
     /// SIMD performance metrics
     pub simd_metrics: SimdMetrics,
+
+    /// Optional JSON constraint for structured generation
+    pub constraint: Option<JsonConstraint<'static>>,
+
+    /// Current JSON constraint state
+    pub constraint_state: Option<JsonState>,
 }
 impl TextGenerator {
     /// Create new TextGenerator
@@ -63,6 +74,8 @@ impl TextGenerator {
             token_history: TokenHistory::new(max_history),
             stats: GenerationStatistics::new(),
             simd_metrics: SimdMetrics::new(),
+            constraint: None,
+            constraint_state: None,
         }
     }
 
@@ -114,6 +127,12 @@ impl TextGenerator {
             };
             all_tokens.push(next_token);
             self.token_history.push(next_token);
+            
+            // Update constraint state after token sampling
+            if let Err(e) = self.update_constraint_state(next_token) {
+                tracing::warn!("Failed to update constraint state: {}", e);
+            }
+            
             position += 1;
 
             // Check termination before decoding
@@ -160,6 +179,12 @@ impl TextGenerator {
                 };
                 all_tokens.push(next_token);
                 self.token_history.push(next_token);
+                
+                // Update constraint state after token sampling
+                if let Err(e) = self.update_constraint_state(next_token) {
+                    tracing::warn!("Failed to update constraint state: {}", e);
+                }
+                
                 position += 1;
 
                 // Check termination before decoding
@@ -182,7 +207,7 @@ impl TextGenerator {
     /// SIMD-optimized token sampling with comprehensive acceleration
     pub fn sample_token(&mut self, logits: &[f32], _context: &[u32]) -> CandleResult<u32> {
         use paraphym_simd::{
-            apply_penalties_simd, argmax, prepare_nucleus_sampling_simd, scale_temperature,
+            argmax, prepare_nucleus_sampling_simd, scale_temperature,
             softmax, topk_filtering_simd,
         };
 
@@ -218,33 +243,38 @@ impl TextGenerator {
             self.simd_metrics.record_nucleus_op();
         }
 
-        // Apply penalties with SIMD
-        if self.config.has_penalties() && !self.token_history.is_empty() {
-            let context = paraphym_simd::context::ProcessingContext {
-                temperature: self.config.temperature,
-                top_k: self.config.top_k,
-                top_p: self.config.top_p.map(|p| p as f32),
-                token_history: self.token_history.as_slice(),
-                start_time: None,
-                max_new_tokens: None,
-                stop_tokens: Vec::new(),
-            };
-            let processor_config = paraphym_simd::config::ProcessorConfig {
-                temperature: self.config.temperature,
-                top_k: self.config.top_k,
-                top_p: self.config.top_p.map(|p| p as f32),
-                repetition_penalty: self.config.repetition_penalty,
-                frequency_penalty: self.config.frequency_penalty,
-                presence_penalty: self.config.presence_penalty,
-            };
+        // Create processing context with all fields including constraints
+        let context = paraphym_simd::context::ProcessingContext {
+            temperature: self.config.temperature,
+            top_k: self.config.top_k,
+            top_p: self.config.top_p.map(|p| p as f32),
+            token_history: self.token_history.as_slice(),
+            start_time: None,
+            max_new_tokens: None,
+            stop_tokens: Vec::new(),
+            json_constraint: self.constraint.clone(), // Add constraint from generator state
+            json_constraint_state: self.constraint_state.clone(), // Add constraint state
+            schema_constraint: None,
+            schema_constraint_state: None,
+        };
 
-            apply_penalties_simd(&mut logits, &context, &processor_config).map_err(|e| {
-                crate::domain::model::error::CandleModelError::OperationNotSupported(
-                    e.to_string().into(),
-                )
-            })?;
-            self.simd_metrics.record_penalty_op();
-        }
+        // Use ConstrainedLogitsProcessor for all processing including constraints
+        let processor_config = paraphym_simd::config::ProcessorConfig {
+            temperature: self.config.temperature,
+            top_k: self.config.top_k,
+            top_p: self.config.top_p.map(|p| p as f32),
+            repetition_penalty: self.config.repetition_penalty,
+            frequency_penalty: self.config.frequency_penalty,
+            presence_penalty: self.config.presence_penalty,
+        };
+
+        let mut processor = paraphym_simd::logits::constraints::ConstrainedLogitsProcessor::new(processor_config);
+        processor.process(&mut logits, &context).map_err(|e| {
+            crate::domain::model::error::CandleModelError::OperationNotSupported(
+                e.to_string().into(),
+            )
+        })?;
+        self.simd_metrics.record_penalty_op();
         // Convert to probabilities with SIMD softmax
         let probs = softmax(&logits).map_err(|e| {
             crate::domain::model::error::CandleModelError::OperationNotSupported(
@@ -295,5 +325,55 @@ impl TextGenerator {
         self.stats.reset();
         self.simd_metrics.reset();
         self.token_history.clear();
+    }
+
+    /// Set JSON constraint for structured generation
+    pub fn set_json_constraint(&mut self, constraint: JsonConstraint<'static>) -> anyhow::Result<()> {
+        let initial_state = constraint.new_state();
+        self.constraint = Some(constraint);
+        self.constraint_state = Some(initial_state);
+        Ok(())
+    }
+
+    /// Remove JSON constraint
+    pub fn clear_constraint(&mut self) {
+        self.constraint = None;
+        self.constraint_state = None;
+    }
+
+    /// Check if generation has active constraints
+    pub fn has_constraints(&self) -> bool {
+        self.constraint.is_some() && self.constraint_state.is_some()
+    }
+
+    /// Update constraint state after token generation
+    pub fn update_constraint_state(&mut self, token: u32) -> anyhow::Result<bool> {
+        if let (Some(constraint), Some(state)) = (&self.constraint, &mut self.constraint_state) {
+            constraint.update(state, token)
+        } else {
+            Ok(true) // No constraints, continue generation
+        }
+    }
+
+    /// Check if constraint-based generation is complete
+    pub fn is_constraint_done(&self) -> bool {
+        if let (Some(constraint), Some(state)) = (&self.constraint, &self.constraint_state) {
+            constraint.is_done(state)
+        } else {
+            false // No constraints, not constraint-complete
+        }
+    }
+}
+
+impl std::fmt::Debug for TextGenerator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TextGenerator")
+            .field("device", &self.device)
+            .field("config", &self.config)
+            .field("token_history", &self.token_history)
+            .field("stats", &self.stats)
+            .field("simd_metrics", &self.simd_metrics)
+            .field("has_constraint", &self.constraint.is_some())
+            .finish()
     }
 }

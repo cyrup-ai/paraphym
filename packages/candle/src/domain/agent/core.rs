@@ -5,6 +5,7 @@ use std::sync::{atomic::AtomicUsize, Arc};
 use crossbeam_utils::CachePadded;
 use ystream::AsyncStream;
 use serde_json::Value;
+use sweet_mcp_type::ToolInfo;
 
 use crate::domain::context::CandleDocument as Document;
 use crate::domain::memory::config::memory::MemoryConfig as ComprehensiveMemoryConfig;
@@ -12,7 +13,7 @@ use crate::domain::memory::MemoryConfig;
 use crate::domain::memory::{Error as MemoryError, MemoryTool, MemoryToolError};
 use crate::memory::memory::SurrealDBMemoryManager;
 use crate::domain::model::CandleModel as Model;
-use crate::domain::tool::CandleMcpToolData as McpToolData;
+// Tool data now comes from SweetMCP ToolInfo directly
 use cyrup_sugars::ZeroOneOrMany;
 
 /// Maximum number of tools per agent (const generic default)
@@ -52,7 +53,7 @@ pub struct Agent<M: Model> {
     /// Context documents that provide background information
     pub context: ZeroOneOrMany<Document>,
     /// MCP tools available to the agent for function calling
-    pub tools: ZeroOneOrMany<McpToolData>,
+    pub tools: ZeroOneOrMany<ToolInfo>,
     /// Optional memory system for storing and retrieving conversation context
     pub memory: Option<Arc<SurrealDBMemoryManager>>,
     /// Memory tool for automated memory management operations
@@ -350,7 +351,7 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
     /// Zero allocation with inlined tool addition
     #[inline]
     #[must_use]
-    pub fn add_tool(mut self, tool: McpToolData) -> Self {
+    pub fn add_tool(mut self, tool: ToolInfo) -> Self {
         match &mut self.tools {
             ZeroOneOrMany::None => {
                 self.tools = ZeroOneOrMany::One(tool);

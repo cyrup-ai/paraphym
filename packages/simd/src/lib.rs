@@ -36,6 +36,8 @@ pub mod logits;
 pub mod ops;
 /// Runtime CPU feature detection and dispatch for SIMD operations
 pub mod runtime;
+/// Serde type constraints for structured generation
+pub mod serde_constraints;
 pub mod similarity;
 pub mod utils;
 

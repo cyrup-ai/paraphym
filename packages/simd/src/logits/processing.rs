@@ -70,7 +70,7 @@ pub fn normalize_probabilities_simd(logits: &mut [f32]) -> SimdResult<()> {
     let max = logits
         .iter()
         .copied()
-        .max_by(|a, b| a.partial_cmp(b).unwrap())
+        .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
         .ok_or_else(|| SimdError::NumericalError("Empty logits".to_string()))?;
 
     // Compute sum of exp(logits - max)

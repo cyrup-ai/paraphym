@@ -14,19 +14,7 @@ use crate::domain::chat::message::types::CandleMessageRole as MessageRole;
 use cyrup_sugars::ZeroOneOrMany;
 // Unused imports cleaned up
 
-/// Maximum number of relevant memories for context injection
-#[allow(dead_code)] // TODO: Implement in memory context system
-const MAX_RELEVANT_MEMORIES: usize = 10;
 
-/// Global atomic counter for memory node creation
-#[allow(dead_code)] // TODO: Implement in memory node creation system
-static MEMORY_NODE_COUNTER: Lazy<CachePadded<RelaxedCounter>> =
-    Lazy::new(|| CachePadded::new(RelaxedCounter::new(0)));
-
-/// Global atomic counter for attention scoring operations
-#[allow(dead_code)] // TODO: Implement in attention scoring system
-static ATTENTION_SCORE_COUNTER: Lazy<CachePadded<AtomicUsize>> =
-    Lazy::new(|| CachePadded::new(AtomicUsize::new(0)));
 
 /// MCP Server configuration
 #[derive(Debug, Clone)]

@@ -8,6 +8,7 @@ use std::ops::RangeInclusive;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use cyrup_sugars::ZeroOneOrMany;
 use crate::domain::model::{
     CandleValidationError as ValidationError, CandleValidationResult as ValidationResult,
 };
@@ -33,6 +34,8 @@ pub struct CandleCompletionParams {
     pub n: std::num::NonZeroU8,
     /// Whether to stream the response
     pub stream: bool,
+    /// Tools available to the model for function calling
+    pub tools: Option<ZeroOneOrMany<ToolInfo>>,
     /// Additional provider-specific parameters
     pub additional_params: Option<Value>,
 }
@@ -47,6 +50,7 @@ impl Default for CandleCompletionParams {
                 None => std::num::NonZeroU8::MIN, // Use minimum valid value as fallback
             },
             stream: false,
+            tools: None,
             additional_params: None,
         }
     }
@@ -89,7 +93,7 @@ impl CandleCompletionParams {
 }
 
 // Re-export existing tool definitions from the tool module
-pub use crate::domain::tool::ToolDefinition;
+pub use sweet_mcp_type::ToolInfo;
 
 /// Model-specific parameters for completion requests
 #[repr(C)]

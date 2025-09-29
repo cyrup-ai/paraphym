@@ -21,6 +21,8 @@ use serde::{Deserialize, Serialize};
 /// - LandLock: Linux kernel-based sandboxing with filesystem restrictions
 /// - FireCracker: Lightweight microVMs for complete isolation
 /// - Apple: Apple's containerization framework for macOS
+/// - SweetMcpPlugin: WASM-based SweetMCP plugin execution
+/// - ContainerMcp: MCP tools executed in containers
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Cylo {
     /// LandLock backend with jail directory path
@@ -34,6 +36,14 @@ pub enum Cylo {
     /// Apple containerization backend with image specification
     /// Example: Cylo::Apple("python:alpine3.20")
     Apple(String),
+
+    /// SweetMCP plugin execution with plugin path
+    /// Example: Cylo::SweetMcpPlugin("./plugins/eval-py.wasm")
+    SweetMcpPlugin(String),
+
+    /// Container-based MCP tool execution with server URL
+    /// Example: Cylo::ContainerMcp("http://localhost:8080")
+    ContainerMcp(String),
 }
 
 impl Cylo {
@@ -127,6 +137,44 @@ impl Cylo {
 
                 Ok(())
             }
+
+            Cylo::SweetMcpPlugin(plugin_path) => {
+                if plugin_path.is_empty() {
+                    return Err(CyloError::InvalidConfiguration {
+                        backend: "SweetMcpPlugin",
+                        message: "Plugin path cannot be empty",
+                    });
+                }
+
+                // Validate plugin file extension
+                if !plugin_path.ends_with(".wasm") {
+                    return Err(CyloError::InvalidConfiguration {
+                        backend: "SweetMcpPlugin",
+                        message: "Plugin file must have .wasm extension",
+                    });
+                }
+
+                Ok(())
+            }
+
+            Cylo::ContainerMcp(server_url) => {
+                if server_url.is_empty() {
+                    return Err(CyloError::InvalidConfiguration {
+                        backend: "ContainerMcp",
+                        message: "Server URL cannot be empty",
+                    });
+                }
+
+                // Validate basic URL format
+                if !server_url.starts_with("http://") && !server_url.starts_with("https://") {
+                    return Err(CyloError::InvalidConfiguration {
+                        backend: "ContainerMcp",
+                        message: "Server URL must start with http:// or https://",
+                    });
+                }
+
+                Ok(())
+            }
         }
     }
 
@@ -137,6 +185,8 @@ impl Cylo {
             Cylo::LandLock(_) => "LandLock",
             Cylo::FireCracker(_) => "FireCracker",
             Cylo::Apple(_) => "Apple",
+            Cylo::SweetMcpPlugin(_) => "SweetMcpPlugin",
+            Cylo::ContainerMcp(_) => "ContainerMcp",
         }
     }
 
@@ -147,6 +197,8 @@ impl Cylo {
             Cylo::LandLock(path) => path,
             Cylo::FireCracker(image) => image,
             Cylo::Apple(image) => image,
+            Cylo::SweetMcpPlugin(plugin_path) => plugin_path,
+            Cylo::ContainerMcp(server_url) => server_url,
         }
     }
 }
@@ -157,6 +209,8 @@ impl fmt::Display for Cylo {
             Cylo::LandLock(path) => write!(f, "LandLock({path})"),
             Cylo::FireCracker(image) => write!(f, "FireCracker({image})"),
             Cylo::Apple(image) => write!(f, "Apple({image})"),
+            Cylo::SweetMcpPlugin(plugin_path) => write!(f, "SweetMcpPlugin({plugin_path})"),
+            Cylo::ContainerMcp(server_url) => write!(f, "ContainerMcp({server_url})"),
         }
     }
 }
@@ -441,6 +495,32 @@ pub fn validate_environment_spec(env: &Cylo) -> CyloResult<()> {
             if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
                 return Err(CyloError::validation(
                     "Invalid container image format (expected 'name:tag')",
+                ));
+            }
+
+            Ok(())
+        }
+        Cylo::SweetMcpPlugin(plugin_path) => {
+            if plugin_path.is_empty() {
+                return Err(CyloError::validation("Plugin path cannot be empty"));
+            }
+
+            if !plugin_path.ends_with(".wasm") {
+                return Err(CyloError::validation(
+                    "Plugin file must have .wasm extension",
+                ));
+            }
+
+            Ok(())
+        }
+        Cylo::ContainerMcp(server_url) => {
+            if server_url.is_empty() {
+                return Err(CyloError::validation("Server URL cannot be empty"));
+            }
+
+            if !server_url.starts_with("http://") && !server_url.starts_with("https://") {
+                return Err(CyloError::validation(
+                    "Server URL must start with http:// or https://",
                 ));
             }
 

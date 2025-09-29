@@ -15,10 +15,14 @@ use chrono::Utc;
 // StreamExt not currently used but may be needed for future async operations
 
 // Import real completion infrastructure
-use crate::core::engine::{CompletionRequest, Engine, EngineConfig};
 // Removed unused import: use tokio_stream::StreamExt;
 use crate::domain::agent::role::CandleAgentRoleImpl;
 use crate::domain::completion::PromptFormatter;
+use crate::domain::completion::traits::CandleCompletionModel;
+use crate::domain::prompt::CandlePrompt;
+use crate::domain::completion::types::CandleCompletionParams;
+use crate::domain::context::chunk::CandleCompletionChunk;
+use std::num::{NonZeroU64, NonZeroU8};
 
 use crate::memory::memory::primitives::types::{MemoryTypeEnum, MemoryContent};
 use crate::memory::memory::{MemoryNode};
@@ -146,7 +150,7 @@ impl MessageChunk for MemoryEnhancedChatResponse {
 
 
 impl CandleAgentRoleImpl {
-    /// Generate real AI response using `Engine` with `TextGenerator` and proper memory vs context sectioning
+    /// Generate real AI response using Provider with Engine orchestration and proper memory vs context sectioning
     ///
     /// # Arguments
     /// * `message` - User message to respond to
@@ -158,8 +162,9 @@ impl CandleAgentRoleImpl {
     /// Result containing real AI-generated response
     ///
     /// # Performance
-    /// Uses `Engine` infrastructure with `TextGenerator` for real model inference
+    /// Uses Provider with Engine orchestration for real model inference
     /// with proper memory vs context sectioning following LLM best practices
+    #[allow(dead_code)]
     fn generate_ai_response_with_sectioning(
         &self,
         message: &str,
@@ -167,15 +172,8 @@ impl CandleAgentRoleImpl {
         documents: &ZeroOneOrMany<Document>,
         chat_history: &ZeroOneOrMany<crate::domain::chat::message::types::CandleMessage>,
     ) -> Result<String, ChatError> {
-        // Create engine configuration for kimi-k2 provider (matches working engine.rs setup)
-        let engine_config = EngineConfig::new("kimi-k2", "kimi-k2")
-            .with_temperature(0.7)
-            .with_max_tokens(1000)
-            .with_streaming();
-
-        // Create engine instance with real TextGenerator integration
-        let engine = Engine::new(engine_config)
-            .map_err(|e| ChatError::System(format!("Failed to create Engine: {e}")))?;
+        // Get configured provider from agent role
+        let provider = self.get_completion_provider();
 
         // Use PromptFormatter for proper memory vs context sectioning
         let formatter = PromptFormatter::new()
@@ -185,56 +183,86 @@ impl CandleAgentRoleImpl {
         // Format prompt with clear sectioning for LLM understanding
         let full_prompt = formatter.format_prompt(memories, documents, chat_history, message);
 
-        // Create completion request with borrowed data
-        let completion_request = CompletionRequest::new(&full_prompt);
+        // Create CandlePrompt and CandleCompletionParams
+        let candle_prompt = CandlePrompt::new(full_prompt);
+        let candle_params = CandleCompletionParams {
+            temperature: 0.7,
+            max_tokens: NonZeroU64::new(1000),
+            n: match NonZeroU8::new(1) {
+                Some(n) => n,
+                None => return Err(ChatError::System("Invalid completion parameter".to_string())),
+            },
+            stream: true,
+            tools: None,
+            additional_params: None,
+        };
 
-        // Get real AI response using Engine with TextGenerator via AsyncStream
-        let completion_stream = engine.process_completion_stream(completion_request);
+        // Call provider directly - provider handles Engine orchestration internally
+        let completion_stream = provider.prompt(candle_prompt, &candle_params);
 
-        // Collect first response from AsyncStream using try_next pattern
-        if let Some(completion_response) = completion_stream.try_next() {
-            Ok(completion_response.text().to_string())
+        // Process CandleCompletionChunk stream with proper pattern matching
+        if let Some(completion_chunk) = completion_stream.try_next() {
+            match completion_chunk {
+                CandleCompletionChunk::Text(text) => Ok(text),
+                CandleCompletionChunk::Complete { text, .. } => Ok(text),
+                CandleCompletionChunk::Error(error) => Err(ChatError::System(error)),
+                _ => Err(ChatError::System("Unexpected chunk type".to_string())),
+            }
         } else {
-            Err(ChatError::System(
-                "No response from completion stream".to_string(),
-            ))
+            Err(ChatError::System("No response from completion stream".to_string()))
         }
     }
 
-    /// Generate real AI response using legacy context string (for backward compatibility)
+    /// Generate AI response with context string
     ///
     /// # Arguments
     /// * `message` - User message to respond to
-    /// * `context` - Injected memory context for enhanced responses
+    /// * `context` - Context string for enhanced responses
     ///
     /// # Returns
-    /// Result containing real AI-generated response
+    /// Result containing AI-generated response
     ///
     /// # Performance
-    /// Uses `Engine` infrastructure with `TextGenerator` for real model inference
+    /// Uses Provider with Engine orchestration for real model inference
     fn generate_ai_response(&self, message: &str, context: &str) -> Result<String, ChatError> {
-        // For backward compatibility, treat context as memories
-        let memories = if context.is_empty() {
-            ZeroOneOrMany::None
+        // Get configured provider from agent role
+        let provider = self.get_completion_provider();
+
+        // Create prompt with context
+        let full_prompt = if context.is_empty() {
+            message.to_string()
         } else {
-            // Parse the context back into a simple RetrievalResult for compatibility
-            let mut metadata = std::collections::HashMap::new();
-            metadata.insert("content".to_string(), serde_json::Value::String(context.to_string()));
-            
-            let retrieval_result = RetrievalResult {
-                id: "legacy_context".to_string(),
-                score: 1.0,
-                method: crate::memory::memory::ops::retrieval::RetrievalMethod::Semantic,
-                metadata,
-            };
-            ZeroOneOrMany::One(retrieval_result)
+            format!("Context: {}\n\nUser: {}", context, message)
         };
 
-        // No documents or chat history in legacy mode
-        let documents = ZeroOneOrMany::None;
-        let chat_history = ZeroOneOrMany::None;
+        // Create CandlePrompt and CandleCompletionParams
+        let candle_prompt = CandlePrompt::new(full_prompt);
+        let candle_params = CandleCompletionParams {
+            temperature: 0.7,
+            max_tokens: NonZeroU64::new(1000),
+            n: match NonZeroU8::new(1) {
+                Some(n) => n,
+                None => return Err(ChatError::System("Invalid completion parameter".to_string())),
+            },
+            stream: true,
+            tools: None,
+            additional_params: None,
+        };
 
-        self.generate_ai_response_with_sectioning(message, &memories, &documents, &chat_history)
+        // Call provider directly - provider handles Engine orchestration internally
+        let completion_stream = provider.prompt(candle_prompt, &candle_params);
+
+        // Process CandleCompletionChunk stream with proper pattern matching
+        if let Some(completion_chunk) = completion_stream.try_next() {
+            match completion_chunk {
+                CandleCompletionChunk::Text(text) => Ok(text),
+                CandleCompletionChunk::Complete { text, .. } => Ok(text),
+                CandleCompletionChunk::Error(error) => Err(ChatError::System(error)),
+                _ => Err(ChatError::System("Unexpected chunk type".to_string())),
+            }
+        } else {
+            Err(ChatError::System("No response from completion stream".to_string()))
+        }
     }
 
     /// Context-aware chat with automatic memory injection and memorization

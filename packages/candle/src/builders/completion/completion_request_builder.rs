@@ -11,10 +11,10 @@ use crate::domain::{
     },
     context::CandleDocument as Document,
     model::{CandleValidationError as ValidationError},
-    tool::CandleTool,
+
 };
 use crate::memory::memory::ops::retrieval::RetrievalResult;
-use crate::domain::tool::{FunctionDefinition, ToolDefinition, ToolType};
+use sweet_mcp_type::ToolInfo;
 use cyrup_sugars::ZeroOneOrMany;
 
 /// Builder for completion requests
@@ -23,7 +23,7 @@ pub struct CompletionRequestBuilder {
     chat_history: ZeroOneOrMany<ChatMessage>,
     documents: ZeroOneOrMany<Document>,
     memories: ZeroOneOrMany<RetrievalResult>,
-    tools: ZeroOneOrMany<Box<dyn CandleTool>>,
+    tools: ZeroOneOrMany<ToolInfo>,
     temperature: f64,
     max_tokens: Option<NonZeroU64>,
     chunk_size: Option<usize>,
@@ -83,7 +83,7 @@ impl CompletionRequestBuilder {
     }
 
     /// Set the tools
-    pub fn tools(mut self, tools: ZeroOneOrMany<Box<dyn CandleTool>>) -> Self {
+    pub fn tools(mut self, tools: ZeroOneOrMany<ToolInfo>) -> Self {
         self.tools = tools;
         self
     }
@@ -117,40 +117,8 @@ impl CompletionRequestBuilder {
 
     /// Build the request
     pub fn build(self) -> Result<CompletionRequest, CompletionRequestError> {
-        // Convert Box<dyn CandleTool> to ToolDefinition
-        let converted_tools = match self.tools {
-            ZeroOneOrMany::None => ZeroOneOrMany::None,
-            ZeroOneOrMany::One(tool) => {
-                // Create a generic tool from the CandleTool trait
-                let function_def = FunctionDefinition::new(
-                    tool.name(),
-                    tool.description(),
-                    tool.parameters().clone(),
-                );
-                let tool_def = ToolDefinition {
-                    tool_type: ToolType::Function,
-                    function: function_def,
-                };
-                ZeroOneOrMany::One(tool_def)
-            }
-            ZeroOneOrMany::Many(tools) => {
-                let mut tool_defs = Vec::new();
-                for tool in tools {
-                    // Create a generic tool from the CandleTool trait
-                    let function_def = FunctionDefinition::new(
-                        tool.name(),
-                        tool.description(),
-                        tool.parameters().clone(),
-                    );
-                    let tool_def = ToolDefinition {
-                        tool_type: ToolType::Function,
-                        function: function_def,
-                    };
-                    tool_defs.push(tool_def);
-                }
-                ZeroOneOrMany::Many(tool_defs)
-            }
-        };
+        // Tools are already in the correct ToolInfo format
+        let converted_tools = self.tools;
 
         let request = CompletionRequest {
             system_prompt: self.system_prompt,

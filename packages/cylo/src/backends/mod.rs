@@ -503,6 +503,13 @@ pub mod firecracker;
 #[cfg(target_os = "linux")]
 pub use firecracker::FireCrackerBackend;
 
+// SweetMCP and Container MCP backends (available on all platforms)
+pub mod sweetmcp_plugin;
+pub use sweetmcp_plugin::SweetMcpPluginBackend;
+
+pub mod container_mcp;
+pub use container_mcp::ContainerMcpBackend;
+
 /// Create a backend instance from configuration
 ///
 /// Factory function that creates the appropriate backend based on
@@ -555,6 +562,16 @@ pub fn create_backend(
             "FireCracker",
             "FireCracker is only available on Linux",
         )),
+
+        crate::execution_env::Cylo::SweetMcpPlugin(plugin_path) => {
+            let backend = SweetMcpPluginBackend::new(plugin_path.clone(), config)?;
+            Ok(Box::new(backend))
+        }
+
+        crate::execution_env::Cylo::ContainerMcp(server_url) => {
+            let backend = ContainerMcpBackend::new(server_url.clone(), config)?;
+            Ok(Box::new(backend))
+        }
     }
 }
 
@@ -563,18 +580,18 @@ pub fn create_backend(
 /// # Returns
 /// List of backend types available on this platform
 pub fn available_backends() -> Vec<&'static str> {
+    let mut backends = vec!["SweetMcpPlugin", "ContainerMcp"];
+
     #[cfg(target_os = "macos")]
-    {
-        vec!["Apple"]
-    }
+    backends.push("Apple");
+
     #[cfg(target_os = "linux")]
     {
-        vec!["LandLock", "FireCracker"]
+        backends.push("LandLock");
+        backends.push("FireCracker");
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    {
-        vec![]
-    }
+
+    backends
 }
 
 #[cfg(test)]

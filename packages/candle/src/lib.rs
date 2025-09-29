@@ -74,8 +74,7 @@ pub mod prelude {
             FinishReason,
         },
         tool::{
-            core::{CalculatorTool, CandlePerplexity},
-            CandleExecToText,
+            UnifiedToolExecutor, ToolError, McpToolData,
         },
     };
     pub use crate::providers::{
@@ -184,7 +183,8 @@ pub mod prelude {
     // Re-export tool implementation that provides static methods
     pub use ystream::AsyncStream;
 
-    pub use crate::domain::tool::core::CandleToolImpl as CandleTool;
+    // Tool functionality provided by SweetMCP ToolInfo and UnifiedToolExecutor
+    pub use sweet_mcp_type::ToolInfo;
 
     // Helper function for ARCHITECTURE.md example
     pub fn process_turn() -> CandleChatLoop {

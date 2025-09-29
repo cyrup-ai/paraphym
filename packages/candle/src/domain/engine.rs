@@ -145,6 +145,7 @@ impl LocalEngine {
                                 max_tokens,
                                 n,
                                 stream: true,
+                                tools: None,
                                 additional_params: None,
                             };
                             
@@ -276,6 +277,7 @@ impl LocalEngine {
                                 max_tokens,
                                 n,
                                 stream: true,
+                                tools: None,
                                 additional_params: None,
                             };
 

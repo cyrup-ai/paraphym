@@ -295,6 +295,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ascii_utils"
+version = "0.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "71938f30533e4d95a6d17aa530939da3842c2ab6f4f84b9dae68447e4129f74a"
+
+[[package]]
 name = "asn1-rs"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -419,9 +425,12 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "bytes",
+ "chrono",
+ "fast_chemail",
  "fnv",
  "futures-timer",
  "futures-util",
+ "handlebars",
  "http 1.3.1",
  "indexmap 2.11.4",
  "mime",
@@ -433,7 +442,10 @@ dependencies = [
  "serde_json",
  "serde_urlencoded",
  "static_assertions_next",
+ "tempfile",
  "thiserror 1.0.69",
+ "url",
+ "uuid",
 ]
 
 [[package]]
@@ -1655,6 +1667,24 @@ dependencies = [
  "serde_json",
  "serde_plain",
  "tracing",
+]
+
+[[package]]
+name = "capnp"
+version = "0.21.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f62fcad97587224e2a1bd12ec1c7c0e95b93cefd285763a174cf1b34048c6437"
+dependencies = [
+ "embedded-io",
+]
+
+[[package]]
+name = "capnpc"
+version = "0.21.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6da96dcb0a0e0c526daf42bac55e1550f18ad973df9ef9ba75204f332c80ad16"
+dependencies = [
+ "capnp",
 ]
 
 [[package]]
@@ -3256,6 +3286,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "diff"
+version = "0.1.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56254986775e3233ffa9c4d7d3faaf6d36a2c09d30b20687e9f88bc8bafc16c8"
+
+[[package]]
 name = "difflib"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3407,6 +3443,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
+name = "dyn-clone"
+version = "1.0.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
+
+[[package]]
 name = "dyn-stack"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3475,6 +3517,12 @@ dependencies = [
  "subtle",
  "zeroize",
 ]
+
+[[package]]
+name = "embedded-io"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "edd0f118536f44f5ccd48bcb8b111bdc3de888b58c74639dfb034a357d0f206d"
 
 [[package]]
 name = "encode_unicode"
@@ -3693,6 +3741,15 @@ dependencies = [
  "bit-set",
  "regex-automata",
  "regex-syntax",
+]
+
+[[package]]
+name = "fast_chemail"
+version = "0.9.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "495a39d30d624c2caabe6312bfead73e7717692b44e0b32df168c275a2e8e9e4"
+dependencies = [
+ "ascii_utils",
 ]
 
 [[package]]
@@ -5560,6 +5617,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "handlebars"
+version = "5.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d08485b96a0e6393e9e4d1b8d48cf74ad6c063cd905eb33f42c1ce3f0377539b"
+dependencies = [
+ "log",
+ "pest",
+ "pest_derive",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "hash32"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7026,6 +7097,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "mcp-client-traits"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "pretty_assertions",
+ "reqwest 0.12.23",
+ "simd-json",
+ "sweet_mcp_type",
+ "thiserror 2.0.16",
+ "tokio",
+ "tokio-test",
+ "tracing",
+ "uuid",
+ "value-trait",
+]
+
+[[package]]
 name = "md-5"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8188,6 +8276,7 @@ dependencies = [
  "lazy_static",
  "log",
  "lz4",
+ "mcp-client-traits",
  "md5",
  "memchr",
  "memmap2",
@@ -8213,18 +8302,22 @@ dependencies = [
  "regex",
  "rkyv 0.8.11",
  "ropey",
+ "schemars 0.8.22",
  "serde",
  "serde_cbor",
  "serde_json",
  "sha2 0.11.0-rc.2",
+ "simd-json",
  "smallvec 2.0.0-alpha.11",
  "strsim",
  "surrealdb 3.0.0",
+ "sweet_mcp_type",
+ "sweetmcp-json-client",
  "symphonia",
  "tempfile",
  "termcolor 2.0.0",
  "thiserror 2.0.16",
- "tokenizers",
+ "tokenizers 0.21.4",
  "tokio",
  "tokio-stream",
  "toml 0.9.7",
@@ -8233,6 +8326,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "value-trait",
  "walkdir",
  "wasm-bindgen",
  "weak-table",
@@ -8248,6 +8342,7 @@ version = "0.1.0"
 dependencies = [
  "accelerate-src",
  "ahash 0.8.12",
+ "anyhow",
  "approx 0.5.1",
  "arrayvec",
  "bindgen_cuda",
@@ -8270,9 +8365,16 @@ dependencies = [
  "parking_lot",
  "rand 0.9.2",
  "rayon",
+ "regex",
+ "regex-automata",
+ "rustc-hash",
+ "schemars 1.0.4",
+ "serde",
+ "serde_json",
  "smallvec 2.0.0-alpha.11",
  "thiserror 2.0.16",
- "tokenizers",
+ "tokenizers 0.22.1",
+ "tracing",
  "wide",
 ]
 
@@ -8889,6 +8991,16 @@ checksum = "72dd2d6d381dfb73a193c7fca536518d7caee39fc8503f74e7dc0be0531b425c"
 dependencies = [
  "predicates-core",
  "termtree",
+]
+
+[[package]]
+name = "pretty_assertions"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ae130e2f271fbc2ac3a40fb1d07180839cdbbe443c7a27e1e3c13c5cac0116d"
+dependencies = [
+ "diff",
+ "yansi",
 ]
 
 [[package]]
@@ -10598,6 +10710,55 @@ dependencies = [
 ]
 
 [[package]]
+name = "schemars"
+version = "0.8.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3fbf2ae1b8bc8e02df939598064d22402220cd5bbcca1c76f7d6a310974d5615"
+dependencies = [
+ "dyn-clone",
+ "schemars_derive 0.8.22",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "schemars"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "82d20c4491bc164fa2f6c5d44565947a52ad80b9505d8e36f8d54c27c739fcd0"
+dependencies = [
+ "dyn-clone",
+ "ref-cast",
+ "schemars_derive 1.0.4",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "schemars_derive"
+version = "0.8.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32e265784ad618884abaea0600a9adf15393368d840e0222d101a072f3f7534d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "serde_derive_internals",
+ "syn 2.0.106",
+]
+
+[[package]]
+name = "schemars_derive"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33d020396d1d138dc19f1165df7545479dcd58d93810dc5d646a16e55abefa80"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "serde_derive_internals",
+ "syn 2.0.106",
+]
+
+[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10755,6 +10916,17 @@ name = "serde_derive"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d540f220d3187173da220f885ab66608367b6574e925011a9353e4badda91d79"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.106",
+]
+
+[[package]]
+name = "serde_derive_internals"
+version = "0.29.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18d26a20a969b9e3fdf2fc2d9f21eda6c40e2de84c9408bb5d3b05d499aae711"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -10992,8 +11164,10 @@ version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c962f626b54771990066e5435ec8331d1462576cd2d1e62f24076ae014f92112"
 dependencies = [
+ "ahash 0.8.12",
  "getrandom 0.3.3",
  "halfbrown",
+ "once_cell",
  "ref-cast",
  "serde",
  "serde_json",
@@ -11767,6 +11941,86 @@ dependencies = [
 ]
 
 [[package]]
+name = "sweet_mcp_type"
+version = "0.1.0"
+dependencies = [
+ "pretty_assertions",
+ "serde",
+ "simd-json",
+ "smallvec 1.15.1",
+ "toml_edit 0.22.27",
+ "value-trait",
+]
+
+[[package]]
+name = "sweetmcp-capnp-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "capnp",
+ "capnpc",
+ "reqwest 0.12.23",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "sweetmcp-graphql-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-graphql",
+ "chrono",
+ "mcp-client-traits",
+ "pretty_assertions",
+ "reqwest 0.12.23",
+ "serde_json",
+ "simd-json",
+ "sweet_mcp_type",
+ "thiserror 2.0.16",
+ "tokio",
+ "tokio-test",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "value-trait",
+]
+
+[[package]]
+name = "sweetmcp-json-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "mcp-client-traits",
+ "pretty_assertions",
+ "reqwest 0.12.23",
+ "simd-json",
+ "sweet_mcp_type",
+ "thiserror 2.0.16",
+ "tokio",
+ "tokio-test",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "value-trait",
+]
+
+[[package]]
+name = "sweetmcp-voice-tools"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.16",
+ "tokio",
+]
+
+[[package]]
 name = "symphonia"
 version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12437,6 +12691,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokenizers"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6475a27088c98ea96d00b39a9ddfb63780d1ad4cceb6f48374349a96ab2b7842"
+dependencies = [
+ "ahash 0.8.12",
+ "aho-corasick",
+ "compact_str",
+ "dary_heap",
+ "derive_builder",
+ "esaxx-rs",
+ "getrandom 0.3.3",
+ "indicatif",
+ "itertools 0.14.0",
+ "log",
+ "macro_rules_attribute",
+ "monostate",
+ "onig",
+ "paste",
+ "rand 0.9.2",
+ "rayon",
+ "rayon-cond",
+ "regex",
+ "regex-syntax",
+ "serde",
+ "serde_json",
+ "spm_precompiled",
+ "thiserror 2.0.16",
+ "unicode-normalization-alignments",
+ "unicode-segmentation",
+ "unicode_categories",
+]
+
+[[package]]
 name = "tokio"
 version = "1.47.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12506,6 +12794,19 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+]
+
+[[package]]
+name = "tokio-test"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2468baabc3311435b55dd935f702f42cd1b8abb7e754fb7dfb16bd36aa88f9f7"
+dependencies = [
+ "async-stream",
+ "bytes",
+ "futures-core",
+ "tokio",
+ "tokio-stream",
 ]
 
 [[package]]
@@ -14238,6 +14539,12 @@ name = "xmlparser"
 version = "0.13.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "66fee0b777b0f5ac1c69bb06d361268faafa61cd4682ae064a171c16c433e9e4"
+
+[[package]]
+name = "yansi"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"
 
 [[package]]
 name = "yasna"

@@ -1,39 +1,28 @@
 //! Candle Agent role trait and implementation - EXACT REPLICA of domain with Candle prefixes
 
 use std::fmt;
-use std::sync::{atomic::AtomicUsize, LazyLock};
-
-// Ultra-high-performance zero-allocation imports
-use atomic_counter::RelaxedCounter;
-use crossbeam_utils::CachePadded;
 use cyrup_sugars::ZeroOneOrMany;
 use hashbrown::HashMap;
 use crate::builders::document::DocumentBuilder;
 
 use serde_json::Value;
 
+
 use crate::domain::chat::CandleMessageRole;
 use crate::domain::completion::traits::CandleCompletionModel;
 use crate::providers::{CandleKimiK2Provider, CandleQwen3CoderProvider};
 use crate::domain::context::document::CandleDocument;
-use crate::domain::tool::traits::CandleTool;
+use crate::domain::context::chunk::CandleJsonChunk;
+use crate::domain::tool::unified::{UnifiedToolExecutor, ToolError};
+use sweet_mcp_type::ToolInfo;
+use sweet_mcp_type::JsonValue as SweetJsonValue;
+use simd_json::value::owned::Object as JsonObject;
+use ystream::AsyncStream;
 use crate::memory::memory::manager::MemoryManager;
 use std::sync::Arc;
 use std::path::Path;
 
-/// Maximum number of relevant memories for context injection
-#[allow(dead_code)]
-const MAX_RELEVANT_MEMORIES: usize = 10;
 
-/// Global atomic counter for memory node creation
-#[allow(dead_code)]
-static MEMORY_NODE_COUNTER: LazyLock<CachePadded<RelaxedCounter>> =
-    LazyLock::new(|| CachePadded::new(RelaxedCounter::new(0)));
-
-/// Global atomic counter for attention scoring operations
-#[allow(dead_code)]
-static ATTENTION_SCORE_COUNTER: LazyLock<CachePadded<AtomicUsize>> =
-    LazyLock::new(|| CachePadded::new(AtomicUsize::new(0)));
 
 /// MCP Server configuration
 #[derive(Debug, Clone)]
@@ -101,7 +90,7 @@ impl McpServerConfig {
 }
 
 /// Completion provider types that can be used with the agent
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum CandleCompletionProviderType {
     /// Kimi K2 local model provider
     KimiK2(CandleKimiK2Provider),
@@ -144,14 +133,14 @@ pub trait CandleAgentRole: Send + Sync + fmt::Debug + Clone {
 pub struct CandleAgentRoleImpl {
     name: String,
     /// Completion provider integration (KimiK2, Qwen3Coder, etc.) - Local models only
-    completion_provider: Option<CandleCompletionProviderType>,
+    completion_provider: Option<Arc<CandleCompletionProviderType>>,
     temperature: Option<f64>,
     max_tokens: Option<u64>,
     system_prompt: Option<String>,
     /// Document context loading and management
     contexts: Option<ZeroOneOrMany<CandleDocument>>,
-    /// Tool integration and function calling
-    tools: Option<ZeroOneOrMany<Arc<dyn CandleTool>>>,
+    /// Unified tool executor for both MCP and native tools
+    tool_executor: Option<Arc<UnifiedToolExecutor>>,
     /// MCP server configuration and management
     mcp_servers: Option<ZeroOneOrMany<McpServerConfig>>,
     /// Provider-specific parameters (model paths, quantization options)
@@ -188,7 +177,7 @@ impl Clone for CandleAgentRoleImpl {
             max_tokens: self.max_tokens,
             system_prompt: self.system_prompt.clone(),
             contexts: self.contexts.clone(),
-            tools: self.tools.clone(), // Arc<dyn Tool> can be cloned
+            tool_executor: self.tool_executor.clone(), // Arc<UnifiedToolExecutor> can be cloned
             mcp_servers: self.mcp_servers.clone(),
             additional_params: self.additional_params.clone(),
             memory: self.memory.clone(), // Arc<dyn MemoryManager> can be cloned
@@ -224,7 +213,7 @@ impl CandleAgentRole for CandleAgentRoleImpl {
             max_tokens: None,
             system_prompt: None,
             contexts: None,
-            tools: None,
+            tool_executor: None,
             mcp_servers: None,
             additional_params: None,
             memory: None,
@@ -245,17 +234,19 @@ impl CandleAgentRoleImpl {
     /// Updated agent role instance
     #[inline]
     pub fn with_completion_provider(mut self, provider: CandleCompletionProviderType) -> Self {
-        self.completion_provider = Some(provider);
+        self.completion_provider = Some(Arc::new(provider));
         self
     }
 
-    /// Get completion provider reference if available
+    /// Get completion provider - guaranteed to exist by builder
     ///
     /// # Returns
-    /// Optional reference to completion provider
+    /// Reference to completion provider (never None after builder initialization)
     #[inline]
-    pub fn get_completion_provider(&self) -> Option<&CandleCompletionProviderType> {
+    pub fn get_completion_provider(&self) -> &CandleCompletionProviderType {
         self.completion_provider.as_ref()
+            .expect("Provider guaranteed by builder - this should never panic")
+            .as_ref()
     }
 
     /// Add context from file path
@@ -331,46 +322,66 @@ impl CandleAgentRoleImpl {
         self
     }
 
-    /// Register a tool with the agent
+    /// Enable code execution with the unified tool executor
     ///
     /// # Arguments
-    /// * `tool` - Tool implementation to register
+    /// * `enabled` - Whether to enable code execution via cylo
     ///
     /// # Returns
     /// Updated agent role instance
     #[inline]
-    pub fn register_tool<T: CandleTool + 'static>(mut self, tool: T) -> Self {
-        let tool_arc = Arc::new(tool);
-        match self.tools {
-            None => self.tools = Some(ZeroOneOrMany::One(tool_arc)),
-            Some(ZeroOneOrMany::None) => self.tools = Some(ZeroOneOrMany::One(tool_arc)),
-            Some(ZeroOneOrMany::One(existing)) => {
-                self.tools = Some(ZeroOneOrMany::Many(vec![existing, tool_arc]));
-            }
-            Some(ZeroOneOrMany::Many(ref mut vec)) => {
-                vec.push(tool_arc);
-            }
-        }
+    pub fn with_code_execution(mut self, _enabled: bool) -> Self {
+        // Create or update the unified tool executor
+        let executor = UnifiedToolExecutor::new(None); // MCP client will be added later
+        self.tool_executor = Some(Arc::new(executor));
         self
     }
 
-    /// Execute a tool by name with given arguments
+    /// Initialize tool execution system
+    ///
+    /// This method sets up the unified tool executor with MCP servers and code execution
+    /// Called automatically during agent initialization
+    pub async fn initialize_tools(&mut self) -> Result<(), ToolError> {
+        if let Some(ref executor) = self.tool_executor {
+            executor.initialize().await?;
+        }
+        Ok(())
+    }
+
+    /// Execute a tool by name with given arguments (OpenAI-style function calling)
     ///
     /// # Arguments
     /// * `tool_name` - Name of the tool to execute
-    /// * `args` - Arguments to pass to the tool
+    /// * `args` - Arguments to pass to the tool as serde_json::Value
     ///
     /// # Returns
-    /// AsyncStream of tool execution results or error
-    pub fn execute_tool(&self, tool_name: &str, args: Value) -> Result<ystream::AsyncStream<Value>, CandleChatError> {
-        if let Some(tools) = &self.tools {
-            for tool in tools.iter() {
-                if tool.name() == tool_name {
-                    return Ok(tool.execute(args));
-                }
-            }
+    /// AsyncStream of tool execution results for ystream compatibility
+    pub fn execute_tool(&self, tool_name: &str, args: Value) -> ystream::AsyncStream<CandleJsonChunk> {
+        if let Some(ref executor) = self.tool_executor {
+            // Convert serde_json::Value to sweet_mcp_type::JsonValue
+            let sweet_args = convert_serde_to_sweet_json(args);
+            executor.call_tool_stream(tool_name, sweet_args)
+        } else {
+            // Return error stream if no tool executor
+            AsyncStream::with_channel(move |sender| {
+                let error_value = Value::Object([
+                    ("error".to_string(), Value::String("No tool executor configured".to_string()))
+                ].into_iter().collect::<serde_json::Map<_, _>>());
+                ystream::emit!(sender, CandleJsonChunk(error_value));
+            })
         }
-        Err(CandleChatError::System(format!("Tool '{}' not found", tool_name)))
+    }
+
+    /// Get all available tools for LLM function calling
+    ///
+    /// # Returns
+    /// Vector of ToolInfo structs describing available tools
+    pub async fn get_available_tools(&self) -> Vec<ToolInfo> {
+        if let Some(ref executor) = self.tool_executor {
+            executor.get_available_tools().await
+        } else {
+            Vec::new()
+        }
     }
 
     /// Add MCP server configuration
@@ -540,5 +551,40 @@ pub trait CandleConversationHistoryArgs {
     fn into_history(self) -> Option<ZeroOneOrMany<(CandleMessageRole, String)>>;
 }
 
-// Import CandleChatError from chat module
-use crate::domain::agent::chat::CandleChatError;
+// Import CandleChatError from chat module (removed - unused)
+
+/// Convert serde_json::Value to sweet_mcp_type::JsonValue
+///
+/// This function bridges the gap between serde_json and sweet_mcp_type for
+/// compatibility with existing ystream-based architecture while using
+/// high-performance simd-json internally.
+pub fn convert_serde_to_sweet_json(value: Value) -> SweetJsonValue {
+    match value {
+        Value::Null => SweetJsonValue::Static(simd_json::StaticNode::Null),
+        Value::Bool(b) => SweetJsonValue::Static(simd_json::StaticNode::Bool(b)),
+        Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                SweetJsonValue::from(i)
+            } else if let Some(f) = n.as_f64() {
+                SweetJsonValue::from(f)
+            } else {
+                SweetJsonValue::Static(simd_json::StaticNode::Null)
+            }
+        }
+        Value::String(s) => SweetJsonValue::String(s),
+        Value::Array(arr) => {
+            let sweet_arr: Vec<SweetJsonValue> = arr
+                .into_iter()
+                .map(convert_serde_to_sweet_json)
+                .collect();
+            SweetJsonValue::Array(Box::new(sweet_arr))
+        }
+        Value::Object(obj) => {
+            let sweet_obj: JsonObject = obj
+                .into_iter()
+                .map(|(k, v)| (k, convert_serde_to_sweet_json(v)))
+                .collect();
+            SweetJsonValue::Object(Box::new(sweet_obj))
+        }
+    }
+}

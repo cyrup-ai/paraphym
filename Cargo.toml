@@ -4,8 +4,14 @@ members = [
     "packages/simd",
     "packages/candle",
     "packages/cylo",
+    "packages/sweetmcp/packages/capnp-client",
+    "packages/sweetmcp/packages/graphql-client",
+    "packages/sweetmcp/packages/json-client",
+    "packages/sweetmcp/packages/mcp-client-traits",
+    "packages/sweetmcp/packages/sweet-mcp-type",
+    "packages/sweetmcp/packages/voice-tools",
 ]
-exclude = ["tmp/candle", "tmp/*", "forks/surrealdb"]
+exclude = ["tmp/candle", "tmp/*", "forks/surrealdb", "packages/sweetmcp/packages/autoconfig", "packages/sweetmcp/packages/axum", "packages/sweetmcp/packages/daemon", "packages/sweetmcp/packages/pingora", "packages/sweetmcp/packages/plugin-builder", "packages/sweetmcp/packages/sixel6vt"]
 
 
 [workspace.package]

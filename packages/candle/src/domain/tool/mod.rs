@@ -1,27 +1,29 @@
-//! Unified Tool Module
+//! Unified Tool Interface
 //!
-//! This module consolidates all tool-related functionality including:
-//! - Core Tool trait and implementations (from tool.rs)
-//! - MCP (Model Context Protocol) client and transport (from mcp.rs)
-//! - MCP tool traits and data structures (from mcp_tool_traits.rs)
-//! - Tool execution and management utilities
+//! This module provides a single, unified interface for all tool execution
+//! that transparently handles both MCP server tools and native code execution.
+//! Users never directly call tools - they prompt naturally and the LLM
+//! decides which tools to call, similar to OpenAI function calling.
 //!
-//! The module provides a clean, unified interface for all tool operations
-//! while maintaining backward compatibility and eliminating version confusion.
+//! Key components:
+//! - UnifiedToolExecutor: Single interface for all tool execution
+//! - Automatic routing between MCP servers and Cylo secure execution
+//! - OpenAI-style function calling experience
+//! - Full ystream::AsyncStream compatibility
 
-pub mod core;
-pub mod mcp;
-pub mod traits;
-pub mod types;
+pub mod unified;
+pub mod router;
 
-// Re-export core Candle tool functionality (avoid conflicts with trait)
-pub use core::{CandleExecToText, CandleNamedTool, CandlePerplexity};
+// Re-export the SweetMCP router - NEW PREFERRED APPROACH
+pub use router::{SweetMcpRouter, RouterError, ToolRoute};
 
-// Re-export Candle MCP functionality
-pub use mcp::{
-    CandleClient as CandleMcpClient, CandleMcpError, CandleStdioTransport, CandleTransport,
-};
-// Re-export trait-backed architecture types (NEW PREFERRED APPROACH)
-pub use traits::{CandleMcpTool, CandleTool};
-// Re-export tool definition types for completion requests
-pub use types::{CandleMcpToolData, FunctionDefinition, ToolDefinition, ToolType};
+// Legacy unified tool interface - DEPRECATED in favor of SweetMcpRouter
+pub use unified::{UnifiedToolExecutor, ToolError};
+
+// Re-export SweetMCP types for external compatibility
+pub use sweet_mcp_type::ToolInfo;
+pub use mcp_client_traits::{McpClient, McpToolOperations};
+
+// Type aliases for compatibility with existing code
+pub type McpToolData = ToolInfo;
+pub type CandleMcpToolData = ToolInfo;

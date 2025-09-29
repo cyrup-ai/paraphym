@@ -12,7 +12,7 @@ use crate::memory::Memory;
 use crate::memory::config::memory::MemoryConfig as ComprehensiveMemoryConfig;
 use crate::memory::manager::MemoryConfig;
 use crate::model::Model;
-use crate::tool::McpToolData;
+use sweet_mcp_type::ToolInfo;
 
 /// Agent statistics for performance monitoring
 static AGENT_STATS: CachePadded<AtomicUsize> = CachePadded::new(AtomicUsize::new(0));

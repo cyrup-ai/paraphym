@@ -30,12 +30,10 @@ use ystream::AsyncStream;
 use crate::domain::completion::CandleCompletionModel;
 use paraphym_provider::Model;
 
-#[cfg(feature = "mcp")]
-use crate::tool::McpTool;
+use mcp_client_traits::ToolInfo;
 use crate::{
-    completion::Document,
-    domain::mcp_tool::Tool,
-    domain::tool::ToolSet,
+    domain::completion::Document,
+    domain::tool::unified::UnifiedToolExecutor,
     vector_store::VectorStoreIndexDyn};
 use cyrup_sugars::{OneOrMany, ZeroOneOrMany};
 
@@ -171,10 +169,10 @@ pub struct AgentBuilder<M: Model, S, C> {
 
     // Context and tools - pre-allocated for zero-alloc hot-path
     static_context: OneOrMany<Document>,
-    static_tools_by_id: OneOrMany<String>,
+    tools: ZeroOneOrMany<ToolInfo>,
     dynamic_context: OneOrMany<(usize, Box<dyn VectorStoreIndexDyn>)>,
     dynamic_tools: OneOrMany<(usize, Box<dyn VectorStoreIndexDyn>)>,
-    toolset: ToolSet,
+    tool_executor: Option<UnifiedToolExecutor>,
 
     // Runtime configuration
     temperature: Option<f64>,
@@ -203,10 +201,10 @@ impl<M: Model> AgentBuilder<M, MissingSys, MissingCtx> {
             model_name: Some(model_name),
             system_prompt: None,
             static_context: OneOrMany::None,
-            static_tools_by_id: OneOrMany::None,
+            tools: ZeroOneOrMany::None,
             dynamic_context: OneOrMany::None,
             dynamic_tools: OneOrMany::None,
-            toolset: ToolSet::default(),
+            tool_executor: None,
             temperature: None,
             max_tokens: None,
             extended_thinking: false,
@@ -225,10 +223,10 @@ impl<M: Model> AgentBuilder<M, MissingSys, MissingCtx> {
             model_name: self.model_name,
             system_prompt: self.system_prompt,
             static_context: self.static_context,
-            static_tools_by_id: self.static_tools_by_id,
+            tools: self.tools,
             dynamic_context: self.dynamic_context,
             dynamic_tools: self.dynamic_tools,
-            toolset: self.toolset,
+            tool_executor: self.tool_executor,
             temperature: self.temperature,
             max_tokens: self.max_tokens,
             extended_thinking: self.extended_thinking,
@@ -251,10 +249,10 @@ impl<M: Model> AgentBuilder<M, (), MissingCtx> {
             model_name: self.model_name,
             system_prompt: self.system_prompt,
             static_context: self.static_context,
-            static_tools_by_id: self.static_tools_by_id,
+            tools: self.tools,
             dynamic_context: self.dynamic_context,
             dynamic_tools: self.dynamic_tools,
-            toolset: self.toolset,
+            tool_executor: self.tool_executor,
             temperature: self.temperature,
             max_tokens: self.max_tokens,
             extended_thinking: self.extended_thinking,
@@ -277,10 +275,10 @@ impl<M: Model> AgentBuilder<M, (), MissingCtx> {
             model_name: self.model_name,
             system_prompt: self.system_prompt,
             static_context: self.static_context,
-            static_tools_by_id: self.static_tools_by_id,
+            tools: self.tools,
             dynamic_context: self.dynamic_context,
             dynamic_tools: self.dynamic_tools,
-            toolset: self.toolset,
+            tool_executor: self.tool_executor,
             temperature: self.temperature,
             max_tokens: self.max_tokens,
             extended_thinking: self.extended_thinking,
@@ -293,14 +291,28 @@ impl<M: Model> AgentBuilder<M, (), MissingCtx> {
 
 // ---- Ready state - all required fields present ----
 impl<M: Model> AgentBuilder<M, (), Ready> {
-    /// Add tool with const-generic type validation
+    /// Add a single tool - uses ToolInfo from SweetMCP
     #[inline(always)]
-    pub fn tool<T: Tool + 'static>(mut self) -> Self {
-        let instance = T::default(); // Assuming Tool has Default trait
-        let name = T::NAME.to_string();
-        self.toolset.add_tool(instance);
-        self.static_tools_by_id = self.static_tools_by_id.with_pushed(name);
+    pub fn tool(mut self, tool_info: ToolInfo) -> Self {
+        self.tools = self.tools.with_pushed(tool_info);
         self
+    }
+
+    /// Set multiple tools - uses ZeroOneOrMany<ToolInfo> from SweetMCP
+    #[inline(always)]
+    pub fn mcp_tools(mut self, tools: ZeroOneOrMany<ToolInfo>) -> Self {
+        self.tools = tools;
+        self
+    }
+
+    /// Add MCP server for tool execution and discovery
+    #[inline(always)]
+    pub fn mcp_server(mut self, server_url: String) -> Result<Self, AgentBuilderError> {
+        let executor = UnifiedToolExecutor::with_mcp_server(Some(server_url), true)
+            .map_err(|e| AgentBuilderError::StreamingError(format!("MCP client creation failed: {}", e)))?;
+
+        self.tool_executor = Some(executor);
+        Ok(self)
     }
 
     /// Set temperature
@@ -329,9 +341,16 @@ impl<M: Model> AgentBuilder<M, (), Ready> {
         CompletionBuilder::new(self)
     }
 
-    /// Build the agent directly
+    /// Build the agent directly - handles async tool initialization
     pub fn build(self) -> AsyncStream<super::agent::Agent<M>> {
-        AsyncStream::with_channel(move |sender| {
+        AsyncStream::with_channel(move |sender| async move {
+            // Initialize tool executor and discover tools if present
+            if let Some(ref executor) = self.tool_executor {
+                if let Err(e) = executor.initialize().await {
+                    tracing::warn!("Failed to initialize tool executor during build: {}", e);
+                }
+            }
+
             if let Some(model) = self.model {
                 if let Some(system_prompt) = self.system_prompt {
                     if !self.static_context.is_none() || !self.dynamic_context.is_none() {
@@ -339,17 +358,17 @@ impl<M: Model> AgentBuilder<M, (), Ready> {
                             model,
                             system_prompt,
                             self.static_context,
-                            self.static_tools_by_id,
+                            self.tools,
                             self.dynamic_context,
                             self.dynamic_tools,
-                            self.toolset,
+                            self.tool_executor,
                             self.temperature,
                             self.max_tokens,
                             self.additional_params,
                             self.extended_thinking,
                             self.prompt_cache,
                         );
-                        let _ = sender.send(agent);
+                        let _ = sender.send(agent).await;
                     }
                 }
             }
@@ -422,11 +441,8 @@ impl<M: Model> CompletionBuilder<M> {
 }
 
 // ============================================================================
-// Helper trait for Tool const-generic support
+// Tool support now handled by UnifiedToolExecutor with SweetMCP ToolInfo
 // ============================================================================
-pub trait ToolDefault: Tool {
-    fn default() -> Self;
-}
 
 // ============================================================================
 // Public API entry points matching CLAUDE.md architecture

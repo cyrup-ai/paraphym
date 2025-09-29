@@ -166,6 +166,13 @@ impl CandleKimiK2Provider {
         Self::with_config_sync_gguf(model_cache_dir, gguf_file_path, config)
     }
 
+    /// Create default provider instance for builder pattern
+    pub fn default_for_builder() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Self::with_config_sync(
+            "./models/kimi-k2".to_string(),
+            CandleKimiK2Config::default()
+        )
+    }
 
     /// Create provider with custom configuration and existing model path
     pub fn with_config_sync(

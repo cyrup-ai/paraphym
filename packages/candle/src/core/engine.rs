@@ -4,12 +4,14 @@
 //! architecture. The engine routes requests to appropriate AI providers using atomic
 //! operations and borrowed data to eliminate allocations in hot paths.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, atomic::{AtomicBool, AtomicU64, Ordering}};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::domain::completion::response::CompletionResponse;
+use crate::domain::context::chunk::{CandleStringChunk, CandleCompletionChunk};
+use crate::domain::model::CandleUsage;
 use crate::{spawn_task, AsyncStream, AsyncTask};
 
 /// Parameters for completion execution
@@ -278,11 +280,11 @@ impl<'a> CompletionRequest<'a> {
 /// Core engine implementation with lock-free atomic operations
 pub struct Engine {
     config: EngineConfig,
-    request_count: AtomicU64,
-    active_requests: AtomicU64,
-    successful_requests: AtomicU64,
-    failed_requests: AtomicU64,
-    is_healthy: AtomicBool,
+    request_count: Arc<AtomicU64>,
+    active_requests: Arc<AtomicU64>,
+    successful_requests: Arc<AtomicU64>,
+    failed_requests: Arc<AtomicU64>,
+    is_healthy: Arc<AtomicBool>,
 }
 
 impl Engine {
@@ -293,11 +295,11 @@ impl Engine {
 
         Ok(Self {
             config,
-            request_count: AtomicU64::new(0),
-            active_requests: AtomicU64::new(0),
-            successful_requests: AtomicU64::new(0),
-            failed_requests: AtomicU64::new(0),
-            is_healthy: AtomicBool::new(true),
+            request_count: Arc::new(AtomicU64::new(0)),
+            active_requests: Arc::new(AtomicU64::new(0)),
+            successful_requests: Arc::new(AtomicU64::new(0)),
+            failed_requests: Arc::new(AtomicU64::new(0)),
+            is_healthy: Arc::new(AtomicBool::new(true)),
         })
     }
 
@@ -383,7 +385,7 @@ impl Engine {
 
         spawn_task(move || {
             // Create streaming completion and collect first result for backward compatibility
-            let params = CompletionParams {
+            let _params = CompletionParams {
                 request_id,
                 model_name,
                 provider,
@@ -399,52 +401,87 @@ impl Engine {
                 tools,
                 metadata,
             };
-            let stream = Self::execute_completion_stream(params);
-
-            // Try to get the first item from stream
-            if let Some(response) = stream.try_next() {
-                Ok(response)
-            } else {
-                Err(EngineError::InternalError(
-                    "No response from stream".to_string(),
-                ))
-            }
+            // Legacy method - routing logic has been moved to orchestration utilities
+            // Providers should now use coordinate_generation() method directly
+            Err(EngineError::InternalError(
+                "Direct engine completion processing deprecated. Use provider orchestration instead.".to_string(),
+            ))
         })
     }
 
-    /// Execute completion request as stream (internal implementation)
-    fn execute_completion_stream(
-        params: CompletionParams,
-    ) -> AsyncStream<CompletionResponse<'static>> {
+    /// Coordinate text generation with metrics and streaming management
+    /// 
+    /// Provides orchestration services for providers:
+    /// - Automatic metrics tracking (request_count, active_requests, etc.)
+    /// - Stream conversion from CandleStringChunk to CandleCompletionChunk  
+    /// - Error handling and health monitoring
+    /// - Performance timing and throughput calculation
+    pub fn coordinate_generation<F>(&self, generation_fn: F) 
+        -> AsyncStream<CandleCompletionChunk>
+    where 
+        F: FnOnce() -> AsyncStream<CandleStringChunk> + Send + 'static
+    {
+        // Update metrics atomically
+        self.request_count.fetch_add(1, Ordering::Relaxed);
+        self.active_requests.fetch_add(1, Ordering::Relaxed);
+        
+        // Execute provider's generation function
+        let text_stream = generation_fn();
+        
+        // Convert and manage streaming response with metrics
+        self.manage_streaming_response(text_stream)
+    }
+
+    /// Convert TextGenerator output to completion chunks with metrics tracking
+    fn manage_streaming_response(&self, text_stream: AsyncStream<CandleStringChunk>) 
+        -> AsyncStream<CandleCompletionChunk> {
+        
+        let active_requests = Arc::clone(&self.active_requests);
+        let successful_requests = Arc::clone(&self.successful_requests);
+        let failed_requests = Arc::clone(&self.failed_requests);
+        
         AsyncStream::with_channel(move |sender| {
-            // Clean delegation pattern: route to appropriate provider
-            if params.provider == "kimi-k2" {
-                // TODO: Delegate to Kimi-K2 provider (which uses generation system internally)
-                // Provider handles ALL generation details including model loading, sampling, etc.
-                let error_response = CompletionResponse {
-                    text: "Error: Kimi-K2 provider delegation not yet implemented. Provider should handle all generation internally.".into(),
-                    model: params.model_name.into(),
-                    provider: Some(params.provider.into()),
-                    usage: None,
-                    finish_reason: Some("error".into()),
-                    response_time_ms: Some(0),
-                    generation_time_ms: Some(0),
-                    tokens_per_second: Some(0.0),
-                };
-                let _ = sender.send(error_response);
+            let start_time = std::time::Instant::now();
+            let mut token_count = 0u32;
+            let mut has_error = false;
+            
+            // Process each text chunk from TextGenerator
+            for string_chunk in text_stream {
+                token_count += 1;
+                
+                // Convert CandleStringChunk to CandleCompletionChunk::Text
+                let completion_chunk = CandleCompletionChunk::Text(string_chunk.0);
+                
+                if sender.send(completion_chunk).is_err() {
+                    // Client disconnected
+                    has_error = true;
+                    break;
+                }
+            }
+            
+            // Send completion marker with performance metrics
+            let _elapsed = start_time.elapsed();
+            let final_chunk = CandleCompletionChunk::Complete {
+                text: String::new(),
+                finish_reason: if has_error { 
+                    Some(crate::domain::context::chunk::FinishReason::Error) 
+                } else { 
+                    Some(crate::domain::context::chunk::FinishReason::Stop) 
+                },
+                usage: Some(CandleUsage {
+                    input_tokens: 0, // Provider can set this if needed
+                    output_tokens: token_count,
+                    total_tokens: token_count,
+                }),
+            };
+            let _ = sender.send(final_chunk);
+            
+            // Update metrics atomically on completion
+            active_requests.fetch_sub(1, Ordering::Relaxed);
+            if has_error {
+                failed_requests.fetch_add(1, Ordering::Relaxed);
             } else {
-                // For other providers, return a proper error response
-                let error_response = CompletionResponse {
-                    text: format!("Error: Provider '{}' not supported by Candle engine. Only 'kimi-k2' provider is currently implemented.", params.provider).into(),
-                    model: params.model_name.into(),
-                    provider: Some(params.provider.into()),
-                    usage: None,
-                    finish_reason: Some("error".into()),
-                    response_time_ms: Some(0),
-                    generation_time_ms: Some(0),
-                    tokens_per_second: Some(0.0),
-                };
-                let _ = sender.send(error_response);
+                successful_requests.fetch_add(1, Ordering::Relaxed);
             }
         })
     }
@@ -504,12 +541,18 @@ impl Engine {
                 tools,
                 metadata,
             };
-            let completion_stream = Self::execute_completion_stream(params);
-
-            // Process completion responses from the stream using try_next
-            while let Some(response) = completion_stream.try_next() {
-                let _ = sender.send(response);
-            }
+            // Legacy API deprecated - return error directing users to new orchestration pattern
+            let error_response = CompletionResponse {
+                text: "Direct engine completion processing deprecated. Use provider.prompt() with coordinate_generation() instead.".into(),
+                model: params.model_name.into(),
+                provider: Some(params.provider.into()),
+                usage: None,
+                finish_reason: Some("error".into()),
+                response_time_ms: Some(0),
+                generation_time_ms: Some(0),
+                tokens_per_second: Some(0.0),
+            };
+            let _ = sender.send(error_response);
         })
     }
 

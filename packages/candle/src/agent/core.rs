@@ -13,7 +13,7 @@ use crate::memory::config::memory::MemoryConfig as ComprehensiveMemoryConfig;
 use crate::memory::manager::MemoryConfig;
 use crate::memory::{Memory, MemoryError, MemoryTool, MemoryToolError};
 use crate::model::Model;
-use crate::tool::McpToolData;
+use sweet_mcp_type::ToolInfo;
 
 /// Maximum number of tools per agent (const generic default)
 pub const MAX_AGENT_TOOLS: usize = 32;

@@ -6,11 +6,11 @@ use serde_json::Value;
 
 use crate::domain::chat::message::types::CandleMessageRole as MessageRole;
 use crate::domain::context::CandleContext;
-use crate::domain::tool::CandleTool;
+// Tool functionality now handled by UnifiedToolExecutor
 use cyrup_sugars::ZeroOneOrMany as ZeroOneOrMany;
 // Type aliases for trait objects
 type Context = Box<dyn CandleContext + Send + Sync>;
-type Tool = Box<dyn CandleTool + Send + Sync>;
+// Tool functionality replaced by UnifiedToolExecutor - no more trait objects needed
 use uuid;
 
 /// Additional parameters for agent configuration
@@ -178,10 +178,12 @@ pub trait ContextArgs {
     fn add_to(self, contexts: &mut ZeroOneOrMany<Context>);
 }
 
+use sweet_mcp_type::ToolInfo;
+
 /// Trait for tool arguments - zero-allocation with static dispatch
 pub trait ToolArgs {
     /// Add this tool to the collection of tools
-    fn add_to(self, tools: &mut ZeroOneOrMany<Tool>);
+    fn add_to(self, tools: &mut ZeroOneOrMany<ToolInfo>);
 }
 
 /// Trait for conversation history arguments - moved to paraphym/src/builders/

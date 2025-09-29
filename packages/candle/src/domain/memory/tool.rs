@@ -19,7 +19,8 @@ use super::{Error as MemoryError};
 use crate::memory::memory::{SurrealDBMemoryManager, MemoryNode, MemoryType};
 // Removed unused imports: AsyncStream, AsyncTask, spawn_async
 use crate::domain::error::ZeroAllocError;
-use crate::domain::tool::CandleMcpToolData;
+use crate::domain::agent::role::convert_serde_to_sweet_json;
+use sweet_mcp_type::ToolInfo;
 
 /// Maximum number of memory nodes in result collections
 const MAX_MEMORY_TOOL_RESULTS: usize = 1000;
@@ -39,7 +40,7 @@ static RESULT_QUEUE: LazyLock<SegQueue<MemoryNode>> = LazyLock::new(|| SegQueue:
 pub struct MemoryTool {
     /// Tool metadata
     #[allow(dead_code)]
-    data: CandleMcpToolData,
+    data: ToolInfo,
     /// Shared memory instance for lock-free concurrent access
     memory: Arc<SurrealDBMemoryManager>,
 }
@@ -110,11 +111,10 @@ pub type MemoryToolResult<T> = Result<T, MemoryToolError>;
 impl MemoryTool {
     /// Create a new memory tool instance
     pub fn new(memory: Arc<SurrealDBMemoryManager>) -> Self {
-        let data = CandleMcpToolData {
+        let data = ToolInfo {
             name: "memory".to_string(),
-            description: "Memory management tool for storing and retrieving information"
-                .to_string(),
-            parameters: serde_json::json!({
+            description: Some("Memory management tool for storing and retrieving information".to_string()),
+            input_schema: convert_serde_to_sweet_json(serde_json::json!({
                 "type": "object",
                 "properties": {
                     "operation": {
@@ -123,8 +123,7 @@ impl MemoryTool {
                     }
                 },
                 "required": ["operation"]
-            }),
-            server: None,
+            })),
         };
 
         Self { data, memory }
@@ -138,7 +137,7 @@ impl MemoryTool {
 
     /// Get tool metadata
     #[inline]
-    pub fn tool_data(&self) -> &CandleMcpToolData {
+    pub fn tool_data(&self) -> &ToolInfo {
         &self.data
     }
 
@@ -151,7 +150,7 @@ impl MemoryTool {
     /// Get tool description from metadata
     #[inline]
     pub fn tool_description(&self) -> &str {
-        &self.data.description
+        self.data.description.as_deref().unwrap_or("")
     }
 
     /// Get maximum results limit for memory operations

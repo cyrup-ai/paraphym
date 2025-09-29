@@ -102,6 +102,7 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + MessageC
                 .and_then(|t| std::num::NonZeroU64::new(t.get())),
             n: std::num::NonZeroU8::new(1).expect("1 is a valid NonZeroU8 constant"),
             stream: true,
+            tools: None,
             additional_params: None,
         };
 

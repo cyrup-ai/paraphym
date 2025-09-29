@@ -6,11 +6,11 @@
 use std::num::NonZeroU64;
 
 use cyrup_sugars::ZeroOneOrMany;
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
-use super::types::{MAX_CHUNK_SIZE, MAX_TOKENS, TEMPERATURE_RANGE, ToolDefinition};
+use super::types::{MAX_CHUNK_SIZE, MAX_TOKENS, TEMPERATURE_RANGE};
+use sweet_mcp_type::ToolInfo;
 use crate::domain::chat::message::types::CandleMessage as ChatMessage;
 use crate::domain::context::CandleDocument as Document;
 use crate::memory::memory::ops::retrieval::RetrievalResult;
@@ -19,7 +19,7 @@ use crate::memory::memory::ops::retrieval::RetrievalResult;
 use crate::domain::model::{ValidationError, ValidationResult};
 
 /// A request for text completion
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct CompletionRequest {
     /// System prompt providing instructions
     pub system_prompt: String,
@@ -30,7 +30,7 @@ pub struct CompletionRequest {
     /// Retrieved memories from previous conversations
     pub memories: ZeroOneOrMany<RetrievalResult>,
     /// Tools available to the model
-    pub tools: ZeroOneOrMany<ToolDefinition>,
+    pub tools: ZeroOneOrMany<ToolInfo>,
     /// Sampling temperature (0.0 to 2.0)
     pub temperature: f64,
     /// Maximum number of tokens to generate

@@ -2,6 +2,7 @@
 
 use smallvec::SmallVec;
 
+pub mod constraints;
 mod nucleus;
 mod penalties;
 pub mod processing;
@@ -41,6 +42,10 @@ pub enum LogitsError {
     /// Configuration validation error
     #[error("Configuration error: {0}")]
     ConfigError(String),
+
+    /// Constraint validation error during processing
+    #[error("Constraint error: {0}")]
+    ConstraintError(String),
 
     /// SIMD processing error
     #[error("SIMD error: {0}")]

@@ -34,7 +34,6 @@ impl CandleModelHandle {
         let generic_model = GenericCandleModel::new(
             info.name().to_string(),
             info.provider().to_string(),
-            "1.0".to_string(), // Default version
             info.max_input_tokens.map(|t| t.get() as u32).unwrap_or(4096),
             info.supports_streaming,
             info.supports_function_calling,
@@ -116,8 +115,6 @@ impl CandleModelHandle {
 pub struct GenericCandleModel {
     name: String,
     provider: String,
-    #[allow(dead_code)]
-    version: String,
     context_length: u32,
     supports_streaming: bool,
     supports_tools: bool,
@@ -128,7 +125,6 @@ impl GenericCandleModel {
     pub fn new(
         name: String,
         provider: String,
-        version: String,
         context_length: u32,
         supports_streaming: bool,
         supports_tools: bool,
@@ -136,7 +132,6 @@ impl GenericCandleModel {
         Self {
             name,
             provider,
-            version,
             context_length,
             supports_streaming,
             supports_tools,
@@ -166,10 +161,7 @@ impl GenericCandleModel {
         }
     }
 
-    /// Get model version
-    pub fn version(&self) -> &str {
-        &self.version
-    }
+
 }
 
 /// The global model registry with zero-allocation typed handles

@@ -16,7 +16,13 @@ use crate::domain::context::provider::{
     CandleContext, CandleDirectory, CandleFile, CandleFiles, CandleGithub,
 };
 use crate::domain::prompt::CandlePrompt;
-use crate::domain::tool::traits::CandleTool;
+use crate::domain::tool::UnifiedToolExecutor;
+use sweet_mcp_type::ToolInfo;
+use serde_json;
+
+// Import provider types for default provider creation
+use crate::providers::{CandleKimiK2Provider, CandleKimiK2Config};
+use crate::domain::agent::role::CandleCompletionProviderType;
 
 // Candle domain types - self-contained
 /// Trait for AI completion providers (e.g., OpenAI, Anthropic, local models)  
@@ -133,7 +139,7 @@ pub trait CandleAgentRoleBuilder: Sized + Send {
     #[must_use]
     fn completion_provider<P>(self, provider: P) -> impl CandleAgentRoleBuilder
     where
-        P: DomainCompletionModel + Clone + Send + 'static;
+        P: DomainCompletionModel + Send + 'static;
 
     /// Set model - EXACT syntax: .model(CandleModels::KIMI_K2)
     #[must_use]
@@ -175,17 +181,21 @@ pub trait CandleAgentRoleBuilder: Sized + Send {
         context4: CandleContext<CandleGithub>,
     ) -> impl CandleAgentRoleBuilder;
 
-    /// Set tools - EXACT syntax: .tools(CandleTool::<Perplexity>::new())
+    /// Set tools - EXACT syntax: .tools(tool1, tool2, tool3)
     #[must_use]
     fn tools<T>(self, tools: T) -> impl CandleAgentRoleBuilder
     where
-        T: CandleTool;
+        T: Into<ZeroOneOrMany<ToolInfo>>;
 
     /// Set MCP server - EXACT syntax: .mcp_server::<Stdio>().bin("/path").init("command")
     #[must_use]
     fn mcp_server<T>(self) -> impl CandleMcpServerBuilder
     where
         T: 'static;
+
+    /// Add MCP server config - internal method for MCP server builder
+    #[must_use]
+    fn add_mcp_server_config(self, config: McpServerConfig) -> impl CandleAgentRoleBuilder;
 
     /// Set chunk handler - EXACT syntax: .on_chunk(|chunk| chunk)
     #[must_use]
@@ -217,17 +227,6 @@ pub trait CandleAgentRoleBuilder: Sized + Send {
     where
         F: FnOnce(&CandleAgentConversation) -> CandleChatLoop + Send + 'static;
 
-    /// Enable code execution with automatic backend selection - EXACT syntax: .with_code_execution()
-    #[must_use]
-    fn with_code_execution(self) -> impl CandleAgentRoleBuilder;
-
-    /// Enable code execution with persistent named environment - EXACT syntax: .with_persistent_environment("name")
-    #[must_use]
-    fn with_persistent_environment(self, name: impl Into<String>) -> impl CandleAgentRoleBuilder;
-
-    /// Configure code execution timeout - EXACT syntax: .with_execution_timeout(30000)
-    #[must_use]
-    fn with_execution_timeout(self, timeout_ms: u64) -> impl CandleAgentRoleBuilder;
 }
 
 /// MCP server builder for fluent chaining
@@ -262,7 +261,7 @@ pub trait CandleAgentBuilder: Sized + Send + Sync {
 }
 
 /// MCP server builder implementation
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct CandleMcpServerBuilderImpl<T> {
     parent_builder: T,
     binary_path: Option<String>,
@@ -270,17 +269,27 @@ pub struct CandleMcpServerBuilderImpl<T> {
 
 impl<T> CandleMcpServerBuilder for CandleMcpServerBuilderImpl<T>
 where
-    T: CandleAgentRoleBuilder + Clone,
+    T: CandleAgentRoleBuilder,
 {
     fn bin(mut self, path: impl Into<String>) -> impl CandleMcpServerBuilder {
         self.binary_path = Some(path.into());
         self
     }
 
-    fn init(self, _command: impl Into<String>) -> impl CandleAgentRoleBuilder {
-        // For now, just return the parent builder - in real implementation would configure MCP
-        self.parent_builder
+    fn init(self, command: impl Into<String>) -> impl CandleAgentRoleBuilder {
+        let config = McpServerConfig {
+            binary_path: self.binary_path.clone(),
+            init_command: command.into(),
+        };
+        self.parent_builder.add_mcp_server_config(config)
     }
+}
+
+/// MCP server configuration
+#[derive(Debug, Clone)]
+pub struct McpServerConfig {
+    pub binary_path: Option<String>,
+    pub init_command: String,
 }
 
 /// First builder - no provider yet
@@ -290,9 +299,8 @@ struct CandleAgentRoleBuilderImpl {
     temperature: Option<f64>,
     max_tokens: Option<u64>,
     system_prompt: Option<String>,
-    code_execution_enabled: bool,
-    persistent_env_name: Option<String>,
-    execution_timeout: Option<u64>,
+    tools: ZeroOneOrMany<ToolInfo>,
+    mcp_servers: Vec<McpServerConfig>,
 }
 
 impl CandleAgentRoleBuilderImpl {
@@ -303,9 +311,8 @@ impl CandleAgentRoleBuilderImpl {
             temperature: None,
             max_tokens: None,
             system_prompt: None,
-            code_execution_enabled: false,
-            persistent_env_name: None,
-            execution_timeout: None,
+            tools: ZeroOneOrMany::none(),
+            mcp_servers: Vec::new(),
         }
     }
 }
@@ -318,7 +325,7 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
 
     fn completion_provider<P>(self, provider: P) -> impl CandleAgentRoleBuilder
     where
-        P: DomainCompletionModel + Clone + Send + 'static,
+        P: DomainCompletionModel + Send + 'static,
     {
         CandleAgentBuilderImpl {
             name: self.name,
@@ -326,9 +333,8 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
             max_tokens: self.max_tokens,
             system_prompt: self.system_prompt,
             provider,
-            code_execution_enabled: self.code_execution_enabled,
-            persistent_env_name: self.persistent_env_name,
-            execution_timeout: self.execution_timeout,
+            tools: self.tools,
+            mcp_servers: self.mcp_servers,
         }
     }
 
@@ -384,11 +390,12 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
         self
     }
 
-    /// Set tools - EXACT syntax: .tools(CandleTool::<Perplexity>::new())
-    fn tools<T>(self, _tools: T) -> impl CandleAgentRoleBuilder
+    /// Set tools - EXACT syntax: .tools(tool1, tool2, tool3)
+    fn tools<T>(mut self, tools: T) -> impl CandleAgentRoleBuilder
     where
-        T: CandleTool,
+        T: Into<ZeroOneOrMany<ToolInfo>>,
     {
+        self.tools = tools.into();
         self
     }
 
@@ -401,6 +408,12 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
             parent_builder: self,
             binary_path: None,
         }
+    }
+
+    /// Add MCP server config - internal method for MCP server builder
+    fn add_mcp_server_config(mut self, config: McpServerConfig) -> impl CandleAgentRoleBuilder {
+        self.mcp_servers.push(config);
+        self
     }
 
     /// Set chunk handler - EXACT syntax: .on_chunk(|chunk| chunk)
@@ -444,9 +457,31 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
 
     /// Convert to agent - EXACT syntax: .into_agent()
     fn into_agent(self) -> impl CandleAgentBuilder {
-        // This shouldn't be called for no-provider builder, but return a placeholder
-        NoProviderAgent { _inner: self }
+        // Always provide default provider if none set
+        let default_provider = CandleCompletionProviderType::KimiK2(
+            CandleKimiK2Provider::default_for_builder()
+                .unwrap_or_else(|e| {
+                    log::warn!("Failed to create default KimiK2 provider: {}. Using minimal fallback.", e);
+                    // Create absolute minimal fallback if default_for_builder fails
+                    CandleKimiK2Provider::with_config_sync(
+                        "./models/kimi-k2".to_string(),
+                        CandleKimiK2Config::default()
+                    ).expect("Critical: Could not create fallback provider")
+                })
+        );
+        
+        CandleAgentBuilderImpl {
+            name: self.name,
+            provider: default_provider,
+            temperature: self.temperature,
+            max_tokens: self.max_tokens,
+            system_prompt: self.system_prompt,
+            tools: self.tools,
+            mcp_servers: self.mcp_servers,
+        }
     }
+
+
 }
 
 /// Debug information for agent configuration
@@ -499,22 +534,21 @@ impl CandleAgentBuilder for NoProviderAgent {
 }
 
 /// Agent builder implementation
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct CandleAgentBuilderImpl<P> {
     name: String,
     temperature: Option<f64>,
     max_tokens: Option<u64>,
     system_prompt: Option<String>,
     provider: P,
-    code_execution_enabled: bool,
-    persistent_env_name: Option<String>,
-    execution_timeout: Option<u64>,
+    tools: ZeroOneOrMany<ToolInfo>,
+    mcp_servers: Vec<McpServerConfig>,
 }
 
 // Implementation for with-provider builder (allows all methods)
 impl<P> CandleAgentRoleBuilder for CandleAgentBuilderImpl<P>
 where
-    P: DomainCompletionModel + Clone + Send + 'static,
+    P: DomainCompletionModel + Send + 'static,
 {
     fn new(name: impl Into<String>) -> impl CandleAgentRoleBuilder {
         CandleAgentRoleBuilderImpl::new(name)
@@ -522,7 +556,7 @@ where
 
     fn completion_provider<P2>(self, provider: P2) -> impl CandleAgentRoleBuilder
     where
-        P2: DomainCompletionModel + Clone + Send + 'static,
+        P2: DomainCompletionModel + Send + 'static,
     {
         CandleAgentBuilderImpl {
             name: self.name,
@@ -530,9 +564,8 @@ where
             max_tokens: self.max_tokens,
             system_prompt: self.system_prompt,
             provider,
-            code_execution_enabled: self.code_execution_enabled,
-            persistent_env_name: self.persistent_env_name,
-            execution_timeout: self.execution_timeout,
+            tools: self.tools,
+            mcp_servers: self.mcp_servers,
         }
     }
 
@@ -580,10 +613,11 @@ where
         self
     }
 
-    fn tools<T>(self, _tools: T) -> impl CandleAgentRoleBuilder
+    fn tools<T>(mut self, tools: T) -> impl CandleAgentRoleBuilder
     where
-        T: CandleTool,
+        T: Into<ZeroOneOrMany<ToolInfo>>,
     {
+        self.tools = tools.into();
         self
     }
 
@@ -595,6 +629,12 @@ where
             parent_builder: self,
             binary_path: None,
         }
+    }
+
+    /// Add MCP server config - internal method for MCP server builder
+    fn add_mcp_server_config(mut self, config: McpServerConfig) -> impl CandleAgentRoleBuilder {
+        self.mcp_servers.push(config);
+        self
     }
 
     fn on_chunk<F>(self, _handler: F) -> impl CandleAgentRoleBuilder
@@ -631,6 +671,7 @@ where
         })
     }
 
+
     fn into_agent(self) -> impl CandleAgentBuilder {
         self
     }
@@ -638,7 +679,7 @@ where
 
 impl<P> CandleAgentBuilder for CandleAgentBuilderImpl<P>
 where
-    P: DomainCompletionModel + Clone + Send + 'static,
+    P: DomainCompletionModel + Send + 'static,
 {
     /// Set conversation history
     fn conversation_history(
@@ -657,6 +698,8 @@ where
         let temperature = self.temperature.unwrap_or(0.7);
         let max_tokens = self.max_tokens.unwrap_or(1000);
         let system_prompt = self.system_prompt.clone();
+        let tools = self.tools;
+        let mcp_servers = self.mcp_servers;
 
         AsyncStream::with_channel(move |sender| {
             // Create initial empty conversation for handler to inspect
@@ -678,31 +721,62 @@ where
                 }
                 CandleChatLoop::UserPrompt(user_message)
                 | CandleChatLoop::Reprompt(user_message) => {
-                    // Create conversation with real user input for this inference
-                    let _conversation_with_input =
-                        CandleAgentConversation::with_user_input(&user_message);
-
-                    // Create prompt with system prompt if provided
-                    let full_prompt = if let Some(sys_prompt) = system_prompt {
-                        format!("{}\n\nUser: {}", sys_prompt, user_message)
-                    } else {
-                        format!("User: {}", user_message)
-                    };
-
-                    // Create CandlePrompt and CandleCompletionParams
-                    let prompt = CandlePrompt::new(full_prompt);
-                    let params = CandleCompletionParams {
-                        temperature,
-                        max_tokens: NonZeroU64::new(max_tokens),
-                        ..Default::default()
-                    };
-
-                    // Call REAL provider inference
-                    let completion_stream = provider.prompt(prompt, &params);
-
-                    // Convert CandleCompletionChunk to CandleMessageChunk and forward
-                    // Use ystream spawn pattern instead of tokio::spawn for proper thread safety
+                    // Spawn stream to handle operations (uses shared runtime for async)
+                    // BLOCKING CODE APPROVED: Using shared_runtime().block_on() for async operations within ystream closure (2025-01-XX)
                     let _background_stream = ystream::spawn_stream(move |stream_sender| {
+                        // Create conversation with real user input for this inference
+                        let _conversation_with_input =
+                            CandleAgentConversation::with_user_input(&user_message);
+
+                        // Initialize tool executor if tools are provided or MCP servers are configured
+                        let tool_executor = if !tools.is_empty() || !mcp_servers.is_empty() {
+                            let executor = UnifiedToolExecutor::with_mcp_servers(mcp_servers);
+                            match crate::runtime::shared_runtime().block_on(executor.initialize()) {
+                                Ok(()) => Some(executor),
+                                Err(e) => {
+                                    let error_chunk = CandleMessageChunk::Error(format!("Tool initialization failed: {}", e));
+                                    ystream::emit!(stream_sender, error_chunk);
+                                    return;
+                                }
+                            }
+                        } else {
+                            None
+                        };
+
+                        // Create prompt with system prompt if provided
+                        let full_prompt = if let Some(sys_prompt) = system_prompt {
+                            format!("{}\n\nUser: {}", sys_prompt, user_message)
+                        } else {
+                            format!("User: {}", user_message)
+                        };
+
+                        // Create CandlePrompt and CandleCompletionParams with tools if available
+                        let prompt = CandlePrompt::new(full_prompt);
+                        let mut params = CandleCompletionParams {
+                            temperature,
+                            max_tokens: NonZeroU64::new(max_tokens),
+                            ..Default::default()
+                        };
+
+                        // Combine builder tools with auto-generated tools
+                        if let Some(ref executor) = tool_executor {
+                            let auto_generated_tools = crate::runtime::shared_runtime().block_on(executor.get_available_tools());
+
+                            // Merge builder-provided tools with auto-generated tools
+                            let mut all_tools: Vec<ToolInfo> = tools.into();
+                            all_tools.extend(auto_generated_tools);
+
+                            if !all_tools.is_empty() {
+                                // Pass merged tools to completion system for function calling
+                                params.tools = Some(ZeroOneOrMany::from(all_tools));
+                            }
+                        }
+
+                        // Call REAL provider inference
+                        let completion_stream = provider.prompt(prompt, &params);
+
+                        // Convert CandleCompletionChunk to CandleMessageChunk and forward
+                        // Handle tool calls if they occur
                         let completion_results = completion_stream.collect();
                         for completion_chunk in completion_results {
                             let message_chunk = match completion_chunk {
@@ -725,7 +799,34 @@ where
                                     partial_input,
                                 } => CandleMessageChunk::ToolCall { id, name, partial_input },
                                 CandleCompletionChunk::ToolCallComplete { id, name, input } => {
-                                    CandleMessageChunk::ToolCallComplete { id, name, input }
+                                    // Execute the tool if we have an executor
+                                    if let Some(ref executor) = tool_executor {
+                                        // Convert input string to JsonValue
+                                        match serde_json::from_str::<serde_json::Value>(&input) {
+                                            Ok(args_json) => {
+                                                // Convert to SweetMCP JsonValue
+                                                let sweet_args = crate::domain::agent::role::convert_serde_to_sweet_json(args_json);
+                                                
+                                                // Execute the tool
+                                                match crate::runtime::shared_runtime().block_on(executor.call_tool(&name, sweet_args)) {
+                                                    Ok(response) => {
+                                                        // Convert response to text result
+                                                        let result_text = format!("Tool '{}' executed successfully: {:?}", name, response);
+                                                        CandleMessageChunk::Text(result_text)
+                                                    }
+                                                    Err(e) => {
+                                                        // Return error as text
+                                                        CandleMessageChunk::Error(format!("Tool '{}' execution failed: {}", name, e))
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                CandleMessageChunk::Error(format!("Tool '{}' invalid JSON input: {}", name, e))
+                                            }
+                                        }
+                                    } else {
+                                        CandleMessageChunk::ToolCallComplete { id, name, input }
+                                    }
                                 }
                                 CandleCompletionChunk::Error(error) => CandleMessageChunk::Error(error),
                             };

@@ -5,7 +5,7 @@
 use cyrup_sugars::ZeroOneOrMany;
 use crate::domain::chat::message::types::CandleMessageRole as MessageRole;
 use crate::context::Context;
-use crate::tool::Tool;
+use sweet_mcp_type::ToolInfo;
 
 /// Placeholder for Stdio type
 pub struct Stdio;

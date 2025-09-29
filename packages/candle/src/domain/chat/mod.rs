@@ -30,6 +30,7 @@ pub mod message;
 pub mod realtime;
 pub mod search;
 pub mod templates;
+pub mod types;
 
 // Re-export types with corrected names to avoid ambiguous glob re-exports
 pub use commands::{
@@ -68,6 +69,13 @@ pub use search::{
 pub use templates::{
     ChatTemplate as CandleChatTemplate, TemplateCategory as CandleTemplateCategory,
     TemplateManager as CandleTemplateManager,
+};
+pub use types::responses::{
+    ToolSelectionResponse as CandleToolSelectionResponse,
+    OpenAIFunctionCallResponse as CandleOpenAIFunctionCallResponse,
+    ToolCall as CandleToolCall,
+    FunctionCall as CandleFunctionCall,
+    FinalResponse as CandleFinalResponse,
 };
 
 // ============================================================================

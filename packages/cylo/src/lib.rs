@@ -141,68 +141,6 @@ use serde::{Deserialize, Serialize};
 // Use our own async task implementations
 pub use crate::async_task::{AsyncTask, AsyncTaskBuilder};
 
-// ============================================================================
-// Automatic execution helpers
-// ============================================================================
-
-/// Execute code with automatic backend selection
-pub fn execute_code_auto(code: &str, language: &str) -> AsyncTask<CyloResult<ExecutionResult>> {
-    let code = code.to_string();
-    let language = language.to_string();
-
-    AsyncTaskBuilder::new(async move {
-        // Use a default environment based on platform
-        let env = if cfg!(target_os = "macos") {
-            Cylo::Apple("python:alpine3.20".to_string())
-        } else if cfg!(target_os = "linux") {
-            Cylo::LandLock("/tmp/cylo_sandbox".to_string())
-        } else {
-            return Err(CyloError::internal("Unsupported platform"));
-        };
-
-        let backend = match create_backend(&env, BackendConfig::default()) {
-            Ok(backend) => backend,
-            Err(e) => return Err(e),
-        };
-        let request = ExecutionRequest::new(&code, &language);
-        let result = backend
-            .execute_code(request)
-            .await
-            .map_err(|e| CyloError::internal(format!("Task execution failed: {e}")))?;
-        Ok(result)
-    })
-    .spawn()
-}
-
-/// Execute Python code with automatic backend selection
-#[inline]
-pub fn execute_python(code: &str) -> AsyncTask<CyloResult<ExecutionResult>> {
-    execute_code_auto(code, "python")
-}
-
-/// Execute JavaScript code with automatic backend selection
-#[inline]
-pub fn execute_javascript(code: &str) -> AsyncTask<CyloResult<ExecutionResult>> {
-    execute_code_auto(code, "javascript")
-}
-
-/// Execute Rust code with automatic backend selection
-#[inline]
-pub fn execute_rust(code: &str) -> AsyncTask<CyloResult<ExecutionResult>> {
-    execute_code_auto(code, "rust")
-}
-
-/// Execute Bash code with automatic backend selection
-#[inline]
-pub fn execute_bash(code: &str) -> AsyncTask<CyloResult<ExecutionResult>> {
-    execute_code_auto(code, "bash")
-}
-
-/// Execute Go code with automatic backend selection
-#[inline]
-pub fn execute_go(code: &str) -> AsyncTask<CyloResult<ExecutionResult>> {
-    execute_code_auto(code, "go")
-}
 
 // ============================================================================
 // Performance monitoring and diagnostics

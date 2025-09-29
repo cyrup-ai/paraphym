@@ -7,6 +7,13 @@ edition = "2024"
 [dependencies]
 paraphym_simd = { path = "../simd" }
 cylo = { path = "../cylo" }
+
+# SweetMCP dependencies for proper MCP implementation
+sweetmcp-json-client = { path = "../sweetmcp/packages/json-client" }
+mcp-client-traits = { path = "../sweetmcp/packages/mcp-client-traits" }
+sweet_mcp_type = { path = "../sweetmcp/packages/sweet-mcp-type" }
+simd-json = { version = "0.15.1", default-features = false, features = ["known-key", "runtime-detection", "swar-number-parsing", "value-no-dup-keys"] }
+value-trait = "0.11.0"
 quyc = { git = "https://github.com/cyrup-ai/quyc", branch = "main", package = "quyc" }  
 cyrup_sugars = { git = "https://github.com/cyrup-ai/cyrup-sugars", branch = "main", package = "cyrup_sugars", features = ["all"] }
 ystream = { git = "https://github.com/cyrup-ai/ystream", branch = "main", package = "ystream" }
@@ -85,6 +92,7 @@ symphonia = { version = "0.5.4", features = ["all"], optional = true }
 
 # Core dependencies
 serde = { version = "1.0.219", features = ["derive"] }
+schemars = { version = "0.8", features = ["derive"] }
 thiserror = "2.0.12"
 uuid = { version = "1.17.0", features = ["v4", "serde"] }
 serde_json = "1.0.142"
