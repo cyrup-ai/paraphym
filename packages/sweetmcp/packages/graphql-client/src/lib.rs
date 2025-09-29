@@ -355,7 +355,6 @@ impl ProtocolClient for GraphQLClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio_test;
     
     #[tokio::test]
     async fn test_client_creation() {

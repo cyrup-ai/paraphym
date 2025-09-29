@@ -610,7 +610,7 @@ mod tests {
         let vocab = Arc::new(mock_vocabulary());
         let constraint = utils::boolean_constraint(vocab).expect("Should create boolean constraint");
 
-        let mut state = constraint.new_state();
+        let state = constraint.new_state();
 
         // Test valid boolean tokens
         assert!(constraint.try_next(&state, 2).unwrap()); // "true"

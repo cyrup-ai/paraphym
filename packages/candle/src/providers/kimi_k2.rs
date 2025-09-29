@@ -167,11 +167,10 @@ impl CandleKimiK2Provider {
     }
 
     /// Create default provider instance for builder pattern
+    /// Uses ProgressHub to download model if not already cached
     pub fn default_for_builder() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        Self::with_config_sync(
-            "./models/kimi-k2".to_string(),
-            CandleKimiK2Config::default()
-        )
+        let config = CandleKimiK2Config::default();
+        crate::runtime::shared_runtime().block_on(Self::with_config_async(config))
     }
 
     /// Create provider with custom configuration and existing model path

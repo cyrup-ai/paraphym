@@ -310,7 +310,6 @@ impl ConstrainedLogitsProcessor {
 mod tests {
     use super::*;
     use crate::context::ProcessingContext;
-    use crate::logits::constraints::json::JsonConstraint;
     
     #[test]
     fn test_unconstrained_processing() {

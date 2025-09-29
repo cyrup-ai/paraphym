@@ -154,7 +154,7 @@ async fn demo_graphql_hash_query(client: &reqwest::Client, base_url: &str) -> Re
         if let Some(hash_op) = data.get("hashOperation") {
             info!("  ✅ GraphQL response properly shaped with hashOperation field");
             
-            if let Some(hash_result) = hash_op.get("hash_result") {
+            if let Some(_hash_result) = hash_op.get("hash_result") {
                 info!("  ✅ Hash result included in shaped response");
             }
         } else {

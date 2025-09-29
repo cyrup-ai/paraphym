@@ -87,6 +87,30 @@ impl JsonClient {
         self
     }
 
+    /// Get the server URL
+    ///
+    /// # Returns
+    /// The base URL of the SweetMCP server
+    pub fn server_url(&self) -> &str {
+        &self.base_url
+    }
+
+    /// Get the protocol name
+    ///
+    /// # Returns
+    /// The protocol name ("JSON-RPC 2.0")
+    pub fn protocol_name(&self) -> &str {
+        "JSON-RPC 2.0"
+    }
+
+    /// Check if the client is connected
+    ///
+    /// # Returns
+    /// `true` if the client is ready to send requests (HTTP-based, always true after construction)
+    pub fn is_connected(&self) -> bool {
+        true
+    }
+
     /// Send a JSON-RPC 2.0 request to the SweetMCP server
     ///
     /// # Arguments
@@ -291,7 +315,6 @@ impl ProtocolClient for JsonClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio_test;
     
     #[test]
     fn test_client_creation() {
