@@ -12,15 +12,15 @@ license = "MIT OR Apache-2.0"
 #  • Enable serde_impl for ToolInfo serialization
 #  • Re-enable runtime_detections + fast-number parsing
 # ----------------------------
-simd-json = { version = "0.15.1", default-features = false, features = ["known-key", "runtime-detection", "swar-number-parsing", "value-no-dup-keys", "serde_impl"] }
+simd-json = { version = "0.16.0", default-features = false, features = ["known-key", "runtime-detection", "swar-number-parsing", "value-no-dup-keys", "serde_impl"] }
 serde = { version = "1.0", features = ["derive"] }
-smallvec = "1.15.0"
+smallvec = "1.15.1"
 
 # ----------------------------
 # Zero-copy editable TOML DOM:
 #  • `easy` feature restores Clone/Eq on Item
 # ----------------------------
-toml_edit = { version = "0.22.26"}
+toml_edit = { version = "0.23.6"}
 value-trait = "0.11.0"
 
 # (Optional, for tests; bring in `pretty_assertions` or similar if desired)

@@ -11,17 +11,17 @@ license = "MIT OR Apache-2.0"
 sweet_mcp_type = { path = "../sweet-mcp-type" }
 
 # Async runtime for trait method implementations
-tokio = { version = "1.47.0", features = ["full"] }
+tokio = { version = "1.47.1", features = ["full"] }
 
 # Error handling 
-thiserror = "2.0.9"
-anyhow = "1.0.94"
+thiserror = "2.0.17"
+anyhow = "1.0.100"
 
 # HTTP client abstractions
-reqwest = { version = "0.12.9", features = ["json"] }
+reqwest = { version = "0.12.23", features = ["json"] }
 
 # UUID generation for request IDs
-uuid = { version = "1.11.0", features = ["v4"] }
+uuid = { version = "1.18.1", features = ["v4"] }
 
 # Logging and tracing
 tracing = "0.1.41"
@@ -30,7 +30,7 @@ tracing = "0.1.41"
 value-trait = "0.11.0"
 
 # High-performance JSON parsing (to match sweet-mcp-type)
-simd-json = { version = "0.15.1", default-features = false, features = ["known-key", "runtime-detection", "swar-number-parsing", "value-no-dup-keys"] }
+simd-json = { version = "0.16.0", default-features = false, features = ["known-key", "runtime-detection", "swar-number-parsing", "value-no-dup-keys"] }
 
 [dev-dependencies]
 # Testing utilities
