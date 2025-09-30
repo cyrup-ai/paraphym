@@ -19,6 +19,10 @@ fn scalar_temperature_scale(logits: &mut [f32], temperature: f32) -> SimdResult<
     let inv_temp = 1.0 / temperature;
     for logit in logits.iter_mut() {
         *logit *= inv_temp;
+        // Handle potential Inf/NaN from extreme values
+        if !logit.is_finite() {
+            *logit = 0.0;
+        }
     }
     Ok(())
 }

@@ -47,11 +47,9 @@ impl SearchExporter {
             match export_options.format {
                 ExportFormat::Json => {
                     if let Ok(json) = self_clone.export_json_sync(&limited_results, &export_options)
-                    {
-                        if let Ok(value) = serde_json::from_str(&json) {
+                        && let Ok(value) = serde_json::from_str(&json) {
                             let _ = sender.send(CandleJsonChunk(value));
                         }
-                    }
                 }
                 _ => {
                     // Other formats not implemented in simplified version

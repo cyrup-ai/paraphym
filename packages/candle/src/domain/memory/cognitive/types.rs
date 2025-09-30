@@ -1073,10 +1073,7 @@ impl CognitiveState {
         // we'll implement this by creating a log entry and returning success for now
         // In a full implementation, this would modify the quantum signature's bonds
         log::info!(
-            "Adding quantum entanglement bond to {} with strength {} and type {:?}",
-            target_id,
-            bond_strength,
-            entanglement_type
+            "Adding quantum entanglement bond to {target_id} with strength {bond_strength} and type {entanglement_type:?}"
         );
 
         // Record the quantum operation for statistics

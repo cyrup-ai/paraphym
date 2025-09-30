@@ -56,9 +56,7 @@ impl ImmutableMessageContent {
     pub fn as_text(&self) -> &str {
         match self {
             Self::Plain { text } => text,
-            Self::Markdown { content, .. } => content,
-            Self::Code { content, .. } => content,
-            Self::Formatted { content, .. } => content,
+            Self::Markdown { content, .. } | Self::Code { content, .. } | Self::Formatted { content, .. } => content,
             Self::Composite { .. } => "", // Composite content needs rendering
         }
     }
@@ -80,9 +78,7 @@ impl ImmutableMessageContent {
     pub fn is_empty(&self) -> bool {
         match self {
             Self::Plain { text } => text.is_empty(),
-            Self::Markdown { content, .. } => content.is_empty(),
-            Self::Code { content, .. } => content.is_empty(),
-            Self::Formatted { content, .. } => content.is_empty(),
+            Self::Markdown { content, .. } | Self::Code { content, .. } | Self::Formatted { content, .. } => content.is_empty(),
             Self::Composite { parts } => parts.is_empty(),
         }
     }
@@ -92,9 +88,7 @@ impl ImmutableMessageContent {
     pub fn char_count(&self) -> usize {
         match self {
             Self::Plain { text } => text.chars().count(),
-            Self::Markdown { content, .. } => content.chars().count(),
-            Self::Code { content, .. } => content.chars().count(),
-            Self::Formatted { content, .. } => content.chars().count(),
+            Self::Markdown { content, .. } | Self::Code { content, .. } | Self::Formatted { content, .. } => content.chars().count(),
             Self::Composite { parts } => parts.iter().map(|p| p.char_count()).sum(),
         }
     }
@@ -927,23 +921,23 @@ impl FormatterStats {
 
 /// Legacy compatibility type aliases (deprecated)
 ///
-/// Deprecated alias for ImmutableMessageContent - use ImmutableMessageContent instead for zero-allocation streaming
+/// Deprecated alias for `ImmutableMessageContent` - use `ImmutableMessageContent` instead for zero-allocation streaming
 #[deprecated(note = "Use ImmutableMessageContent instead for zero-allocation streaming")]
 pub type MessageContent = ImmutableMessageContent;
 
-/// Deprecated alias for ImmutableFormatOptions - use ImmutableFormatOptions instead for zero-allocation streaming
+/// Deprecated alias for `ImmutableFormatOptions` - use `ImmutableFormatOptions` instead for zero-allocation streaming
 #[deprecated(note = "Use ImmutableFormatOptions instead for zero-allocation streaming")]
 pub type FormatOptions = ImmutableFormatOptions;
 
-/// Deprecated alias for ImmutableColorScheme - use ImmutableColorScheme instead for zero-allocation streaming
+/// Deprecated alias for `ImmutableColorScheme` - use `ImmutableColorScheme` instead for zero-allocation streaming
 #[deprecated(note = "Use ImmutableColorScheme instead for zero-allocation streaming")]
 pub type ColorScheme = ImmutableColorScheme;
 
-/// Deprecated alias for ImmutableCustomFormatRule - use ImmutableCustomFormatRule instead for zero-allocation streaming
+/// Deprecated alias for `ImmutableCustomFormatRule` - use `ImmutableCustomFormatRule` instead for zero-allocation streaming
 #[deprecated(note = "Use ImmutableCustomFormatRule instead for zero-allocation streaming")]
 pub type CustomFormatRule = ImmutableCustomFormatRule;
 
-/// Legacy compatibility alias for StreamingMessageFormatter
+/// Legacy compatibility alias for `StreamingMessageFormatter`
 #[deprecated(note = "Use StreamingMessageFormatter instead for zero-allocation streaming")]
 pub type MessageFormatter = StreamingMessageFormatter;
 

@@ -1,4 +1,4 @@
-//! Main ImmutableChatCommand enum with zero allocation patterns
+//! Main `ImmutableChatCommand` enum with zero allocation patterns
 //!
 //! Provides blazing-fast command enumeration with owned strings allocated once
 //! for maximum performance. No Arc usage, no locking, comprehensive validation.
@@ -109,7 +109,7 @@ impl OutputType {
     #[inline]
     pub const fn mime_type(&self) -> &'static str {
         match self {
-            Self::Text => "text/plain",
+            Self::Text | Self::Log | Self::Error => "text/plain",
             Self::Json => "application/json",
             Self::Markdown => "text/markdown",
             Self::Html => "text/html",
@@ -120,8 +120,6 @@ impl OutputType {
             Self::Image => "image/png",
             Self::Audio => "audio/mpeg",
             Self::Video => "video/mp4",
-            Self::Log => "text/plain",
-            Self::Error => "text/plain",
         }
     }
 }
@@ -539,10 +537,8 @@ impl ImmutableChatCommand {
         match self {
             Self::Chat { priority, .. } => *priority,
             Self::Help { .. } => 1, // High priority
-            Self::Clear { .. } => 2,
-            Self::Undo { .. } => 2,
-            Self::Config { .. } => 3,
-            Self::Settings { .. } => 3,
+            Self::Clear { .. } | Self::Undo { .. } => 2,
+            Self::Config { .. } | Self::Settings { .. } => 3,
             Self::Debug { .. } => 4,
             Self::Stats { .. } => 5,
             _ => 10, // Standard priority
@@ -709,16 +705,11 @@ impl ImmutableChatCommand {
         match self {
             Self::Help { .. } => 100,
             Self::Clear { .. } => 50,
-            Self::Export { .. } => 5000,
-            Self::Search { .. } => 2000,
+            Self::Export { .. } | Self::Chat { .. } => 5000,
+            Self::Search { .. } | Self::Save { .. } => 2000,
             Self::Import { .. } => 10000,
-            Self::Stats { .. } => 3000,
-            Self::Debug { .. } => 1000,
-            Self::History { .. } => 1000,
-            Self::Save { .. } => 2000,
-            Self::Load { .. } => 3000,
-            Self::Chat { .. } => 5000,
-            _ => 1000,
+            Self::Stats { .. } | Self::Load { .. } => 3000,
+            Self::Debug { .. } | Self::History { .. } | _ => 1000,
         }
     }
 

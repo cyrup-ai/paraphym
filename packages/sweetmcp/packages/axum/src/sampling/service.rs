@@ -211,18 +211,15 @@ pub fn sampling_create_message_stream(request: CreateMessageRequest) -> Sampling
             }
         };
 
-        // Build prompt from system prompt + messages
-        let mut full_prompt = String::new();
-        if let Some(system_prompt) = &request.system_prompt {
-            full_prompt.push_str(system_prompt);
-            full_prompt.push_str("\n\n");
-        }
-
-        for msg in &request.messages {
-            if let McpMessageContent { text: Some(text), .. } = &msg.content {
-                full_prompt.push_str(&format!("{}: {}\n", msg.role, text));
+        // Build and validate prompt from request
+        let full_prompt = match build_prompt_from_request(&request) {
+            Ok(prompt) => prompt,
+            Err(e) => {
+                error!("{}", e);
+                let _ = tx_stream.send(Err(rpc_router::HandlerError::new(e))).await;
+                return;
             }
-        }
+        };
 
         let prompt = CandlePrompt::new(full_prompt);
 

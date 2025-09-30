@@ -95,11 +95,10 @@ pub fn parse_score_from_response(response: &str) -> Option<f64> {
     let re = Regex::new(r"([01]?\.\d+|[01]\.?0*)").ok()?;
 
     for cap in re.captures_iter(response) {
-        if let Ok(score) = cap[1].parse::<f64>() {
-            if score >= 0.0 && score <= 1.0 {
+        if let Ok(score) = cap[1].parse::<f64>()
+            && score >= 0.0 && score <= 1.0 {
                 return Some(score);
             }
-        }
     }
     None
 }

@@ -87,9 +87,10 @@ pub struct TemplateInfo {
 }
 
 /// Template category enumeration
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum TemplateCategory {
     /// General chat conversation templates
+    #[default]
     Chat,
     /// System-level templates for internal operations
     System,
@@ -111,11 +112,7 @@ pub enum TemplateCategory {
     Custom,
 }
 
-impl Default for TemplateCategory {
-    fn default() -> Self {
-        Self::Chat
-    }
-}
+
 
 /// Variable type enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -238,7 +235,7 @@ impl From<&str> for TemplateValue {
 
 impl From<String> for TemplateValue {
     fn from(s: String) -> Self {
-        Self::String(s.to_string())
+        Self::String(s)
     }
 }
 
@@ -398,7 +395,7 @@ impl CompiledTemplate {
                     }
                 } else {
                     Err(TemplateError::VariableError {
-                        message: format!("Variable '{}' not found", name.to_string()),
+                        message: format!("Variable '{name}' not found"),
                     })
                 }
             }
@@ -408,7 +405,7 @@ impl CompiledTemplate {
                     let rendered = self.render_ast(node, context)?;
                     result.push_str(&rendered);
                 }
-                Ok(result.to_string())
+                Ok(result)
             }
             TemplateAst::Conditional {
                 condition,
@@ -472,11 +469,11 @@ impl ChatTemplate {
             compiled.render(&context)
         } else {
             // Simple variable replacement for non-compiled templates
-            let mut result = self.content.to_string();
+            let mut result = self.content.clone();
             for (key, value) in variables {
                 result = result.replace(&format!("{{{{{key}}}}}"), value);
             }
-            Ok(result.to_string())
+            Ok(result)
         }
     }
 

@@ -84,7 +84,7 @@ impl CandleEnhancedHistoryManager {
     ) -> AsyncStream<CandleSearchResult> {
         // TODO: Implement full search functionality in Phase 2.3
         // For now, return empty stream until domain ChatSearchIndex has search methods
-        let _query = query; // Avoid unused parameter warning
+        let _ = query; // Parameter acknowledged but not yet implemented
         AsyncStream::with_channel(move |_sender| {
             // Placeholder - will be implemented with enhanced search features
         })

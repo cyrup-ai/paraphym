@@ -605,7 +605,7 @@ impl cyrup_sugars::prelude::MessageChunk for MemoryNode {
         
         MemoryNode::new(
             MemoryTypeEnum::Semantic,
-            MemoryContent::text(format!("Error: {}", error))
+            MemoryContent::text(format!("Error: {error}"))
         )
     }
 

@@ -52,7 +52,7 @@ pub enum ParameterType {
     Date,
     /// Time parameter (HH:MM:SS format)
     Time,
-    /// DateTime parameter (ISO 8601 format)
+    /// `DateTime` parameter (`ISO 8601` format)
     DateTime,
 }
 
@@ -241,11 +241,10 @@ impl ParameterType {
 
         Some(match unit {
             "ms" => num / 1000,
-            "s" => num,
             "m" => num * 60,
             "h" => num * 3600,
             "d" => num * 86400,
-            _ => num,
+            "s" | _ => num,
         })
     }
 
@@ -367,6 +366,7 @@ impl ParameterInfo {
     }
 
     /// Add numeric range constraints - builder pattern for fluent API
+    #[must_use]
     #[inline]
     pub fn with_range(mut self, min: f64, max: f64) -> Self {
         self.min_value = Some(min);
@@ -375,6 +375,7 @@ impl ParameterInfo {
     }
 
     /// Add validation pattern - builder pattern for fluent API
+    #[must_use]
     #[inline]
     pub fn with_pattern(mut self, pattern: impl Into<String>) -> Self {
         self.pattern = Some(pattern.into());
@@ -382,6 +383,7 @@ impl ParameterInfo {
     }
 
     /// Add usage examples - builder pattern for fluent API
+    #[must_use]
     #[inline]
     pub fn with_examples(mut self, examples: Vec<String>) -> Self {
         self.examples = examples;

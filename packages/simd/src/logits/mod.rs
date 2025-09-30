@@ -87,15 +87,24 @@ pub fn process_logits_scalar(
     // Apply top-k filtering if enabled
     if let Some(k) = context.top_k
         && k < logits.len() {
-            // Find the k-th largest element
+            // Use partial sort to find the k-th largest element efficiently
             let mut sorted: Vec<f32> = logits.to_vec();
-            sorted.sort_unstable_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
-
-            // Set all elements below the k-th to negative infinity
-            let threshold = sorted[k-1];
-            for x in logits.iter_mut() {
-                if *x < threshold {
-                    *x = f32::NEG_INFINITY;
+            
+            if k > 0 && k < sorted.len() {
+                // Find the k-th largest element position
+                let kth = sorted.len() - k;
+                sorted.select_nth_unstable_by(kth, |a, b| {
+                    a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+                });
+                
+                // Get threshold value at the k-th position
+                let threshold = sorted[kth];
+                
+                // Mask all values below threshold
+                for x in logits.iter_mut() {
+                    if *x < threshold {
+                        *x = f32::NEG_INFINITY;
+                    }
                 }
             }
         }

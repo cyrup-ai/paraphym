@@ -170,11 +170,9 @@ impl DistanceMetric {
     #[inline]
     pub const fn value_range(&self) -> (f32, f32) {
         match self {
-            Self::Cosine => (-1.0, 1.0),
-            Self::Euclidean | Self::Manhattan => (0.0, f32::INFINITY),
+            Self::Cosine | Self::Jaccard => (-1.0, 1.0),
+            Self::Euclidean | Self::Manhattan | Self::Hamming => (0.0, f32::INFINITY),
             Self::DotProduct => (f32::NEG_INFINITY, f32::INFINITY),
-            Self::Hamming => (0.0, f32::INFINITY),
-            Self::Jaccard => (0.0, 1.0),
         }
     }
 }
@@ -328,11 +326,8 @@ impl IndexType {
     pub const fn build_complexity(&self) -> &'static str {
         match self {
             Self::FlatIP | Self::FlatL2 => "O(1)",
-            Self::IVFPQ => "O(n)",
-            Self::HNSW => "O(n log n)",
-            Self::Annoy => "O(n log n)",
-            Self::LSH => "O(n)",
-            Self::SQ => "O(n)",
+            Self::IVFPQ | Self::LSH | Self::SQ => "O(n)",
+            Self::HNSW | Self::Annoy => "O(n log n)",
         }
     }
 }

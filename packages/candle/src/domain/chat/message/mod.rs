@@ -166,8 +166,7 @@ pub mod types {
         /// Extract text content if available
         pub fn text_content(&self) -> Option<&str> {
             match self {
-                Self::Text(text) => Some(text),
-                Self::Complete { text, .. } => Some(text),
+                Self::Text(text) | Self::Complete { text, .. } => Some(text),
                 _ => None,
             }
         }
@@ -384,7 +383,7 @@ pub mod media {
     }
 
     impl CandleMediaType {
-        /// Create a CandleMediaType from a MIME type string
+        /// Create a `CandleMediaType` from a `MIME` type string
         pub fn from_mime_type(mime_type: &str) -> Option<Self> {
             match mime_type {
                 // Image types

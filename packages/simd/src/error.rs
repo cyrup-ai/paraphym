@@ -25,10 +25,6 @@ pub enum SimdError {
     #[error("Unsupported operation: {0}")]
     UnsupportedOperation(String),
 
-    /// Tensor operation failed
-    #[error("Tensor operation failed: {0}")]
-    TensorOperation(String),
-
     /// Invalid input length
     #[error("Invalid input length: expected {expected}, got {actual}")]
     InvalidInputLength {

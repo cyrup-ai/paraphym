@@ -113,12 +113,11 @@ impl InMemoryVectorStore {
 
             if heap.len() < limit {
                 heap.push(Reverse((similarity.to_bits(), id.clone())));
-            } else if let Some(&Reverse((min_sim, _))) = heap.peek() {
-                if similarity.to_bits() > min_sim {
+            } else if let Some(&Reverse((min_sim, _))) = heap.peek()
+                && similarity.to_bits() > min_sim {
                     heap.pop();
                     heap.push(Reverse((similarity.to_bits(), id.clone())));
                 }
-            }
         }
 
         // Extract results and convert back to f32, sorted descending
@@ -233,8 +232,8 @@ impl VectorStore for InMemoryVectorStore {
         // Iterate through all vectors and apply filters
         for (id, vector) in &self.vectors {
             // Apply filters if any
-            if let Some(ref filters) = filters {
-                if let Some(metadata) = self.metadata.get(id) {
+            if let Some(ref filters) = filters
+                && let Some(metadata) = self.metadata.get(id) {
                     let mut matches = true;
                     for (key, value) in filters {
                         if metadata.get(key) != Some(value) {
@@ -245,10 +244,9 @@ impl VectorStore for InMemoryVectorStore {
                     if !matches {
                         continue;
                     }
-                } else {
+                } else if filters.is_some() {
                     continue; // No metadata, skip if filters are present
                 }
-            }
 
             let similarity = cosine_similarity(query_vector, vector);
 

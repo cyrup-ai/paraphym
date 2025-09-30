@@ -242,13 +242,12 @@ impl CandleModelRegistry {
             Some(_) => {
                 // For now, this method is not fully implemented due to Arc<T> conversion complexity
                 Err(CandleModelError::InvalidConfiguration(
-                    format!("Model downcast for '{}' from provider '{}' requires additional implementation", name, provider).into()
+                    format!("Model downcast for '{name}' from provider '{provider}' requires additional implementation").into()
                 ))
             }
             None => Err(CandleModelError::InvalidConfiguration(
                 format!(
-                    "Model '{}' from provider '{}' is not of the requested type",
-                    name, provider
+                    "Model '{name}' from provider '{provider}' is not of the requested type"
                 )
                 .into(),
             )),
@@ -284,8 +283,7 @@ impl CandleModelRegistry {
         // Attempt to convert the handle to a boxed trait object
         // This is complex for ?Sized types and requires careful implementation
         Err(CandleModelError::InvalidConfiguration(Cow::Owned(format!(
-            "Boxed trait object conversion for model '{}' from provider '{}' requires additional implementation for ?Sized types",
-            name, provider
+            "Boxed trait object conversion for model '{name}' from provider '{provider}' requires additional implementation for ?Sized types"
         ))))
     }
 

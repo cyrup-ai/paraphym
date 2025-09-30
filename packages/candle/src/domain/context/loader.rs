@@ -160,8 +160,8 @@ impl Loader<PathBuf> for LoaderImpl<PathBuf> {
         let pattern = self.pattern.clone();
 
         AsyncStream::with_channel(move |sender| {
-            if let Some(p) = pattern {
-                if let Ok(paths) = glob::glob(&p) {
+            if let Some(p) = pattern
+                && let Ok(paths) = glob::glob(&p) {
                     for path in paths.filter_map(Result::ok) {
                         let chunk = CandlePathChunk::from(path);
                         if sender.try_send(chunk).is_err() {
@@ -169,7 +169,6 @@ impl Loader<PathBuf> for LoaderImpl<PathBuf> {
                         }
                     }
                 }
-            }
         })
     }
 
@@ -182,10 +181,9 @@ impl Loader<PathBuf> for LoaderImpl<PathBuf> {
         ystream::spawn_task(move || {
             let paths = load_task.collect();
             let results: Vec<U> = match paths {
-                Ok(ZeroOneOrMany::None) => Vec::new(),
+                Ok(ZeroOneOrMany::None) | Err(_) => Vec::new(),
                 Ok(ZeroOneOrMany::One(path)) => vec![processor(&path)],
                 Ok(ZeroOneOrMany::Many(paths)) => paths.iter().map(|p| processor(p)).collect(),
-                Err(_) => Vec::new(),
             };
 
             // Convert Vec<U> to ZeroOneOrMany<U> without unwrap

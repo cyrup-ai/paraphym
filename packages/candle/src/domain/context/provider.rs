@@ -215,8 +215,7 @@ impl MessageChunk for CandleContextEvent {
 
     fn error(&self) -> Option<&str> {
         match self {
-            CandleContextEvent::ContextLoadFailed { error, .. } => Some(error),
-            CandleContextEvent::ValidationFailed { error, .. } => Some(error),
+            CandleContextEvent::ContextLoadFailed { error, .. } | CandleContextEvent::ValidationFailed { error, .. } => Some(error),
             _ => None,
         }
     }
@@ -946,11 +945,10 @@ impl CandleContext<CandleDirectory> {
                             current_depth: usize,
                             sender: &AsyncStreamSender<Document, 1024>,
                         ) -> Result<(), std::io::Error> {
-                            if let Some(max) = max_depth {
-                                if current_depth > max {
+                            if let Some(max) = max_depth
+                                && current_depth > max {
                                     return Ok(());
                                 }
-                            }
 
                             for entry in std::fs::read_dir(path)? {
                                 let entry = entry?;
@@ -966,8 +964,8 @@ impl CandleContext<CandleDirectory> {
                                             .unwrap_or(false)
                                     };
 
-                                    if should_include {
-                                        if let Ok(content) = std::fs::read_to_string(&path) {
+                                    if should_include
+                                        && let Ok(content) = std::fs::read_to_string(&path) {
                                             let document = Document {
                                                 data: content,
                                                 format: Some(crate::domain::context::CandleContentFormat::Text),
@@ -992,9 +990,8 @@ impl CandleContext<CandleDirectory> {
                                                 }};
                                             let _ = sender.send(document);
                                         }
-                                    }
-                                } else if path.is_dir() && recursive {
-                                    if let Some(path_str) = path.to_str() {
+                                } else if path.is_dir() && recursive
+                                    && let Some(path_str) = path.to_str() {
                                         traverse_dir(
                                             path_str,
                                             recursive,
@@ -1004,7 +1001,6 @@ impl CandleContext<CandleDirectory> {
                                             sender,
                                         )?;
                                     }
-                                }
                             }
                             Ok(())
                         }

@@ -774,9 +774,10 @@ impl MacroSystem {
 }
 
 /// Result of macro action execution
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum ActionExecutionResult {
     /// Action executed successfully
+    #[default]
     Success,
     /// Wait for specified duration before continuing
     Wait(Duration),
@@ -784,12 +785,6 @@ pub enum ActionExecutionResult {
     SkipToAction(usize),
     /// Execution failed with error message
     Error(String),
-}
-
-impl Default for ActionExecutionResult {
-    fn default() -> Self {
-        ActionExecutionResult::Success
-    }
 }
 
 impl MessageChunk for ActionExecutionResult {
@@ -1424,11 +1419,11 @@ impl Default for MacroProcessor {
     }
 }
 
-/// Wrapper for Uuid to implement MessageChunk
+/// Wrapper for `Uuid` to implement `MessageChunk`
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MacroSessionId(pub Uuid);
 
-/// Wrapper for () to implement MessageChunk
+/// Wrapper for `()` to implement `MessageChunk`
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MacroActionResult;
 

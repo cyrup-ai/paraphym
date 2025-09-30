@@ -39,18 +39,18 @@ impl fmt::Display for CandleModelError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::ModelNotFound { provider, name } => {
-                write!(f, "Model not found: {}:{}", provider, name)
+                write!(f, "Model not found: {provider}:{name}")
             }
-            Self::ProviderNotFound(provider) => write!(f, "Provider not found: {}", provider),
+            Self::ProviderNotFound(provider) => write!(f, "Provider not found: {provider}"),
             Self::ModelAlreadyExists { provider, name } => {
-                write!(f, "Model already registered: {}:{}", provider, name)
+                write!(f, "Model already registered: {provider}:{name}")
             }
-            Self::InvalidConfiguration(msg) => write!(f, "Invalid model configuration: {}", msg),
+            Self::InvalidConfiguration(msg) => write!(f, "Invalid model configuration: {msg}"),
             Self::OperationNotSupported(msg) => {
-                write!(f, "Operation not supported by model: {}", msg)
+                write!(f, "Operation not supported by model: {msg}")
             }
-            Self::InvalidInput(msg) => write!(f, "Invalid input: {}", msg),
-            Self::Internal(msg) => write!(f, "Internal error: {}", msg),
+            Self::InvalidInput(msg) => write!(f, "Invalid input: {msg}"),
+            Self::Internal(msg) => write!(f, "Internal error: {msg}"),
         }
     }
 }

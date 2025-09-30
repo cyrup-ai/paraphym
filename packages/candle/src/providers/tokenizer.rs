@@ -443,7 +443,7 @@ pub mod utils {
             && !text
                 .chars()
                 .nth(split_pos)
-                .map_or(false, char::is_whitespace)
+                .is_some_and(char::is_whitespace)
         {
             split_pos -= 1;
         }

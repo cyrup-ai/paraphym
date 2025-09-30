@@ -78,8 +78,6 @@ pub fn sample_from_nucleus<R: Rng>(probs: &[f32], rng: &mut R) -> LogitsResult<u
 
 #[cfg(test)]
 mod tests {
-    use rand::rng;
-
     use super::*;
 
     #[test]
@@ -107,7 +105,7 @@ mod tests {
     #[test]
     fn test_sample_from_nucleus() {
         let probs = vec![0.1, 0.2, 0.3, 0.4];
-        let mut rng = rng();
+        let mut rng = rand::rng();
         let idx = sample_from_nucleus(&probs, &mut rng)
             .expect("Sampling from nucleus should succeed with valid probabilities");
         assert!(idx < probs.len());

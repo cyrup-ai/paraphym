@@ -74,6 +74,7 @@ impl CommandInfo {
     }
 
     /// Add parameters - builder pattern for fluent API
+    #[must_use]
     #[inline]
     pub fn with_parameters(mut self, parameters: Vec<ParameterInfo>) -> Self {
         self.parameters = parameters;
@@ -81,6 +82,7 @@ impl CommandInfo {
     }
 
     /// Add aliases - builder pattern for fluent API
+    #[must_use]
     #[inline]
     pub fn with_aliases(mut self, aliases: Vec<String>) -> Self {
         self.aliases = aliases;
@@ -88,6 +90,7 @@ impl CommandInfo {
     }
 
     /// Add examples - builder pattern for fluent API
+    #[must_use]
     #[inline]
     pub fn with_examples(mut self, examples: Vec<String>) -> Self {
         self.examples = examples;
@@ -95,6 +98,7 @@ impl CommandInfo {
     }
 
     /// Set version - builder pattern for fluent API
+    #[must_use]
     #[inline]
     pub fn with_version(mut self, version: impl Into<String>) -> Self {
         self.version = version.into();
@@ -102,6 +106,7 @@ impl CommandInfo {
     }
 
     /// Set author - builder pattern for fluent API
+    #[must_use]
     #[inline]
     pub fn with_author(mut self, author: impl Into<String>) -> Self {
         self.author = Some(author.into());
@@ -109,6 +114,7 @@ impl CommandInfo {
     }
 
     /// Add tags - builder pattern for fluent API
+    #[must_use]
     #[inline]
     pub fn with_tags(mut self, tags: Vec<String>) -> Self {
         self.tags = tags;
@@ -116,6 +122,7 @@ impl CommandInfo {
     }
 
     /// Set required permissions - builder pattern for fluent API
+    #[must_use]
     #[inline]
     pub fn with_permissions(mut self, permissions: Vec<String>) -> Self {
         self.required_permissions = permissions;
@@ -123,6 +130,7 @@ impl CommandInfo {
     }
 
     /// Mark as deprecated - builder pattern for fluent API
+    #[must_use]
     #[inline]
     pub fn deprecated(mut self, message: impl Into<String>) -> Self {
         self.deprecated = true;
@@ -131,6 +139,7 @@ impl CommandInfo {
     }
 
     /// Mark as experimental - builder pattern for fluent API
+    #[must_use]
     #[inline]
     pub fn experimental(mut self) -> Self {
         self.experimental = true;
@@ -139,6 +148,7 @@ impl CommandInfo {
     }
 
     /// Set stability level - builder pattern for fluent API
+    #[must_use]
     #[inline]
     pub fn with_stability(mut self, stability: StabilityLevel) -> Self {
         self.stability = stability;

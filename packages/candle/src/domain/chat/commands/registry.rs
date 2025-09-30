@@ -38,7 +38,15 @@ impl CommandRegistry {
     }
 
     /// Register a command with compile-time validation
-    pub fn register(&self, info: CommandInfo) -> Result<(), CandleCommandError> {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Command name is empty
+    /// - Command description is empty
+    /// - Command name is already registered
+    /// - Any alias is already registered
+    pub fn register(&self, info: &CommandInfo) -> Result<(), CandleCommandError> {
         // Validate command info
         if info.name.is_empty() {
             return Err(CandleCommandError::ConfigurationError {
@@ -94,6 +102,10 @@ impl CommandRegistry {
     }
 
     /// Unregister a command
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleCommandError::UnknownCommand` if the command name is not found in the registry
     pub fn unregister(&self, name: &str) -> Result<(), CandleCommandError> {
         let command_name = name.to_string();
 
@@ -247,6 +259,13 @@ impl CommandRegistry {
     }
 
     /// Validate registry consistency
+    ///
+    /// # Errors
+    ///
+    /// Returns a vector of `CandleCommandError::ConfigurationError` for each validation failure found:
+    /// - Orphaned aliases pointing to non-existent commands
+    /// - Empty categories with no commands
+    /// - Commands with parameters that have empty names
     pub fn validate(&self) -> Result<(), Vec<CandleCommandError>> {
         let mut errors = Vec::new();
 
@@ -310,6 +329,10 @@ impl CommandRegistry {
     }
 
     /// Export registry to JSON
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleCommandError::ConfigurationError` if JSON serialization fails
     pub fn export_to_json(&self) -> Result<String, CandleCommandError> {
         let commands: Vec<CommandInfo> = self.list_commands();
         serde_json::to_string_pretty(&commands).map_err(|e| {
@@ -320,6 +343,12 @@ impl CommandRegistry {
     }
 
     /// Import registry from JSON
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleCommandError::ConfigurationError` if:
+    /// - JSON deserialization fails
+    /// - Any imported command fails validation during registration
     pub fn import_from_json(&self, json: &str) -> Result<(), CandleCommandError> {
         let commands: Vec<CommandInfo> =
             serde_json::from_str(json).map_err(|e| CandleCommandError::ConfigurationError {
@@ -330,7 +359,7 @@ impl CommandRegistry {
         self.clear();
 
         // Register imported commands
-        for command in commands {
+        for command in &commands {
             self.register(command)?;
         }
 
@@ -361,7 +390,11 @@ pub fn get_global_registry() -> &'static CommandRegistry {
 }
 
 /// Register command globally
-pub fn register_global_command(info: CommandInfo) -> Result<(), CandleCommandError> {
+///
+/// # Errors
+///
+/// Returns an error if command registration fails (see `CommandRegistry::register` for details)
+pub fn register_global_command(info: &CommandInfo) -> Result<(), CandleCommandError> {
     get_global_registry().register(info)
 }
 

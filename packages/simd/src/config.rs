@@ -42,6 +42,10 @@ pub enum ConfigError {
     #[error("Invalid temperature value: {0}. Must be positive")]
     InvalidTemperature(f32),
 
+    /// Invalid top_k value - must be > 0 if set
+    #[error("Invalid top_k value: {0}. Must be > 0 if set")]
+    InvalidTopK(usize),
+
     /// Invalid top_p value - must be in range (0.0, 1.0]
     #[error("Invalid top_p value: {0}. Must be in range (0.0, 1.0]")]
     InvalidTopP(f32),
@@ -70,6 +74,11 @@ impl ProcessorConfig {
         if self.temperature <= 0.0 {
             return Err(ConfigError::InvalidTemperature(self.temperature));
         }
+
+        if let Some(k) = self.top_k
+            && k == 0 {
+                return Err(ConfigError::InvalidTopK(k));
+            }
 
         if let Some(top_p) = self.top_p
             && !(0.0..=1.0).contains(&top_p) {

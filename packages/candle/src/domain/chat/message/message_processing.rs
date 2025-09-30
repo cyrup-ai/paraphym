@@ -8,7 +8,7 @@ use ystream::AsyncStream;
 use unicode_normalization::UnicodeNormalization;
 use thiserror::Error;
 
-use super::types::{CandleMessage, CandleMessageRole};
+use super::types::CandleMessage;
 
 /// Maximum allowed content length (100K characters = ~400KB UTF-8)
 const MAX_CONTENT_LENGTH: usize = 100_000;
@@ -101,7 +101,7 @@ pub fn validate_message(message: CandleMessage) -> AsyncStream<CandleMessage> {
 /// This multi-stage approach defends against multiple attack vectors:
 /// - XSS: HTML escaping prevents script injection
 /// - Terminal corruption: Control char filtering blocks ANSI escapes
-/// - Unicode attacks: NFC normalization prevents homograph bypasses
+/// - Unicode attacks: `NFC` normalization prevents homograph bypasses
 /// - DoS: Length validation prevents memory exhaustion
 pub fn sanitize_content(content: &str) -> Result<String, SanitizationError> {
     // Stage 1: Length validation (DoS prevention)
@@ -149,18 +149,6 @@ pub fn validate_message_sync(message: &CandleMessage) -> Result<(), String> {
         return Err("Empty message content".to_string());
     }
 
-    // Validate role-specific constraints
-    match message.role {
-        CandleMessageRole::User => {
-            // User-specific validation if needed
-        }
-        CandleMessageRole::Assistant => {
-            // Assistant-specific validation if needed
-        }
-        _ => {
-            // Other role validation if needed
-        }
-    }
     Ok(())
 }
 

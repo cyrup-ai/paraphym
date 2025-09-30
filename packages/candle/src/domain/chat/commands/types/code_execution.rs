@@ -176,6 +176,7 @@ echo "File processing complete""#,
 
     /// Set validation configuration - builder pattern for fluent API
     #[inline]
+    #[must_use]
     pub fn with_validation_config(mut self, config: ValidationConfig) -> Self {
         self.validation_config = config;
         self
@@ -183,6 +184,7 @@ echo "File processing complete""#,
 
     /// Set resource limits - builder pattern for fluent API
     #[inline]
+    #[must_use]
     pub fn with_resource_limits(mut self, limits: ResourceLimits) -> Self {
         self.resource_limits = limits;
         self
@@ -190,6 +192,7 @@ echo "File processing complete""#,
 
     /// Set version - builder pattern for fluent API
     #[inline]
+    #[must_use]
     pub fn with_version(mut self, version: impl Into<String>) -> Self {
         self.version = version.into();
         self
@@ -197,18 +200,27 @@ echo "File processing complete""#,
 
     /// Mark as experimental - builder pattern for fluent API
     #[inline]
+    #[must_use]
     pub fn experimental(mut self) -> Self {
         self.experimental = true;
         self
     }
 
     /// Validate code against tool's security configuration
+    ///
+    /// # Errors
+    ///
+    /// Returns `ValidationError` if code contains prohibited patterns or violates security rules
     #[inline]
     pub fn validate_code(&self, code: &str) -> Result<(), ValidationError> {
         self.validation_config.validate_code(code, &self.language)
     }
 
     /// Check if code execution would exceed resource limits
+    ///
+    /// # Errors
+    ///
+    /// Returns `ValidationError` if resource limits would be exceeded
     #[inline]
     pub fn check_resource_limits(&self, request: &CodeExecutionRequest) -> Result<(), ValidationError> {
         self.resource_limits.validate_request(request)
@@ -323,6 +335,7 @@ impl CodeExecutionRequest {
 
     /// Set timeout - builder pattern for fluent API
     #[inline]
+    #[must_use]
     pub fn with_timeout(mut self, seconds: u64) -> Self {
         self.timeout_seconds = seconds;
         self
@@ -330,6 +343,7 @@ impl CodeExecutionRequest {
 
     /// Set memory limit - builder pattern for fluent API
     #[inline]
+    #[must_use]
     pub fn with_memory_limit(mut self, bytes: u64) -> Self {
         self.memory_limit_bytes = bytes;
         self
@@ -337,6 +351,7 @@ impl CodeExecutionRequest {
 
     /// Set CPU limit - builder pattern for fluent API
     #[inline]
+    #[must_use]
     pub fn with_cpu_limit(mut self, percent: u8) -> Self {
         self.cpu_limit_percent = percent.min(100);
         self
@@ -344,12 +359,14 @@ impl CodeExecutionRequest {
 
     /// Enable network access - builder pattern for fluent API
     #[inline]
+    #[must_use]
     pub fn with_network_access(mut self) -> Self {
         self.network_access = true;
         self
     }
 
     /// Enable filesystem access - builder pattern for fluent API
+    #[must_use]
     #[inline]
     pub fn with_filesystem_access(mut self) -> Self {
         self.filesystem_access = true;
@@ -357,6 +374,7 @@ impl CodeExecutionRequest {
     }
 
     /// Set working directory - builder pattern for fluent API
+    #[must_use]
     #[inline]
     pub fn with_working_directory(mut self, dir: impl Into<String>) -> Self {
         self.working_directory = Some(dir.into());
@@ -364,6 +382,7 @@ impl CodeExecutionRequest {
     }
 
     /// Set input data - builder pattern for fluent API
+    #[must_use]
     #[inline]
     pub fn with_input_data(mut self, data: impl Into<String>) -> Self {
         self.input_data = Some(data.into());
@@ -371,6 +390,7 @@ impl CodeExecutionRequest {
     }
 
     /// Set expected output format - builder pattern for fluent API
+    #[must_use]
     #[inline]
     pub fn with_output_format(mut self, format: OutputFormat) -> Self {
         self.expected_output_format = format;
@@ -378,6 +398,7 @@ impl CodeExecutionRequest {
     }
 
     /// Add environment variable - builder pattern for fluent API
+    #[must_use]
     #[inline]
     pub fn with_env_var(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.environment_variables.insert(key.into(), value.into());

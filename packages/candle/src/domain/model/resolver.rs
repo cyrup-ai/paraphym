@@ -87,9 +87,9 @@ impl ModelPattern {
 impl fmt::Display for ModelPattern {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ModelPattern::Exact(s) => write!(f, "{}", s),
-            ModelPattern::Pattern(s) => write!(f, "pattern:{}", s),
-            ModelPattern::Regex(s) => write!(f, "regex:{}", s),
+            ModelPattern::Exact(s) => write!(f, "{s}"),
+            ModelPattern::Pattern(s) => write!(f, "pattern:{s}"),
+            ModelPattern::Regex(s) => write!(f, "regex:{s}"),
         }
     }
 }
@@ -419,19 +419,14 @@ impl ModelResolver {
     /// Check if a condition is met
     fn check_condition(condition: &RuleCondition) -> bool {
         match condition {
-            RuleCondition::HasCapability { capability: _ } => {
-                // In a real implementation, check if the model has the capability
-                false
-            }
-            RuleCondition::HasFeature { feature: _ } => {
-                // In a real implementation, check if the feature is enabled
+            // TODO: Implement proper capability and feature checking
+            RuleCondition::HasCapability { capability: _ }
+            | RuleCondition::HasFeature { feature: _ }
+            | RuleCondition::FeatureEnabled { name: _ } => {
+                // In a real implementation, check if the model has the capability/feature
                 false
             }
             RuleCondition::EnvVarSet { name } => std::env::var(name).is_ok(),
-            RuleCondition::FeatureEnabled { name: _ } => {
-                // In a real implementation, check if the feature is enabled
-                false
-            }
         }
     }
 

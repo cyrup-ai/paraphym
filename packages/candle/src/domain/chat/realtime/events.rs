@@ -479,11 +479,10 @@ impl EventFilter {
                 _ => None,
             };
 
-            if let Some(user_id) = event_user_id {
-                if user_id != filter_user_id {
+            if let Some(user_id) = event_user_id
+                && user_id != filter_user_id {
                     return false;
                 }
-            }
         }
 
         // Check session ID filter
@@ -500,28 +499,24 @@ impl EventFilter {
                 _ => None,
             };
 
-            if let Some(session_id) = event_session_id {
-                if session_id != filter_session_id {
+            if let Some(session_id) = event_session_id
+                && session_id != filter_session_id {
                     return false;
                 }
-            }
         }
 
         // Check event type filter
-        if let Some(filter_types) = &self.event_types {
-            if !filter_types.contains(&event.event_type()) {
+        if let Some(filter_types) = &self.event_types
+            && !filter_types.contains(&event.event_type()) {
                 return false;
             }
-        }
 
         // Check notification level filter
-        if let Some(min_level) = &self.min_notification_level {
-            if let RealTimeEvent::SystemNotification { level, .. } = event {
-                if level.priority() < min_level.priority() {
-                    return false;
-                }
+        if let Some(min_level) = &self.min_notification_level
+            && let RealTimeEvent::SystemNotification { level, .. } = event
+            && level.priority() < min_level.priority() {
+                return false;
             }
-        }
 
         // Check timestamp range filter
         if let Some((start, end)) = &self.timestamp_range {

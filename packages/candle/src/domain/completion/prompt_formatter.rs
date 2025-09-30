@@ -122,14 +122,13 @@ impl PromptFormatter {
             let memory_text = Self::format_single_memory(memory, i + 1);
 
             // Check length limit
-            if let Some(max_len) = self.max_memory_length {
-                if section.len() + memory_text.len() > max_len {
+            if let Some(max_len) = self.max_memory_length
+                && section.len() + memory_text.len() > max_len {
                     if self.include_headers {
                         section.push_str("[Additional memories truncated due to length limit]\n");
                     }
                     break;
                 }
-            }
 
             section.push_str(&memory_text);
             section.push('\n');
@@ -175,14 +174,13 @@ impl PromptFormatter {
             let doc_text = Self::format_single_document(doc, i + 1);
 
             // Check length limit
-            if let Some(max_len) = self.max_context_length {
-                if section.len() + doc_text.len() > max_len {
+            if let Some(max_len) = self.max_context_length
+                && section.len() + doc_text.len() > max_len {
                     if self.include_headers {
                         section.push_str("[Additional documents truncated due to length limit]\n");
                     }
                     break;
                 }
-            }
 
             section.push_str(&doc_text);
             section.push('\n');

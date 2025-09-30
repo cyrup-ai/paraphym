@@ -500,7 +500,7 @@ pub trait Conversation: Send + Sync + std::fmt::Debug + Clone {
     fn new(user_message: impl Into<String>) -> Self;
 }
 
-/// Legacy conversation implementation (deprecated - use StreamingConversation)
+/// Legacy conversation implementation (deprecated - use `StreamingConversation`)
 #[derive(Debug, Clone)]
 pub struct ConversationImpl {
     messages: Vec<String>,

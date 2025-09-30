@@ -136,7 +136,7 @@ impl LiveUpdateMessage {
         self.age_nanos() > ttl_nanos
     }
 
-    /// Convert to RealTimeEvent for broadcasting
+    /// Convert to `RealTimeEvent` for broadcasting
     pub fn to_real_time_event(&self) -> RealTimeEvent {
         // Create a basic Message for the event
         let message = Message::new(
@@ -303,18 +303,16 @@ impl StreamSubscriber {
     /// Check if message should be delivered to this subscriber
     pub fn should_receive(&self, message: &LiveUpdateMessage) -> bool {
         // Check session filter
-        if let Some(session_filter) = &self.session_filter {
-            if message.session_id != *session_filter {
+        if let Some(session_filter) = &self.session_filter
+            && message.session_id != *session_filter {
                 return false;
             }
-        }
 
         // Check user filter
-        if let Some(user_filter) = &self.user_filter {
-            if message.user_id != *user_filter {
+        if let Some(user_filter) = &self.user_filter
+            && message.user_id != *user_filter {
                 return false;
             }
-        }
 
         // Check priority filter
         if message.priority < self.min_priority {

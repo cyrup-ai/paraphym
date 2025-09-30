@@ -11,6 +11,7 @@
 #![deny(clippy::pedantic)]
 #![allow(clippy::module_name_repetitions)]
 #![allow(clippy::must_use_candidate)]
+#![allow(clippy::cast_possible_truncation)]
 
 // Core modules and submodules
 pub mod additional_types;

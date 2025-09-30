@@ -520,8 +520,7 @@ impl CompletionChunk {
     /// Extract text content if available
     pub fn text_content(&self) -> Option<&str> {
         match self {
-            Self::Text(text) => Some(text),
-            Self::Complete { text, .. } => Some(text),
+            Self::Text(text) | Self::Complete { text, .. } => Some(text),
             _ => None,
         }
     }

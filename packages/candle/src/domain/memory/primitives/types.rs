@@ -246,13 +246,23 @@ impl std::fmt::Display for MemoryContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             MemoryContent::Empty => write!(f, ""),
-            MemoryContent::Text(text) => write!(f, "{}", text),
-            MemoryContent::Image(bytes) => write!(f, "[Image: {} bytes]", bytes.len()),
-            MemoryContent::Audio(bytes) => write!(f, "[Audio: {} bytes]", bytes.len()),
-            MemoryContent::Video(bytes) => write!(f, "[Video: {} bytes]", bytes.len()),
-            MemoryContent::Json(json) => write!(f, "{}", json),
+            MemoryContent::Text(text) => write!(f, "{text}"),
+            MemoryContent::Image(bytes) => {
+                let len = bytes.len();
+                write!(f, "[Image: {len} bytes]")
+            }
+            MemoryContent::Audio(bytes) => {
+                let len = bytes.len();
+                write!(f, "[Audio: {len} bytes]")
+            }
+            MemoryContent::Video(bytes) => {
+                let len = bytes.len();
+                write!(f, "[Video: {len} bytes]")
+            }
+            MemoryContent::Json(json) => write!(f, "{json}"),
             MemoryContent::Binary { data, content_type } => {
-                write!(f, "[Binary({}): {} bytes]", content_type, data.len())
+                let len = data.len();
+                write!(f, "[Binary({content_type}): {len} bytes]")
             }
         }
     }
@@ -304,12 +314,11 @@ impl MemoryContent {
         match self {
             Self::Empty => 0,
             Self::Text(text) => text.len(),
-            Self::Image(data) | Self::Audio(data) | Self::Video(data) => data.len(),
+            Self::Image(data) | Self::Audio(data) | Self::Video(data) | Self::Binary { data, .. } => data.len(),
             Self::Json(value) => {
                 // Estimate JSON size without serialization
                 std::mem::size_of_val(value)
             }
-            Self::Binary { data, .. } => data.len(),
         }
     }
 
@@ -649,13 +658,13 @@ impl From<crate::domain::memory::config::llm::LLMConfigError> for MemoryError {
     fn from(err: crate::domain::memory::config::llm::LLMConfigError) -> Self {
         match err {
             crate::domain::memory::config::llm::LLMConfigError::InvalidModel(msg) => {
-                Self::Validation(format!("Invalid LLM model: {}", msg))
+                Self::Validation(format!("Invalid LLM model: {msg}"))
             }
             crate::domain::memory::config::llm::LLMConfigError::InvalidParameter(msg) => {
-                Self::Validation(format!("Invalid LLM parameter: {}", msg))
+                Self::Validation(format!("Invalid LLM parameter: {msg}"))
             }
             crate::domain::memory::config::llm::LLMConfigError::ValidationError(msg) => {
-                Self::Validation(format!("LLM configuration validation failed: {}", msg))
+                Self::Validation(format!("LLM configuration validation failed: {msg}"))
             }
         }
     }

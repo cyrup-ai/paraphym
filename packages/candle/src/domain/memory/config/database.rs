@@ -476,7 +476,7 @@ impl DatabaseConfig {
                     &self.connection_string[self.db_type.to_string().len() + 3..]
                 )
             }
-            _ => self.connection_string.to_string(),
+            _ => self.connection_string.clone(),
         }
     }
 

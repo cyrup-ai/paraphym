@@ -4,8 +4,8 @@
 //! for production-ready performance and ergonomic APIs.
 
 use std::collections::HashMap;
+use std::fmt::Write;
 use std::sync::LazyLock;
-
 
 use serde_json::{Map, Value};
 use tokio::sync::mpsc;
@@ -56,30 +56,38 @@ impl ResponseFormatter {
     }
 
     /// Set response format
+    #[must_use]
     pub fn with_format(mut self, format: ResponseFormat) -> Self {
         self.format = format;
         self
     }
 
     /// Include timestamps in responses
+    #[must_use]
     pub fn with_timestamps(mut self, include: bool) -> Self {
         self.include_timestamps = include;
         self
     }
 
     /// Include execution metrics in responses
+    #[must_use]
     pub fn with_metrics(mut self, include: bool) -> Self {
         self.include_metrics = include;
         self
     }
 
     /// Pretty print JSON responses
+    #[must_use]
     pub fn with_pretty_json(mut self, pretty: bool) -> Self {
         self.pretty_json = pretty;
         self
     }
 
     /// Format command output
+    ///
+    /// # Errors
+    ///
+    /// Returns `ResponseError::SerializationError` if JSON serialization fails
     pub fn format_output(&self, output: &CommandOutput) -> Result<String, ResponseError> {
         match self.format {
             ResponseFormat::Text => self.format_text(output),
@@ -105,13 +113,13 @@ impl ResponseFormatter {
 
         // Add execution time if metrics are enabled
         if self.include_metrics && output.execution_time > 0 {
-            result.push_str(&format!(" ({}μs)", output.execution_time));
+            write!(&mut result, " ({}μs)", output.execution_time).unwrap();
         }
 
         // Add timestamp if enabled
         if self.include_timestamps {
             let timestamp = chrono::Utc::now().format("%H:%M:%S");
-            result.push_str(&format!(" [{timestamp}]"));
+            write!(&mut result, " [{timestamp}]").unwrap();
         }
 
         Ok(result)
@@ -181,13 +189,14 @@ impl ResponseFormatter {
         result.push_str("=== Command Response ===\n");
 
         // Status
-        result.push_str(&format!(
-            "Status: {}\n",
+        writeln!(
+            &mut result,
+            "Status: {}",
             if output.success { "SUCCESS" } else { "FAILED" }
-        ));
+        ).unwrap();
 
         // Message
-        result.push_str(&format!("Message: {}\n", output.message));
+        writeln!(&mut result, "Message: {}", output.message).unwrap();
 
         // Data section
         if let Some(data) = &output.data {
@@ -198,26 +207,26 @@ impl ResponseFormatter {
                 }
             })?;
             for line in data_str.lines() {
-                result.push_str(&format!("  {line}\n"));
+                writeln!(&mut result, "  {line}").unwrap();
             }
         }
 
         // Metrics section
         if self.include_metrics {
             result.push_str("Metrics:\n");
-            result.push_str(&format!("  Execution Time: {}μs\n", output.execution_time));
+            writeln!(&mut result, "  Execution Time: {}μs", output.execution_time).unwrap();
             if let Some(ref usage) = output.resource_usage {
-                result.push_str(&format!("  Memory Usage: {} bytes\n", usage.memory_bytes));
-                result.push_str(&format!("  CPU Time: {}μs\n", usage.cpu_time_us));
-                result.push_str(&format!("  Network Requests: {}\n", usage.network_requests));
-                result.push_str(&format!("  Disk Operations: {}\n", usage.disk_operations));
+                writeln!(&mut result, "  Memory Usage: {} bytes", usage.memory_bytes).unwrap();
+                writeln!(&mut result, "  CPU Time: {}μs", usage.cpu_time_us).unwrap();
+                writeln!(&mut result, "  Network Requests: {}", usage.network_requests).unwrap();
+                writeln!(&mut result, "  Disk Operations: {}", usage.disk_operations).unwrap();
             }
         }
 
         // Timestamp
         if self.include_timestamps {
             let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC");
-            result.push_str(&format!("Timestamp: {timestamp}\n"));
+            writeln!(&mut result, "Timestamp: {timestamp}").unwrap();
         }
 
         result.push_str("========================\n");
@@ -255,6 +264,10 @@ impl ResponseFormatter {
     }
 
     /// Format error response
+    ///
+    /// # Errors
+    ///
+    /// Returns `ResponseError::SerializationError` if JSON serialization fails
     pub fn format_error(&self, error: &CandleCommandError) -> Result<String, ResponseError> {
         let output = CommandOutput {
             execution_id: 0,
@@ -276,6 +289,10 @@ impl ResponseFormatter {
     }
 
     /// Format help response
+    ///
+    /// # Errors
+    ///
+    /// Returns `ResponseError::SerializationError` if JSON serialization fails
     pub fn format_help(&self, commands: &[CommandInfo]) -> Result<String, ResponseError> {
         match self.format {
             ResponseFormat::Json => self.format_help_json(commands),
@@ -293,19 +310,20 @@ impl ResponseFormatter {
         for command in commands {
             categories
                 .entry(command.category.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(command);
         }
 
         // Format each category
         for (category, category_commands) in categories {
-            result.push_str(&format!("{category}:\n"));
+            writeln!(&mut result, "{category}:").unwrap();
 
             for command in category_commands {
-                result.push_str(&format!(
-                    "  /{:<12} - {}\n",
+                writeln!(
+                    &mut result,
+                    "  /{:<12} - {}",
                     command.name, command.description
-                ));
+                ).unwrap();
 
                 // Add aliases if any
                 if !command.aliases.is_empty() {
@@ -315,7 +333,7 @@ impl ResponseFormatter {
                         .map(|a| format!("/{a}"))
                         .collect::<Vec<_>>()
                         .join(", ");
-                    result.push_str(&format!("               (aliases: {aliases})\n"));
+                    writeln!(&mut result, "               (aliases: {aliases})").unwrap();
                 }
             }
             result.push('\n');
@@ -344,14 +362,14 @@ impl ResponseFormatter {
                 let aliases: Vec<Value> = cmd
                     .aliases
                     .iter()
-                    .map(|a| Value::String(a.to_string()))
+                    .map(|a| Value::String(a.clone()))
                     .collect();
                 command_obj.insert("aliases".to_string(), Value::Array(aliases));
 
                 let examples: Vec<Value> = cmd
                     .examples
                     .iter()
-                    .map(|e| Value::String(e.to_string()))
+                    .map(|e| Value::String(e.clone()))
                     .collect();
                 command_obj.insert("examples".to_string(), Value::Array(examples));
 
@@ -391,6 +409,10 @@ impl StreamingSender {
     }
 
     /// Send a streaming message
+    ///
+    /// # Errors
+    ///
+    /// Returns `ResponseError::StreamingError` if the message cannot be sent
     pub fn send(&self, message: StreamingMessage) -> Result<(), ResponseError> {
         self.sender
             .send(message)
@@ -400,6 +422,10 @@ impl StreamingSender {
     }
 
     /// Send progress update
+    ///
+    /// # Errors
+    ///
+    /// Returns `ResponseError::StreamingError` if the message cannot be sent
     pub fn send_progress(
         &self,
         current: u64,
@@ -414,11 +440,19 @@ impl StreamingSender {
     }
 
     /// Send partial result
+    ///
+    /// # Errors
+    ///
+    /// Returns `ResponseError::StreamingError` if the message cannot be sent
     pub fn send_partial(&self, data: Value) -> Result<(), ResponseError> {
         self.send(StreamingMessage::PartialResult { data })
     }
 
     /// Send completion
+    ///
+    /// # Errors
+    ///
+    /// Returns `ResponseError::StreamingError` if the message cannot be sent
     pub fn send_complete(&self, output: CommandOutput) -> Result<(), ResponseError> {
         self.send(StreamingMessage::Complete { output })
     }
@@ -500,17 +534,29 @@ pub fn get_global_formatter() -> &'static ResponseFormatter {
     &GLOBAL_FORMATTER
 }
 
-/// Format output using global formatter
+/// Format command output using default formatter
+///
+/// # Errors
+///
+/// Returns `ResponseError::SerializationError` if JSON serialization fails
 pub fn format_global_output(output: &CommandOutput) -> Result<String, ResponseError> {
     get_global_formatter().format_output(output)
 }
 
-/// Format error using global formatter
+/// Format command error using default formatter
+///
+/// # Errors
+///
+/// Returns `ResponseError::SerializationError` if JSON serialization fails
 pub fn format_global_error(error: &CandleCommandError) -> Result<String, ResponseError> {
     get_global_formatter().format_error(error)
 }
 
-/// Format help using global formatter
+/// Format help information using default formatter
+///
+/// # Errors
+///
+/// Returns `ResponseError::SerializationError` if JSON serialization fails
 pub fn format_global_help(commands: &[CommandInfo]) -> Result<String, ResponseError> {
     get_global_formatter().format_help(commands)
 }

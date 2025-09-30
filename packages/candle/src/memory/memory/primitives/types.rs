@@ -503,21 +503,17 @@ impl MemoryType for BaseMemory {
         if let Some(created_str) = get_attr("created_at", &attributes)
             .ok()
             .and_then(|v| v.as_str().map(|s| s.to_string()))
-        {
-            if let Ok(parsed) = DateTime::parse_from_rfc3339(&created_str) {
+            && let Ok(parsed) = DateTime::parse_from_rfc3339(&created_str) {
                 metadata.created_at = parsed.with_timezone(&Utc);
             }
-        }
-        if let Some(keywords_val) = get_attr("keywords", &attributes).ok() {
-            if let Ok(keywords) = serde_json::from_value::<Vec<String>>(keywords_val) {
+        if let Some(keywords_val) = get_attr("keywords", &attributes).ok()
+            && let Ok(keywords) = serde_json::from_value::<Vec<String>>(keywords_val) {
                 metadata.keywords = keywords;
             }
-        }
-        if let Some(tags_val) = get_attr("tags", &attributes).ok() {
-            if let Ok(tags) = serde_json::from_value::<Vec<String>>(tags_val) {
+        if let Some(tags_val) = get_attr("tags", &attributes).ok()
+            && let Ok(tags) = serde_json::from_value::<Vec<String>>(tags_val) {
                 metadata.tags = tags;
             }
-        }
         if let Some(custom_val) = get_attr("custom", &attributes).ok() {
             metadata.custom = custom_val;
         }

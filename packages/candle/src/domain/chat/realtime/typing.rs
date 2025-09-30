@@ -517,7 +517,7 @@ pub struct TypingStatistics {
 }
 
 /// Typing cleanup event for monitoring
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TypingCleanupEvent {
     /// Number of expired states cleaned up
     pub expired_count: u64,
@@ -534,17 +534,6 @@ impl TypingCleanupEvent {
     #[inline]
     pub fn cleanup_duration_seconds(&self) -> f64 {
         self.cleanup_duration_nanos as f64 / 1_000_000_000.0
-    }
-}
-
-impl Default for TypingCleanupEvent {
-    fn default() -> Self {
-        Self {
-            expired_count: 0,
-            remaining_active: 0,
-            cleanup_duration_nanos: 0,
-            timestamp: 0,
-        }
     }
 }
 

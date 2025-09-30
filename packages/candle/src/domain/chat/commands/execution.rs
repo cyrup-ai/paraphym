@@ -16,13 +16,14 @@ use super::types::events::{CommandEvent, CommandExecutionContext};
 use super::types::metadata::ResourceUsage;
 
 /// Get current timestamp in microseconds since Unix epoch, with fallback for clock errors
+#[allow(clippy::cast_possible_truncation)]
 fn current_timestamp_us() -> u64 {
     let micros = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_else(|_| std::time::Duration::from_secs(0))
         .as_micros();
     
-    // Saturate to u64::MAX if the value exceeds u64 range (year ~584,942)
+    // Saturate to u64::MAX if the value exceeds u64 range (year ~584,942) - intentional truncation with saturation
     micros.min(u128::from(u64::MAX)) as u64
 }
 
@@ -95,6 +96,7 @@ impl CommandExecutor {
     }
 
     /// Execute a command with streaming output (zero-allocation, lock-free)
+    #[allow(clippy::too_many_lines)]
     pub fn execute_streaming(
         &self,
         _execution_id: u64,
@@ -286,6 +288,7 @@ impl CommandExecutor {
             self_clone
                 .successful_executions
                 .fetch_add(1, Ordering::AcqRel);
+            #[allow(clippy::cast_possible_truncation)]
             let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
             ystream::emit!(
                 sender,
@@ -314,6 +317,8 @@ impl CommandExecutor {
         AsyncStream::with_channel(move |sender| {
             std::thread::spawn(move || {
                 // Emit started event
+                #[allow(clippy::cast_possible_truncation)]
+                let timestamp_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
                 ystream::emit!(
                     sender,
                     CommandEvent::Started {
@@ -322,7 +327,7 @@ impl CommandExecutor {
                             extended
                         },
                         execution_id,
-                        timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64
+                        timestamp_us
                     }
                 );
 
@@ -346,6 +351,7 @@ impl CommandExecutor {
                 );
 
                 // Emit completion event
+                #[allow(clippy::cast_possible_truncation)]
                 let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
                 ystream::emit!(
                     sender,
@@ -354,9 +360,7 @@ impl CommandExecutor {
                         result: CommandExecutionResult::Success(message.clone()),
                         duration_us,
                         resource_usage: ResourceUsage::default(),
-                        timestamp_us: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default().as_micros().min(u128::from(u64::MAX)) as u64
+                        timestamp_us: current_timestamp_us()
                     }
                 );
             });
@@ -364,6 +368,9 @@ impl CommandExecutor {
     }
 
     /// Execute clear command (streaming-only, zero-allocation)
+    ///
+    /// # Panics
+    /// May panic if system time is before `UNIX_EPOCH` (January 1, 1970)
     pub fn execute_clear_streaming(
         &self,
         execution_id: u64,
@@ -375,15 +382,17 @@ impl CommandExecutor {
         AsyncStream::with_channel(move |sender| {
             std::thread::spawn(move || {
                 // Emit started event
+                #[allow(clippy::cast_possible_truncation)]
+                let timestamp_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
                 ystream::emit!(
                     sender,
                     CommandEvent::Started {
                         command: ImmutableChatCommand::Clear {
                             confirm,
-                            keep_last: keep_last.map(|n| n as usize)
+                            keep_last: keep_last.and_then(|n| usize::try_from(n).ok())
                         },
                         execution_id,
-                        timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64
+                        timestamp_us
                     }
                 );
 
@@ -421,6 +430,7 @@ impl CommandExecutor {
                 );
 
                 // Emit completion event
+                #[allow(clippy::cast_possible_truncation)]
                 let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
                 ystream::emit!(
                     sender,
@@ -429,9 +439,7 @@ impl CommandExecutor {
                         result: CommandExecutionResult::Success(message.clone()),
                         duration_us,
                         resource_usage: ResourceUsage::default(),
-                        timestamp_us: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default().as_micros().min(u128::from(u64::MAX)) as u64
+                        timestamp_us: current_timestamp_us()
                     }
                 );
             });
@@ -439,6 +447,9 @@ impl CommandExecutor {
     }
 
     /// Execute export command (streaming-only, zero-allocation)
+    ///
+    /// # Panics
+    /// May panic if system time is before `UNIX_EPOCH` (January 1, 1970)
     pub fn execute_export_streaming(
         &self,
         execution_id: u64,
@@ -462,6 +473,7 @@ impl CommandExecutor {
                             include_metadata
                         },
                         execution_id,
+                        #[allow(clippy::cast_possible_truncation)]
                         timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64
                     }
                 );
@@ -509,6 +521,7 @@ impl CommandExecutor {
                         _ => "text/plain".to_string(),
                     },
                 };
+                #[allow(clippy::cast_possible_truncation)]
                 let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
                 ystream::emit!(
                     sender,
@@ -547,6 +560,7 @@ impl CommandExecutor {
                             reset
                         },
                         execution_id,
+                        #[allow(clippy::cast_possible_truncation)]
                         timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64
                     }
                 );
@@ -570,6 +584,7 @@ impl CommandExecutor {
                 );
 
                 // Emit completion event
+                #[allow(clippy::cast_possible_truncation)]
                 let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
                 ystream::emit!(
                     sender,
@@ -578,9 +593,7 @@ impl CommandExecutor {
                         result: CommandExecutionResult::Success(message.clone()),
                         duration_us,
                         resource_usage: ResourceUsage::default(),
-                        timestamp_us: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default().as_micros().min(u128::from(u64::MAX)) as u64
+                        timestamp_us: current_timestamp_us()
                     }
                 );
             });
@@ -588,6 +601,9 @@ impl CommandExecutor {
     }
 
     /// Execute search command (streaming-only, zero-allocation)
+    ///
+    /// # Panics
+    /// May panic if system time is before `UNIX_EPOCH` (January 1, 1970)
     pub fn execute_search_streaming(
         &self,
         execution_id: u64,
@@ -611,6 +627,7 @@ impl CommandExecutor {
                             include_context
                         },
                         execution_id,
+                        #[allow(clippy::cast_possible_truncation)]
                         timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64
                     }
                 );
@@ -671,6 +688,7 @@ impl CommandExecutor {
                     "results": [],
                     "total_found": 0
                 }));
+                #[allow(clippy::cast_possible_truncation)]
                 let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
                 ystream::emit!(
                     sender,

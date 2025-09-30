@@ -72,6 +72,7 @@ impl CommandExecutionContext {
     }
 
     /// Set user identifier - builder pattern for fluent API
+    #[must_use]
     #[inline]
     pub fn with_user_id(mut self, user_id: impl Into<String>) -> Self {
         self.user_id = Some(user_id.into());
@@ -79,6 +80,7 @@ impl CommandExecutionContext {
     }
 
     /// Set session identifier - builder pattern for fluent API
+    #[must_use]
     #[inline]
     pub fn with_session_id(mut self, session_id: impl Into<String>) -> Self {
         self.session_id = Some(session_id.into());
@@ -86,6 +88,7 @@ impl CommandExecutionContext {
     }
 
     /// Set execution priority - builder pattern for fluent API
+    #[must_use]
     #[inline]
     pub fn with_priority(mut self, priority: u8) -> Self {
         self.priority = priority;
@@ -93,6 +96,7 @@ impl CommandExecutionContext {
     }
 
     /// Set execution timeout - builder pattern for fluent API
+    #[must_use]
     #[inline]
     pub fn with_timeout_ms(mut self, timeout_ms: u64) -> Self {
         self.timeout_ms = timeout_ms;
@@ -100,6 +104,7 @@ impl CommandExecutionContext {
     }
 
     /// Set metadata - builder pattern for fluent API
+    #[must_use]
     #[inline]
     pub fn with_metadata(mut self, metadata: serde_json::Value) -> Self {
         self.metadata = Some(metadata);
@@ -142,7 +147,7 @@ impl CommandExecutionContext {
         self.event_counter.fetch_add(1, Ordering::SeqCst)
     }
 
-    /// Get elapsed time in microseconds (alias for elapsed_time_us for compatibility)
+    /// Get elapsed time in microseconds (alias for `elapsed_time_us` for compatibility)
     #[inline]
     pub fn elapsed_time(&self) -> u64 {
         self.elapsed_time_us()
@@ -434,14 +439,11 @@ impl CommandEvent {
     #[inline]
     pub const fn severity(&self) -> u8 {
         match self {
-            Self::Started { .. } => 0,
-            Self::Progress { .. } => 0,
-            Self::Output { .. } => 0,
+            Self::Started { .. } | Self::Progress { .. } | Self::Output { .. } => 0,
             Self::Completed { .. } => 1,
             Self::Warning { severity, .. } => *severity,
-            Self::ResourceAlert { .. } => 2,
+            Self::ResourceAlert { .. } | Self::Cancelled { .. } => 2,
             Self::Failed { .. } => 3,
-            Self::Cancelled { .. } => 2,
         }
     }
 }

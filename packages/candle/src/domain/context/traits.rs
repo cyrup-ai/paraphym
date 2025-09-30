@@ -290,11 +290,10 @@ impl MessageChunk for CandleContextCapabilities {
     }
 
     fn error(&self) -> Option<&str> {
-        if let Some(perm) = self.required_permissions.first() {
-            if perm.starts_with("ERROR: ") {
+        if let Some(perm) = self.required_permissions.first()
+            && perm.starts_with("ERROR: ") {
                 return Some(perm);
             }
-        }
         None
     }
 }

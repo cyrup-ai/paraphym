@@ -60,7 +60,7 @@ pub enum MemoryOperation {
     /// Get specific memory by ID
     GetMemory { id: String },
     /// Update existing memory
-    UpdateMemory { memory: MemoryNode },
+    UpdateMemory { memory: Box<MemoryNode> },
     /// Delete memory by ID
     DeleteMemory { id: String },
 }
@@ -70,7 +70,7 @@ pub enum MemoryOperation {
 #[serde(tag = "type", content = "data")]
 pub enum MemoryResult {
     /// Single memory node result
-    Memory(MemoryNode),
+    Memory(Box<MemoryNode>),
     /// Multiple memory nodes result
     Memories(Vec<MemoryNode>),
     /// Boolean result for operations

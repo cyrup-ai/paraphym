@@ -86,6 +86,11 @@ impl CommandParser {
     }
 
     /// Parse command from input string (zero-allocation)
+    ///
+    /// # Errors
+    /// Returns `CandleCommandError::InvalidSyntax` if the input is empty, malformed, or contains invalid arguments
+    /// Returns `CandleCommandError::UnknownCommand` if the command name is not recognized
+    #[allow(clippy::too_many_lines)]
     pub fn parse_command(&self, input: &str) -> Result<ImmutableChatCommand, CandleCommandError> {
         let input = input.trim();
         if input.is_empty() {
@@ -95,11 +100,7 @@ impl CommandParser {
         }
 
         // Remove leading slash if present
-        let input = if input.starts_with('/') {
-            &input[1..]
-        } else {
-            input
-        };
+        let input = input.strip_prefix('/').unwrap_or(input);
 
         // Split command and arguments
         let parts: Vec<&str> = input.split_whitespace().collect();
@@ -115,7 +116,7 @@ impl CommandParser {
         // Parse based on command name
         match command_name.as_str() {
             "help" | "h" | "?" => {
-                let command = if args.len() > 0 && !args[0].starts_with("--") {
+                let command = if !args.is_empty() && !args[0].starts_with("--") {
                     Some(args[0].to_string())
                 } else {
                     None
@@ -137,13 +138,12 @@ impl CommandParser {
                     .iter()
                     .position(|&arg| arg == "--format")
                     .and_then(|i| args.get(i + 1))
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| "json".to_string());
+                    .map_or_else(|| "json".to_string(), |s| (*s).to_string());
                 let output = args
                     .iter()
                     .position(|&arg| arg == "--output")
                     .and_then(|i| args.get(i + 1))
-                    .map(|s| s.to_string());
+                    .map(|s| (*s).to_string());
                 let include_metadata = args.contains(&"--metadata");
                 Ok(ImmutableChatCommand::Export {
                     format,
@@ -157,14 +157,14 @@ impl CommandParser {
                 let key = args
                     .iter()
                     .find(|&&arg| !arg.starts_with("--"))
-                    .map(|s| s.to_string());
+                    .map(|s| (*s).to_string());
                 let value =
                     if let Some(key_pos) = args.iter().position(|&arg| !arg.starts_with("--")) {
                         if let Some(&arg) = args.get(key_pos + 1) {
-                            if !arg.starts_with("--") {
-                                Some(arg.to_string())
-                            } else {
+                            if arg.starts_with("--") {
                                 None
+                            } else {
+                                Some((*arg).to_string())
                             }
                         } else {
                             None
@@ -183,7 +183,7 @@ impl CommandParser {
                 let query = args
                     .iter()
                     .find(|&&arg| !arg.starts_with("--"))
-                    .map(|s| s.to_string())
+                    .map(|s| (*s).to_string())
                     .unwrap_or_default();
                 let scope = if args.contains(&"--current") {
                     SearchScope::Current
@@ -214,9 +214,10 @@ impl CommandParser {
     }
 
     /// Register built-in commands
+    #[allow(clippy::too_many_lines)]
     pub fn register_builtin_commands(&mut self) {
         // Help command
-        self.register_command(CommandInfo {
+        self.register_command(&CommandInfo {
             name: "help".to_string(),
             description: "Show help information".to_string(),
             usage: "/help [command] [--extended]".to_string(),
@@ -262,7 +263,7 @@ impl CommandParser {
         });
 
         // Clear command
-        self.register_command(CommandInfo {
+        self.register_command(&CommandInfo {
             name: "clear".to_string(),
             description: "Clear chat history".to_string(),
             usage: "/clear [--confirm] [--keep-last N]".to_string(),
@@ -308,7 +309,7 @@ impl CommandParser {
         });
 
         // Export command
-        self.register_command(CommandInfo {
+        self.register_command(&CommandInfo {
             name: "export".to_string(),
             description: "Export conversation".to_string(),
             usage: "/export --format FORMAT [--output FILE] [--include-metadata]".to_string(),
@@ -376,7 +377,7 @@ impl CommandParser {
         });
 
         // Config command
-        self.register_command(CommandInfo {
+        self.register_command(&CommandInfo {
             name: "config".to_string(),
             description: "Modify configuration".to_string(),
             usage: "/config [KEY] [VALUE] [--show] [--reset]".to_string(),
@@ -444,7 +445,7 @@ impl CommandParser {
         });
 
         // Search command
-        self.register_command(CommandInfo {
+        self.register_command(&CommandInfo {
             name: "search".to_string(),
             description: "Search chat history".to_string(),
             usage: "/search QUERY [--scope SCOPE] [--limit N] [--include-context]".to_string(),
@@ -528,7 +529,7 @@ impl CommandParser {
     }
 
     /// Register a command
-    pub fn register_command(&mut self, info: CommandInfo) {
+    pub fn register_command(&mut self, info: &CommandInfo) {
         // Register main command name
         self.commands.insert(info.name.clone(), info.clone());
 
@@ -539,6 +540,9 @@ impl CommandParser {
     }
 
     /// Parse a command string with zero-allocation patterns
+    ///
+    /// # Errors
+    /// Returns `ParseError::InvalidSyntax` if the command doesn't start with '/', if the command name is unknown, or if arguments are malformed
     pub fn parse(&self, input: &str) -> ParseResult<ImmutableChatCommand> {
         let input = input.trim();
 
@@ -567,8 +571,7 @@ impl CommandParser {
         let resolved_name = self
             .aliases
             .get(command_name)
-            .map(|s| s.as_str())
-            .unwrap_or(command_name);
+            .map_or(command_name, |s| s.as_str());
 
         // Parse based on command type
         match resolved_name {
@@ -576,7 +579,7 @@ impl CommandParser {
             "clear" => Self::parse_clear_command(args),
             "export" => Self::parse_export_command(args),
             "config" => Self::parse_config_command(args),
-            "search" => self.parse_search_args(args),
+            "search" => Self::parse_search_args(args),
             _ => Err(ParseError::InvalidSyntax {
                 detail: format!("Unknown command: {command_name}"),
             }),
@@ -731,7 +734,7 @@ impl CommandParser {
         })
     }
 
-    fn parse_search_args(&self, args: &[&str]) -> ParseResult<ImmutableChatCommand> {
+    fn parse_search_args(args: &[&str]) -> ParseResult<ImmutableChatCommand> {
         let mut scope = SearchScope::All;
         let mut limit = None;
         let mut include_context = false;
@@ -808,6 +811,9 @@ impl CommandParser {
     }
 
     /// Validate command parameters
+    ///
+    /// # Errors
+    /// Returns `ParseError::InvalidParameterValue` if command parameters contain invalid values (e.g., unsupported export format, invalid search scope)
     pub fn validate_command(&self, command: &ImmutableChatCommand) -> ParseResult<()> {
         match command {
             ImmutableChatCommand::Export { format, .. } => {

@@ -132,8 +132,8 @@ impl ChatSearchIndex {
         let mut score = 0.0;
 
         for term in terms {
-            if let Some(tf_entry) = self.term_frequencies.get(&**term) {
-                if let Some(entries) = self.inverted_index().get(&**term) {
+            if let Some(tf_entry) = self.term_frequencies.get(&**term)
+                && let Some(entries) = self.inverted_index().get(&**term) {
                     for entry in entries.value() {
                         if entry.doc_id == *doc_id {
                             score += tf_entry.value().calculate_tfidf();
@@ -141,7 +141,6 @@ impl ChatSearchIndex {
                         }
                     }
                 }
-            }
         }
 
         score / terms.len() as f32
@@ -340,7 +339,7 @@ impl ChatSearchIndex {
             for term in terms {
                 if token.to_lowercase() == term.to_lowercase() {
                     term_positions
-                        .entry(term.to_string())
+                        .entry(term.clone())
                         .or_insert_with(Vec::new)
                         .push(i);
                 }
@@ -396,7 +395,7 @@ impl ChatSearchIndex {
             for term in terms {
                 if token.to_lowercase() == term.to_lowercase() {
                     term_positions
-                        .entry(term.to_string())
+                        .entry(term.clone())
                         .or_insert_with(Vec::new)
                         .push(i);
                 }

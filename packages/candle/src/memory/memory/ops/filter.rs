@@ -123,45 +123,39 @@ impl MemoryFilter {
     /// Check if a memory node matches this filter
     pub fn matches(&self, memory: &crate::memory::primitives::MemoryNode) -> bool {
         // Check memory type filter
-        if let Some(ref types) = self.memory_types {
-            if !types.contains(&memory.memory_type) {
+        if let Some(ref types) = self.memory_types
+            && !types.contains(&memory.memory_type) {
                 return false;
             }
-        }
 
         // Check user ID filter
-        if let Some(ref user_id) = self.user_id {
-            if memory.metadata.user_id.as_ref() != Some(user_id) {
+        if let Some(ref user_id) = self.user_id
+            && memory.metadata.user_id.as_ref() != Some(user_id) {
                 return false;
             }
-        }
 
         // Check agent ID filter
-        if let Some(ref agent_id) = self.agent_id {
-            if memory.metadata.agent_id.as_ref() != Some(agent_id) {
+        if let Some(ref agent_id) = self.agent_id
+            && memory.metadata.agent_id.as_ref() != Some(agent_id) {
                 return false;
             }
-        }
 
         // Check tags filter
-        if let Some(ref tags) = self.tags {
-            if !tags.iter().any(|tag| memory.metadata.tags.contains(tag)) {
+        if let Some(ref tags) = self.tags
+            && !tags.iter().any(|tag| memory.metadata.tags.contains(tag)) {
                 return false;
             }
-        }
 
         // Check time range filter
         if let Some(ref time_range) = self.time_range {
-            if let Some(start) = time_range.start {
-                if memory.created_at < start {
+            if let Some(start) = time_range.start
+                && memory.created_at < start {
                     return false;
                 }
-            }
-            if let Some(end) = time_range.end {
-                if memory.created_at >= end {
+            if let Some(end) = time_range.end
+                && memory.created_at >= end {
                     return false;
                 }
-            }
         }
 
         // Check importance range filter
@@ -174,12 +168,10 @@ impl MemoryFilter {
         // Check metadata filter
         if let Some(ref metadata_filter) = self.metadata {
             for (key, expected_value) in metadata_filter {
-                if let Some(actual_value) = memory.metadata.custom.get(key) {
-                    if actual_value != expected_value {
-                        return false;
-                    }
-                } else {
-                    return false;
+                match memory.metadata.custom.get(key) {
+                    Some(actual_value) if actual_value != expected_value => return false,
+                    None => return false,
+                    _ => {}
                 }
             }
         }

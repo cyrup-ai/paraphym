@@ -275,7 +275,7 @@ impl ChatExporter {
 
             output.push_str(&format!("**Role:** {:?}\n\n", message.role));
             let content_str = &message.content;
-            output.push_str(&content_str.to_string());
+            output.push_str(content_str);
             output.push_str("---\n\n");
         }
 

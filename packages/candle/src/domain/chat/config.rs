@@ -216,24 +216,28 @@ impl CandleModelConfig {
     }
 
     /// Set temperature
+    #[must_use]
     pub fn with_temperature(mut self, temperature: f32) -> Self {
         self.temperature = temperature.clamp(0.0, 2.0);
         self
     }
 
     /// Set max tokens
+    #[must_use]
     pub fn with_max_tokens(mut self, max_tokens: u32) -> Self {
         self.max_tokens = Some(max_tokens);
         self
     }
 
     /// Set system prompt
+    #[must_use]
     pub fn with_system_prompt(mut self, prompt: impl Into<String>) -> Self {
         self.system_prompt = Some(prompt.into());
         self
     }
 
     /// Enable or disable function calling
+    #[must_use]
     pub fn with_functions(mut self, enable: bool) -> Self {
         self.enable_functions = enable;
         self
@@ -968,7 +972,7 @@ impl CandleConfigurationManager {
                         .unwrap_or_default()
                         .as_secs(),
                 ),
-                section: section_arc.to_string(),
+                section: section_arc.clone(),
                 change_type: CandleConfigurationChangeType::Update,
                 old_value: Some(format!("{current_config:?}")),
                 new_value: Some(format!("{config_arc:?}")),
@@ -1058,7 +1062,7 @@ impl CandleConfigurationManager {
                 let registration_update = CandleConfigUpdate {
                     timestamp_nanos: now_nanos,
                     update_type: CandleConfigUpdateType::ValidatorRegistered,
-                    section: Some(validator_name.to_string()),
+                    section: Some(validator_name.clone()),
                     success: true,
                     description: Some("Configuration validator registered".to_string()),
                 };
@@ -1332,7 +1336,7 @@ pub struct CandleConfigurationStatistics {
 }
 
 /// Streaming wrapper for `CandleModelConfig` that implements `MessageChunk`
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CandleModelConfigChunk {
     /// The actual config data
     pub config: CandleModelConfigData,
@@ -1379,15 +1383,6 @@ pub struct CandleModelConfigData {
     pub performance: CandleModelPerformanceConfig,
 }
 
-impl Default for CandleModelConfigChunk {
-    fn default() -> Self {
-        Self {
-            config: CandleModelConfigData::default(),
-            error_message: None,
-        }
-    }
-}
-
 impl cyrup_sugars::prelude::MessageChunk for CandleModelConfigChunk {
     fn bad_chunk(error: String) -> Self {
         Self {
@@ -1404,20 +1399,20 @@ impl cyrup_sugars::prelude::MessageChunk for CandleModelConfigChunk {
 impl From<CandleModelConfig> for CandleModelConfigData {
     fn from(config: CandleModelConfig) -> Self {
         Self {
-            provider: config.provider.to_string(),
-            model_name: config.model_name.to_string(),
-            model_version: config.model_version.map(|v| v.to_string()),
+            provider: config.provider.clone(),
+            model_name: config.model_name.clone(),
+            model_version: config.model_version.clone(),
             temperature: config.temperature,
             max_tokens: config.max_tokens,
             top_p: config.top_p,
             top_k: config.top_k,
             frequency_penalty: config.frequency_penalty,
             presence_penalty: config.presence_penalty,
-            stop_sequences: config.stop_sequences.into_iter().map(|s| s.to_string()).collect(),
-            system_prompt: config.system_prompt.map(|s| s.to_string()),
+            stop_sequences: config.stop_sequences,
+            system_prompt: config.system_prompt,
             enable_functions: config.enable_functions,
-            function_mode: config.function_mode.to_string(),
-            custom_parameters: config.custom_parameters.into_iter().map(|(k, v)| (k.to_string(), v)).collect(),
+            function_mode: config.function_mode,
+            custom_parameters: config.custom_parameters,
             timeout_ms: config.timeout_ms,
             retry_config: config.retry_config,
             performance: config.performance,

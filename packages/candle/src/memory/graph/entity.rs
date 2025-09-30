@@ -622,11 +622,10 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
             let mut stream = node_stream;
             
             while let Some(node_result) = stream.next().await {
-                if let Ok(node) = node_result {
-                    if let Ok(entity) = E::from_node(node) {
+                if let Ok(node) = node_result
+                    && let Ok(entity) = E::from_node(node) {
                         entities.push(Box::new(entity) as Box<dyn Entity>);
                     }
-                }
             }
             
             entities
@@ -653,11 +652,10 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
                 use futures_util::StreamExt;
                 let mut stream = node_stream;
                 
-                if let Some(Ok(node)) = stream.next().await {
-                    if let Some(count_value) = node.properties.get("count") {
+                if let Some(Ok(node)) = stream.next().await
+                    && let Some(count_value) = node.properties.get("count") {
                         count = count_value.as_u64().unwrap_or(0) as usize;
                     }
-                }
             });
             
             Ok(count)

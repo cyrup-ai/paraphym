@@ -215,7 +215,7 @@ impl ChatSearcher {
         results
     }
 
-    /// Apply pagination support (offset, max_results)
+    /// Apply pagination support (`offset`, `max_results`)
     fn apply_pagination(
         results: Vec<SearchResult>,
         offset: usize,

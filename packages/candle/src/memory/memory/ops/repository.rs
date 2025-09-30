@@ -149,11 +149,10 @@ impl MemoryRepository {
         };
 
         for id in initial_set {
-            if let Some(memory) = self.memories.get(&id) {
-                if filter.matches(memory) {
+            if let Some(memory) = self.memories.get(&id)
+                && filter.matches(memory) {
                     results.push(memory.clone());
                 }
-            }
         }
 
         // Sort results if needed
@@ -220,18 +219,16 @@ impl MemoryRepository {
         }
 
         // Remove from user index
-        if let Some(user_id) = &memory.metadata.user_id {
-            if let Some(user_ids) = self.user_index.get_mut(user_id) {
+        if let Some(user_id) = &memory.metadata.user_id
+            && let Some(user_ids) = self.user_index.get_mut(user_id) {
                 user_ids.remove(&memory.id);
             }
-        }
 
         // Remove from agent index
-        if let Some(agent_id) = &memory.metadata.agent_id {
-            if let Some(agent_ids) = self.agent_index.get_mut(agent_id) {
+        if let Some(agent_id) = &memory.metadata.agent_id
+            && let Some(agent_ids) = self.agent_index.get_mut(agent_id) {
                 agent_ids.remove(&memory.id);
             }
-        }
 
         // Remove from tag index
         for tag in &memory.metadata.tags {

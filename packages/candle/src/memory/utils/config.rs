@@ -215,19 +215,6 @@ pub enum LogLevel {
     Error,
 }
 
-impl Default for MemoryConfig {
-    fn default() -> Self {
-        Self {
-            database: DatabaseConfig::default(),
-            vector_store: VectorStoreConfig::default(),
-            completion: CompletionConfig::default(),
-            api: None,
-            cache: CacheConfig::default(),
-            logging: LoggingConfig::default(),
-        }
-    }
-}
-
 impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {

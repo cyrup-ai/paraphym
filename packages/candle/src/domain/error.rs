@@ -109,10 +109,9 @@ impl SimpleCircuitBreaker {
 
     pub fn get_state(&self) -> CircuitBreakerState {
         match self.state.load(Ordering::Relaxed) {
-            0 => CircuitBreakerState::Closed,
             1 => CircuitBreakerState::Open,
             2 => CircuitBreakerState::HalfOpen,
-            _ => CircuitBreakerState::Closed, // Default fallback
+            _ => CircuitBreakerState::Closed, // Default fallback for 0 and unknown states
         }
     }
 }

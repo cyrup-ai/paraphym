@@ -128,9 +128,9 @@ impl ConnectionState {
     /// Get connection statistics
     pub fn get_statistics(&self) -> ConnectionStatistics {
         ConnectionStatistics {
-            connection_id: self.connection_id.to_string(),
-            user_id: self.user_id.to_string(),
-            session_id: self.session_id.to_string(),
+            connection_id: self.connection_id.clone(),
+            user_id: self.user_id.clone(),
+            session_id: self.session_id.clone(),
             status: *self.status.load_full(),
             uptime_seconds: self.connected_at.elapsed().as_secs(),
             messages_sent: self.messages_sent.load(Ordering::Acquire),
@@ -282,8 +282,9 @@ impl ConnectionManager {
 
         self.health_check_running.store(true, Ordering::Release);
         let running = self.health_check_running.clone();
-        let _event_sender = self.event_sender.clone();
-        let _heartbeat_timeout = self.heartbeat_timeout;
+        // Reserved for future health check implementation:
+        // let event_sender = self.event_sender.clone();
+        // let heartbeat_timeout = self.heartbeat_timeout;
 
         // Since SkipMap doesn't support clone, we'll implement the health check differently
         // For now, mark the health check as started but implement a simpler approach

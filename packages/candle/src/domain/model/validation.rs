@@ -65,8 +65,7 @@ impl std::fmt::Display for ValidationError {
             ValidationError::MissingField { field, model } => {
                 write!(
                     f,
-                    "Missing required field '{}' for model '{}'",
-                    field, model
+                    "Missing required field '{field}' for model '{model}'"
                 )
             }
             ValidationError::InvalidRange {
@@ -76,36 +75,35 @@ impl std::fmt::Display for ValidationError {
             } => {
                 write!(
                     f,
-                    "Invalid value '{}' for field '{}', expected {}",
-                    value, field, expected
+                    "Invalid value '{value}' for field '{field}', expected {expected}"
                 )
             }
             ValidationError::InconsistentData { description } => {
-                write!(f, "Inconsistent data: {}", description)
+                write!(f, "Inconsistent data: {description}")
             }
             ValidationError::InvalidProvider { provider } => {
-                write!(f, "Invalid provider name format: '{}'", provider)
+                write!(f, "Invalid provider name format: '{provider}'")
             }
             ValidationError::InvalidModelName { name } => {
-                write!(f, "Invalid model name format: '{}'", name)
+                write!(f, "Invalid model name format: '{name}'")
             }
             ValidationError::InvalidPricing { description } => {
-                write!(f, "Invalid pricing configuration: {}", description)
+                write!(f, "Invalid pricing configuration: {description}")
             }
             ValidationError::InvalidCapability { description } => {
-                write!(f, "Capability validation error: {}", description)
+                write!(f, "Capability validation error: {description}")
             }
             ValidationError::UnsafeConfiguration { description } => {
-                write!(f, "Unsafe configuration: {}", description)
+                write!(f, "Unsafe configuration: {description}")
             }
             ValidationError::ToolCallIdTooLong(len) => {
-                write!(f, "Tool call ID too long: {} characters", len)
+                write!(f, "Tool call ID too long: {len} characters")
             }
             ValidationError::FunctionNameTooLong(len) => {
-                write!(f, "Function name too long: {} characters", len)
+                write!(f, "Function name too long: {len} characters")
             }
             ValidationError::NameTooLong(len) => {
-                write!(f, "Name too long: {} characters", len)
+                write!(f, "Name too long: {len} characters")
             }
             ValidationError::TooManyTools => {
                 write!(f, "Too many tools in message")
