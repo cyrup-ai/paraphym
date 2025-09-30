@@ -24,8 +24,10 @@ pub struct SweetMcpRouter {
     available_tools: Arc<tokio::sync::RwLock<Vec<ToolInfo>>>,
     /// Tool routing map: tool_name -> execution strategy
     tool_routes: Arc<tokio::sync::RwLock<HashMap<String, ToolRoute>>>,
-    /// Configuration for different execution backends
-    backend_configs: HashMap<String, BackendConfig>,
+    /// WASM plugin configurations (user-provided)
+    plugin_configs: Vec<PluginConfig>,
+    /// Cylo backend configuration (optional)
+    cylo_config: Option<CyloBackendConfig>,
 }
 
 /// Tool execution route strategy
@@ -75,8 +77,7 @@ impl SweetMcpRouter {
         let mut tools = Vec::new();
         let mut routes = HashMap::new();
 
-        // Discover SweetMCP plugins
-        // TODO: Implement plugin discovery from plugins directory
+        // Discover SweetMCP plugins from configuration
         self.discover_sweetmcp_plugins(&mut tools, &mut routes)?;
 
         // Add native code execution tools
@@ -150,37 +151,44 @@ impl SweetMcpRouter {
         })
     }
 
-    /// Discover SweetMCP WASM plugins
+    /// Discover SweetMCP WASM plugins from user configuration
     fn discover_sweetmcp_plugins(
         &self,
         tools: &mut Vec<ToolInfo>,
         routes: &mut HashMap<String, ToolRoute>,
     ) -> Result<(), RouterError> {
-        // TODO: Implement actual plugin discovery
-        // For now, add placeholder tools
-        let plugin_tool = ToolInfo {
-            name: "execute_python_plugin".to_string(),
-            description: Some("Execute Python code via SweetMCP WASM plugin".to_string()),
-            input_schema: self.create_code_execution_schema("Python code to execute"),
-        };
-
-        tools.push(plugin_tool);
-        routes.insert(
-            "execute_python_plugin".to_string(),
-            ToolRoute::SweetMcpPlugin {
-                plugin_path: "./plugins/eval-py.wasm".to_string(),
-            },
-        );
+        // Create tools from user-provided plugin configurations
+        for plugin_config in &self.plugin_configs {
+            let tool_info = ToolInfo {
+                name: plugin_config.tool_name.clone(),
+                description: Some(plugin_config.description.clone()),
+                input_schema: plugin_config.input_schema.clone(),
+            };
+            
+            tools.push(tool_info);
+            routes.insert(
+                plugin_config.tool_name.clone(),
+                ToolRoute::SweetMcpPlugin {
+                    plugin_path: plugin_config.wasm_path.clone(),
+                },
+            );
+        }
 
         Ok(())
     }
 
-    /// Add native code execution tools via Cylo
+    /// Add native code execution tools via Cylo (if configured)
     fn add_native_execution_tools(
         &self,
         tools: &mut Vec<ToolInfo>,
         routes: &mut HashMap<String, ToolRoute>,
     ) -> Result<(), RouterError> {
+        // Only add native execution tools if Cylo backend is configured
+        let cylo_config = match &self.cylo_config {
+            Some(config) => config,
+            None => return Ok(()), // No Cylo configured, skip native execution tools
+        };
+
         // Add native execution tools for different languages
         let languages = vec![
             ("execute_python", "Python"),
@@ -199,28 +207,12 @@ impl SweetMcpRouter {
 
             tools.push(tool);
 
-            // Route to appropriate Cylo backend
-            let backend_type = if cfg!(target_os = "macos") {
-                "Apple"
-            } else if cfg!(target_os = "linux") {
-                "LandLock"
-            } else {
-                "SweetMcpPlugin" // Fallback to plugin execution
-            };
-
-            let config = if backend_type == "Apple" {
-                format!("{}:alpine3.20", language.to_lowercase())
-            } else if backend_type == "LandLock" {
-                "/tmp/cylo_sandbox".to_string()
-            } else {
-                "./plugins/eval.wasm".to_string()
-            };
-
+            // Use user-configured Cylo backend
             routes.insert(
                 tool_name.to_string(),
                 ToolRoute::CyloExecution {
-                    backend_type: backend_type.to_string(),
-                    config,
+                    backend_type: cylo_config.backend_type.clone(),
+                    config: cylo_config.config_value.clone(),
                 },
             );
         }
@@ -377,7 +369,8 @@ impl SweetMcpRouter {
         Self {
             available_tools: Arc::clone(&self.available_tools),
             tool_routes: Arc::clone(&self.tool_routes),
-            backend_configs: self.backend_configs.clone(),
+            plugin_configs: self.plugin_configs.clone(),
+            cylo_config: self.cylo_config.clone(),
         }
     }
 }

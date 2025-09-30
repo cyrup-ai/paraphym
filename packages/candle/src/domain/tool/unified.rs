@@ -15,7 +15,6 @@ use mcp_client_traits::{ClientError, McpClient};
 use ystream::AsyncStream;
 use serde_json::Value;
 use serde_json;
-use value_trait::derived::ValueObjectAccess;
 use cylo::ExecutionResult;
 use tokio::task::JoinError;
 use crate::builders::agent_role::McpServerConfig;
@@ -33,7 +32,7 @@ pub struct UnifiedToolExecutor {
     /// Server configurations for connection management
     mcp_server_configs: Vec<McpServerConfig>,
     /// Native WASM tool router for direct execution (not MCP protocol)
-    native_router: Option<Arc<SweetMcpRouter>>,
+    native_router: Arc<tokio::sync::RwLock<Option<Arc<SweetMcpRouter>>>>,
 }
 
 /// Tool execution error types
@@ -67,7 +66,7 @@ impl UnifiedToolExecutor {
             available_tools: Arc::new(tokio::sync::RwLock::new(Vec::new())),
             tool_server_map: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
             mcp_server_configs: Vec::new(),
-            native_router: None,
+            native_router: Arc::new(tokio::sync::RwLock::new(None)),
         }
     }
 
@@ -91,13 +90,24 @@ impl UnifiedToolExecutor {
             available_tools: Arc::new(tokio::sync::RwLock::new(Vec::new())),
             tool_server_map: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
             mcp_server_configs: server_configs,
-            native_router: None,
+            native_router: Arc::new(tokio::sync::RwLock::new(None)),
         }
     }
 
     /// Initialize the executor by discovering available tools
     pub async fn initialize(&self) -> Result<(), ToolError> {
         let mut tools = Vec::new();
+
+        // Initialize native router for code execution tools
+        let mut router = SweetMcpRouter::new();
+        router.initialize().await
+            .map_err(|e| ToolError::Other(anyhow::anyhow!("Failed to initialize router: {}", e)))?;
+        
+        // Store router with interior mutability
+        {
+            let mut native_router = self.native_router.write().await;
+            *native_router = Some(Arc::new(router));
+        }
 
         // Connect to and discover tools from all MCP servers
         for (i, server_config) in self.mcp_server_configs.iter().enumerate() {
@@ -161,8 +171,10 @@ impl UnifiedToolExecutor {
             }
         }
 
-        // Add native code execution tools (Cylo is always enabled)
-        tools.extend(self.create_native_code_tools());
+        // Add native code execution tools from router
+        if let Some(router) = self.native_router.read().await.as_ref() {
+            tools.extend(router.get_available_tools().await);
+        }
 
         // Store discovered tools
         let mut available_tools = self.available_tools.write().await;
@@ -232,92 +244,45 @@ impl UnifiedToolExecutor {
         tool_info.description.as_ref().map_or(false, |d| d.contains("execute code"))
     }
 
-    /// Execute MCP server tool
+    /// Execute MCP server tool using O(1) HashMap lookup
     async fn execute_mcp_tool(&self, tool_name: &str, args: JsonValue) -> Result<Response, ToolError> {
-        // For now, try each MCP client until one succeeds
-        // In a production system, we'd maintain a mapping of tool_name -> server_id
-        let clients = self.mcp_clients.read().await;
-        for (server_id, client) in clients.iter() {
-            match client.call_tool(tool_name, args.clone()).await {
-                Ok(response) => return Ok(response),
-                Err(e) => {
-                    tracing::debug!("Server {} doesn't have tool {}: {}", server_id, tool_name, e);
-                }
-            }
-        }
+        // O(1) lookup of server_id from tool name
+        let tool_map = self.tool_server_map.read().await;
+        let server_id = tool_map.get(tool_name)
+            .ok_or_else(|| ToolError::ToolNotFound(format!("Tool '{}' not found in any MCP server", tool_name)))?;
         
-        Err(ToolError::ToolNotFound(format!("Tool '{}' not found in any MCP server", tool_name)))
+        // Get the specific client for this tool
+        let clients = self.mcp_clients.read().await;
+        let client = clients.get(server_id)
+            .ok_or_else(|| ToolError::ToolNotFound(format!("Server '{}' not found for tool '{}'", server_id, tool_name)))?;
+        
+        // Call tool on the correct server
+        client.call_tool(tool_name, args).await.map_err(ToolError::from)
     }
 
-    /// Execute native tool via cylo secure execution
-    fn execute_native_tool(&self, _tool_info: &ToolInfo, args: JsonValue) -> Result<Response, ToolError> {
-        // Extract code and language from arguments
-        let _code = args.get("code")
-            .and_then(|v| match v {
-                JsonValue::String(s) => Some(s.as_str()),
-                _ => None,
-            })
-            .ok_or_else(|| ToolError::InvalidArguments("Missing 'code' parameter".to_string()))?;
+    /// Execute native tool via SweetMcpRouter delegation
+    fn execute_native_tool(&self, tool_info: &ToolInfo, args: JsonValue) -> Result<Response, ToolError> {
+        // Get router through RwLock
+        let router_guard = crate::runtime::shared_runtime()
+            .block_on(self.native_router.read());
+        
+        let router = router_guard.as_ref()
+            .ok_or_else(|| ToolError::Other(anyhow::anyhow!("Native router not initialized")))?;
 
-        let _language = args.get("language")
-            .and_then(|v| match v {
-                JsonValue::String(s) => Some(s.as_str()),
-                _ => None,
-            })
-            .unwrap_or("python"); // Default to Python
+        // BLOCKING CODE APPROVED BY DAVID ON 2025-01-29: Using shared_runtime().block_on() for router call
+        let result = crate::runtime::shared_runtime()
+            .block_on(router.call_tool(&tool_info.name, args))
+            .map_err(|e| ToolError::CyloError(e.to_string()))?;
 
-        // TODO: Replace with proper SweetMCP plugin execution
-        // This is a placeholder until UnifiedToolExecutor is replaced by SweetMcpRouter
-        Err(ToolError::CyloError("execute_code_auto removed - use SweetMcpRouter".to_string()))
-    }
-
-    /// Create native code execution tool definitions
-    fn create_native_code_tools(&self) -> Vec<ToolInfo> {
-        vec![
-            ToolInfo {
-                name: "execute_code".to_string(),
-                description: Some(
-                    "Execute code securely in various programming languages. \
-                     Use this tool when you need to run Python, JavaScript, Rust, \
-                     Bash, or Go code safely in a sandboxed environment.".to_string()
-                ),
-                input_schema: {
-                    let schema = serde_json::json!({
-                        "type": "object",
-                        "properties": {
-                            "code": {
-                                "type": "string",
-                                "description": "The code to execute"
-                            },
-                            "language": {
-                                "type": "string",
-                                "enum": ["python", "javascript", "rust", "bash", "go"],
-                                "default": "python",
-                                "description": "Programming language"
-                            }
-                        },
-                        "required": ["code"]
-                    });
-                    serde_json::from_value(schema).unwrap_or(JsonValue::Static(simd_json::StaticNode::Null))
-                },
-            },
-            ToolInfo {
-                name: "execute_python".to_string(),
-                description: Some(
-                    "Execute Python code securely. Perfect for data analysis, \
-                     calculations, and scientific computing.".to_string()
-                ),
-                input_schema: create_code_only_schema("Python code to execute"),
-            },
-            ToolInfo {
-                name: "execute_javascript".to_string(),
-                description: Some(
-                    "Execute JavaScript code securely. Perfect for web-related \
-                     logic, JSON processing, and Node.js operations.".to_string()
-                ),
-                input_schema: create_code_only_schema("JavaScript code to execute"),
-            },
-        ]
+        // Convert serde_json::Value result to Response
+        use crate::domain::agent::role::convert_serde_to_sweet_json;
+        let response_data = convert_serde_to_sweet_json(result);
+        
+        Ok(Response {
+            id: sweet_mcp_type::RequestId::Str(format!("native_{}", uuid::Uuid::new_v4())),
+            result: Some(response_data),
+            error: None,
+        })
     }
 
     /// Create a clone for async operations - Arc<JsonClient> allows cheap cloning
@@ -325,24 +290,11 @@ impl UnifiedToolExecutor {
         Self {
             mcp_clients: self.mcp_clients.clone(), // HashMap of Arc allows cheap cloning
             available_tools: self.available_tools.clone(),
+            tool_server_map: self.tool_server_map.clone(),
             mcp_server_configs: self.mcp_server_configs.clone(),
+            native_router: self.native_router.clone(),
         }
     }
-}
-
-/// Helper function to create a code-only input schema
-fn create_code_only_schema(description: &str) -> JsonValue {
-    let schema = serde_json::json!({
-        "type": "object",
-        "properties": {
-            "code": {
-                "type": "string",
-                "description": description
-            }
-        },
-        "required": ["code"]
-    });
-    serde_json::from_value(schema).unwrap_or(JsonValue::Static(simd_json::StaticNode::Null))
 }
 
 /// Convert cylo ExecutionResult to MCP Response

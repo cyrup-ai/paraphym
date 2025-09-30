@@ -210,8 +210,8 @@ mod tests {
 
     #[test]
     fn test_sanitize_content() {
-        assert_eq!(sanitize_content("  Hello, world!  "), "Hello, world!");
-        assert_eq!(sanitize_content(""), "");
-        assert_eq!(sanitize_content("  "), "");
+        assert_eq!(sanitize_content("  Hello, world!  ").unwrap(), "Hello, world!");
+        assert_eq!(sanitize_content("").unwrap(), "");
+        assert_eq!(sanitize_content("  ").unwrap(), "");
     }
 }
