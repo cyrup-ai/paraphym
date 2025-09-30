@@ -128,6 +128,7 @@ pub mod prelude {
         {
             // Delegate to the appropriate provider based on model type
             let model_type = *self; // Copy the enum value to move into closure
+            let params = _params.clone(); // Clone params to own the data
             ystream::AsyncStream::with_channel(move |sender| {
                 match model_type {
                     CandleModels::KimiK2 => {
@@ -157,15 +158,48 @@ pub mod prelude {
                             }
                         });
                     }
-                    CandleModels::Qwen3Coder | CandleModels::Llama => {
-                        // TODO: Route to other providers
-                        let chunk =
-                            crate::domain::completion::CandleCompletionChunk::Text(format!(
-                                "Completion from {} model: {}",
-                                model_type.model_type(),
-                                prompt.content()
-                            ));
-                        let _ = sender.send(chunk);
+                    CandleModels::Qwen3Coder => {
+                        // Clone values before moving into async closure
+                        let prompt_clone = prompt.clone();
+                        let params_clone = params.clone();
+                        
+                        // Route to Qwen3CoderProvider with async handling
+                        ystream::spawn_task(|| async move {
+                            // Create provider with default config
+                            let provider_result =
+                                crate::providers::qwen3_coder::CandleQwen3CoderProvider::new().await;
+
+                            match provider_result {
+                                Ok(provider) => {
+                                    // Call real provider.prompt() method for inference
+                                    let completion_stream = provider.prompt(prompt_clone, &params_clone);
+                                    
+                                    // Stream all chunks from provider to outer sender
+                                    while let Some(chunk) = completion_stream.try_next() {
+                                        if sender.send(chunk).is_err() {
+                                            // Receiver dropped, exit gracefully
+                                            return;
+                                        }
+                                    }
+                                }
+                                Err(err) => {
+                                    // Send error chunk if provider creation fails
+                                    let error_chunk =
+                                        crate::domain::completion::CandleCompletionChunk::Error(
+                                            format!("Failed to initialize Qwen3Coder provider: {}", err)
+                                        );
+                                    let _ = sender.send(error_chunk);
+                                }
+                            }
+                        });
+                    }
+                    CandleModels::Llama => {
+                        // Llama provider not yet implemented
+                        let error_chunk =
+                            crate::domain::completion::CandleCompletionChunk::Error(
+                                "Llama provider not yet implemented. Available models: KimiK2, Qwen3Coder".to_string()
+                            );
+                        let _ = sender.send(error_chunk);
                     }
                 }
             })

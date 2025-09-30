@@ -94,7 +94,7 @@ pub struct LoaderImpl<T: Send + Sync + fmt::Debug + Clone + 'static> {
 }
 
 /// Type alias for filter function
-pub type FilterFn<T> = Box<dyn Fn(&T) -> bool + Send + Sync>;
+pub type FilterFn<T> = std::sync::Arc<dyn Fn(&T) -> bool + Send + Sync>;
 
 // LoaderImpl implements NotResult since it contains no Result types
 
@@ -134,8 +134,9 @@ impl Loader<PathBuf> for LoaderImpl<PathBuf> {
         PathBuf: ystream::NotResult,
     {
         let pattern = self.pattern.clone();
+        let filter_fn = self.filter_fn.clone();
         ystream::spawn_task(move || {
-            let results: Vec<PathBuf> = match pattern {
+            let mut results: Vec<PathBuf> = match pattern {
                 Some(p) => {
                     match glob::glob(&p) {
                         Ok(paths) => paths.filter_map(Result::ok).collect(),
@@ -144,6 +145,11 @@ impl Loader<PathBuf> for LoaderImpl<PathBuf> {
                 }
                 None => Vec::new(),
             };
+
+            // Apply filter if present
+            if let Some(ref filter) = filter_fn {
+                results.retain(|item| filter(item));
+            }
 
             // Convert Vec<PathBuf> to ZeroOneOrMany<PathBuf> without unwrap
             match results.len() {
@@ -163,11 +169,19 @@ impl Loader<PathBuf> for LoaderImpl<PathBuf> {
 
     fn stream_files(&self) -> AsyncStream<CandlePathChunk> {
         let pattern = self.pattern.clone();
+        let filter_fn = self.filter_fn.clone();
 
         AsyncStream::with_channel(move |sender| {
             if let Some(p) = pattern
                 && let Ok(paths) = glob::glob(&p) {
                     for path in paths.filter_map(Result::ok) {
+                        // Apply filter before sending
+                        if let Some(ref filter) = filter_fn {
+                            if !filter(&path) {
+                                continue;
+                            }
+                        }
+                        
                         let chunk = CandlePathChunk::from(path);
                         if sender.try_send(chunk).is_err() {
                             break;

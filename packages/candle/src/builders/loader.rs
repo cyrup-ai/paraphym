@@ -100,13 +100,16 @@ struct LoaderBuilderImpl<
     F1 = fn(String),
     F2 = fn(ZeroOneOrMany<T>) -> ZeroOneOrMany<T>,
     F3 = fn(ZeroOneOrMany<T>) -> ZeroOneOrMany<T>,
+    F4 = fn(&T) -> bool,
 > where
     F1: Fn(String) + Send + Sync + 'static,
     F2: FnOnce(ZeroOneOrMany<T>) -> ZeroOneOrMany<T> + Send + 'static,
     F3: FnMut(ZeroOneOrMany<T>) -> ZeroOneOrMany<T> + Send + 'static,
+    F4: Fn(&T) -> bool + Send + Sync + 'static,
 {
     pattern: Option<String>,
     recursive: bool,
+    filter: Option<F4>,
     error_handler: Option<F1>,
     result_handler: Option<F2>,
     chunk_handler: Option<F3>,
@@ -119,6 +122,7 @@ impl LoaderImpl<PathBuf> {
         LoaderBuilderImpl {
             pattern: Some(pattern.to_string()),
             recursive: false,
+            filter: None,
             error_handler: None,
             result_handler: None,
             chunk_handler: None,
@@ -141,13 +145,19 @@ where
     }
     
     /// Set filter function - EXACT syntax: .filter(|item| { ... })
-    fn filter<F>(self, _f: F) -> impl LoaderBuilder<T>
+    fn filter<F>(self, f: F) -> impl LoaderBuilder<T>
     where
-        F: Fn(&T) -> bool + 'static,
+        F: Fn(&T) -> bool + Send + Sync + 'static,
     {
-        // For now, store filter for later application
-        // Full implementation would need to modify the iterator
-        self
+        LoaderBuilderImpl {
+            pattern: self.pattern,
+            recursive: self.recursive,
+            filter: Some(f),
+            error_handler: self.error_handler,
+            result_handler: self.result_handler,
+            chunk_handler: self.chunk_handler,
+            _marker: PhantomData,
+        }
     }
     
     /// Map transformation - EXACT syntax: .map(|item| { ... })
@@ -175,6 +185,7 @@ where
         LoaderBuilderImpl {
             pattern: self.pattern,
             recursive: self.recursive,
+            filter: self.filter,
             error_handler: Some(handler),
             result_handler: self.result_handler,
             chunk_handler: self.chunk_handler,
@@ -191,6 +202,7 @@ where
         LoaderBuilderImpl {
             pattern: self.pattern,
             recursive: self.recursive,
+            filter: self.filter,
             error_handler: self.error_handler,
             result_handler: Some(handler),
             chunk_handler: self.chunk_handler,
@@ -207,6 +219,7 @@ where
         LoaderBuilderImpl {
             pattern: self.pattern,
             recursive: self.recursive,
+            filter: self.filter,
             error_handler: self.error_handler,
             result_handler: self.result_handler,
             chunk_handler: Some(handler),
@@ -223,7 +236,7 @@ where
             pattern: self.pattern,
             recursive: self.recursive,
             iterator: None,
-            filter_fn: None,
+            filter_fn: self.filter.map(|f| std::sync::Arc::new(f) as std::sync::Arc<dyn Fn(&T) -> bool + Send + Sync>),
         }
     }
     
