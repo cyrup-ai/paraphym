@@ -668,9 +668,6 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
         &self,
         entities: Vec<Box<dyn Entity>>,
     ) -> Result<Vec<Box<dyn Entity>>> {
-        // Optimized batch implementation
-        let mut results = Vec::with_capacity(entities.len());
-
         // Validate all entities first
         for entity in &entities {
             if let Some(validator) = &self.validator {
@@ -679,30 +676,35 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
             entity.validate()?;
         }
 
-        // Convert to nodes for batch operation
-        let nodes: Vec<Node> = entities.iter().map(|e| e.to_node()).collect();
+        // Convert entities to JSON array for SurrealQL
+        let create_items: Vec<serde_json::Value> = entities
+            .iter()
+            .map(|entity| {
+                let node = entity.to_node();
+                serde_json::json!({
+                    "properties": node.properties
+                })
+            })
+            .collect();
+
+        // Build SurrealQL batch query with FOR loop and transaction
+        let query = format!(
+            "BEGIN TRANSACTION; FOR $item IN $items {{ CREATE {}:ulid() CONTENT $item.properties; }}; COMMIT TRANSACTION;",
+            self.table_name
+        );
 
         // Execute batch database operation
-        self.execute_db_operation(move |db| {
+        let nodes = self.execute_db_operation(move |db| {
+            let pending = db.batch_query(&query, serde_json::json!({ "items": create_items }));
             let rt = crate::runtime::shared_runtime();
-            
-            // Create all nodes in parallel
-            let create_futures: Vec<_> = nodes.into_iter().map(|node| {
-                db.create_node(node.properties)
-            }).collect();
-            
-            rt.block_on(async {
-                for future in create_futures {
-                    let _ = future.await; // Ignore individual results for batch operation
-                }
-            });
-            
-            Ok(())
+            rt.block_on(pending)
         })?;
 
-        // Return the entities (in real implementation, would update with DB-generated IDs)
-        for entity in entities {
-            results.push(entity);
+        // Reconstruct entities from database nodes with generated IDs
+        let mut results = Vec::with_capacity(nodes.len());
+        for node in nodes {
+            let entity = E::from_node(node)?;
+            results.push(Box::new(entity) as Box<dyn Entity>);
         }
 
         Ok(results)
@@ -712,9 +714,6 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
         &self,
         entities: Vec<Box<dyn Entity>>,
     ) -> Result<Vec<Box<dyn Entity>>> {
-        // Optimized batch update implementation
-        let mut results = Vec::with_capacity(entities.len());
-
         // Validate all entities first
         for entity in &entities {
             if let Some(validator) = &self.validator {
@@ -723,26 +722,53 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
             entity.validate()?;
         }
 
-        // Execute batch database operation
-        // In a real implementation, you would use batch operations
+        // Convert entities to JSON array with IDs for SurrealQL
+        let update_items: Vec<serde_json::Value> = entities
+            .iter()
+            .map(|entity| {
+                let node = entity.to_node();
+                serde_json::json!({
+                    "id": entity.id(),
+                    "properties": node.properties
+                })
+            })
+            .collect();
 
-        // For now, fall back to individual operations
-        for entity in entities {
-            results.push(self.update_entity(entity)?);
+        // Build SurrealQL batch query with FOR loop and transaction
+        // Use full record ID directly since entity.id() returns "table:id" format
+        let query = "BEGIN TRANSACTION; FOR $item IN $items { UPDATE $item.id CONTENT $item.properties; }; COMMIT TRANSACTION;".to_string();
+
+        // Execute batch database operation
+        let nodes = self.execute_db_operation(move |db| {
+            let pending = db.batch_query(&query, serde_json::json!({ "items": update_items }));
+            let rt = crate::runtime::shared_runtime();
+            rt.block_on(pending)
+        })?;
+
+        // Reconstruct entities from database nodes with any DB-side updates applied
+        let mut results = Vec::with_capacity(nodes.len());
+        for node in nodes {
+            let entity = E::from_node(node)?;
+            results.push(Box::new(entity) as Box<dyn Entity>);
         }
 
         Ok(results)
     }
 
     fn batch_delete_entities(&self, ids: Vec<&str>) -> Result<()> {
-        // Optimized batch delete implementation
-        // In a real implementation, you would use batch delete operations
+        // Convert IDs to JSON array for SurrealQL
+        let id_array: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
 
-        // For now, fall back to individual operations
-        for id in ids {
-            self.delete_entity(id)?;
-        }
+        // Build SurrealQL batch query with FOR loop and transaction
+        // Use full record ID directly since IDs already contain "table:id" format
+        let query = "BEGIN TRANSACTION; FOR $id IN $ids { DELETE $id; }; COMMIT TRANSACTION;".to_string();
 
-        Ok(())
+        // Execute batch database operation
+        self.execute_db_operation(move |db| {
+            let pending = db.batch_query(&query, serde_json::json!({ "ids": id_array }));
+            let rt = crate::runtime::shared_runtime();
+            rt.block_on(pending)?;
+            Ok(())
+        })
     }
 }

@@ -115,6 +115,31 @@ impl Future for NodeUpdate {
     }
 }
 
+/// A pending batch query result
+pub struct PendingBatchResult {
+    rx: oneshot::Receiver<Result<Vec<Node>>>,
+}
+
+impl PendingBatchResult {
+    pub fn new(rx: oneshot::Receiver<Result<Vec<Node>>>) -> Self {
+        Self { rx }
+    }
+}
+
+impl Future for PendingBatchResult {
+    type Output = Result<Vec<Node>>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match Pin::new(&mut self.rx).poll(cx) {
+            Poll::Ready(Ok(result)) => Poll::Ready(result),
+            Poll::Ready(Err(_)) => {
+                Poll::Ready(Err(GraphError::DatabaseError("Channel closed".into())))
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
 /// A stream of nodes from a query
 pub struct NodeStream {
     rx: tokio::sync::mpsc::Receiver<Result<Node>>,
@@ -153,6 +178,9 @@ pub trait GraphDatabase: Send + Sync + 'static {
 
     /// Execute a query
     fn query(&self, query: &str, params: Option<GraphQueryOptions>) -> NodeStream;
+
+    /// Execute a batch query that returns multiple nodes
+    fn batch_query(&self, query: &str, params: serde_json::Value) -> PendingBatchResult;
 }
 
 /// Graph node

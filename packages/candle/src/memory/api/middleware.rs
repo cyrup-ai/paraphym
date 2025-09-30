@@ -241,7 +241,7 @@ pub struct UserContext {
 }
 
 /// JWT claims structure
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct JwtClaims {
     sub: String, // Subject (user ID)
     email: String,

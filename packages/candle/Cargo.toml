@@ -10,10 +10,12 @@ cylo = { path = "../cylo" }
 
 # SweetMCP dependencies for proper MCP implementation
 sweetmcp-json-client = { path = "../sweetmcp/packages/json-client" }
+sweetmcp-stdio-client = { path = "../sweetmcp/packages/stdio-client" }
 mcp-client-traits = { path = "../sweetmcp/packages/mcp-client-traits" }
 sweet_mcp_type = { path = "../sweetmcp/packages/sweet-mcp-type" }
 simd-json = { version = "0.16.0", default-features = false, features = ["known-key", "runtime-detection", "swar-number-parsing", "value-no-dup-keys"] }
 value-trait = "0.11.0"
+shell-words = "1.1"
 quyc = { git = "https://github.com/cyrup-ai/quyc", branch = "main", package = "quyc" }  
 cyrup_sugars = { git = "https://github.com/cyrup-ai/cyrup-sugars", branch = "main", package = "cyrup_sugars", features = ["all"] }
 ystream = { git = "https://github.com/cyrup-ai/ystream", branch = "main", package = "ystream" }
@@ -102,6 +104,10 @@ glob = "0.3.3"
 base64 = "0.22.1"
 tracing = "0.1.41"
 termcolor = { git = "https://github.com/cyrup-ai/termcolor", branch = "main" }
+
+# Content sanitization dependencies (TASK404)
+unicode-normalization = "0.1.24"  # Unicode NFC normalization for security
+html-escape = "0.2"               # HTML entity escaping for XSS prevention
 
 # --- Web dependencies ---
 wasm-bindgen = { version = "0.2.104", optional = true }

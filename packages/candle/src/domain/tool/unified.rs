@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use sweet_mcp_type::{ToolInfo, JsonValue, Response};
 use sweetmcp_json_client::JsonClient;
+use sweetmcp_stdio_client::StdioClient;
 use mcp_client_traits::{ClientError, McpClient};
 use ystream::AsyncStream;
 use serde_json::Value;
@@ -19,16 +20,20 @@ use cylo::ExecutionResult;
 use tokio::task::JoinError;
 use crate::builders::agent_role::McpServerConfig;
 use crate::domain::context::chunk::CandleJsonChunk;
+use crate::domain::tool::router::SweetMcpRouter;
 
 /// Unified tool execution interface that handles both MCP and native tools
-#[derive(Debug)]
 pub struct UnifiedToolExecutor {
     /// MCP clients for multiple servers (server_id -> client)
-    mcp_clients: Arc<tokio::sync::RwLock<HashMap<String, Arc<JsonClient>>>>,
+    mcp_clients: Arc<tokio::sync::RwLock<HashMap<String, Arc<dyn McpClient + Send + Sync>>>>,
     /// Available tools discovered from MCP servers and native capabilities
     available_tools: Arc<tokio::sync::RwLock<Vec<ToolInfo>>>,
+    /// Mapping of tool name to server ID for O(1) tool routing
+    tool_server_map: Arc<tokio::sync::RwLock<HashMap<String, String>>>,
     /// Server configurations for connection management
     mcp_server_configs: Vec<McpServerConfig>,
+    /// Native WASM tool router for direct execution (not MCP protocol)
+    native_router: Option<Arc<SweetMcpRouter>>,
 }
 
 /// Tool execution error types
@@ -50,7 +55,7 @@ pub enum ToolError {
 
 impl UnifiedToolExecutor {
     /// Create a new unified tool executor
-    pub fn new(mcp_client: Option<Arc<JsonClient>>) -> Self {
+    pub fn new(mcp_client: Option<Arc<dyn McpClient + Send + Sync>>) -> Self {
         Self {
             mcp_clients: Arc::new(tokio::sync::RwLock::new(if let Some(client) = mcp_client {
                 let mut clients = HashMap::new();
@@ -60,7 +65,9 @@ impl UnifiedToolExecutor {
                 HashMap::new()
             })),
             available_tools: Arc::new(tokio::sync::RwLock::new(Vec::new())),
+            tool_server_map: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
             mcp_server_configs: Vec::new(),
+            native_router: None,
         }
     }
 
@@ -68,7 +75,8 @@ impl UnifiedToolExecutor {
     pub fn with_mcp_server(server_url: Option<String>) -> Result<Self, ToolError> {
         let mcp_client = if let Some(url) = server_url {
             let client = JsonClient::new(&url)?;
-            Some(Arc::new(client))
+            let client_arc: Arc<dyn McpClient + Send + Sync> = Arc::new(client);
+            Some(client_arc)
         } else {
             None
         };
@@ -81,7 +89,9 @@ impl UnifiedToolExecutor {
         Self {
             mcp_clients: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
             available_tools: Arc::new(tokio::sync::RwLock::new(Vec::new())),
+            tool_server_map: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
             mcp_server_configs: server_configs,
+            native_router: None,
         }
     }
 
@@ -90,23 +100,55 @@ impl UnifiedToolExecutor {
         let mut tools = Vec::new();
 
         // Connect to and discover tools from all MCP servers
-        for (i, _server_config) in self.mcp_server_configs.iter().enumerate() {
+        for (i, server_config) in self.mcp_server_configs.iter().enumerate() {
             let server_id = format!("server_{}", i);
             
-            // For now, use a simple URL construction - this would need to be enhanced
-            // based on the actual server configuration format
-            let server_url = format!("http://localhost:8000"); // placeholder
+            // Parse init_command properly handling quoted arguments
+            let command_parts = match shell_words::split(&server_config.init_command) {
+                Ok(parts) => parts,
+                Err(e) => {
+                    tracing::warn!("Failed to parse init_command for server {}: {}", server_id, e);
+                    continue;
+                }
+            };
             
-            match JsonClient::new(&server_url) {
+            if command_parts.is_empty() {
+                tracing::warn!("Empty init_command for server {}", server_id);
+                continue;
+            }
+
+            let binary = server_config.binary_path.as_deref().unwrap_or(&command_parts[0]);
+            let args: Vec<String> = if command_parts.len() > 1 {
+                command_parts[1..].to_vec()
+            } else {
+                Vec::new()
+            };
+            
+            // Spawn stdio MCP server subprocess
+            match StdioClient::new(binary, &args, &[]).await {
                 Ok(client) => {
-                    let client_arc = Arc::new(client);
+                    let client_arc: Arc<dyn McpClient + Send + Sync> = Arc::new(client);
                     
                     // Discover tools from this server
                     match client_arc.list_tools().await {
                         Ok(server_tools) => {
+                            // Populate tool_server_map for O(1) routing
+                            {
+                                let mut tool_map = self.tool_server_map.write().await;
+                                for tool in &server_tools {
+                                    if let Some(existing_server) = tool_map.get(&tool.name) {
+                                        tracing::warn!(
+                                            "Tool '{}' from server '{}' conflicts with server '{}', using latest",
+                                            tool.name, server_id, existing_server
+                                        );
+                                    }
+                                    tool_map.insert(tool.name.clone(), server_id.clone());
+                                }
+                            }
+                            
                             tools.extend(server_tools);
                             let mut clients = self.mcp_clients.write().await;
-                            clients.insert(server_id, client_arc);
+                            clients.insert(server_id.clone(), client_arc);
                         }
                         Err(e) => {
                             tracing::warn!("Failed to discover tools from server {}: {}", server_id, e);
@@ -114,7 +156,7 @@ impl UnifiedToolExecutor {
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("Failed to connect to MCP server {}: {}", server_id, e);
+                    tracing::warn!("Failed to spawn MCP server {}: {}", server_id, e);
                 }
             }
         }
@@ -143,7 +185,7 @@ impl UnifiedToolExecutor {
         if self.is_mcp_tool(tool_info) {
             self.execute_mcp_tool(tool_name, args).await
         } else {
-            self.execute_native_tool(tool_info, args).await
+            self.execute_native_tool(tool_info, args)
         }
     }
 
@@ -152,7 +194,7 @@ impl UnifiedToolExecutor {
         let tool_name = tool_name.to_string();
         let executor = self.clone_for_async();
 
-        // BLOCKING CODE APPROVED: Using shared_runtime().block_on() for async operations within ystream closure (2025-01-XX)
+        // BLOCKING CODE APPROVED BY DAVID ON 2025-01-29: Using shared_runtime().block_on() for async operations within ystream closure
         AsyncStream::with_channel(move |sender| {
             match crate::runtime::shared_runtime().block_on(executor.call_tool(&tool_name, args)) {
                 Ok(response) => {
@@ -200,7 +242,6 @@ impl UnifiedToolExecutor {
                 Ok(response) => return Ok(response),
                 Err(e) => {
                     tracing::debug!("Server {} doesn't have tool {}: {}", server_id, tool_name, e);
-                    continue;
                 }
             }
         }
@@ -209,7 +250,7 @@ impl UnifiedToolExecutor {
     }
 
     /// Execute native tool via cylo secure execution
-    async fn execute_native_tool(&self, _tool_info: &ToolInfo, args: JsonValue) -> Result<Response, ToolError> {
+    fn execute_native_tool(&self, _tool_info: &ToolInfo, args: JsonValue) -> Result<Response, ToolError> {
         // Extract code and language from arguments
         let _code = args.get("code")
             .and_then(|v| match v {

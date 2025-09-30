@@ -1,0 +1,6 @@
+Generate function calls for: {{user_input}}
+
+Available tools with full schemas:
+{{tools_json}}
+
+Generate the appropriate function calls using OpenAI tool calling format. Return JSON with "tool_calls" array containing objects with "id", "type": "function", and "function" (with "name" and "arguments" as JSON string).

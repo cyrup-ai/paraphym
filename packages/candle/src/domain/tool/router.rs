@@ -35,10 +35,6 @@ pub enum ToolRoute {
     SweetMcpPlugin {
         plugin_path: String,
     },
-    /// Execute via containerized MCP server
-    ContainerMcp {
-        server_url: String,
-    },
     /// Execute directly via Cylo backend
     CyloExecution {
         backend_type: String,
@@ -81,14 +77,10 @@ impl SweetMcpRouter {
 
         // Discover SweetMCP plugins
         // TODO: Implement plugin discovery from plugins directory
-        self.discover_sweetmcp_plugins(&mut tools, &mut routes).await?;
-
-        // Discover container MCP tools
-        // TODO: Implement container MCP discovery
-        self.discover_container_mcp_tools(&mut tools, &mut routes).await?;
+        self.discover_sweetmcp_plugins(&mut tools, &mut routes)?;
 
         // Add native code execution tools
-        self.add_native_execution_tools(&mut tools, &mut routes).await?;
+        self.add_native_execution_tools(&mut tools, &mut routes)?;
 
         // Store discovered tools and routes
         {
@@ -120,9 +112,6 @@ impl SweetMcpRouter {
             ToolRoute::SweetMcpPlugin { plugin_path } => {
                 self.execute_sweetmcp_plugin(&plugin_path, args).await
             }
-            ToolRoute::ContainerMcp { server_url } => {
-                self.execute_container_mcp(&server_url, tool_name, args).await
-            }
             ToolRoute::CyloExecution { backend_type, config } => {
                 self.execute_cylo_backend(&backend_type, &config, args).await
             }
@@ -143,7 +132,7 @@ impl SweetMcpRouter {
         let tool_name = tool_name.to_string();
         let router = self.clone_for_async();
 
-        // BLOCKING CODE APPROVED: Using shared_runtime().block_on() for async operations within ystream closure (2025-01-XX)
+        // BLOCKING CODE APPROVED BY DAVID ON 2025-01-29: Using shared_runtime().block_on() for async operations within ystream closure
         AsyncStream::with_channel(move |sender| {
             match crate::runtime::shared_runtime().block_on(router.call_tool(&tool_name, args)) {
                 Ok(result) => {
@@ -162,7 +151,7 @@ impl SweetMcpRouter {
     }
 
     /// Discover SweetMCP WASM plugins
-    async fn discover_sweetmcp_plugins(
+    fn discover_sweetmcp_plugins(
         &self,
         tools: &mut Vec<ToolInfo>,
         routes: &mut HashMap<String, ToolRoute>,
@@ -186,33 +175,8 @@ impl SweetMcpRouter {
         Ok(())
     }
 
-    /// Discover container MCP tools
-    async fn discover_container_mcp_tools(
-        &self,
-        tools: &mut Vec<ToolInfo>,
-        routes: &mut HashMap<String, ToolRoute>,
-    ) -> Result<(), RouterError> {
-        // TODO: Implement actual container MCP discovery
-        // For now, add placeholder tools
-        let container_tool = ToolInfo {
-            name: "execute_code_container".to_string(),
-            description: Some("Execute code in containerized environment".to_string()),
-            input_schema: self.create_code_execution_schema("Code to execute in container"),
-        };
-
-        tools.push(container_tool);
-        routes.insert(
-            "execute_code_container".to_string(),
-            ToolRoute::ContainerMcp {
-                server_url: "http://localhost:8080".to_string(),
-            },
-        );
-
-        Ok(())
-    }
-
     /// Add native code execution tools via Cylo
-    async fn add_native_execution_tools(
+    fn add_native_execution_tools(
         &self,
         tools: &mut Vec<ToolInfo>,
         routes: &mut HashMap<String, ToolRoute>,
@@ -285,27 +249,6 @@ impl SweetMcpRouter {
         self.execution_result_to_json(result)
     }
 
-    /// Execute container MCP tool
-    async fn execute_container_mcp(&self, server_url: &str, _tool_name: &str, args: JsonValue) -> Result<Value, RouterError> {
-        // Create Cylo backend for container MCP execution
-        let cylo_env = Cylo::ContainerMcp(server_url.to_string());
-        let config = BackendConfig::new("container_mcp");
-
-        let backend = create_backend(&cylo_env, config)
-            .map_err(|e| RouterError::BackendError(e.to_string()))?;
-
-        // Convert JsonValue args to ExecutionRequest
-        let request = self.json_args_to_execution_request(args)?;
-
-        // Execute via backend
-        let result_handle = backend.execute_code(request);
-        let result = result_handle.await
-            .map_err(|e| RouterError::ExecutionFailed(e.to_string()))?;
-
-        // Convert ExecutionResult to JSON Value
-        self.execution_result_to_json(result)
-    }
-
     /// Execute via Cylo backend directly
     async fn execute_cylo_backend(&self, backend_type: &str, config: &str, args: JsonValue) -> Result<Value, RouterError> {
         // Create appropriate Cylo environment
@@ -314,7 +257,6 @@ impl SweetMcpRouter {
             "LandLock" => Cylo::LandLock(config.to_string()),
             "FireCracker" => Cylo::FireCracker(config.to_string()),
             "SweetMcpPlugin" => Cylo::SweetMcpPlugin(config.to_string()),
-            "ContainerMcp" => Cylo::ContainerMcp(config.to_string()),
             _ => return Err(RouterError::BackendError(format!("Unknown backend type: {}", backend_type))),
         };
 
