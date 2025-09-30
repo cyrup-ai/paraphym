@@ -239,7 +239,7 @@ impl Default for CandleStringChunk {
 
 impl MessageChunk for CandleStringChunk {
     fn bad_chunk(error: String) -> Self {
-        CandleStringChunk(format!("Error: {}", error))
+        CandleStringChunk(format!("Error: {error}"))
     }
 
     fn error(&self) -> Option<&str> {
@@ -259,7 +259,7 @@ impl Default for CandleJsonChunk {
 
 impl MessageChunk for CandleJsonChunk {
     fn bad_chunk(error: String) -> Self {
-        CandleJsonChunk(Value::String(format!("Error: {}", error)))
+        CandleJsonChunk(Value::String(format!("Error: {error}")))
     }
 
     fn error(&self) -> Option<&str> {
@@ -286,10 +286,10 @@ impl<T> MessageChunk for CandleCollectionChunk<T>
 where 
     T: Default 
 {
-    fn bad_chunk(_error: String) -> Self {
+    fn bad_chunk(error: String) -> Self {
         CandleCollectionChunk {
             items: T::default(),
-            error_message: Some(_error),
+            error_message: Some(error),
         }
     }
 
@@ -326,9 +326,9 @@ impl Default for EmbeddingChunk {
 }
 
 impl MessageChunk for EmbeddingChunk {
-    fn bad_chunk(_error: String) -> Self {
+    fn bad_chunk(error: String) -> Self {
         let mut metadata = HashMap::new();
-        metadata.insert("error".to_string(), Value::String(_error));
+        metadata.insert("error".to_string(), Value::String(error));
         Self {
             embeddings: ZeroOneOrMany::None,
             index: 0,
@@ -590,10 +590,10 @@ where
     A: MessageChunk + Default,
     B: MessageChunk + Default,
 {
-    fn bad_chunk(_error: String) -> Self {
+    fn bad_chunk(error: String) -> Self {
         CandleTuple {
-            first: A::bad_chunk(_error.clone()),
-            second: B::bad_chunk(_error),
+            first: A::bad_chunk(error.clone()),
+            second: B::bad_chunk(error),
         }
     }
 
@@ -896,7 +896,7 @@ pub struct WorkflowDataChunk {
 impl MessageChunk for WorkflowDataChunk {
     fn bad_chunk(_error: String) -> Self {
         Self {
-            data: Value::String(format!("Error: {}", _error)),
+            data: Value::String(format!("Error: {_error}")),
             step_name: Some("error".to_string()),
             timestamp: Some(
                 std::time::SystemTime::now()

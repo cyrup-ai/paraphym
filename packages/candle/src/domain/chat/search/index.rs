@@ -155,7 +155,7 @@ impl ChatSearchIndex {
                 .message
                 .id
                 .clone()
-                .unwrap_or_else(|| format!("msg_{}", index));
+                .unwrap_or_else(|| format!("msg_{index}"));
             self_clone
                 .document_store
                 .insert(doc_id.as_str().to_string(), message.clone());

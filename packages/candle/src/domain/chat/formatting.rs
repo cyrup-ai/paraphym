@@ -519,7 +519,7 @@ impl ImmutableColorScheme {
         for color in &colors {
             if !Self::is_valid_color(color) {
                 return Err(FormatError::ConfigurationError {
-                    detail: format!("Invalid color format: {}", color),
+                    detail: format!("Invalid color format: {color}"),
                 });
             }
         }

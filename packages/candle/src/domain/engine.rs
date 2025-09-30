@@ -96,14 +96,14 @@ impl LocalEngine {
                         let config = crate::providers::kimi_k2::CandleKimiK2Config::default();
                         let model_path = std::env::var("KIMI_MODEL_PATH").unwrap_or_else(|_| "./models/kimi-k2".to_string());
                         CandleKimiK2Provider::with_config_sync(model_path, config)
-                            .map_err(|e| format!("Provider initialization failed: {}", e))
+                            .map_err(|e| format!("Provider initialization failed: {e}"))
                     });
                     
                     let provider_result = match provider_task.collect() {
                         Ok(result) => result,
                         Err(task_error) => {
                             let error_response = CandleCompletionResponse {
-                                text: format!("Kimi-K2 provider task execution failed: {}", task_error).into(),
+                                text: format!("Kimi-K2 provider task execution failed: {task_error}").into(),
                                 model: model_name.clone().into(),
                                 provider: Some("candle-local".into()),
                                 usage: None,
@@ -141,7 +141,7 @@ impl LocalEngine {
                             };
                             
                             let completion_params = crate::domain::completion::CandleCompletionParams {
-                                temperature: _temperature.unwrap_or(0.7) as f64,
+                                temperature: f64::from(_temperature.unwrap_or(0.7)),
                                 max_tokens,
                                 n,
                                 stream: true,
@@ -175,7 +175,7 @@ impl LocalEngine {
                                     },
                                     crate::domain::context::chunk::CandleCompletionChunk::Error(err) => {
                                         CandleCompletionResponse {
-                                            text: format!("Error: {}", err).into(),
+                                            text: format!("Error: {err}").into(),
                                             model: model_name.clone().into(),
                                             provider: Some("candle-local".into()),
                                             usage: None,
@@ -207,7 +207,7 @@ impl LocalEngine {
                         }
                         Err(e) => {
                             let error_response = CandleCompletionResponse {
-                                text: format!("Error creating Kimi-K2 provider: {}", e).into(),
+                                text: format!("Error creating Kimi-K2 provider: {e}").into(),
                                 model: model_name.into(),
                                 provider: Some("candle-local".into()),
                                 usage: None,
@@ -229,13 +229,13 @@ impl LocalEngine {
                         let config = crate::providers::qwen3_coder::CandleQwen3CoderConfig::default();
                         let model_path = std::env::var("QWEN3_MODEL_PATH").unwrap_or_else(|_| "./models/qwen3-coder".to_string());
                         CandleQwen3CoderProvider::with_config_sync(model_path, config)
-                            .map_err(|e| format!("Qwen3Coder provider initialization failed: {}", e))
+                            .map_err(|e| format!("Qwen3Coder provider initialization failed: {e}"))
                     });
                     let provider_result = match provider_task.collect() {
                         Ok(result) => result,
                         Err(task_error) => {
                             let error_response = CandleCompletionResponse {
-                                text: format!("Qwen3-Coder provider task execution failed: {}", task_error).into(),
+                                text: format!("Qwen3-Coder provider task execution failed: {task_error}").into(),
                                 model: model_name.clone().into(),
                                 provider: Some("candle-local".into()),
                                 usage: None,
@@ -273,7 +273,7 @@ impl LocalEngine {
                             };
                             
                             let completion_params = crate::domain::completion::CandleCompletionParams {
-                                temperature: _temperature.unwrap_or(0.7) as f64,
+                                temperature: f64::from(_temperature.unwrap_or(0.7)),
                                 max_tokens,
                                 n,
                                 stream: true,
@@ -307,7 +307,7 @@ impl LocalEngine {
                                     },
                                     crate::domain::context::chunk::CandleCompletionChunk::Error(err) => {
                                         CandleCompletionResponse {
-                                            text: format!("Error: {}", err).into(),
+                                            text: format!("Error: {err}").into(),
                                             model: model_name.clone().into(),
                                             provider: Some("candle-local".into()),
                                             usage: None,
@@ -339,7 +339,7 @@ impl LocalEngine {
                         }
                         Err(e) => {
                             let error_response = CandleCompletionResponse {
-                                text: format!("Error creating Qwen3-Coder provider: {}", e).into(),
+                                text: format!("Error creating Qwen3-Coder provider: {e}").into(),
                                 model: model_name.into(),
                                 provider: Some("candle-local".into()),
                                 usage: None,
@@ -354,7 +354,7 @@ impl LocalEngine {
                 }
                 _ => {
                     let error_response = CandleCompletionResponse {
-                        text: format!("Unsupported model: {}. Supported models: kimi-k2, qwen3-coder", model_name).into(),
+                        text: format!("Unsupported model: {model_name}. Supported models: kimi-k2, qwen3-coder").into(),
                         model: model_name.into(),
                         provider: Some("candle-local".into()),
                         usage: None,

@@ -231,19 +231,19 @@ pub mod types {
     impl fmt::Display for CandleMessageChunk {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             match self {
-                CandleMessageChunk::Text(text) => write!(f, "{}", text),
+                CandleMessageChunk::Text(text) => write!(f, "{text}"),
                 CandleMessageChunk::ToolCallStart { id, name } => {
-                    write!(f, "🔧 Starting tool call: {} ({})", name, id)
+                    write!(f, "🔧 Starting tool call: {name} ({id})")
                 }
                 CandleMessageChunk::ToolCall {
                     id,
                     name,
                     partial_input,
                 } => {
-                    write!(f, "🔧 Tool call {}: {} - {}", name, id, partial_input)
+                    write!(f, "🔧 Tool call {name}: {id} - {partial_input}")
                 }
                 CandleMessageChunk::ToolCallComplete { id, name, input } => {
-                    write!(f, "✅ Tool call complete: {} ({}) - {}", name, id, input)
+                    write!(f, "✅ Tool call complete: {name} ({id}) - {input}")
                 }
                 CandleMessageChunk::Complete {
                     text,
@@ -252,15 +252,15 @@ pub mod types {
                 } => {
                     let mut output = text.clone();
                     if let Some(reason) = finish_reason {
-                        output.push_str(&format!(" [{}]", reason));
+                        output.push_str(&format!(" [{reason}]"));
                     }
                     if let Some(usage_info) = usage {
-                        output.push_str(&format!(" ({})", usage_info));
+                        output.push_str(&format!(" ({usage_info})"));
                     }
-                    write!(f, "{}", output)
+                    write!(f, "{output}")
                 }
                 CandleMessageChunk::Error(error) => {
-                    write!(f, "❌ Error: {}", error)
+                    write!(f, "❌ Error: {error}")
                 }
             }
         }
@@ -478,13 +478,13 @@ pub mod error {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             match self {
                 CandleMessageError::ConversionError(msg) => {
-                    write!(f, "Candle conversion error: {}", msg)
+                    write!(f, "Candle conversion error: {msg}")
                 }
                 CandleMessageError::InvalidFormat(msg) => {
-                    write!(f, "Candle invalid format: {}", msg)
+                    write!(f, "Candle invalid format: {msg}")
                 }
                 CandleMessageError::UnsupportedType(msg) => {
-                    write!(f, "Candle unsupported type: {}", msg)
+                    write!(f, "Candle unsupported type: {msg}")
                 }
             }
         }
@@ -496,7 +496,7 @@ pub mod error {
 /// Candle message processing functionality
 pub mod processing {
     use super::error::CandleMessageError;
-    use super::types::*;
+    use super::types::CandleMessage;
 
     /// Process a Candle message in place, applying transformations
     pub fn candle_process_message(message: &mut CandleMessage) -> Result<(), CandleMessageError> {

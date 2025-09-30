@@ -186,7 +186,7 @@ impl CandleModelCapabilities {
 
     /// Get an iterator over all enabled capabilities
     pub fn enabled_capabilities(&self) -> impl Iterator<Item = CandleCapability> + '_ {
-        use CandleCapability::*;
+        use CandleCapability::{Vision, FunctionCalling, Streaming, FineTuning, BatchProcessing, Realtime, Multimodal, Thinking, Embedding, CodeCompletion, Chat, InstructionFollowing, FewShotLearning, ZeroShotLearning, LongContext, LowLatency, HighThroughput, Quantization, Distillation, Pruning};
         [
             Vision,
             FunctionCalling,

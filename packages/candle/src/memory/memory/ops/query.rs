@@ -176,7 +176,7 @@ impl MemoryQueryExecutor {
         // Check if there are memory types in the filter
         if let Some(memory_types) = &query.filter.memory_types {
             for memory_type in memory_types {
-                let mut stream = manager.query_by_type(memory_type.clone());
+                let mut stream = manager.query_by_type(*memory_type);
                 while let Some(result) = stream.next().await {
                     match result {
                         Ok(memory) => results.push(memory),

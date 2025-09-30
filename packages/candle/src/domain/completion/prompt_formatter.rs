@@ -94,7 +94,7 @@ impl PromptFormatter {
         }
 
         // 4. Current user message
-        prompt_parts.push(format!("User: {}", user_message));
+        prompt_parts.push(format!("User: {user_message}"));
 
         prompt_parts.join("\n\n")
     }
@@ -119,7 +119,7 @@ impl PromptFormatter {
         }
 
         for (i, memory) in memory_items.iter().enumerate() {
-            let memory_text = self.format_single_memory(memory, i + 1);
+            let memory_text = Self::format_single_memory(memory, i + 1);
 
             // Check length limit
             if let Some(max_len) = self.max_memory_length {
@@ -139,7 +139,7 @@ impl PromptFormatter {
     }
 
     /// Format a single memory entry
-    fn format_single_memory(&self, memory: &RetrievalResult, index: usize) -> String {
+    fn format_single_memory(memory: &RetrievalResult, index: usize) -> String {
         let content = memory.metadata.get("content")
             .and_then(|v| v.as_str())
             .unwrap_or("[No content available]");
@@ -172,7 +172,7 @@ impl PromptFormatter {
         }
 
         for (i, doc) in doc_items.iter().enumerate() {
-            let doc_text = self.format_single_document(doc, i + 1);
+            let doc_text = Self::format_single_document(doc, i + 1);
 
             // Check length limit
             if let Some(max_len) = self.max_context_length {
@@ -192,14 +192,14 @@ impl PromptFormatter {
     }
 
     /// Format a single document entry
-    fn format_single_document(&self, document: &Document, index: usize) -> String {
+    fn format_single_document(document: &Document, index: usize) -> String {
         let content = &document.data;
-        let default_title = format!("Document {}", index);
+        let default_title = format!("Document {index}");
         let title = document.additional_props.get("title")
             .and_then(|v| v.as_str())
             .unwrap_or(&default_title);
 
-        format!("{}: {}", title, content)
+        format!("{title}: {content}")
     }
 
     /// Format chat history section

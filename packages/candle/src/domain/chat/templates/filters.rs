@@ -109,8 +109,12 @@ impl FilterRegistry {
         self.register(
             "length",
             Arc::new(|value, _args| match value {
-                CandleTemplateValue::String(s) => Ok(CandleTemplateValue::Number(s.len() as f64)),
+                CandleTemplateValue::String(s) => {
+                    #[allow(clippy::cast_precision_loss)]
+                    Ok(CandleTemplateValue::Number(s.len() as f64))
+                }
                 CandleTemplateValue::Array(arr) => {
+                    #[allow(clippy::cast_precision_loss)]
                     Ok(CandleTemplateValue::Number(arr.len() as f64))
                 }
                 _ => Err(CandleTemplateError::RenderError {

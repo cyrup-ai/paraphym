@@ -894,8 +894,7 @@ impl CandleContext<CandleFiles> {
                             Err(e) => {
                                 ystream::handle_error!(
                                     CandleContextError::ContextNotFound(format!(
-                                        "Glob pattern error: {}",
-                                        e
+                                        "Glob pattern error: {e}"
                                     )),
                                     "Glob pattern expansion failed"
                                 );
@@ -1024,8 +1023,7 @@ impl CandleContext<CandleDirectory> {
                             Err(e) => {
                                 ystream::handle_error!(
                                     CandleContextError::ContextNotFound(format!(
-                                        "Directory traversal error: {}",
-                                        e
+                                        "Directory traversal error: {e}"
                                     )),
                                     "Directory traversal failed"
                                 );

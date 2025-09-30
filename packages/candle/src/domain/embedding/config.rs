@@ -125,15 +125,14 @@ impl EmbeddingConfig {
     fn validate_dimension_for_model(&self, dimension: usize, model_name: &str) -> crate::memory::utils::error::Result<()> {
         use crate::memory::utils::error::Error as MemoryError;
         
-        let normalized_name = self.normalize_model_name(model_name);
+        let normalized_name = Self::normalize_model_name(model_name);
         
         match normalized_name {
             "bert" | "sentence-transformers" => {
                 if dimension != 384 {
                     return Err(MemoryError::Config(format!(
-                        "BERT (sentence-transformers/all-MiniLM-L6-v2) only supports 384 dimensions. Requested: {}. \
-                         BERT uses a fixed architecture that produces exactly 384-dimensional embeddings.",
-                        dimension
+                        "BERT (sentence-transformers/all-MiniLM-L6-v2) only supports 384 dimensions. Requested: {dimension}. \
+                         BERT uses a fixed architecture that produces exactly 384-dimensional embeddings."
                     )));
                 }
             },
@@ -141,43 +140,38 @@ impl EmbeddingConfig {
                 match dimension {
                     256 | 768 | 1024 | 2048 | 4096 | 6144 | 8192 => {},
                     _ => return Err(MemoryError::Config(format!(
-                        "Stella natively supports: 256, 768, 1024, 2048, 4096, 6144, 8192 dimensions. Requested: {}. \
-                         These are the actual learned projection dimensions available in the MRL framework.",
-                        dimension
+                        "Stella natively supports: 256, 768, 1024, 2048, 4096, 6144, 8192 dimensions. Requested: {dimension}. \
+                         These are the actual learned projection dimensions available in the MRL framework."
                     ))),
                 }
             },
             "gte-qwen" | "gte-qwen2" => {
                 if dimension != 1536 {
                     return Err(MemoryError::Config(format!(
-                        "GTE-Qwen2-1.5B-instruct only supports 1536 dimensions. Requested: {}. \
-                         This model has a fixed architecture optimized for 1536-dimensional embeddings.",
-                        dimension
+                        "GTE-Qwen2-1.5B-instruct only supports 1536 dimensions. Requested: {dimension}. \
+                         This model has a fixed architecture optimized for 1536-dimensional embeddings."
                     )));
                 }
             },
             "jina-bert" | "jina" => {
                 if dimension != 768 {
                     return Err(MemoryError::Config(format!(
-                        "Jina-BERT only supports 768 dimensions. Requested: {}. \
-                         This model uses a fixed BERT-based architecture with 768-dimensional output.",
-                        dimension
+                        "Jina-BERT only supports 768 dimensions. Requested: {dimension}. \
+                         This model uses a fixed BERT-based architecture with 768-dimensional output."
                     )));
                 }
             },
             "nvembed" | "nv-embed-v2" | "nvidia/nv-embed-v2" => {
                 if dimension != 4096 {
                     return Err(MemoryError::Config(format!(
-                        "NVEmbed-v2 only supports 4096 dimensions. Requested: {}. \
-                         This model uses a large transformer architecture optimized for 4096-dimensional embeddings.",
-                        dimension
+                        "NVEmbed-v2 only supports 4096 dimensions. Requested: {dimension}. \
+                         This model uses a large transformer architecture optimized for 4096-dimensional embeddings."
                     )));
                 }
             },
             _ => {
                 return Err(MemoryError::Config(format!(
-                    "Unknown model '{}' for dimension validation. Supported models: bert, stella, gte-qwen, jina-bert, nvembed",
-                    model_name
+                    "Unknown model '{model_name}' for dimension validation. Supported models: bert, stella, gte-qwen, jina-bert, nvembed"
                 )));
             }
         }
@@ -186,7 +180,7 @@ impl EmbeddingConfig {
     }
 
     /// Normalize model name for consistent matching (internal)
-    fn normalize_model_name(&self, model_name: &str) -> &'static str {
+    fn normalize_model_name(model_name: &str) -> &'static str {
         let lower = model_name.to_lowercase();
         match lower.as_str() {
             // BERT variants
@@ -270,7 +264,7 @@ impl EmbeddingConfig {
     /// Get all supported dimensions for the configured model
     pub fn get_supported_dimensions(&self) -> Vec<usize> {
         let model_name = self.model.as_deref().unwrap_or("bert");
-        let normalized_name = self.normalize_model_name(model_name);
+        let normalized_name = Self::normalize_model_name(model_name);
         
         match normalized_name {
             "bert" => vec![384],

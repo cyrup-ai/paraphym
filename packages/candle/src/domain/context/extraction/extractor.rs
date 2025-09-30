@@ -134,8 +134,7 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + MessageC
                 }
                 CandleCompletionChunk::Error(err) => {
                     return Err(ExtractionError::CompletionError(format!(
-                        "Error from model: {}",
-                        err
+                        "Error from model: {err}"
                     )));
                 }
                 // Handle other variants as needed
@@ -205,7 +204,7 @@ impl CompletionModel for AgentCompletionModel {
             // Create a complete chunk with the prompt text
             type Chunk = CandleCompletionChunk;
             let chunk = Chunk::Complete {
-                text: format!("{:?}", prompt),
+                text: format!("{prompt:?}"),
                 finish_reason: Some(FinishReason::Stop),
                 usage: None,
             };

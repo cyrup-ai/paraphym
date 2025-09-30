@@ -628,14 +628,13 @@ impl MacroSystem {
                     let resolved_content = resolve_variables_sync(content, &context_vars);
                     // In a real implementation, this would send the message to the chat system
                     println!(
-                        "Sending message: {} (type: {})",
-                        resolved_content, message_type
+                        "Sending message: {resolved_content} (type: {message_type})"
                     );
                     Ok::<ActionExecutionResult, MacroSystemError>(ActionExecutionResult::Success)
                 }
                 MacroAction::ExecuteCommand { command, .. } => {
                     // In a real implementation, this would execute the command
-                    println!("Executing command: {:?}", command);
+                    println!("Executing command: {command:?}");
                     Ok::<ActionExecutionResult, MacroSystemError>(ActionExecutionResult::Success)
                 }
                 MacroAction::Wait { duration, .. } => Ok(ActionExecutionResult::Wait(*duration)),
@@ -729,7 +728,7 @@ impl MacroSystem {
         let mut result = content.to_string();
 
         for (key, value) in variables {
-            let placeholder = format!("{{{}}}", key);
+            let placeholder = format!("{{{key}}}");
             result = result.replace(&placeholder, value);
         }
 
@@ -1320,14 +1319,13 @@ fn execute_action_sync(
             let resolved_content = resolve_variables_sync(content, &context.variables);
             // In a real implementation, this would send the message to the chat system
             println!(
-                "Sending message: {} (type: {})",
-                resolved_content, message_type
+                "Sending message: {resolved_content} (type: {message_type})"
             );
             Ok(ActionExecutionResult::Success)
         }
         MacroAction::ExecuteCommand { command, .. } => {
             // In a real implementation, this would execute the command
-            println!("Executing command: {:?}", command);
+            println!("Executing command: {command:?}");
             Ok(ActionExecutionResult::Success)
         }
         MacroAction::Wait { duration, .. } => Ok(ActionExecutionResult::Wait(*duration)),
@@ -1395,7 +1393,7 @@ fn resolve_variables_sync(content: &str, variables: &HashMap<String, String>) ->
     let mut result = content.to_string();
 
     for (key, value) in variables {
-        let placeholder = format!("{{{}}}", key);
+        let placeholder = format!("{{{key}}}");
         result = result.replace(&placeholder, value);
     }
 

@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::actions::*;
+use super::actions::{TemplateAction, MacroAction, SearchScope, BranchAction, SessionAction, ToolAction, StatsType, ThemeAction, DebugAction, HistoryAction, ImportType};
 use super::errors::{CandleCommandError, CommandResult};
 
 /// Settings category enumeration for zero allocation dispatch

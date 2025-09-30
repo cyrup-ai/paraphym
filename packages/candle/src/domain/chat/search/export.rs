@@ -69,7 +69,7 @@ impl SearchExporter {
         _options: &ExportOptions,
     ) -> Result<String, SearchError> {
         serde_json::to_string_pretty(&results).map_err(|e| SearchError::ExportError {
-            reason: format!("JSON serialization failed: {}", e),
+            reason: format!("JSON serialization failed: {e}"),
         })
     }
 }

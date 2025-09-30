@@ -129,6 +129,9 @@ pub trait CandleAgentRole: Send + Sync + fmt::Debug + Clone {
     fn new(name: impl Into<String>) -> Self;
 }
 
+/// Type alias for conversation turn handler callback
+type ConversationTurnHandler = Box<dyn Fn(&CandleAgentConversation, &CandleAgentRoleAgent) + Send + Sync>;
+
 /// Default implementation of the `CandleAgentRole` trait
 pub struct CandleAgentRoleImpl {
     name: String,
@@ -152,8 +155,7 @@ pub struct CandleAgentRoleImpl {
     /// Tool result processing and callback handling
     on_tool_result_handler: Option<Box<dyn Fn(ZeroOneOrMany<Value>) + Send + Sync>>,
     /// Conversation turn event handling and logging
-    on_conversation_turn_handler:
-        Option<Box<dyn Fn(&CandleAgentConversation, &CandleAgentRoleAgent) + Send + Sync>>,
+    on_conversation_turn_handler: Option<ConversationTurnHandler>,
 }
 
 impl std::fmt::Debug for CandleAgentRoleImpl {
@@ -164,7 +166,7 @@ impl std::fmt::Debug for CandleAgentRoleImpl {
             .field("max_tokens", &self.max_tokens)
             .field("system_prompt", &self.system_prompt)
             .field("completion_provider", &self.completion_provider.is_some())
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -233,6 +235,7 @@ impl CandleAgentRoleImpl {
     /// # Returns
     /// Updated agent role instance
     #[inline]
+    #[must_use]
     pub fn with_completion_provider(mut self, provider: CandleCompletionProviderType) -> Self {
         self.completion_provider = Some(Arc::new(provider));
         self
@@ -242,6 +245,10 @@ impl CandleAgentRoleImpl {
     ///
     /// # Returns
     /// Reference to completion provider (never None after builder initialization)
+    ///
+    /// # Panics
+    /// Panics if completion provider is None. This should never happen in practice
+    /// as the builder pattern guarantees provider initialization before use.
     #[inline]
     pub fn get_completion_provider(&self) -> &CandleCompletionProviderType {
         self.completion_provider.as_ref()
@@ -257,25 +264,20 @@ impl CandleAgentRoleImpl {
     /// # Returns
     /// Updated agent role instance
     #[inline]
+    #[must_use]
     pub fn add_context_from_file(mut self, file_path: impl AsRef<Path>) -> Self {
         use crate::domain::context::document::CandleDocument;
         
         let document = CandleDocument::from_file(file_path.as_ref()).load();
         
-        match self.contexts {
-            None => {
-                self.contexts = Some(ZeroOneOrMany::One(document));
-            }
-            Some(ZeroOneOrMany::None) => {
-                self.contexts = Some(ZeroOneOrMany::One(document));
-            }
-            Some(ZeroOneOrMany::One(existing)) => {
-                self.contexts = Some(ZeroOneOrMany::Many(vec![existing, document]));
-            }
-            Some(ZeroOneOrMany::Many(ref mut existing)) => {
+        self.contexts = match self.contexts {
+            None | Some(ZeroOneOrMany::None) => Some(ZeroOneOrMany::One(document)),
+            Some(ZeroOneOrMany::One(existing)) => Some(ZeroOneOrMany::Many(vec![existing, document])),
+            Some(ZeroOneOrMany::Many(mut existing)) => {
                 existing.push(document);
+                Some(ZeroOneOrMany::Many(existing))
             }
-        }
+        };
         
         self
     }
@@ -288,6 +290,7 @@ impl CandleAgentRoleImpl {
     /// # Returns
     /// Updated agent role instance
     #[inline]
+    #[must_use]
     pub fn add_context_from_directory(mut self, dir_path: impl AsRef<Path>) -> Self {
         use crate::domain::context::document::CandleDocument;
         use std::fs;
@@ -301,20 +304,14 @@ impl CandleAgentRoleImpl {
                 if path.is_file() {
                     let document = CandleDocument::from_file(&path).load();
                     
-                    match self.contexts {
-                        None => {
-                            self.contexts = Some(ZeroOneOrMany::One(document));
-                        }
-                        Some(ZeroOneOrMany::None) => {
-                            self.contexts = Some(ZeroOneOrMany::One(document));
-                        }
-                        Some(ZeroOneOrMany::One(existing)) => {
-                            self.contexts = Some(ZeroOneOrMany::Many(vec![existing, document]));
-                        }
-                        Some(ZeroOneOrMany::Many(ref mut existing)) => {
+                    self.contexts = match self.contexts {
+                        None | Some(ZeroOneOrMany::None) => Some(ZeroOneOrMany::One(document)),
+                        Some(ZeroOneOrMany::One(existing)) => Some(ZeroOneOrMany::Many(vec![existing, document])),
+                        Some(ZeroOneOrMany::Many(mut existing)) => {
                             existing.push(document);
+                            Some(ZeroOneOrMany::Many(existing))
                         }
-                    }
+                    };
                 }
             }
         }
@@ -330,6 +327,7 @@ impl CandleAgentRoleImpl {
     /// # Returns
     /// Updated agent role instance
     #[inline]
+    #[must_use]
     pub fn with_code_execution(mut self, _enabled: bool) -> Self {
         // Create or update the unified tool executor
         let executor = UnifiedToolExecutor::new(None); // MCP client will be added later
@@ -341,6 +339,12 @@ impl CandleAgentRoleImpl {
     ///
     /// This method sets up the unified tool executor with MCP servers and code execution
     /// Called automatically during agent initialization
+    ///
+    /// # Errors
+    /// Returns `ToolError` if tool executor initialization fails, including:
+    /// - MCP server connection failures
+    /// - Tool discovery errors
+    /// - Backend initialization issues
     pub async fn initialize_tools(&mut self) -> Result<(), ToolError> {
         if let Some(ref executor) = self.tool_executor {
             executor.initialize().await?;
@@ -392,17 +396,16 @@ impl CandleAgentRoleImpl {
     /// # Returns
     /// Updated agent role instance
     #[inline]
+    #[must_use]
     pub fn add_mcp_server(mut self, config: McpServerConfig) -> Self {
-        match self.mcp_servers {
-            None => self.mcp_servers = Some(ZeroOneOrMany::One(config)),
-            Some(ZeroOneOrMany::None) => self.mcp_servers = Some(ZeroOneOrMany::One(config)),
-            Some(ZeroOneOrMany::One(existing)) => {
-                self.mcp_servers = Some(ZeroOneOrMany::Many(vec![existing, config]));
-            }
-            Some(ZeroOneOrMany::Many(ref mut vec)) => {
+        self.mcp_servers = match self.mcp_servers {
+            None | Some(ZeroOneOrMany::None) => Some(ZeroOneOrMany::One(config)),
+            Some(ZeroOneOrMany::One(existing)) => Some(ZeroOneOrMany::Many(vec![existing, config])),
+            Some(ZeroOneOrMany::Many(mut vec)) => {
                 vec.push(config);
+                Some(ZeroOneOrMany::Many(vec))
             }
-        }
+        };
         self
     }
 
@@ -423,6 +426,7 @@ impl CandleAgentRoleImpl {
     /// # Returns
     /// Updated agent role instance
     #[inline]
+    #[must_use]
     pub fn with_memory_manager(mut self, memory_manager: Arc<dyn MemoryManager>) -> Self {
         self.memory = Some(memory_manager);
         self
@@ -445,6 +449,7 @@ impl CandleAgentRoleImpl {
     /// # Returns
     /// Updated agent role instance
     #[inline]
+    #[must_use]
     pub fn on_tool_result<F>(mut self, handler: F) -> Self
     where
         F: Fn(ZeroOneOrMany<Value>) + Send + Sync + 'static,
@@ -461,6 +466,7 @@ impl CandleAgentRoleImpl {
     /// # Returns
     /// Updated agent role instance
     #[inline]
+    #[must_use]
     pub fn on_conversation_turn<F>(mut self, handler: F) -> Self
     where
         F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) + Send + Sync + 'static,

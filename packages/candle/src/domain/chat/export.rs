@@ -8,7 +8,7 @@ use thiserror::Error;
 
 /// String serialization helper
 mod arc_str_serde {
-    use super::*;
+    use super::{Serializer, Deserializer, Deserialize};
 
     pub fn serialize<S>(arc_str: &String, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -270,7 +270,7 @@ impl ChatExporter {
 
             if self.config.include_timestamps {
                 let elapsed_secs = message.timestamp.unwrap_or(0);
-                output.push_str(&format!("**Timestamp:** {}\n", elapsed_secs));
+                output.push_str(&format!("**Timestamp:** {elapsed_secs}\n"));
             }
 
             output.push_str(&format!("**Role:** {:?}\n\n", message.role));
@@ -292,11 +292,11 @@ impl ChatExporter {
         for message in messages {
             if self.config.include_timestamps {
                 let elapsed_secs = message.timestamp.unwrap_or(0);
-                output.push_str(&format!("[{}] ", elapsed_secs));
+                output.push_str(&format!("[{elapsed_secs}] "));
             }
 
             let content_str = &message.content;
-            output.push_str(&format!("{:?}: {}\n", message.role, content_str));
+            output.push_str(&format!("{:?}: {content_str}\n", message.role));
         }
 
         Ok(output)
@@ -319,13 +319,13 @@ impl ChatExporter {
         for message in messages {
             if self.config.include_timestamps {
                 let elapsed_secs = message.timestamp.unwrap_or(0);
-                output.push_str(&format!("{},", elapsed_secs));
+                output.push_str(&format!("{elapsed_secs},"));
             }
 
             // Escape CSV content
             let content_str = &message.content;
             let escaped_content = content_str.replace("\"", "\"\"");
-            output.push_str(&format!("\"{:?}\",\"{}\"\n", message.role, escaped_content));
+            output.push_str(&format!("\"{:?}\",\"{escaped_content}\"\n", message.role));
         }
 
         Ok(output)
@@ -405,7 +405,7 @@ fn export_to_markdown(
 
         if config.include_timestamps {
             let timestamp_str = message.timestamp.unwrap_or(0);
-            output.push_str(&format!("*Timestamp: {}*\n\n", timestamp_str));
+            output.push_str(&format!("*Timestamp: {timestamp_str}*\n\n"));
         }
     }
 
@@ -430,7 +430,7 @@ fn export_to_text(
 
         if config.include_timestamps {
             let timestamp_str = message.timestamp.unwrap_or(0);
-            output.push_str(&format!("Timestamp: {}\n", timestamp_str));
+            output.push_str(&format!("Timestamp: {timestamp_str}\n"));
         }
         output.push('\n');
     }

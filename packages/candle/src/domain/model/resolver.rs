@@ -351,7 +351,7 @@ impl ModelResolver {
         for rule in &self.rules {
             if rule.pattern.matches(model_name) {
                 if let Some(condition) = &rule.condition
-                    && !self.check_condition(condition)
+                    && !Self::check_condition(condition)
                 {
                     continue;
                 }
@@ -369,7 +369,7 @@ impl ModelResolver {
         }
 
         // Try fuzzy matching
-        self.fuzzy_match::<M>(registry, model_name, provider)
+        Self::fuzzy_match::<M>(registry, model_name, provider)
     }
 
     /// Get a model by name and optional provider
@@ -417,7 +417,7 @@ impl ModelResolver {
     }
 
     /// Check if a condition is met
-    fn check_condition(&self, condition: &RuleCondition) -> bool {
+    fn check_condition(condition: &RuleCondition) -> bool {
         match condition {
             RuleCondition::HasCapability { capability: _ } => {
                 // In a real implementation, check if the model has the capability
@@ -437,7 +437,6 @@ impl ModelResolver {
 
     /// Find the best matching model using fuzzy matching
     fn fuzzy_match<M: Model + 'static>(
-        &self,
         registry: &ModelRegistry,
         model_name: &str,
         provider: Option<&str>,

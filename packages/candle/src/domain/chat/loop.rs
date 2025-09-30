@@ -25,9 +25,9 @@ impl fmt::Display for CandleChatLoop {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             CandleChatLoop::Break => write!(f, "CandleChatLoop::Break"),
-            CandleChatLoop::Reprompt(msg) => write!(f, "CandleChatLoop::Reprompt({:?})", msg),
+            CandleChatLoop::Reprompt(msg) => write!(f, "CandleChatLoop::Reprompt({msg:?})"),
             CandleChatLoop::UserPrompt(prompt) => {
-                write!(f, "CandleChatLoop::UserPrompt({:?})", prompt)
+                write!(f, "CandleChatLoop::UserPrompt({prompt:?})")
             }
         }
     }

@@ -97,7 +97,7 @@ impl CandleContextChunk {
 impl MessageChunk for CandleContextChunk {
     fn bad_chunk(error: String) -> Self {
         CandleContextChunk {
-            content: format!("ERROR: {}", error),
+            content: format!("ERROR: {error}"),
             content_type: CandleContextType::Text,
             metadata: None,
             is_final: true,

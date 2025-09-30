@@ -28,7 +28,7 @@ impl From<&MemoryNode> for MemoryNodeCreateContent {
     fn from(memory: &MemoryNode) -> Self {
         Self {
             content: memory.content.text.clone(),
-            memory_type: memory.memory_type.clone(),
+            memory_type: memory.memory_type,
             metadata: MemoryMetadataSchema {
                 created_at: memory.metadata.created_at,
                 last_accessed_at: memory

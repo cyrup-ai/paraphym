@@ -285,10 +285,10 @@ impl ChatSearchIndex {
                 let tokens = self_clone.tokenize_with_simd(content);
 
                 // Check if terms appear within the specified distance
-                if self_clone.check_proximity(&terms_clone, &tokens, distance) {
+                if Self::check_proximity(&terms_clone, &tokens, distance) {
                     let result = SearchResult {
                         message: message.clone(),
-                        relevance_score: self_clone.calculate_proximity_score(
+                        relevance_score: Self::calculate_proximity_score(
                             &terms_clone,
                             &tokens,
                             distance,
@@ -297,7 +297,7 @@ impl ChatSearchIndex {
                         highlighted_content: None,
                         tags: Vec::new(),
                         context: Vec::new(),
-                        match_positions: self_clone.find_match_positions(&terms_clone, content),
+                        match_positions: Self::find_match_positions(&terms_clone, content),
                         metadata: Some(SearchResultMetadata {
                             query_time_ms: 0.0,
                             index_version: 1,

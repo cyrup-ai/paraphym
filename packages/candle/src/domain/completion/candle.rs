@@ -172,7 +172,7 @@ impl<'a> CompletionCoreRequest<'a> {
     /// Set temperature for sampling
     #[inline(always)]
     pub fn set_temperature(&mut self, temperature: f32) {
-        self.temperature = temperature as f64;
+        self.temperature = f64::from(temperature);
     }
 
     /// Enable or disable streaming

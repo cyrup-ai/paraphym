@@ -996,10 +996,10 @@ impl ValidationConfig {
         // Language-specific validation
         match language {
             CodeLanguage::Python => self.validate_python_code(code),
-            CodeLanguage::JavaScript => self.validate_javascript_code(code),
-            CodeLanguage::Rust => self.validate_rust_code(code),
-            CodeLanguage::Go => self.validate_go_code(code),
-            CodeLanguage::Bash => self.validate_bash_code(code),
+            CodeLanguage::JavaScript => Self::validate_javascript_code(code),
+            CodeLanguage::Rust => Self::validate_rust_code(code),
+            CodeLanguage::Go => Self::validate_go_code(code),
+            CodeLanguage::Bash => Self::validate_bash_code(code),
         }
     }
 
@@ -1024,7 +1024,7 @@ impl ValidationConfig {
 
     /// Validate JavaScript-specific patterns
     #[inline]
-    fn validate_javascript_code(&self, code: &str) -> Result<(), ValidationError> {
+    fn validate_javascript_code(code: &str) -> Result<(), ValidationError> {
         // Check for Node.js requires
         if code.contains("require(") {
             return Err(ValidationError::security_failed(
@@ -1036,7 +1036,7 @@ impl ValidationConfig {
 
     /// Validate Rust-specific patterns
     #[inline]
-    fn validate_rust_code(&self, code: &str) -> Result<(), ValidationError> {
+    fn validate_rust_code(code: &str) -> Result<(), ValidationError> {
         // Check for unsafe blocks
         if code.contains("unsafe") {
             return Err(ValidationError::security_failed(
@@ -1048,7 +1048,7 @@ impl ValidationConfig {
 
     /// Validate Go-specific patterns
     #[inline]
-    fn validate_go_code(&self, code: &str) -> Result<(), ValidationError> {
+    fn validate_go_code(code: &str) -> Result<(), ValidationError> {
         // Check for dangerous syscalls
         if code.contains("syscall.") {
             return Err(ValidationError::security_failed(
@@ -1060,7 +1060,7 @@ impl ValidationConfig {
 
     /// Validate Bash-specific patterns
     #[inline]
-    fn validate_bash_code(&self, code: &str) -> Result<(), ValidationError> {
+    fn validate_bash_code(code: &str) -> Result<(), ValidationError> {
         // Check for dangerous file operations
         if code.contains("rm -rf /") {
             return Err(ValidationError::security_failed(

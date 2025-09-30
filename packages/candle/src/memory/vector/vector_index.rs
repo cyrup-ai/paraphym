@@ -218,7 +218,7 @@ impl HNSWIndex {
     /// # Performance
     /// Zero allocation initialization with optimal HNSW parameters
     pub fn new(config: VectorIndexConfig) -> Self {
-        let space = ConfigurableSpace::new(config.metric.clone());
+        let space = ConfigurableSpace::new(config.metric);
 
         Self {
             config,

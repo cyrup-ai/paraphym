@@ -474,7 +474,7 @@ impl ChatTemplate {
             // Simple variable replacement for non-compiled templates
             let mut result = self.content.to_string();
             for (key, value) in variables {
-                result = result.replace(&format!("{{{{{}}}}}", key), value);
+                result = result.replace(&format!("{{{{{key}}}}}"), value);
             }
             Ok(result.to_string())
         }

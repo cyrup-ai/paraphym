@@ -272,10 +272,10 @@ pub enum SearchError {
 impl std::fmt::Display for SearchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SearchError::IndexError { reason } => write!(f, "Index error: {}", reason),
-            SearchError::QueryError { reason } => write!(f, "Query error: {}", reason),
-            SearchError::SearchError { reason } => write!(f, "Search error: {}", reason),
-            SearchError::ExportError { reason } => write!(f, "Export error: {}", reason),
+            SearchError::IndexError { reason } => write!(f, "Index error: {reason}"),
+            SearchError::QueryError { reason } => write!(f, "Query error: {reason}"),
+            SearchError::SearchError { reason } => write!(f, "Search error: {reason}"),
+            SearchError::ExportError { reason } => write!(f, "Export error: {reason}"),
         }
     }
 }

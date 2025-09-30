@@ -22,7 +22,7 @@ use uuid::Uuid;
 
 /// Duration serialization helper
 mod duration_secs {
-    use super::*;
+    use super::{Serializer, Duration, Deserializer, Deserialize};
 
     pub fn serialize<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -913,8 +913,8 @@ impl CandleConfigurationManager {
                 ),
                 section: "all".to_string(),
                 change_type: CandleConfigurationChangeType::Replace,
-                old_value: Some(format!("{:?}", old_config)),
-                new_value: Some(format!("{:?}", config_arc)),
+                old_value: Some(format!("{old_config:?}")),
+                new_value: Some(format!("{config_arc:?}")),
                 user: None,
                 description: String::from("Configuration updated"),
             };
@@ -970,8 +970,8 @@ impl CandleConfigurationManager {
                 ),
                 section: section_arc.to_string(),
                 change_type: CandleConfigurationChangeType::Update,
-                old_value: Some(format!("{:?}", current_config)),
-                new_value: Some(format!("{:?}", config_arc)),
+                old_value: Some(format!("{current_config:?}")),
+                new_value: Some(format!("{config_arc:?}")),
                 user: None,
                 description: String::from("Configuration section updated"),
             };
@@ -1199,7 +1199,7 @@ impl CandleConfigurationManager {
         };
 
         let data = if compression {
-            let compressed = lz4::block::compress(&serialized.as_bytes(), None, true)?;
+            let compressed = lz4::block::compress(serialized.as_bytes(), None, true)?;
             {
                 use base64::Engine;
                 base64::engine::general_purpose::STANDARD.encode(&compressed)
@@ -1457,7 +1457,7 @@ impl MessageChunk for CandleConfigUpdate {
         Self {
             timestamp_nanos: 0,
             update_type: CandleConfigUpdateType::ValidationStarted,
-            section: Some(format!("error: {}", error)),
+            section: Some(format!("error: {error}")),
             success: false,
             description: Some(error),
         }

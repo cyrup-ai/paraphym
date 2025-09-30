@@ -48,7 +48,7 @@ pub fn process_message(message: CandleMessage) -> AsyncStream<CandleMessage> {
         // Apply security sanitization pipeline to message content
         processed_message.content = sanitize_content(&processed_message.content)
             .unwrap_or_else(|e| {
-                log::warn!("Content sanitization failed: {}", e);
+                log::warn!("Content sanitization failed: {e}");
                 
                 // SECURITY CRITICAL: Truncate FIRST, then sanitize the truncated content
                 // This ensures overlength content still goes through full security pipeline

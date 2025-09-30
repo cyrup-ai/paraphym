@@ -446,6 +446,10 @@ impl CandleAgentRoleImpl {
     /// # Returns
     /// Result containing relevance score (0.0 to 1.0)
     ///
+    /// # Errors
+    /// Currently this function always returns Ok. The Result type is preserved
+    /// for future error handling when more sophisticated relevance scoring is added.
+    ///
     /// # Performance
     /// Zero allocation with inlined relevance calculations
     pub fn calculate_relevance_score(

@@ -76,7 +76,7 @@ impl CompletionRequest {
             return Err(ValidationError::InvalidRange {
                 field: "max_tokens".into(),
                 value: max_tokens.to_string(),
-                expected: format!("less than or equal to {}", MAX_TOKENS),
+                expected: format!("less than or equal to {MAX_TOKENS}"),
             });
         }
 
@@ -87,7 +87,7 @@ impl CompletionRequest {
             return Err(ValidationError::InvalidRange {
                 field: "chunk_size".into(),
                 value: chunk_size.to_string(),
-                expected: format!("between 1 and {}", MAX_CHUNK_SIZE),
+                expected: format!("between 1 and {MAX_CHUNK_SIZE}"),
             });
         }
 

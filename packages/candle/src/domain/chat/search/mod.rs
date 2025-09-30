@@ -88,10 +88,10 @@ impl ChatSearcher {
             };
 
             // Apply enhanced filtering, sorting and pagination
-            let filtered_results = self_clone.apply_filters(results, &query);
-            let sorted_results = self_clone.apply_sorting(filtered_results, &query.sort_order);
+            let filtered_results = Self::apply_filters(results, &query);
+            let sorted_results = Self::apply_sorting(filtered_results, &query.sort_order);
             let paginated_results =
-                self_clone.apply_pagination(sorted_results, query.offset, query.max_results);
+                Self::apply_pagination(sorted_results, query.offset, query.max_results);
 
             // Stream results
             for result in paginated_results {
@@ -99,12 +99,12 @@ impl ChatSearcher {
             }
 
             // Update query statistics
-            self_clone.update_query_statistics();
+            Self::update_query_statistics();
         })
     }
 
     /// Apply comprehensive filtering system (date, user, session, tag, content)
-    fn apply_filters(&self, results: Vec<SearchResult>, query: &SearchQuery) -> Vec<SearchResult> {
+    fn apply_filters(results: Vec<SearchResult>, query: &SearchQuery) -> Vec<SearchResult> {
         let mut filtered = results;
 
         // Apply date range filter
@@ -159,7 +159,6 @@ impl ChatSearcher {
 
     /// Apply multiple sorting options (Relevance, DateDesc/Asc, UserDesc/Asc)
     fn apply_sorting(
-        &self,
         mut results: Vec<SearchResult>,
         sort_order: &SortOrder,
     ) -> Vec<SearchResult> {
@@ -218,7 +217,6 @@ impl ChatSearcher {
 
     /// Apply pagination support (offset, max_results)
     fn apply_pagination(
-        &self,
         results: Vec<SearchResult>,
         offset: usize,
         max_results: usize,
@@ -227,7 +225,7 @@ impl ChatSearcher {
     }
 
     /// Update query statistics with performance tracking
-    fn update_query_statistics(&self) {
+    fn update_query_statistics() {
         // TODO: Implement statistics tracking with query time averaging
         // This will be enhanced with atomic counters for thread-safe updates
     }

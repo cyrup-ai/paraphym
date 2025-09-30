@@ -30,7 +30,7 @@ pub struct CandleDocument {
 impl MessageChunk for CandleDocument {
     fn bad_chunk(error: String) -> Self {
         CandleDocument {
-            data: format!("ERROR: {}", error),
+            data: format!("ERROR: {error}"),
             format: Some(CandleContentFormat::Text),
             media_type: Some(CandleDocumentMediaType::TXT),
             additional_props: HashMap::new(),

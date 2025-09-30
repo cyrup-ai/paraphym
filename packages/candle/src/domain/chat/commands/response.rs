@@ -10,7 +10,7 @@ use std::sync::LazyLock;
 use serde_json::{Map, Value};
 use tokio::sync::mpsc;
 
-use super::types::*;
+use super::types::{CommandOutput, OutputType, CandleCommandError, CommandInfo};
 
 /// Response formatter with streaming support
 #[derive(Debug, Clone)]
@@ -236,7 +236,7 @@ impl ResponseFormatter {
         json_output.insert("success".to_string(), Value::Bool(output.success));
         json_output.insert(
             "message".to_string(),
-            Value::String(output.message.to_string()),
+            Value::String(output.message.clone()),
         );
 
         if let Some(data) = &output.data {
@@ -330,15 +330,15 @@ impl ResponseFormatter {
             .iter()
             .map(|cmd| {
                 let mut command_obj = Map::new();
-                command_obj.insert("name".to_string(), Value::String(cmd.name.to_string()));
+                command_obj.insert("name".to_string(), Value::String(cmd.name.clone()));
                 command_obj.insert(
                     "description".to_string(),
-                    Value::String(cmd.description.to_string()),
+                    Value::String(cmd.description.clone()),
                 );
-                command_obj.insert("usage".to_string(), Value::String(cmd.usage.to_string()));
+                command_obj.insert("usage".to_string(), Value::String(cmd.usage.clone()));
                 command_obj.insert(
                     "category".to_string(),
-                    Value::String(cmd.category.to_string()),
+                    Value::String(cmd.category.clone()),
                 );
 
                 let aliases: Vec<Value> = cmd

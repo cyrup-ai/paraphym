@@ -7,7 +7,7 @@ use ystream::AsyncStream;
 use regex::Regex;
 use uuid::Uuid;
 
-use super::types::*;
+use super::types::{CandleConversationTag, CandleTaggingStatistics};
 
 /// Conversation tagger with lock-free operations (Candle-prefixed for domain system)
 #[derive(Debug)]

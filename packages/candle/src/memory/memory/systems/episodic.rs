@@ -301,7 +301,7 @@ impl EpisodicMemory {
         let events_guard = self.events.load();
         let events_map: HashMap<_, _> = events_guard
             .iter()
-            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .map(|entry| (*entry.key(), entry.value().clone()))
             .collect();
         memory.content = MemoryContent::new(&serde_json::to_string(&events_map)?);
         Ok(memory)

@@ -106,18 +106,21 @@ impl CandleAgent {
     }
 
     /// Set the system prompt
+    #[must_use]
     pub fn with_system_prompt(mut self, prompt: impl Into<String>) -> Self {
         self.config.system_prompt = Some(prompt.into());
         self
     }
 
     /// Set the temperature
+    #[must_use]
     pub fn with_temperature(mut self, temperature: f64) -> Self {
         self.config.temperature = temperature;
         self
     }
 
     /// Set max tokens
+    #[must_use]
     pub fn with_max_tokens(mut self, max_tokens: usize) -> Self {
         self.config.max_tokens = Some(max_tokens);
         self

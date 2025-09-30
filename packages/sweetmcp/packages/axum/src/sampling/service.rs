@@ -14,175 +14,176 @@ use paraphym_candle::domain::completion::{
 // use fluent_ai::{FluentAi, Providers, Models}; // Temporarily disabled due to dependency issues
 use super::model::*;
 // use crate::auth::JwtAuth; // Auth module not available
-use crate::sampling::notifications::SamplingProgressNotification;
+
+/// Build prompt from request with content type validation
+///
+/// Validates message content types per MCP spec (text, image, audio).
+/// Logs warnings for unsupported types (image, audio) and returns error if no text content found.
+fn build_prompt_from_request(request: &CreateMessageRequest) -> Result<String, String> {
+    let mut full_prompt = String::new();
+
+    // Add system prompt if present
+    if let Some(system_prompt) = &request.system_prompt {
+        full_prompt.push_str(system_prompt);
+        full_prompt.push_str("\n\n");
+    }
+
+    // Track successful text message count
+    let mut text_message_count: usize = 0;
+
+    // Process messages with content type validation
+    for msg in &request.messages {
+        match &msg.content {
+            McpMessageContent { type_, text: Some(text), .. } if type_ == "text" => {
+                full_prompt.push_str(&format!("{}: {}\n", msg.role, text));
+                text_message_count += 1;
+            }
+            McpMessageContent { type_, .. } if type_ == "image" => {
+                log::warn!(
+                    "Skipping message with role '{}' - image content not supported by model",
+                    msg.role
+                );
+            }
+            McpMessageContent { type_, .. } if type_ == "audio" => {
+                log::warn!(
+                    "Skipping message with role '{}' - audio content not supported by model",
+                    msg.role
+                );
+            }
+            _ => {
+                log::warn!(
+                    "Skipping message with role '{}' - missing or invalid text content",
+                    msg.role
+                );
+            }
+        }
+    }
+
+    // Validate at least one text message was processed
+    if text_message_count == 0 {
+        return Err("Request must contain at least one text message".to_string());
+    }
+
+    Ok(full_prompt)
+}
 
 /// Handler for the sampling/createMessage method (returns AsyncSamplingResult).
 pub fn sampling_create_message_pending(request: CreateMessageRequest) -> AsyncSamplingResult {
     let (tx_result, rx_result) = oneshot::channel();
-    // Channel for streaming results (if needed in the future)
-    let (_tx_stream, rx_stream) = mpsc::channel::<HandlerResult<CreateMessageResult>>(16);
 
     tokio::spawn(async move {
         log::info!("Received sampling/createMessage request: {:?}", request);
 
-        // Stub implementation: Replace with real LLM calls via MCP client requests.
+        // Validate messages exist
+        if request.messages.is_empty() {
+            let _ = tx_result.send(Err(rpc_router::HandlerError::new("No messages provided")));
+            return;
+        }
 
-        // Extract the last user message for demonstration
-        let last_message = request
-            .messages
-            .last()
-            .ok_or_else(|| rpc_router::HandlerError::new("No messages provided"));
-
-        let result = match last_message {
-            Ok(last_message) => {
-                // Get the text from the last message (if it's a text message)
-                let prompt_text = match &last_message.content {
-                    McpMessageContent { type_, text, .. } if type_ == "text" && text.is_some() => {
-                        text.as_ref().unwrap()
-                    }
-                    _ => {
-                        return {
-                            let _ = tx_result.send(Err(rpc_router::HandlerError::new(
-                                "Last message must be text",
-                            )));
-                            ()
-                        };
-                    }
-                };
-
-                // Report initial progress if request has meta params
-                if let Some(meta) = &request.meta {
-                    // Create a progress channel
-                    let (tx_progress, _rx_progress) =
-                        mpsc::channel::<HandlerResult<SamplingProgressNotification>>(16);
-                    report_sampling_progress(&tx_progress, meta.progress_token.clone(), 0, 150);
-                }
-
-                // Initialize CandleKimiK2Provider for local inference
-                let provider = match CandleKimiK2Provider::default_for_builder() {
-                    Ok(p) => p,
-                    Err(e) => {
-                        error!("Failed to initialize CandleKimiK2Provider: {}", e);
-                        return {
-                            let _ = tx_result.send(Err(rpc_router::HandlerError::new(
-                                "Failed to initialize local model provider",
-                            )));
-                            ()
-                        };
-                    }
-                };
-
-                // Build prompt from system prompt + messages
-                let mut full_prompt = String::new();
-                if let Some(system_prompt) = &request.system_prompt {
-                    full_prompt.push_str(system_prompt);
-                    full_prompt.push_str("\n\n");
-                }
-
-                // Add all messages to context
-                for msg in &request.messages {
-                    if let McpMessageContent { text: Some(text), .. } = &msg.content {
-                        full_prompt.push_str(&format!("{}: {}\n", msg.role, text));
-                    }
-                }
-
-                let prompt = CandlePrompt::new(full_prompt);
-
-                // Configure completion parameters from request
-                let temperature = request.temperature.unwrap_or(0.7);
-                let max_tokens = request.max_tokens.unwrap_or(2048);
-                let params = CandleCompletionParams {
-                    temperature,
-                    max_tokens: NonZeroU64::new(max_tokens as u64),
-                    ..Default::default()
-                };
-
-                // Perform inference with streaming collection
-                let completion_stream = provider.prompt(prompt, &params);
-                let completion_results: Vec<CandleCompletionChunk> = completion_stream.collect();
-
-                // Accumulate response text and extract usage
-                let mut response_text = String::new();
-                let mut actual_usage: Option<CompletionUsage> = None;
-                let mut stop_reason = "endTurn".to_string();
-
-                for chunk in completion_results {
-                    match chunk {
-                        CandleCompletionChunk::Text(text) => {
-                            response_text.push_str(&text);
-                        }
-                        CandleCompletionChunk::Complete { text, finish_reason, usage } => {
-                            if let Some(text) = text {
-                                response_text.push_str(&text);
-                            }
-                            if let Some(reason) = finish_reason {
-                                stop_reason = reason;
-                            }
-                            if let Some(u) = usage {
-                                actual_usage = Some(CompletionUsage {
-                                    prompt_tokens: u.prompt_tokens,
-                                    completion_tokens: u.completion_tokens,
-                                    total_tokens: u.total_tokens,
-                                });
-                            }
-                        }
-                        CandleCompletionChunk::Error(error) => {
-                            error!("Inference error: {}", error);
-                            return {
-                                let _ = tx_result.send(Err(rpc_router::HandlerError::new(
-                                    format!("Inference failed: {}", error),
-                                )));
-                                ()
-                            };
-                        }
-                        _ => {} // Ignore other chunk types
-                    }
-                }
-
-                let model_name = "kimi-k2-instruct-q4_0".to_string();
-
-                // Create the result
-                let result = CreateMessageResult {
-                    role: "assistant".to_string(),
-                    content: McpMessageContent {
-                        type_: "text".to_string(),
-                        text: Some(response_text),
-                        data: None,
-                        mime_type: None,
-                    },
-                    model: model_name,
-                    stop_reason: Some(stop_reason),
-                    usage: actual_usage,
-                };
-
-                log::info!("Returning sampling result: {:?}", result);
-                Ok(result)
+        // Initialize CandleKimiK2Provider for local inference
+        let provider = match CandleKimiK2Provider::default_for_builder() {
+            Ok(p) => p,
+            Err(e) => {
+                error!("Failed to initialize CandleKimiK2Provider: {}", e);
+                let _ = tx_result.send(Err(rpc_router::HandlerError::new(
+                    "Failed to initialize local model provider",
+                )));
+                return;
             }
-            Err(e) => Err(e),
         };
 
-        match result {
-            Ok(value) => {
-                // Assuming `value` here is the CreateMessageResult
-                // We need to send CompletionUsage
-                let usage = match value.usage.clone() {
-                    Some(usage) => usage,
-                    None => {
-                        error!("Sampling result missing usage data");
-                        let _ = tx_result.send(Err(rpc_router::HandlerError::new(
-                            "Internal error: Missing usage data",
-                        )));
-                        return;
-                    }
-                };
-                let _ = tx_result.send(Ok(usage));
-            }
+        // Build and validate prompt from request
+        let full_prompt = match build_prompt_from_request(&request) {
+            Ok(prompt) => prompt,
             Err(e) => {
-                error!("Sampling message creation failed: {}", e);
-                // Ensure error type matches receiver expectation if needed
-                let _ = tx_result.send(Err(e)); // Send the original HandlerError
+                error!("{}", e);
+                let _ = tx_result.send(Err(rpc_router::HandlerError::new(e)));
+                return;
+            }
+        };
+
+        let prompt = CandlePrompt::new(full_prompt);
+
+        // Configure completion parameters from request
+        let temperature = request.temperature.unwrap_or(0.7);
+        let max_tokens = request.max_tokens.unwrap_or(2048);
+        let params = CandleCompletionParams {
+            temperature,
+            max_tokens: NonZeroU64::new(max_tokens as u64),
+            ..Default::default()
+        };
+
+        // Perform inference with streaming collection
+        let completion_stream = provider.prompt(prompt, &params);
+        let completion_results: Vec<CandleCompletionChunk> = completion_stream.collect();
+
+        // Accumulate response text and extract usage
+        let mut response_text = String::new();
+        let mut actual_usage: Option<CompletionUsage> = None;
+        let mut stop_reason = "endTurn".to_string();
+
+        for chunk in completion_results {
+            match chunk {
+                CandleCompletionChunk::Text(text) => {
+                    response_text.push_str(&text);
+                }
+                CandleCompletionChunk::Complete { text, finish_reason, usage } => {
+                    if let Some(text) = text {
+                        response_text.push_str(&text);
+                    }
+                    if let Some(reason) = finish_reason {
+                        stop_reason = reason;
+                    }
+                    if let Some(u) = usage {
+                        actual_usage = Some(CompletionUsage {
+                            prompt_tokens: u.prompt_tokens,
+                            completion_tokens: u.completion_tokens,
+                            total_tokens: u.total_tokens,
+                        });
+                    }
+                }
+                CandleCompletionChunk::Error(error) => {
+                    error!("Inference error: {}", error);
+                    let _ = tx_result.send(Err(rpc_router::HandlerError::new(
+                        format!("Inference failed: {}", error),
+                    )));
+                    return;
+                }
+                _ => {} // Ignore other chunk types
             }
         }
+
+        // Get model name from provider
+        let model_name = provider.name().to_string();
+
+        // Create the result
+        let result = CreateMessageResult {
+            role: "assistant".to_string(),
+            content: McpMessageContent {
+                type_: "text".to_string(),
+                text: Some(response_text),
+                data: None,
+                mime_type: None,
+            },
+            model: model_name,
+            stop_reason: Some(stop_reason),
+            usage: actual_usage,
+        };
+
+        log::info!("Returning sampling result: {:?}", result);
+
+        // Send CompletionUsage to result channel
+        let usage = match result.usage {
+            Some(usage) => usage,
+            None => {
+                error!("Sampling result missing usage data");
+                let _ = tx_result.send(Err(rpc_router::HandlerError::new(
+                    "Internal error: Missing usage data",
+                )));
+                return;
+            }
+        };
+        let _ = tx_result.send(Ok(usage));
     });
 
     // Return AsyncSamplingResult which expects Result<CompletionUsage, ...>
@@ -234,6 +235,9 @@ pub fn sampling_create_message_stream(request: CreateMessageRequest) -> Sampling
             ..Default::default()
         };
 
+        // Get model name from provider
+        let model_name = provider.name().to_string();
+
         // Stream tokens as they're generated
         let completion_stream = provider.prompt(prompt, &params);
         let mut accumulated_text = String::new();
@@ -251,7 +255,7 @@ pub fn sampling_create_message_stream(request: CreateMessageRequest) -> Sampling
                             data: None,
                             mime_type: None,
                         },
-                        model: "kimi-k2-instruct-q4_0".to_string(),
+                        model: model_name.clone(),
                         stop_reason: None, // Still streaming
                         usage: None, // Usage only available at end
                     };
@@ -272,7 +276,7 @@ pub fn sampling_create_message_stream(request: CreateMessageRequest) -> Sampling
                             data: None,
                             mime_type: None,
                         },
-                        model: "kimi-k2-instruct-q4_0".to_string(),
+                        model: model_name,
                         stop_reason: finish_reason,
                         usage: usage.map(|u| CompletionUsage {
                             prompt_tokens: u.prompt_tokens,
@@ -296,31 +300,4 @@ pub fn sampling_create_message_stream(request: CreateMessageRequest) -> Sampling
     });
 
     SamplingStream::new(rx_stream)
-}
-
-// Restore unused function - signature updated
-fn report_sampling_progress(
-    tx_progress: &mpsc::Sender<HandlerResult<SamplingProgressNotification>>,
-    request_id: String, // Added request_id
-    tokens: u32,        // Renamed progress to tokens for clarity?
-    total_tokens: u32,  // Renamed total to total_tokens for clarity?
-) {
-    // Correctly initialize SamplingProgressNotification
-    let progress_notification = SamplingProgressNotification {
-        request_id,
-        progress: tokens,    // Map tokens to progress field
-        total: total_tokens, // Map total_tokens to total field
-        message: None,       // No message for now
-    };
-    // Removed incorrect SamplingProgressData usage
-    // let progress_notification = SamplingProgressNotification {
-    // progress: SamplingProgressData { // Now resolved
-    // tokens,
-    // total_tokens,
-    // estimated_completion_time: None, // Not implemented
-    // },
-    // };
-
-    // Try to send, but ignore error if receiver is closed
-    let _ = tx_progress.try_send(Ok(progress_notification));
 }

@@ -92,7 +92,7 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
                 let _memory_config = MemoryConfig { // Reserved for future memory configuration
                     database: crate::domain::memory::config::database::DatabaseConfig {
                         db_type: crate::domain::memory::config::database::DatabaseType::SurrealDB,
-                        connection_string: comprehensive_config.database.connection_string.to_string(),
+                        connection_string: comprehensive_config.database.connection_string.clone(),
                         namespace: "test".to_string(),
                         database: "memory".to_string(),
                         username: None,
@@ -195,7 +195,7 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
                 let memory_cfg = MemoryConfig {
                     database: crate::domain::memory::config::database::DatabaseConfig {
                         db_type: crate::domain::memory::config::database::DatabaseType::SurrealDB,
-                        connection_string: memory_config.database.connection_string.to_string(),
+                        connection_string: memory_config.database.connection_string.clone(),
                         namespace: "test".to_string(),
                         database: "memory".to_string(),
                         username: None,
@@ -378,6 +378,7 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
     /// # Performance
     /// Zero allocation with direct field assignment
     #[inline]
+    #[must_use]
     pub fn temperature(mut self, temperature: f64) -> Self {
         self.temperature = Some(temperature);
         self
@@ -394,6 +395,7 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
     /// # Performance
     /// Zero allocation with direct field assignment
     #[inline]
+    #[must_use]
     pub fn max_tokens(mut self, max_tokens: u64) -> Self {
         self.max_tokens = Some(max_tokens);
         self

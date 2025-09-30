@@ -106,7 +106,7 @@ impl<'a> Default for CompletionResponse<'a> {
 impl<'a> MessageChunk for CompletionResponse<'a> {
     fn bad_chunk(error: String) -> Self {
         CompletionResponse {
-            text: std::borrow::Cow::Owned(format!("Error: {}", error)),
+            text: std::borrow::Cow::Owned(format!("Error: {error}")),
             model: std::borrow::Cow::Borrowed("error"),
             provider: Some(std::borrow::Cow::Borrowed("error")),
             usage: None,
@@ -187,7 +187,7 @@ impl Default for CompactCompletionResponse {
 impl MessageChunk for CompactCompletionResponse {
     fn bad_chunk(error: String) -> Self {
         CompactCompletionResponse {
-            content: format!("Error: {}", error),
+            content: format!("Error: {error}"),
             model: "error".to_string(),
             provider: "error".to_string(),
             tokens_used: 0,

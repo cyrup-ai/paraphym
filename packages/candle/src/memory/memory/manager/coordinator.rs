@@ -51,7 +51,7 @@ impl MemoryCoordinator {
     ) -> Result<MemoryNode> {
         // Create domain memory node first
         let content_struct = crate::domain::memory::primitives::types::MemoryContent::text(content.clone());
-        let mut domain_memory = MemoryNode::new(memory_type.clone(), content_struct);
+        let mut domain_memory = MemoryNode::new(memory_type, content_struct);
         domain_memory.set_importance(metadata.importance)
             .map_err(|e| Error::Internal(format!("Failed to set importance: {}", e)))?;
 

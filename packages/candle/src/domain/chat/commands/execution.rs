@@ -17,10 +17,13 @@ use super::types::metadata::ResourceUsage;
 
 /// Get current timestamp in microseconds since Unix epoch, with fallback for clock errors
 fn current_timestamp_us() -> u64 {
-    SystemTime::now()
+    let micros = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_else(|_| std::time::Duration::from_secs(0))
-        .as_micros() as u64
+        .as_micros();
+    
+    // Saturate to u64::MAX if the value exceeds u64 range (year ~584,942)
+    micros.min(u128::from(u64::MAX)) as u64
 }
 
 /// Command execution engine with streaming processing (zero-allocation, lock-free)
@@ -167,11 +170,13 @@ impl CommandExecutor {
                     // Emit progress events for export operation (25%, 50%, 75%, 100%)
                     let progress_steps = [25, 50, 75, 100];
                     for progress in progress_steps {
+                        #[allow(clippy::cast_precision_loss)]
+                        let progress_f32 = progress as f32;
                         ystream::emit!(
                             sender,
                             CommandEvent::Progress {
                                 execution_id,
-                                progress: progress as f32,
+                                progress: progress_f32,
                                 message: format!("Exporting... {progress}%"),
                                 timestamp: current_timestamp_us(),
                             }
@@ -227,11 +232,13 @@ impl CommandExecutor {
                     // Emit progress events for search operation (25%, 50%, 75%, 100%)
                     let progress_steps = [25, 50, 75, 100];
                     for progress in progress_steps {
+                        #[allow(clippy::cast_precision_loss)]
+                        let progress_f32 = progress as f32;
                         ystream::emit!(
                             sender,
                             CommandEvent::Progress {
                                 execution_id,
-                                progress: progress as f32,
+                                progress: progress_f32,
                                 message: format!("Searching... {progress}%"),
                                 timestamp: current_timestamp_us(),
                             }
@@ -279,7 +286,7 @@ impl CommandExecutor {
             self_clone
                 .successful_executions
                 .fetch_add(1, Ordering::AcqRel);
-            let duration_us = start_time.elapsed().as_micros() as u64;
+            let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
             ystream::emit!(
                 sender,
                 CommandEvent::completed(
@@ -315,7 +322,7 @@ impl CommandExecutor {
                             extended
                         },
                         execution_id,
-                        timestamp_us: start_time.elapsed().as_micros() as u64
+                        timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64
                     }
                 );
 
@@ -339,7 +346,7 @@ impl CommandExecutor {
                 );
 
                 // Emit completion event
-                let duration_us = start_time.elapsed().as_micros() as u64;
+                let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
                 ystream::emit!(
                     sender,
                     CommandEvent::Completed {
@@ -349,8 +356,7 @@ impl CommandExecutor {
                         resource_usage: ResourceUsage::default(),
                         timestamp_us: std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_micros() as u64
+                            .unwrap_or_default().as_micros().min(u128::from(u64::MAX)) as u64
                     }
                 );
             });
@@ -377,7 +383,7 @@ impl CommandExecutor {
                             keep_last: keep_last.map(|n| n as usize)
                         },
                         execution_id,
-                        timestamp_us: start_time.elapsed().as_micros() as u64
+                        timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64
                     }
                 );
 
@@ -415,7 +421,7 @@ impl CommandExecutor {
                 );
 
                 // Emit completion event
-                let duration_us = start_time.elapsed().as_micros() as u64;
+                let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
                 ystream::emit!(
                     sender,
                     CommandEvent::Completed {
@@ -425,8 +431,7 @@ impl CommandExecutor {
                         resource_usage: ResourceUsage::default(),
                         timestamp_us: std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_micros() as u64
+                            .unwrap_or_default().as_micros().min(u128::from(u64::MAX)) as u64
                     }
                 );
             });
@@ -457,17 +462,19 @@ impl CommandExecutor {
                             include_metadata
                         },
                         execution_id,
-                        timestamp_us: start_time.elapsed().as_micros() as u64
+                        timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64
                     }
                 );
 
                 // Simulate export progress
                 for progress in [25, 50, 75, 100] {
+                    #[allow(clippy::cast_precision_loss)]
+                    let progress_f32 = progress as f32;
                     ystream::emit!(
                         sender,
                         CommandEvent::Progress {
                             execution_id,
-                            progress: progress as f32,
+                            progress: progress_f32,
                             message: format!("Exporting... {progress}%"),
                             timestamp: std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH)
@@ -502,7 +509,7 @@ impl CommandExecutor {
                         _ => "text/plain".to_string(),
                     },
                 };
-                let duration_us = start_time.elapsed().as_micros() as u64;
+                let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
                 ystream::emit!(
                     sender,
                     CommandEvent::completed(
@@ -540,7 +547,7 @@ impl CommandExecutor {
                             reset
                         },
                         execution_id,
-                        timestamp_us: start_time.elapsed().as_micros() as u64
+                        timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64
                     }
                 );
 
@@ -563,7 +570,7 @@ impl CommandExecutor {
                 );
 
                 // Emit completion event
-                let duration_us = start_time.elapsed().as_micros() as u64;
+                let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
                 ystream::emit!(
                     sender,
                     CommandEvent::Completed {
@@ -573,8 +580,7 @@ impl CommandExecutor {
                         resource_usage: ResourceUsage::default(),
                         timestamp_us: std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_micros() as u64
+                            .unwrap_or_default().as_micros().min(u128::from(u64::MAX)) as u64
                     }
                 );
             });
@@ -600,22 +606,24 @@ impl CommandExecutor {
                     CommandEvent::Started {
                         command: ImmutableChatCommand::Search {
                             query: query.clone(),
-                            scope: scope.clone(),
+                            scope,
                             limit,
                             include_context
                         },
                         execution_id,
-                        timestamp_us: start_time.elapsed().as_micros() as u64
+                        timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64
                     }
                 );
 
                 // Simulate search progress with zero allocation
                 for progress in [20, 40, 60, 80, 100] {
+                    #[allow(clippy::cast_precision_loss)]
+                    let progress_f32 = progress as f32;
                     ystream::emit!(
                         sender,
                         CommandEvent::Progress {
                             execution_id,
-                            progress: progress as f32,
+                            progress: progress_f32,
                             message: format!("Searching... {progress}%"),
                             timestamp: std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH)
@@ -663,7 +671,7 @@ impl CommandExecutor {
                     "results": [],
                     "total_found": 0
                 }));
-                let duration_us = start_time.elapsed().as_micros() as u64;
+                let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
                 ystream::emit!(
                     sender,
                     CommandEvent::completed(

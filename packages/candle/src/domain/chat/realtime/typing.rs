@@ -233,7 +233,7 @@ impl TypingIndicator {
         user_id: String,
         session_id: String,
     ) -> AsyncStream<RealTimeEvent> {
-        let key: String = format!("{}:{}", user_id, session_id).into();
+        let key: String = format!("{user_id}:{session_id}").into();
         let typing_states = self.typing_states.clone();
         let event_broadcaster = self.event_broadcaster.clone();
         let active_users = self.active_users.clone();
@@ -267,7 +267,7 @@ impl TypingIndicator {
         user_id: String,
         session_id: String,
     ) -> AsyncStream<RealTimeEvent> {
-        let key: String = format!("{}:{}", user_id, session_id).into();
+        let key: String = format!("{user_id}:{session_id}").into();
         let typing_states = self.typing_states.clone();
         let event_broadcaster = self.event_broadcaster.clone();
         let typing_events = self.typing_events.clone();

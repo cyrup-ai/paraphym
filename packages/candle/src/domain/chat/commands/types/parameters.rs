@@ -401,6 +401,7 @@ impl ParameterInfo {
                     let val = value
                         .parse::<i64>()
                         .map_err(|_| CandleCommandError::validation_failed("Invalid integer"))?;
+                    #[allow(clippy::cast_precision_loss)]
                     if (val as f64) < min {
                         return Err(CandleCommandError::validation_failed(format!(
                             "Value {val} is below minimum {min}"
@@ -427,6 +428,7 @@ impl ParameterInfo {
                     let val = value
                         .parse::<i64>()
                         .map_err(|_| CandleCommandError::validation_failed("Invalid integer"))?;
+                    #[allow(clippy::cast_precision_loss)]
                     if (val as f64) > max {
                         return Err(CandleCommandError::validation_failed(format!(
                             "Value {val} is above maximum {max}"

@@ -401,7 +401,7 @@ impl ModelRegistry {
     ///
     /// # Returns
     /// A result containing the model as the requested trait object
-    pub fn get_required_as<T: 'static + Send + Sync + Sized>(
+    pub fn get_required_as<T: Send + Sync + Sized + 'static>(
         &self,
         provider: &'static str,
         name: &'static str,
@@ -421,7 +421,7 @@ impl ModelRegistry {
     ///
     /// # Returns
     /// A result containing the model as a boxed trait object
-    pub fn get_required_boxed<T: 'static + Send + Sync + Sized>(
+    pub fn get_required_boxed<T: Send + Sync + Sized + 'static>(
         &self,
         provider: &'static str,
         name: &'static str,

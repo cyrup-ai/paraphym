@@ -33,11 +33,11 @@ impl TemplateEngine for SimpleEngine {
         template: &CandleChatTemplate,
         context: &CandleTemplateContext,
     ) -> CandleTemplateResult<String> {
-        let mut result = template.get_content().to_string();
+        let mut result = template.get_content().clone();
 
         // Simple variable replacement: {{variable_name}}
         for (name, value) in context.variables() {
-            let placeholder = format!("{{{{{}}}}}", name);
+            let placeholder = format!("{{{{{name}}}}}");
             let replacement = match value {
                 CandleTemplateValue::String(s) => s.as_str(),
                 CandleTemplateValue::Number(n) => &n.to_string(),
@@ -55,7 +55,7 @@ impl TemplateEngine for SimpleEngine {
             result = result.replace(&placeholder, replacement);
         }
 
-        Ok(result.to_string())
+        Ok(result)
     }
 
     fn supports(&self, _template: &CandleChatTemplate) -> bool {

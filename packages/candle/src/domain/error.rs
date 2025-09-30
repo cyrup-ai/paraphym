@@ -296,7 +296,7 @@ impl ZeroAllocError {
     /// Add location information
     #[inline(always)]
     pub fn with_location(mut self, file: &str, line: u32) -> Self {
-        let location = format!("{}:{}", file, line);
+        let location = format!("{file}:{line}");
         self.location = Some(ErrorMessage::new(&location));
         self
     }
@@ -355,11 +355,11 @@ impl fmt::Display for ZeroAllocError {
         )?;
 
         if let Some(location) = &self.location {
-            write!(f, " at {}", location)?;
+            write!(f, " at {location}")?;
         }
 
         if let Some(cause) = &self.cause {
-            write!(f, " caused by: {}", cause)?;
+            write!(f, " caused by: {cause}")?;
         }
 
         Ok(())
