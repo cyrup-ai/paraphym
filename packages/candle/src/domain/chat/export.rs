@@ -3,6 +3,7 @@
 //! Provides zero-allocation export capabilities for chat conversations and history.
 //! Supports multiple formats with blazing-fast serialization and ergonomic APIs.
 
+use std::fmt::Write;
 use serde::{Deserialize, Serialize, Serializer, Deserializer};
 use thiserror::Error;
 
@@ -178,6 +179,13 @@ impl ChatExporter {
     }
 
     /// Export messages to the configured format
+    ///
+    /// # Errors
+    ///
+    /// Returns `ExportError` if:
+    /// - No messages are provided
+    /// - Export format handler fails
+    /// - Message serialization fails
     pub fn export_messages(
         &mut self,
         messages: &[crate::domain::chat::message::types::CandleMessage],
@@ -198,9 +206,9 @@ impl ChatExporter {
 
         let content = match self.config.format {
             ExportFormat::Json => Self::export_as_json(messages_to_export)?,
-            ExportFormat::Markdown => self.export_as_markdown(messages_to_export)?,
-            ExportFormat::Text => self.export_as_text(messages_to_export)?,
-            ExportFormat::Csv => self.export_as_csv(messages_to_export)?,
+            ExportFormat::Markdown => self.export_as_markdown(messages_to_export),
+            ExportFormat::Text => self.export_as_text(messages_to_export),
+            ExportFormat::Csv => self.export_as_csv(messages_to_export),
         };
 
         let export_time = start_time.elapsed();
@@ -224,9 +232,9 @@ impl ChatExporter {
         let content_size = content.len();
 
         Ok(ExportData {
-            content: String::from(content),
-            content_type: String::from(content_type),
-            file_extension: String::from(file_extension),
+            content,
+            content_type: content_type.to_string(),
+            file_extension: file_extension.to_string(),
             metadata: ExportMetadata {
                 exported_at: std::time::SystemTime::now(),
                 message_count: messages_to_export.len(),
@@ -250,63 +258,64 @@ impl ChatExporter {
     fn export_as_markdown(
         &self,
         messages: &[crate::domain::chat::message::types::CandleMessage],
-    ) -> Result<String, ExportError> {
+    ) -> String {
         let mut output = String::new();
         output.push_str("# Chat Export\n\n");
 
         if self.config.include_metadata {
-            output.push_str(&format!(
-                "**Exported:** {}\n",
+            let _ = writeln!(
+                output,
+                "**Exported:** {}",
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or(std::time::Duration::from_secs(0))
                     .as_secs()
-            ));
-            output.push_str(&format!("**Messages:** {}\n\n", messages.len()));
+            );
+            let _ = writeln!(output, "**Messages:** {}\n", messages.len());
         }
 
         for (i, message) in messages.iter().enumerate() {
-            output.push_str(&format!("## Message {}\n\n", i + 1));
+            let _ = writeln!(output, "## Message {}\n", i + 1);
 
             if self.config.include_timestamps {
                 let elapsed_secs = message.timestamp.unwrap_or(0);
-                output.push_str(&format!("**Timestamp:** {elapsed_secs}\n"));
+                let _ = writeln!(output, "**Timestamp:** {elapsed_secs}");
             }
 
-            output.push_str(&format!("**Role:** {:?}\n\n", message.role));
+            let _ = writeln!(output, "**Role:** {:?}\n", message.role);
             let content_str = &message.content;
             output.push_str(content_str);
             output.push_str("---\n\n");
         }
 
-        Ok(output)
+        output
     }
 
     /// Export as plain text format
     fn export_as_text(
         &self,
         messages: &[crate::domain::chat::message::types::CandleMessage],
-    ) -> Result<String, ExportError> {
+    ) -> String {
         let mut output = String::new();
 
         for message in messages {
             if self.config.include_timestamps {
                 let elapsed_secs = message.timestamp.unwrap_or(0);
-                output.push_str(&format!("[{elapsed_secs}] "));
+                let _ = write!(output, "[{elapsed_secs}] ");
             }
 
             let content_str = &message.content;
-            output.push_str(&format!("{:?}: {content_str}\n", message.role));
+            let _ = writeln!(output, "{:?}: {content_str}", message.role);
         }
 
-        Ok(output)
+        output
     }
 
     /// Export as CSV format
     fn export_as_csv(
         &self,
         messages: &[crate::domain::chat::message::types::CandleMessage],
-    ) -> Result<String, ExportError> {
+    ) -> String {
         let mut output = String::new();
 
         // CSV header
@@ -319,16 +328,16 @@ impl ChatExporter {
         for message in messages {
             if self.config.include_timestamps {
                 let elapsed_secs = message.timestamp.unwrap_or(0);
-                output.push_str(&format!("{elapsed_secs},"));
+                let _ = write!(output, "{elapsed_secs},");
             }
 
             // Escape CSV content
             let content_str = &message.content;
             let escaped_content = content_str.replace("\"", "\"\"");
-            output.push_str(&format!("\"{:?}\",\"{escaped_content}\"\n", message.role));
+            let _ = writeln!(output, "\"{:?}\",\"{escaped_content}\"", message.role);
         }
 
-        Ok(output)
+        output
     }
 
     /// Get export statistics
@@ -356,15 +365,22 @@ impl Default for ChatExporter {
 // Duplicate ExportError and ExportResult removed - already defined above
 
 /// Export a conversation to the specified format
+///
+/// # Errors
+///
+/// Returns `ExportError` if:
+/// - Format conversion fails
+/// - Message serialization fails
+/// - No messages are provided
 pub fn export_conversation(
     messages: &[crate::domain::chat::message::types::CandleMessage],
     config: &ExportConfig,
 ) -> ExportResult<String> {
     match config.format {
         ExportFormat::Json => export_to_json(messages, config),
-        ExportFormat::Markdown => export_to_markdown(messages, config),
-        ExportFormat::Text => export_to_text(messages, config),
-        ExportFormat::Csv => export_to_csv(messages, config),
+        ExportFormat::Markdown => Ok(export_to_markdown(messages, config)),
+        ExportFormat::Text => Ok(export_to_text(messages, config)),
+        ExportFormat::Csv => Ok(export_to_csv(messages, config)),
     }
 }
 
@@ -388,7 +404,7 @@ fn export_to_json(
 fn export_to_markdown(
     messages: &[crate::domain::chat::message::types::CandleMessage],
     config: &ExportConfig,
-) -> ExportResult<String> {
+) -> String {
     let mut output = String::with_capacity(messages.len() * 100);
     output.push_str("# Chat Export\n\n");
 
@@ -399,24 +415,24 @@ fn export_to_markdown(
     };
 
     for message in limited_messages {
-        output.push_str(&format!("## {}\n\n", message.role));
+        let _ = write!(output, "## {}\n\n", message.role);
         output.push_str(&message.content);
         output.push_str("\n\n");
 
         if config.include_timestamps {
             let timestamp_str = message.timestamp.unwrap_or(0);
-            output.push_str(&format!("*Timestamp: {timestamp_str}*\n\n"));
+            let _ = write!(output, "*Timestamp: {timestamp_str}*\n\n");
         }
     }
 
-    Ok(output)
+    output
 }
 
 /// Export to plain text format
 fn export_to_text(
     messages: &[crate::domain::chat::message::types::CandleMessage],
     config: &ExportConfig,
-) -> ExportResult<String> {
+) -> String {
     let mut output = String::with_capacity(messages.len() * 100);
 
     let limited_messages = if config.max_messages > 0 {
@@ -426,23 +442,23 @@ fn export_to_text(
     };
 
     for message in limited_messages {
-        output.push_str(&format!("{}: {}\n", message.role, message.content));
+        let _ = writeln!(output, "{}: {}", message.role, message.content);
 
         if config.include_timestamps {
             let timestamp_str = message.timestamp.unwrap_or(0);
-            output.push_str(&format!("Timestamp: {timestamp_str}\n"));
+            let _ = writeln!(output, "Timestamp: {timestamp_str}");
         }
         output.push('\n');
     }
 
-    Ok(output)
+    output
 }
 
 /// Export to CSV format
 fn export_to_csv(
     messages: &[crate::domain::chat::message::types::CandleMessage],
     config: &ExportConfig,
-) -> ExportResult<String> {
+) -> String {
     let mut output = String::with_capacity(messages.len() * 100);
 
     // CSV header
@@ -462,14 +478,15 @@ fn export_to_csv(
         let escaped_content = message.content.replace('"', "\"\"");
         if config.include_timestamps {
             let timestamp_str = message.timestamp.unwrap_or(0);
-            output.push_str(&format!(
-                "\"{}\",\"{}\",{}\n",
+            let _ = writeln!(
+                output,
+                "\"{}\",\"{}\",{}",
                 message.role, escaped_content, timestamp_str
-            ));
+            );
         } else {
-            output.push_str(&format!("\"{}\",\"{}\"\n", message.role, escaped_content));
+            let _ = writeln!(output, "\"{}\",\"{}\"", message.role, escaped_content);
         }
     }
 
-    Ok(output)
+    output
 }

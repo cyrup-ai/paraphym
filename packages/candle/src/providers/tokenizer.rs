@@ -471,7 +471,7 @@ mod tests {
 
     #[test]
     fn test_padding_strategy() {
-        let _sequences = vec![vec![1, 2, 3], vec![1, 2, 3, 4, 5], vec![1]];
+        let _sequences = [vec![1, 2, 3], vec![1, 2, 3, 4, 5], vec![1]];
 
         // This test would require a real tokenizer instance
         // let tokenizer = create_test_tokenizer();

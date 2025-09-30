@@ -76,7 +76,7 @@ pub enum CpuArchitecture {
 }
 
 impl CpuFeatures {
-    #[inline(always)]
+    #[inline]
     pub fn detect() -> Self {
         Self {
             avx2: Self::detect_avx2(),
@@ -91,90 +91,90 @@ impl CpuFeatures {
     }
 
     #[cfg(target_arch = "x86_64")]
-    #[inline(always)]
+    #[inline]
     fn detect_avx2() -> bool {
         is_x86_feature_detected!("avx2")
     }
 
     #[cfg(not(target_arch = "x86_64"))]
-    #[inline(always)]
+    #[inline]
     fn detect_avx2() -> bool {
         false
     }
 
     #[cfg(target_arch = "x86_64")]
-    #[inline(always)]
+    #[inline]
     fn detect_avx512f() -> bool {
         is_x86_feature_detected!("avx512f")
     }
 
     #[cfg(not(target_arch = "x86_64"))]
-    #[inline(always)]
+    #[inline]
     fn detect_avx512f() -> bool {
         false
     }
 
     #[cfg(target_arch = "x86_64")]
-    #[inline(always)]
+    #[inline]
     fn detect_avx512bw() -> bool {
         is_x86_feature_detected!("avx512bw")
     }
 
     #[cfg(not(target_arch = "x86_64"))]
-    #[inline(always)]
+    #[inline]
     fn detect_avx512bw() -> bool {
         false
     }
 
     #[cfg(target_arch = "x86_64")]
-    #[inline(always)]
+    #[inline]
     fn detect_avx512vl() -> bool {
         is_x86_feature_detected!("avx512vl")
     }
 
     #[cfg(not(target_arch = "x86_64"))]
-    #[inline(always)]
+    #[inline]
     fn detect_avx512vl() -> bool {
         false
     }
 
     #[cfg(target_arch = "x86_64")]
-    #[inline(always)]
+    #[inline]
     fn detect_fma() -> bool {
         is_x86_feature_detected!("fma")
     }
 
     #[cfg(not(target_arch = "x86_64"))]
-    #[inline(always)]
+    #[inline]
     fn detect_fma() -> bool {
         false
     }
 
     #[cfg(target_arch = "x86_64")]
-    #[inline(always)]
+    #[inline]
     fn detect_sse42() -> bool {
         is_x86_feature_detected!("sse4.2")
     }
 
     #[cfg(not(target_arch = "x86_64"))]
-    #[inline(always)]
+    #[inline]
     fn detect_sse42() -> bool {
         false
     }
 
     #[cfg(target_arch = "aarch64")]
-    #[inline(always)]
+    #[inline]
     fn detect_neon() -> bool {
         true // NEON is standard on AArch64
     }
 
     #[cfg(not(target_arch = "aarch64"))]
-    #[inline(always)]
+    #[inline]
     fn detect_neon() -> bool {
         false
     }
 
-    #[inline(always)]
+    #[inline]
     fn detect_architecture() -> CpuArchitecture {
         #[cfg(target_arch = "x86_64")]
         return CpuArchitecture::X86_64;

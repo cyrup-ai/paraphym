@@ -30,7 +30,7 @@ use crate::domain::context::CandleDocument as Document;
 
 // Macros now imported from ystream - removed local definitions
 
-/// Marker types for CandleContext
+/// Marker types for `CandleContext`
 /// Marker type for file-based Candle context operations. Used in typestate pattern to ensure compile-time safety for file context providers.
 #[derive(Debug, Clone)]
 pub struct CandleFile;
@@ -54,7 +54,7 @@ pub enum CandleContextError {
     /// Path validation failed due to invalid characters, encoding, or filesystem constraints. Includes both local and remote path validation.
     InvalidPath(String),
     #[error("IO error: {0}")]
-    /// Filesystem I/O operation failed. Wraps underlying std::io::Error with context-specific information for debugging.
+    /// Filesystem I/O operation failed. Wraps underlying `std::io::Error` with context-specific information for debugging.
     IoError(String),
     #[error("Pattern error: {0}")]
     /// Regular expression or glob pattern compilation failed. Occurs during context filtering and search operations.
@@ -377,6 +377,7 @@ impl CandleMemoryIntegration {
 
     /// Get success rate (0.0 to 1.0)
     #[inline]
+    #[allow(clippy::cast_precision_loss)] // Acceptable for rate calculations
     pub fn success_rate(&self) -> f64 {
         let successful = self.successful_operations.load(Ordering::Relaxed);
         let failed = self.failed_operations.load(Ordering::Relaxed);
@@ -524,12 +525,12 @@ impl std::fmt::Debug for CandleStreamingContextProcessor {
                     .load(std::sync::atomic::Ordering::Relaxed),
             )
             .field("event_sender", &self.event_sender.is_some())
-            .field("_max_processing_time_ms", &self._max_processing_time_ms)
+            .field("max_processing_time_ms", &self._max_processing_time_ms)
             .field(
-                "_max_documents_per_context",
+                "max_documents_per_context",
                 &self._max_documents_per_context,
             )
-            .field("_max_concurrent_contexts", &self._max_concurrent_contexts)
+            .field("max_concurrent_contexts", &self._max_concurrent_contexts)
             .finish()
     }
 }
@@ -603,35 +604,19 @@ impl CandleStreamingContextProcessor {
             }
 
             // Process file context
-            match Self::load_file_document(&context) {
-                Ok(document) => {
-                    let duration = start_time.elapsed().unwrap_or(Duration::ZERO);
-                    let _ = sender.send(document);
+            let document = Self::load_file_document(&context);
+            let duration = start_time.elapsed().unwrap_or(Duration::ZERO);
+            let _ = sender.send(document);
 
-                    // Emit context load completed event
-                    if let Some(ref events) = event_sender {
-                        let _ = events.send(CandleContextEvent::ContextLoadCompleted {
-                            context_type: "File".to_string(),
-                            source: context.path.clone(),
-                            documents_loaded: 1,
-                            duration_nanos: duration.as_nanos() as u64,
-                            timestamp: SystemTime::now(),
-                        });
-                    }
-                }
-                Err(error) => {
-                    // Emit context load failed event before terminating
-                    if let Some(ref events) = event_sender {
-                        let _ = events.send(CandleContextEvent::ContextLoadFailed {
-                            context_type: "File".to_string(),
-                            source: context.path.clone(),
-                            error: error.to_string(),
-                            timestamp: SystemTime::now(),
-                        });
-                    }
-
-                    ystream::handle_error!(error, "File document loading failed");
-                }
+            // Emit context load completed event
+            if let Some(ref events) = event_sender {
+                let _ = events.send(CandleContextEvent::ContextLoadCompleted {
+                    context_type: "File".to_string(),
+                    source: context.path.clone(),
+                    documents_loaded: 1,
+                    duration_nanos: duration.as_nanos() as u64,
+                    timestamp: SystemTime::now(),
+                });
             }
         })
     }
@@ -660,10 +645,10 @@ impl CandleStreamingContextProcessor {
     /// Load file document
     fn load_file_document(
         context: &CandleImmutableFileContext,
-    ) -> Result<Document, CandleContextError> {
+    ) -> Document {
         // Implementation would read file and create Document
         // For now, create a basic document structure
-        Ok(Document {
+        Document {
             data: format!("Content from file: {}", context.path),
             format: Some(crate::domain::context::CandleContentFormat::Text),
             media_type: Some(crate::domain::context::CandleDocumentMediaType::TXT),
@@ -687,7 +672,7 @@ impl CandleStreamingContextProcessor {
                 );
                 props
             },
-        })
+        }
     }
 
     /// Get processor statistics
@@ -708,6 +693,7 @@ impl CandleStreamingContextProcessor {
 
     /// Calculate success rate
     #[inline]
+    #[allow(clippy::cast_precision_loss)] // Acceptable for rate calculations
     fn success_rate(&self) -> f64 {
         let successful = self.successful_contexts.load(Ordering::Relaxed);
         let failed = self.failed_contexts.load(Ordering::Relaxed);
@@ -806,7 +792,7 @@ impl<T> CandleContext<T> {
 
 // CandleContext<CandleFile> implementation
 impl CandleContext<CandleFile> {
-    /// Load single file - EXACT syntax: CandleContext<CandleFile>::of("/path/to/file.txt")
+    /// Load single file - EXACT syntax: `CandleContext`<CandleFile>`::of("/path/to/file.txt`")
     #[inline]
     pub fn of(path: impl AsRef<Path>) -> Self {
         let path_str = path.as_ref().to_string_lossy().to_string();
@@ -839,7 +825,7 @@ impl CandleContext<CandleFile> {
 
 // CandleContext<CandleFiles> implementation
 impl CandleContext<CandleFiles> {
-    /// Glob pattern for files - EXACT syntax: CandleContext<CandleFiles>::glob("**/*.{rs,md}")
+    /// Glob pattern for files - EXACT syntax: `CandleContext`<CandleFiles>`::glob`("**/*.{rs,md}")
     #[inline]
     pub fn glob(pattern: impl AsRef<str>) -> Self {
         let pattern_str = pattern.as_ref().to_string();
@@ -914,7 +900,7 @@ impl CandleContext<CandleFiles> {
 
 // CandleContext<CandleDirectory> implementation
 impl CandleContext<CandleDirectory> {
-    /// Load all files from directory - EXACT syntax: CandleContext<CandleDirectory>::of("/path/to/dir")
+    /// Load all files from directory - EXACT syntax: `CandleContext`<CandleDirectory>`::of("/path/to/dir`")
     #[inline]
     pub fn of(path: impl AsRef<Path>) -> Self {
         let path_str = path.as_ref().to_string_lossy().to_string();
@@ -960,8 +946,7 @@ impl CandleContext<CandleDirectory> {
                                     } else {
                                         path.extension()
                                             .and_then(|ext| ext.to_str())
-                                            .map(|ext| extensions.contains(&ext.to_string()))
-                                            .unwrap_or(false)
+                                            .is_some_and(|ext| extensions.contains(&ext.to_string()))
                                     };
 
                                     if should_include
@@ -1040,7 +1025,7 @@ impl CandleContext<CandleDirectory> {
 
 // CandleContext<CandleGithub> implementation
 impl CandleContext<CandleGithub> {
-    /// Glob pattern for GitHub files - EXACT syntax: CandleContext<CandleGithub>::glob("/repo/**/*.{rs,md}")
+    /// Glob pattern for GitHub files - EXACT syntax: `CandleContext`<CandleGithub>`::glob("/repo`/**/*.{rs,md}")
     #[inline]
     pub fn glob(pattern: impl AsRef<str>) -> Self {
         let pattern_str = pattern.as_ref().to_string();

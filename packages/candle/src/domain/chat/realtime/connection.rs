@@ -218,6 +218,10 @@ impl ConnectionManager {
     }
 
     /// Add a new connection
+    ///
+    /// # Errors
+    ///
+    /// Returns error string if connection cannot be added to the pool
     pub fn add_connection(
         &self,
         user_id: String,
@@ -242,6 +246,10 @@ impl ConnectionManager {
     }
 
     /// Remove a connection
+    ///
+    /// # Errors
+    ///
+    /// Returns error string if connection with the given ID does not exist
     pub fn remove_connection(&self, connection_id: &String) -> Result<(), String> {
         if let Some(entry) = self.connections.remove(connection_id) {
             let connection = entry.value();

@@ -1,6 +1,6 @@
 use super::primitives::{MemoryContent, MemoryNode, MemoryTypeEnum as MemoryType};
 
-/// Lock-free memory node pool for zero-allocation MemoryNode reuse
+/// Lock-free memory node pool for zero-allocation `MemoryNode` reuse
 pub struct MemoryNodePool {
     available: crossbeam_queue::ArrayQueue<MemoryNode>,
     embedding_dimension: usize,
@@ -34,7 +34,7 @@ impl MemoryNodePool {
     }
 
     /// Acquire a node from the pool (zero-allocation in common case)
-    #[inline(always)]
+    #[inline]
     pub fn acquire(&self) -> PooledMemoryNode<'_> {
         let node = self.available.pop().unwrap_or_else(|| {
             // Fallback: create new node if pool is empty
@@ -57,7 +57,7 @@ impl MemoryNodePool {
     }
 
     /// Release a node back to the pool for reuse
-    #[inline(always)]
+    #[inline]
     fn release(&self, node: MemoryNode) {
         // Reset the node to a clean state for reuse
         // The modern MemoryNode doesn't allow direct mutation of its fields,
@@ -88,9 +88,9 @@ pub struct PooledMemoryNode<'a> {
     taken: bool,
 }
 
-impl<'a> PooledMemoryNode<'a> {
+impl PooledMemoryNode<'_> {
     /// Initialize the pooled node with content
-    #[inline(always)]
+    #[inline]
     pub fn initialize(&mut self, content: String, memory_type: MemoryType) {
         if !self.taken {
             // For the current design, we replace the node entirely since
@@ -109,7 +109,7 @@ impl<'a> PooledMemoryNode<'a> {
     }
 
     /// Set embedding for the pooled node
-    #[inline(always)]
+    #[inline]
     pub fn set_embedding(&mut self, embedding: Vec<f32>) {
         if !self.taken {
             let _ = self.node.set_embedding(embedding);
@@ -117,7 +117,7 @@ impl<'a> PooledMemoryNode<'a> {
     }
 
     /// Get immutable reference to the inner node
-    #[inline(always)]
+    #[inline]
     pub fn as_ref(&self) -> Option<&MemoryNode> {
         if self.taken {
             None
@@ -127,7 +127,7 @@ impl<'a> PooledMemoryNode<'a> {
     }
 
     /// Get mutable reference to the inner node
-    #[inline(always)]
+    #[inline]
     pub fn as_mut(&mut self) -> Option<&mut MemoryNode> {
         if self.taken {
             None
@@ -137,7 +137,7 @@ impl<'a> PooledMemoryNode<'a> {
     }
 
     /// Take ownership of the inner node (prevents return to pool)
-    #[inline(always)]
+    #[inline]
     pub fn take(mut self) -> Option<MemoryNode> {
         if self.taken {
             None
@@ -154,26 +154,26 @@ impl<'a> PooledMemoryNode<'a> {
     }
 }
 
-impl<'a> std::ops::Deref for PooledMemoryNode<'a> {
+impl std::ops::Deref for PooledMemoryNode<'_> {
     type Target = MemoryNode;
 
-    #[inline(always)]
+    #[inline]
     fn deref(&self) -> &Self::Target {
         // PooledMemoryNode always contains a valid node unless taken
         &self.node
     }
 }
 
-impl<'a> std::ops::DerefMut for PooledMemoryNode<'a> {
-    #[inline(always)]
+impl std::ops::DerefMut for PooledMemoryNode<'_> {
+    #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         // PooledMemoryNode always contains a valid node unless taken
         &mut self.node
     }
 }
 
-impl<'a> Drop for PooledMemoryNode<'a> {
-    #[inline(always)]
+impl Drop for PooledMemoryNode<'_> {
+    #[inline]
     fn drop(&mut self) {
         if !self.taken {
             let node = std::mem::ManuallyDrop::into_inner(std::mem::replace(
@@ -198,7 +198,7 @@ pub fn initialize_memory_node_pool(capacity: usize, embedding_dimension: usize) 
 }
 
 /// Get a node from the global pool
-#[inline(always)]
+#[inline]
 pub fn acquire_pooled_node() -> Option<PooledMemoryNode<'static>> {
     MEMORY_NODE_POOL.get().map(|pool| pool.acquire())
 }
@@ -207,5 +207,5 @@ pub fn acquire_pooled_node() -> Option<PooledMemoryNode<'static>> {
 #[inline]
 #[must_use]
 pub fn memory_node_pool_stats() -> Option<(usize, usize)> {
-    MEMORY_NODE_POOL.get().map(|pool| pool.stats())
+    MEMORY_NODE_POOL.get().map(MemoryNodePool::stats)
 }

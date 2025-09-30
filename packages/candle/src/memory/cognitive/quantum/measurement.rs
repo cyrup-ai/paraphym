@@ -3,18 +3,13 @@
 use serde::{Deserialize, Serialize};
 
 /// Measurement basis for quantum operations
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum MeasurementBasis {
+    #[default]
     Computational,
     Hadamard,
     Bell,
     Custom(String),
-}
-
-impl Default for MeasurementBasis {
-    fn default() -> Self {
-        Self::Computational
-    }
 }
 
 /// Measurement metadata

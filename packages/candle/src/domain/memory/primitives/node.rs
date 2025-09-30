@@ -21,8 +21,8 @@ use super::types::{
 /// Features:
 /// - UUID-based node identification with inline generation
 /// - SIMD-aligned embedding vectors for AVX2/NEON optimization
-/// - CachePadded metadata structure to prevent false sharing
-/// - AtomicU64 for concurrent access statistics and version tracking
+/// - `CachePadded` metadata structure to prevent false sharing
+/// - `AtomicU64` for concurrent access statistics and version tracking
 /// - Lock-free relationship tracking with crossbeam-skiplist
 #[derive(Debug, Clone)]
 pub struct MemoryNode {
@@ -176,7 +176,7 @@ pub struct MemoryNodeStats {
     pub write_count: AtomicU64,
     /// Relationship access count
     pub relationship_count: AtomicUsize,
-    /// Last access timestamp (as nanos since UNIX_EPOCH)
+    /// Last access timestamp (as nanos since `UNIX_EPOCH`)
     pub last_access_nanos: AtomicU64,
 }
 
@@ -358,7 +358,7 @@ impl MemoryNode {
     pub fn last_accessed(&self) -> SystemTime {
         self.stats
             .last_access_time()
-            .unwrap_or_else(|| self.base_memory.created_at)
+            .unwrap_or(self.base_memory.created_at)
     }
 
     /// Get importance from metadata

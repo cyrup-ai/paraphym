@@ -22,6 +22,10 @@ impl ResultRanker {
     }
 
     /// Rank search results by relevance
+    ///
+    /// # Errors
+    ///
+    /// Returns error if result ranking fails
     pub fn rank_results_sync(
         &self,
         mut results: Vec<SearchResult>,

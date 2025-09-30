@@ -80,8 +80,8 @@ impl LocalEngine {
 
         // Capture values from self before creating the async stream
         let model_name = self.config.model_name.clone();
-        let _max_tokens = self.config.max_tokens;
-        let _temperature = self.config.temperature;
+        let max_tokens_param = self.config.max_tokens;
+        let temperature_param = self.config.temperature;
 
         AsyncStream::with_channel(move |sender| {
 
@@ -120,28 +120,27 @@ impl LocalEngine {
                     match provider_result {
                         Ok(provider) => {
                             // Create completion parameters with safe non-zero conversions
-                            let max_tokens = _max_tokens.and_then(|t| std::num::NonZeroU64::new(t as u64));
-                            let n = match std::num::NonZeroU8::new(1) {
-                                Some(val) => val,
-                                None => {
-                                    // This should never happen for value 1, but handle gracefully
-                                    let error_response = CandleCompletionResponse {
-                                        text: "Internal error: failed to create NonZeroU8 value".into(),
-                                        model: model_name.clone().into(),
-                                        provider: Some("candle-local".into()),
-                                        usage: None,
-                                        finish_reason: Some("error".into()),
-                                        response_time_ms: None,
-                                        generation_time_ms: Some(0),
-                                        tokens_per_second: Some(0.0),
-                                    };
-                                    let _ = sender.send(error_response);
-                                    return;
-                                }
+                            let max_tokens = max_tokens_param.and_then(|t| std::num::NonZeroU64::new(t as u64));
+                            let n = if let Some(val) = std::num::NonZeroU8::new(1) {
+                                val
+                            } else {
+                                // This should never happen for value 1, but handle gracefully
+                                let error_response = CandleCompletionResponse {
+                                    text: "Internal error: failed to create NonZeroU8 value".into(),
+                                    model: model_name.clone().into(),
+                                    provider: Some("candle-local".into()),
+                                    usage: None,
+                                    finish_reason: Some("error".into()),
+                                    response_time_ms: None,
+                                    generation_time_ms: Some(0),
+                                    tokens_per_second: Some(0.0),
+                                };
+                                let _ = sender.send(error_response);
+                                return;
                             };
                             
                             let completion_params = crate::domain::completion::CandleCompletionParams {
-                                temperature: f64::from(_temperature.unwrap_or(0.7)),
+                                temperature: f64::from(temperature_param.unwrap_or(0.7)),
                                 max_tokens,
                                 n,
                                 stream: true,
@@ -252,28 +251,27 @@ impl LocalEngine {
                     match provider_result {
                         Ok(provider) => {
                             // Create completion parameters with safe non-zero conversions
-                            let max_tokens = _max_tokens.and_then(|t| std::num::NonZeroU64::new(t as u64));
-                            let n = match std::num::NonZeroU8::new(1) {
-                                Some(val) => val,
-                                None => {
-                                    // This should never happen for value 1, but handle gracefully
-                                    let error_response = CandleCompletionResponse {
-                                        text: "Internal error: failed to create NonZeroU8 value".into(),
-                                        model: model_name.clone().into(),
-                                        provider: Some("candle-local".into()),
-                                        usage: None,
-                                        finish_reason: Some("error".into()),
-                                        response_time_ms: None,
-                                        generation_time_ms: Some(0),
-                                        tokens_per_second: Some(0.0),
-                                    };
-                                    let _ = sender.send(error_response);
-                                    return;
-                                }
+                            let max_tokens = max_tokens_param.and_then(|t| std::num::NonZeroU64::new(t as u64));
+                            let n = if let Some(val) = std::num::NonZeroU8::new(1) {
+                                val
+                            } else {
+                                // This should never happen for value 1, but handle gracefully
+                                let error_response = CandleCompletionResponse {
+                                    text: "Internal error: failed to create NonZeroU8 value".into(),
+                                    model: model_name.clone().into(),
+                                    provider: Some("candle-local".into()),
+                                    usage: None,
+                                    finish_reason: Some("error".into()),
+                                    response_time_ms: None,
+                                    generation_time_ms: Some(0),
+                                    tokens_per_second: Some(0.0),
+                                };
+                                let _ = sender.send(error_response);
+                                return;
                             };
                             
                             let completion_params = crate::domain::completion::CandleCompletionParams {
-                                temperature: f64::from(_temperature.unwrap_or(0.7)),
+                                temperature: f64::from(temperature_param.unwrap_or(0.7)),
                                 max_tokens,
                                 n,
                                 stream: true,

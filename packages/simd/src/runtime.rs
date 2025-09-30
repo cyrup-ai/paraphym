@@ -167,6 +167,41 @@ impl TemperatureDispatch {
     pub fn call(&self, logits: &mut [f32], temperature: f32) -> crate::error::SimdResult<()> {
         unsafe { (self.get_fn())(logits, temperature) }
     }
+
+    /// Call temperature scaling with specific CPU feature (for benchmarking)
+    #[cfg(any(test, feature = "bench"))]
+    #[inline]
+    pub fn call_with_feature(
+        &self,
+        logits: &mut [f32],
+        temperature: f32,
+        feature: CpuFeatures,
+    ) -> crate::error::SimdResult<()> {
+        let func = match feature {
+            CpuFeatures::Avx512 => self.avx512.ok_or_else(|| {
+                crate::error::SimdError::UnsupportedOperation(
+                    "AVX-512 not available on this platform".to_string(),
+                )
+            })?,
+            CpuFeatures::Avx2 => self.avx2.ok_or_else(|| {
+                crate::error::SimdError::UnsupportedOperation(
+                    "AVX2 not available on this platform".to_string(),
+                )
+            })?,
+            CpuFeatures::Sse41 => self.sse41.ok_or_else(|| {
+                crate::error::SimdError::UnsupportedOperation(
+                    "SSE4.1 not available on this platform".to_string(),
+                )
+            })?,
+            CpuFeatures::Neon => self.neon.ok_or_else(|| {
+                crate::error::SimdError::UnsupportedOperation(
+                    "NEON not available on this platform".to_string(),
+                )
+            })?,
+            CpuFeatures::Scalar => self.scalar,
+        };
+        unsafe { func(logits, temperature) }
+    }
 }
 
 impl SoftmaxDispatch {
@@ -187,6 +222,40 @@ impl SoftmaxDispatch {
     pub fn call(&self, logits: &[f32]) -> crate::error::SimdResult<Vec<f32>> {
         unsafe { (self.get_fn())(logits) }
     }
+
+    /// Call softmax with specific CPU feature (for benchmarking)
+    #[cfg(any(test, feature = "bench"))]
+    #[inline]
+    pub fn call_with_feature(
+        &self,
+        logits: &[f32],
+        feature: CpuFeatures,
+    ) -> crate::error::SimdResult<Vec<f32>> {
+        let func = match feature {
+            CpuFeatures::Avx512 => self.avx512.ok_or_else(|| {
+                crate::error::SimdError::UnsupportedOperation(
+                    "AVX-512 not available on this platform".to_string(),
+                )
+            })?,
+            CpuFeatures::Avx2 => self.avx2.ok_or_else(|| {
+                crate::error::SimdError::UnsupportedOperation(
+                    "AVX2 not available on this platform".to_string(),
+                )
+            })?,
+            CpuFeatures::Sse41 => self.sse41.ok_or_else(|| {
+                crate::error::SimdError::UnsupportedOperation(
+                    "SSE4.1 not available on this platform".to_string(),
+                )
+            })?,
+            CpuFeatures::Neon => self.neon.ok_or_else(|| {
+                crate::error::SimdError::UnsupportedOperation(
+                    "NEON not available on this platform".to_string(),
+                )
+            })?,
+            CpuFeatures::Scalar => self.scalar,
+        };
+        unsafe { func(logits) }
+    }
 }
 
 impl ArgmaxDispatch {
@@ -206,6 +275,40 @@ impl ArgmaxDispatch {
     #[inline]
     pub fn call(&self, logits: &[f32]) -> crate::error::SimdResult<usize> {
         unsafe { (self.get_fn())(logits) }
+    }
+
+    /// Call argmax with specific CPU feature (for benchmarking)
+    #[cfg(any(test, feature = "bench"))]
+    #[inline]
+    pub fn call_with_feature(
+        &self,
+        logits: &[f32],
+        feature: CpuFeatures,
+    ) -> crate::error::SimdResult<usize> {
+        let func = match feature {
+            CpuFeatures::Avx512 => self.avx512.ok_or_else(|| {
+                crate::error::SimdError::UnsupportedOperation(
+                    "AVX-512 not available on this platform".to_string(),
+                )
+            })?,
+            CpuFeatures::Avx2 => self.avx2.ok_or_else(|| {
+                crate::error::SimdError::UnsupportedOperation(
+                    "AVX2 not available on this platform".to_string(),
+                )
+            })?,
+            CpuFeatures::Sse41 => self.sse41.ok_or_else(|| {
+                crate::error::SimdError::UnsupportedOperation(
+                    "SSE4.1 not available on this platform".to_string(),
+                )
+            })?,
+            CpuFeatures::Neon => self.neon.ok_or_else(|| {
+                crate::error::SimdError::UnsupportedOperation(
+                    "NEON not available on this platform".to_string(),
+                )
+            })?,
+            CpuFeatures::Scalar => self.scalar,
+        };
+        unsafe { func(logits) }
     }
 }
 

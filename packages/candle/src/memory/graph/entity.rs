@@ -213,6 +213,7 @@ impl Entity for BaseEntity {
 
 impl BaseEntity {
     /// Builder pattern method to set an attribute and return self
+    #[must_use]
     pub fn with_attribute(mut self, name: &str, value: Value) -> Self {
         self.attributes.insert(name.to_string(), value);
         self

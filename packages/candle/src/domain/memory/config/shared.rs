@@ -29,10 +29,10 @@ pub struct RetryConfig {
     pub retryable_status_codes: Vec<u16>,
 }
 
-impl RetryConfig {
+impl Default for RetryConfig {
     /// Create default retry configuration with exponential backoff
     #[inline]
-    pub fn default() -> Self {
+    fn default() -> Self {
         Self {
             enabled: true,
             max_retries: 3,
@@ -43,6 +43,9 @@ impl RetryConfig {
             retryable_status_codes: vec![429, 500, 502, 503, 504],
         }
     }
+}
+
+impl RetryConfig {
 
     /// Create optimized retry configuration for high-performance scenarios
     #[inline]
@@ -115,6 +118,7 @@ impl RetryConfig {
             return Duration::from_millis(0);
         }
 
+        #[allow(clippy::cast_precision_loss)] // Acceptable for delay calculation
         let base_delay = self.initial_delay.as_millis() as f64;
         let multiplier = self
             .backoff_multiplier
@@ -122,6 +126,7 @@ impl RetryConfig {
         let mut delay_ms = base_delay * multiplier;
 
         // Apply maximum delay limit
+        #[allow(clippy::cast_precision_loss)] // Acceptable for delay limit calculation
         let max_delay_ms = self.max_delay.as_millis() as f64;
         if delay_ms > max_delay_ms {
             delay_ms = max_delay_ms;
@@ -137,6 +142,7 @@ impl RetryConfig {
             let hash = hasher.finish();
 
             // Convert hash to a value between 0.75 and 1.25
+            #[allow(clippy::cast_precision_loss)] // Acceptable for jitter calculation
             let jitter = 0.75 + (hash % 500) as f64 / 1000.0;
             delay_ms *= jitter;
         }
@@ -168,12 +174,6 @@ impl RetryConfig {
     }
 }
 
-impl Default for RetryConfig {
-    fn default() -> Self {
-        Self::default()
-    }
-}
-
 /// Canonical embedding configuration
 ///
 /// This is the single source of truth for embedding configuration across memory subsystems.
@@ -201,7 +201,7 @@ pub struct EmbeddingConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum EmbeddingModelType {
-    /// OpenAI embedding models
+    /// `OpenAI` embedding models
     OpenAI = 0,
     /// Sentence transformers (BERT-based)
     SentenceTransformers = 1,
@@ -213,7 +213,7 @@ pub enum EmbeddingModelType {
     Stella = 4,
     /// GTE-Qwen embedding models  
     GteQwen = 5,
-    /// NVIDIA NVEmbed models
+    /// NVIDIA `NVEmbed` models
     NvEmbed = 6,
     /// Jina-BERT embedding models
     JinaBert = 7,
@@ -233,10 +233,10 @@ pub enum NormalizationStrategy {
     MinMax = 3,
 }
 
-impl EmbeddingConfig {
+impl Default for EmbeddingConfig {
     /// Create default embedding configuration
     #[inline]
-    pub fn default() -> Self {
+    fn default() -> Self {
         Self {
             model_type: EmbeddingModelType::OpenAI,
             model_name: "text-embedding-3-small".to_string(),
@@ -248,6 +248,9 @@ impl EmbeddingConfig {
             enable_compression: false,
         }
     }
+}
+
+impl EmbeddingConfig {
 
     /// Create high-performance embedding configuration
     #[inline]
@@ -307,7 +310,7 @@ impl EmbeddingConfig {
         }
     }
 
-    /// Create NVEmbed v2 4096-dim embedding configuration
+    /// Create `NVEmbed` v2 4096-dim embedding configuration
     pub fn nvembed_v2() -> Self {
         Self {
             model_type: EmbeddingModelType::NvEmbed,
@@ -354,11 +357,5 @@ impl EmbeddingConfig {
         }
 
         Ok(())
-    }
-}
-
-impl Default for EmbeddingConfig {
-    fn default() -> Self {
-        Self::default()
     }
 }

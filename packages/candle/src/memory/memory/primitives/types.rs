@@ -23,7 +23,7 @@ fn json_to_surreal_value(json: serde_json::Value) -> surrealdb::Value {
 }
 
 /// Memory type enum
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum MemoryTypeEnum {
     /// Semantic memory (knowledge graph)
     Semantic,
@@ -34,6 +34,7 @@ pub enum MemoryTypeEnum {
     /// Working memory (temporary storage)
     Working,
     /// Long-term memory (default)
+    #[default]
     LongTerm,
 }
 
@@ -68,12 +69,6 @@ impl FromStr for MemoryTypeEnum {
 
     fn from_str(s: &str) -> Result<Self> {
         Self::from_string(s)
-    }
-}
-
-impl Default for MemoryTypeEnum {
-    fn default() -> Self {
-        Self::LongTerm // As indicated by comment "Long-term memory (default)"
     }
 }
 

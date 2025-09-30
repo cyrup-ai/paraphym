@@ -52,10 +52,10 @@ impl MessageChunk for IndexResult {
     }
     
     fn error(&self) -> Option<&str> {
-        if !self.success {
-            self.error_message.as_deref()
-        } else {
+        if self.success {
             None
+        } else {
+            self.error_message.as_deref()
         }
     }
 }
@@ -64,7 +64,7 @@ impl MessageChunk for IndexResult {
 pub struct ChatSearchIndex {
     /// Inverted index: term -> documents containing term
     pub inverted_index: SkipMap<String, Vec<IndexEntry>>,
-    /// Document store: doc_id -> message
+    /// Document store: `doc_id` -> message
     pub document_store: SkipMap<String, SearchChatMessage>,
     /// Term frequencies for TF-IDF calculation
     pub term_frequencies: SkipMap<String, TermFrequency>,
@@ -200,12 +200,11 @@ impl ChatSearchIndex {
                 let mut tf_entry = self_clone
                     .term_frequencies
                     .get(&term)
-                    .map(|e| e.value().clone())
-                    .unwrap_or(TermFrequency {
+                    .map_or(TermFrequency {
                         tf: 0.0,
                         df: 0,
                         total_docs: 1,
-                    });
+                    }, |e| e.value().clone());
                 tf_entry.tf += 1.0;
                 tf_entry.df = 1;
                 self_clone.term_frequencies.insert(term.clone(), tf_entry);
@@ -224,6 +223,10 @@ impl ChatSearchIndex {
     }
 
     /// Add message to search index (legacy future-compatible method)
+    ///
+    /// # Errors
+    ///
+    /// Returns `SearchError` if stream closes unexpectedly or message cannot be indexed
     pub fn add_message(&self, message: SearchChatMessage) -> Result<(), SearchError> {
         let stream = self.add_message_stream(message);
         match stream.try_next() {

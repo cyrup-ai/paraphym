@@ -104,14 +104,14 @@ impl ImportanceContext {
 static MEMORY_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 /// Generate next memory ID with zero allocation and blazing-fast performance
-#[inline(always)]
+#[inline]
 #[must_use]
 pub fn next_memory_id() -> u64 {
     MEMORY_ID_COUNTER.fetch_add(1, Ordering::Relaxed)
 }
 
 /// Calculate memory importance with zero allocation and blazing-fast performance
-#[inline(always)]
+#[inline]
 #[must_use]
 pub fn calculate_importance(
     memory_type: &MemoryType,

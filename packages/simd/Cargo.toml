@@ -79,6 +79,7 @@ default = ["metal", "reqwest_unstable"]
 # --- Developer conveniences (opt-in) -----------------------
 dev = ["debug"] # ← enable with `--features dev`
 debug = []                 # extra logging / assertions
+bench = []                 # benchmarking support
 
 # --- SIMD features ---
 portable_simd = []
@@ -130,3 +131,15 @@ accelerate-src = { version = "0.3.2", optional = true }
 criterion = "0.7"
 approx = "0.5"
 float_eq = "1.0"
+
+[[bench]]
+name = "temperature"
+harness = false
+
+[[bench]]
+name = "argmax"
+harness = false
+
+[[bench]]
+name = "softmax"
+harness = false

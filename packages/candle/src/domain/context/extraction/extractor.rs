@@ -36,6 +36,7 @@ where
     fn new(agent: Agent) -> Self;
 
     /// Set system prompt for extraction guidance
+    #[must_use]
     fn with_system_prompt(self, prompt: impl Into<String>) -> Self;
 }
 
@@ -165,8 +166,7 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + MessageC
         let json_start = response.find('{').unwrap_or(0);
         let json_end = response
             .rfind('}')
-            .map(|i| i + 1)
-            .unwrap_or_else(|| response.len());
+            .map_or_else(|| response.len(), |i| i + 1);
 
         if json_start < json_end {
             let json_str = &response[json_start..json_end];

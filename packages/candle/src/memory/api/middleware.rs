@@ -224,11 +224,11 @@ impl ApiKeyManager {
 
 /// Global secure JWT configuration
 static JWT_CONFIG: Lazy<Result<JwtConfig, SecurityConfigError>> =
-    Lazy::new(|| JwtConfig::from_env());
+    Lazy::new(JwtConfig::from_env);
 
 /// Global secure API key manager
 static API_KEY_MANAGER: Lazy<Result<ApiKeyManager, SecurityConfigError>> =
-    Lazy::new(|| ApiKeyManager::from_env());
+    Lazy::new(ApiKeyManager::from_env);
 
 /// User context extracted from authentication
 #[derive(Debug, Clone, Serialize, Deserialize)]

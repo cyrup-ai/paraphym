@@ -259,7 +259,7 @@ impl BuiltQuery {
         let clause_sql: Result<Vec<String>> = self
             .clauses
             .iter()
-            .map(|clause| clause_to_sql(clause))
+            .map(clause_to_sql)
             .collect();
 
         Ok(clause_sql?.join(" AND "))

@@ -44,8 +44,8 @@ pub fn template(name: impl Into<String>, content: impl Into<String>) -> ChatTemp
     let metadata = core::TemplateMetadata {
         id: template_name.clone(),
         name: template_name,
-        description: "".to_string(),
-        author: "".to_string(),
+        description: String::new(),
+        author: String::new(),
         version: "1.0.0".to_string(),
         category: core::TemplateCategory::Chat,
         tags: Vec::new(),
@@ -63,10 +63,14 @@ pub fn template(name: impl Into<String>, content: impl Into<String>) -> ChatTemp
 pub fn get_template_manager() -> &'static TemplateManager {
     use std::sync::OnceLock;
     static MANAGER: OnceLock<TemplateManager> = OnceLock::new();
-    MANAGER.get_or_init(|| TemplateManager::new())
+    MANAGER.get_or_init(TemplateManager::new)
 }
 
 /// Store a template in global manager
+///
+/// # Errors
+///
+/// Returns `TemplateError` if template storage fails (see `TemplateManager::store`)
 pub fn store_template(template: ChatTemplate) -> TemplateResult<()> {
     let manager = get_template_manager();
     manager.store(template)
@@ -79,12 +83,18 @@ pub fn get_template(name: &str) -> Option<ChatTemplate> {
 }
 
 /// Render a template with variables
+///
+/// # Errors
+///
+/// Returns `TemplateError` if:
+/// - Template with the given name is not found
+/// - Template rendering fails
 pub fn render_template(
     name: &str,
-    variables: HashMap<String, String>,
+    variables: &HashMap<String, String>,
 ) -> TemplateResult<String> {
     if let Some(template) = get_template(name) {
-        template.render(&variables)
+        template.render(variables)
     } else {
         Err(TemplateError::NotFound {
             name: name.to_string(),
@@ -93,15 +103,23 @@ pub fn render_template(
 }
 
 /// Simple render function with string variables
+///
+/// # Errors
+///
+/// Returns `TemplateError` if template rendering fails (see `render_template`)
 pub fn render_simple(name: &str, variables: HashMap<&str, &str>) -> TemplateResult<String> {
     let arc_variables: HashMap<String, String> = variables
         .into_iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
-    render_template(name, arc_variables)
+    render_template(name, &arc_variables)
 }
 
 /// Create a simple render function
+///
+/// # Errors
+///
+/// Returns `TemplateError` if template rendering fails
 pub fn render(
     template: &ChatTemplate,
     variables: &HashMap<String, String>,

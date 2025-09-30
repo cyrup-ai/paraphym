@@ -80,12 +80,14 @@ impl CandleCompletionParams {
     }
 
     /// Set the maximum number of tokens
+    #[must_use]
     pub fn with_max_tokens(mut self, max_tokens: Option<NonZeroU64>) -> Self {
         self.max_tokens = max_tokens.and_then(|t| NonZeroU64::new(t.get().min(MAX_TOKENS)));
         self
     }
 
     /// Set additional provider-specific parameters
+    #[must_use]
     pub fn with_additional_params(mut self, additional_params: Option<Value>) -> Self {
         self.additional_params = additional_params;
         self
@@ -99,9 +101,9 @@ pub use sweet_mcp_type::ToolInfo;
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct CandleModelParams {
-    /// RoPE theta parameter for positional encoding
+    /// `RoPE` theta parameter for positional encoding
     pub rope_theta: f32,
-    /// RoPE frequency base for positional encoding  
+    /// `RoPE` frequency base for positional encoding  
     pub rope_freq_base: f32,
     /// Context window size
     pub context_length: u32,
@@ -110,7 +112,7 @@ pub struct CandleModelParams {
 }
 
 impl Default for CandleModelParams {
-    #[inline(always)]
+    #[inline]
     fn default() -> Self {
         Self {
             rope_theta: 10000.0,

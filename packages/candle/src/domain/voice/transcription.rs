@@ -52,18 +52,21 @@ impl TranscriptionRequest {
     }
 
     /// Set an optional prompt to guide the transcription
+    #[must_use]
     pub fn with_prompt(mut self, prompt: impl Into<String>) -> Self {
         self.prompt = Some(prompt.into());
         self
     }
 
     /// Set the temperature for sampling
+    #[must_use]
     pub fn with_temperature(mut self, temperature: f64) -> Self {
         self.temperature = Some(temperature);
         self
     }
 
     /// Add additional provider-specific parameters
+    #[must_use]
     pub fn with_additional_params(mut self, params: Value) -> Self {
         self.additional_params = Some(params);
         self

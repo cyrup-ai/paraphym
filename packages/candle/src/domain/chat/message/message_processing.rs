@@ -39,8 +39,8 @@ pub enum SanitizationError {
 /// * `message` - The message to process
 ///
 /// # Returns
-/// Returns an AsyncStream that will emit the processed message.
-/// The on_chunk handler should validate the processed message.
+/// Returns an `AsyncStream` that will emit the processed message.
+/// The `on_chunk` handler should validate the processed message.
 pub fn process_message(message: CandleMessage) -> AsyncStream<CandleMessage> {
     AsyncStream::with_channel(move |sender| {
         let mut processed_message = message;
@@ -74,11 +74,11 @@ pub fn process_message(message: CandleMessage) -> AsyncStream<CandleMessage> {
 /// * `message` - The message to validate
 ///
 /// # Returns
-/// Returns an AsyncStream that will emit the message if valid.
-/// Invalid messages will be handled by the on_chunk error handler.
+/// Returns an `AsyncStream` that will emit the message if valid.
+/// Invalid messages will be handled by the `on_chunk` error handler.
 pub fn validate_message(message: CandleMessage) -> AsyncStream<CandleMessage> {
     AsyncStream::with_channel(move |sender| {
-        // Always emit the message - the on_chunk handler decides validation behavior
+        // Always emit the message - the `on_chunk` handler decides validation behavior
         let _ = sender.send(message);
     })
 }
@@ -86,9 +86,9 @@ pub fn validate_message(message: CandleMessage) -> AsyncStream<CandleMessage> {
 /// Sanitizes potentially dangerous content using a 4-stage security pipeline
 ///
 /// # Security Stages
-/// 1. Length validation - prevents DoS attacks
+/// 1. Length validation - prevents `DoS` attacks
 /// 2. Control character filtering - prevents terminal corruption
-/// 3. Unicode normalization (NFC) - prevents encoding attacks
+/// 3. Unicode normalization (`NFC`) - prevents encoding attacks
 /// 4. HTML entity escaping - prevents XSS attacks
 ///
 /// # Arguments
@@ -102,7 +102,14 @@ pub fn validate_message(message: CandleMessage) -> AsyncStream<CandleMessage> {
 /// - XSS: HTML escaping prevents script injection
 /// - Terminal corruption: Control char filtering blocks ANSI escapes
 /// - Unicode attacks: `NFC` normalization prevents homograph bypasses
-/// - DoS: Length validation prevents memory exhaustion
+/// - `DoS`: Length validation prevents memory exhaustion
+///
+/// # Errors
+///
+/// Returns `SanitizationError` if:
+/// - Content exceeds maximum length
+/// - Content contains disallowed control characters
+/// - Unicode normalization fails
 pub fn sanitize_content(content: &str) -> Result<String, SanitizationError> {
     // Stage 1: Length validation (DoS prevention)
     let char_count = content.chars().count();
@@ -141,8 +148,11 @@ pub fn sanitize_content(content: &str) -> Result<String, SanitizationError> {
 /// # Arguments
 /// * `message` - The message to validate
 ///
-/// # Returns
-/// Returns Ok(()) if the message is valid, or an error if validation fails.
+/// # Errors
+///
+/// Returns error string if:
+/// - Message content is empty
+/// - Message fails validation checks
 pub fn validate_message_sync(message: &CandleMessage) -> Result<(), String> {
     // Basic validation logic - can be extended as needed
     if message.content.is_empty() {

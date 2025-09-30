@@ -88,6 +88,10 @@ impl CandleModelRegistry {
     ///
     /// # Returns
     /// A result containing the registered model or an error if registration fails
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleModelError::ModelAlreadyRegistered` if model already exists
     pub fn register<M: CandleModel + 'static>(
         &self,
         provider: &'static str,
@@ -137,6 +141,10 @@ impl CandleModelRegistry {
     ///
     /// # Returns
     /// A result containing the model if found, or an error if not found or type mismatch
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleModelError::TypeMismatch` if model type doesn't match
     pub fn get<M: CandleModel + 'static>(
         &self,
         provider: &str,
@@ -173,6 +181,10 @@ impl CandleModelRegistry {
     ///
     /// # Returns
     /// A result containing the model if found, or an error if not found or type mismatch
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleModelError::ModelNotFound` if model doesn't exist or `CandleModelError::TypeMismatch` if type doesn't match
     pub fn get_required<M: CandleModel + 'static>(
         &self,
         provider: &'static str,
@@ -219,6 +231,10 @@ impl CandleModelRegistry {
     ///
     /// # Returns
     /// A result containing the model as the requested trait object
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleModelError::TypeMismatch` if model cannot be cast to requested type
     pub fn get_as<T>(
         &self,
         provider: &'static str,
@@ -262,6 +278,10 @@ impl CandleModelRegistry {
     ///
     /// # Returns
     /// A result containing the model as a boxed trait object
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleModelError::TypeMismatch` if model cannot be cast to requested type
     pub fn get_boxed<T>(
         &self,
         provider: &'static str,
@@ -295,6 +315,10 @@ impl CandleModelRegistry {
     ///
     /// # Returns
     /// A result containing the model as the requested trait object
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleModelError::ModelNotFound` if model doesn't exist or `CandleModelError::TypeMismatch` if type doesn't match
     pub fn get_required_as<T>(
         &self,
         provider: &'static str,
@@ -318,6 +342,10 @@ impl CandleModelRegistry {
     ///
     /// # Returns
     /// A result containing the model as a boxed trait object
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleModelError::ModelNotFound` if model doesn't exist or `CandleModelError::TypeMismatch` if type doesn't match
     pub fn get_required_boxed<T>(
         &self,
         provider: &'static str,

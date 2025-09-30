@@ -3,20 +3,15 @@
 use serde::{Deserialize, Serialize};
 
 /// Candle-specific collection type supporting zero, one, or many items
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum ZeroOneOrMany<T> {
     /// No items
+    #[default]
     None,
     /// Exactly one item
     One(T),
     /// Multiple items
     Many(Vec<T>),
-}
-
-impl<T> Default for ZeroOneOrMany<T> {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 impl<T> ZeroOneOrMany<T> {
@@ -41,6 +36,7 @@ impl<T> ZeroOneOrMany<T> {
     }
 
     /// Push an item, returning a new collection
+    #[must_use]
     pub fn with_pushed(self, item: T) -> Self {
         match self {
             Self::None => Self::One(item),
@@ -98,7 +94,7 @@ impl<T> IntoIterator for ZeroOneOrMany<T> {
     }
 }
 
-/// Iterator for ZeroOneOrMany references
+/// Iterator for `ZeroOneOrMany` references
 pub enum ZeroOneOrManyIter<'a, T> {
     /// No items to iterate
     None,
@@ -120,7 +116,7 @@ impl<'a, T> Iterator for ZeroOneOrManyIter<'a, T> {
     }
 }
 
-/// IntoIterator for ZeroOneOrMany
+/// `IntoIterator` for `ZeroOneOrMany`
 pub enum ZeroOneOrManyIntoIter<T> {
     /// No items to iterate
     None,

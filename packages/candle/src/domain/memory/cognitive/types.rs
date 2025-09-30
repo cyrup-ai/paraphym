@@ -295,7 +295,7 @@ impl CognitiveMemoryEntry {
 /// - Atomic timestamp management with nanosecond precision
 /// - Duration calculations with overflow protection
 /// - Temporal window sliding with circular buffer optimization
-/// - Time-based indexing with lock-free concurrent HashMap
+/// - Time-based indexing with lock-free concurrent `HashMap`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TemporalContext {
     /// History embedding with temporal decay
@@ -852,7 +852,7 @@ impl Default for CognitiveStats {
     }
 }
 
-/// Default functions for CognitiveState fields
+/// Default functions for `CognitiveState` fields
 #[allow(dead_code)] // TODO: Implement cognitive attention weights defaults
 fn default_attention_weights() -> Arc<CachePadded<AtomicAttentionWeights>> {
     Arc::new(CachePadded::new(AtomicAttentionWeights::new()))

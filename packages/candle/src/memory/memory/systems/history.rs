@@ -211,18 +211,21 @@ impl MemoryVersion {
     }
 
     /// Set user ID
+    #[must_use]
     pub fn with_user_id(mut self, user_id: &str) -> Self {
         self.user_id = Some(user_id.to_string());
         self
     }
 
     /// Add metadata
+    #[must_use]
     pub fn with_metadata<T: Into<Value>>(mut self, key: &str, value: T) -> Self {
         self.metadata.insert(key.to_string(), value.into());
         self
     }
 
     /// Add related version ID
+    #[must_use]
     pub fn with_related_version_id(mut self, related_version_id: &str) -> Self {
         self.related_version_ids
             .push(related_version_id.to_string());
@@ -230,12 +233,14 @@ impl MemoryVersion {
     }
 
     /// Set change summary
+    #[must_use]
     pub fn with_change_summary(mut self, change_summary: &str) -> Self {
         self.change_summary = Some(change_summary.to_string());
         self
     }
 
     /// Set diff
+    #[must_use]
     pub fn with_diff(mut self, diff: &str) -> Self {
         self.diff = Some(diff.to_string());
         self

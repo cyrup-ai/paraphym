@@ -26,7 +26,7 @@ pub static CONFIG_CACHE: LazyLock<ArcSwap<MemoryConfig>> =
 
 /// Lock-free connection pool with ring buffer for zero-allocation connection management
 pub static CONNECTION_POOL: LazyLock<SegQueue<Arc<SurrealDBMemoryManager>>> =
-    LazyLock::new(|| SegQueue::new());
+    LazyLock::new(SegQueue::new);
 
 /// Circuit breaker for error recovery with exponential backoff
 pub static CIRCUIT_BREAKER: LazyLock<SimpleCircuitBreaker> =

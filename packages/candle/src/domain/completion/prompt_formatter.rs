@@ -36,18 +36,21 @@ impl PromptFormatter {
     }
 
     /// Configure whether to include section headers
+    #[must_use]
     pub fn with_headers(mut self, include_headers: bool) -> Self {
         self.include_headers = include_headers;
         self
     }
 
     /// Set maximum memory section length
+    #[must_use]
     pub fn with_max_memory_length(mut self, max_length: Option<usize>) -> Self {
         self.max_memory_length = max_length;
         self
     }
 
     /// Set maximum context section length
+    #[must_use]
     pub fn with_max_context_length(mut self, max_length: Option<usize>) -> Self {
         self.max_context_length = max_length;
         self

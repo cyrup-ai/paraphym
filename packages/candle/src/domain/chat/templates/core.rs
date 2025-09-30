@@ -273,6 +273,7 @@ impl TemplateContext {
     }
 
     /// Add a variable to the context (builder pattern)
+    #[must_use]
     pub fn with_variable(
         mut self,
         name: impl Into<String>,
@@ -292,7 +293,7 @@ impl TemplateContext {
         self.variables.get(name)
     }
 
-    /// Get all variables as a reference to the HashMap
+    /// Get all variables as a reference to the `HashMap`
     pub fn variables(&self) -> &HashMap<String, TemplateValue> {
         &self.variables
     }
@@ -376,6 +377,10 @@ impl CompiledTemplate {
     }
 
     /// Render the template with the given context
+    ///
+    /// # Errors
+    ///
+    /// Returns `TemplateError` if template rendering fails or variables are missing
     pub fn render(&self, context: &TemplateContext) -> TemplateResult<String> {
         self.render_ast(&self.ast, context)
     }
@@ -422,10 +427,10 @@ impl CompiledTemplate {
                 } else if let Some(if_false_ast) = if_false {
                     self.render_ast(if_false_ast, context)
                 } else {
-                    Ok("".to_string())
+                    Ok(String::new())
                 }
             }
-            _ => Ok("".to_string()), // TODO: Implement other AST node types
+            _ => Ok(String::new()), // TODO: Implement other AST node types
         }
     }
 }
@@ -459,6 +464,10 @@ impl ChatTemplate {
     }
 
     /// Render the template with provided variables
+    ///
+    /// # Errors
+    ///
+    /// Returns `TemplateError` if template rendering fails or required variables are missing
     pub fn render(&self, variables: &HashMap<String, String>) -> TemplateResult<String> {
         let mut context = TemplateContext::new();
         for (key, value) in variables {
@@ -497,12 +506,19 @@ impl ChatTemplate {
         &self.variables
     }
 
-    /// Get template name (alias for get_name for compatibility)
+    /// Get template name (alias for `get_name` for compatibility)
     pub fn name(&self) -> &String {
         &self.metadata.name
     }
 
     /// Validate the template
+    ///
+    /// # Errors
+    ///
+    /// Returns `TemplateError` if:
+    /// - Template name is empty
+    /// - Template content is empty
+    /// - Template validation checks fail
     pub fn validate(&self) -> TemplateResult<()> {
         // Basic validation
         if self.metadata.name.is_empty() {
@@ -614,12 +630,14 @@ impl TemplateTag {
     }
 
     /// Set the color for this tag
+    #[must_use]
     pub fn with_color(mut self, color: impl Into<String>) -> Self {
         self.color = Some(color.into());
         self
     }
 
     /// Set the description for this tag
+    #[must_use]
     pub fn with_description(mut self, description: impl Into<String>) -> Self {
         self.description = Some(description.into());
         self

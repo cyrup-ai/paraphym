@@ -25,10 +25,10 @@ pub async fn initialize_memory_service() -> Result<SurrealDBMemoryManager, Domai
 /// * `config` - Memory configuration with database settings
 ///
 /// # Returns
-/// Properly initialized SurrealDBMemoryManager ready for use
+/// Properly initialized `SurrealDBMemoryManager` ready for use
 ///
 /// # Performance
-/// Production-quality SurrealDB connection with cognitive memory features
+/// Production-quality `SurrealDB` connection with cognitive memory features
 pub async fn initialize_memory_service_with_config(
     config: MemoryConfig,
 ) -> Result<SurrealDBMemoryManager, DomainInitError> {
@@ -58,7 +58,7 @@ pub async fn initialize_memory_service_with_config(
 /// Get default memory configuration
 ///
 /// # Returns
-/// Default configuration for local SurrealDB with cognitive features
+/// Default configuration for local `SurrealDB` with cognitive features
 pub fn get_default_memory_config() -> MemoryConfig {
     MemoryConfig::default()
 }
@@ -67,7 +67,7 @@ pub fn get_default_memory_config() -> MemoryConfig {
 ///
 /// Uses Arc<SurrealDBMemoryManager> for shared ownership across threads
 static MEMORY_SERVICE_POOL: LazyLock<crossbeam_queue::SegQueue<Arc<SurrealDBMemoryManager>>> =
-    LazyLock::new(|| crossbeam_queue::SegQueue::new());
+    LazyLock::new(crossbeam_queue::SegQueue::new);
 
 /// Get a memory manager from the connection pool
 ///

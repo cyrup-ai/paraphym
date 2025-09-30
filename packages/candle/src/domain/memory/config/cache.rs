@@ -68,7 +68,7 @@ impl MemoryMetadata {
 }
 
 /// Get cached configuration from thread-local storage with zero-allocation access
-#[inline(always)]
+#[inline]
 pub fn get_cached_config() -> Arc<MemoryConfig> {
     LOCAL_CONFIG.with(|config| {
         let mut config_ref = config.borrow_mut();
@@ -84,7 +84,7 @@ pub fn get_cached_config() -> Arc<MemoryConfig> {
 }
 
 /// Update global configuration cache with copy-on-write semantics
-#[inline(always)]
+#[inline]
 pub fn update_config_cache(new_config: MemoryConfig) {
     CONFIG_CACHE.store(Arc::new(new_config));
     // Clear thread-local caches to force refresh
@@ -94,7 +94,7 @@ pub fn update_config_cache(new_config: MemoryConfig) {
 }
 
 /// Get memory from connection pool with lock-free access
-#[inline(always)]
+#[inline]
 pub fn get_pooled_memory() -> Option<Arc<SurrealDBMemoryManager>> {
     use std::sync::atomic::Ordering;
 
@@ -109,7 +109,7 @@ pub fn get_pooled_memory() -> Option<Arc<SurrealDBMemoryManager>> {
 }
 
 /// Return memory to connection pool
-#[inline(always)]
+#[inline]
 pub fn return_pooled_memory(memory: Arc<SurrealDBMemoryManager>) {
     use std::sync::atomic::Ordering;
 

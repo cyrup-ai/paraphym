@@ -58,9 +58,9 @@ pub enum MemoryTypeEnum {
 pub type MemoryType = MemoryTypeEnum;
 
 impl MemoryTypeEnum {
-    /// Convert from string to MemoryTypeEnum with zero allocation
+    /// Convert from string to `MemoryTypeEnum` with zero allocation
     /// Uses static string matching for blazing-fast lookup
-    #[inline(always)]
+    #[inline]
     pub const fn from_str_const(s: &str) -> Option<Self> {
         match s.as_bytes() {
             b"fact" => Some(Self::Fact),
@@ -83,7 +83,7 @@ impl MemoryTypeEnum {
     }
 
     /// Get static string representation with zero allocation
-    #[inline(always)]
+    #[inline]
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Fact => "fact",
@@ -105,7 +105,7 @@ impl MemoryTypeEnum {
     }
 
     /// Get base importance score for memory type with zero allocation
-    #[inline(always)]
+    #[inline]
     pub const fn base_importance(&self) -> f32 {
         match self {
             Self::Fact | Self::Declarative | Self::Explicit => 0.9, // High importance
@@ -119,7 +119,7 @@ impl MemoryTypeEnum {
 }
 
 impl Display for MemoryTypeEnum {
-    #[inline(always)]
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
     }
@@ -161,7 +161,7 @@ pub enum RelationshipType {
 
 impl RelationshipType {
     /// Check if relationship is bidirectional with zero allocation
-    #[inline(always)]
+    #[inline]
     pub const fn is_bidirectional(&self) -> bool {
         matches!(
             self,
@@ -339,7 +339,7 @@ impl Default for MemoryContent {
 /// Smart pointer optimized base memory with atomic operations
 ///
 /// UUID-based ID system with inline generation, Arc<str> for zero-copy content sharing
-/// Optimized metadata HashMap with crossbeam concurrent access
+/// Optimized metadata `HashMap` with crossbeam concurrent access
 #[derive(Debug, Clone)]
 pub struct BaseMemory {
     /// UUID-based unique identifier with inline generation

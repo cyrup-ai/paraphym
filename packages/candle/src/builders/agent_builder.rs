@@ -183,13 +183,13 @@ impl<const TOOLS_CAPACITY: usize> AgentBuilder<TOOLS_CAPACITY> {
 }
 
 /// Create agent builder with default capacity
-#[inline(always)]
+#[inline]
 pub fn agent_builder() -> AgentBuilder {
     AgentBuilder::new()
 }
 
 /// Create agent builder with custom capacity
-#[inline(always)]
+#[inline]
 pub fn agent_builder_with_capacity<const CAPACITY: usize>() -> AgentBuilder<CAPACITY> {
     AgentBuilder::new()
 }

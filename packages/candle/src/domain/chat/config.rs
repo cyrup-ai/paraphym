@@ -642,6 +642,10 @@ impl Clone for CandleConfigurationManager {
 /// Candle configuration validator trait
 pub trait CandleConfigurationValidator {
     /// Validate configuration section
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleConfigurationValidationError` if configuration validation fails
     fn validate(&self, config: &CandleChatConfig) -> CandleConfigurationValidationResult<()>;
     /// Get validator name
     fn name(&self) -> &str;
@@ -719,7 +723,7 @@ impl CandleConfigurationValidator for CandlePersonalityValidator {
         Ok(())
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "personality"
     }
 
@@ -780,7 +784,7 @@ impl CandleConfigurationValidator for CandleBehaviorValidator {
         Ok(())
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "behavior"
     }
 
@@ -839,7 +843,7 @@ impl CandleConfigurationValidator for CandleUIValidator {
         Ok(())
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "ui"
     }
 
@@ -877,7 +881,7 @@ impl CandleConfigurationManager {
         std::thread::spawn(move || {
             let mut rules = validation_rules
                 .write()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             rules.insert("personality".into(), Arc::new(CandlePersonalityValidator));
             rules.insert("behavior".into(), Arc::new(CandleBehaviorValidator));
             rules.insert("ui".into(), Arc::new(CandleUIValidator));
@@ -1046,7 +1050,7 @@ impl CandleConfigurationManager {
     /// Register a configuration validator using streaming pattern
     pub fn register_validator_stream(
         &self,
-        validator: Arc<dyn CandleConfigurationValidator + Send + Sync>,
+        validator: &Arc<dyn CandleConfigurationValidator + Send + Sync>,
     ) -> AsyncStream<CandleConfigUpdate> {
         let _manager = self.clone();
         let validator_name: String = String::from(validator.name());
@@ -1459,10 +1463,10 @@ impl MessageChunk for CandleConfigUpdate {
     }
 
     fn error(&self) -> Option<&str> {
-        if !self.success {
-            self.description.as_deref()
-        } else {
+        if self.success {
             None
+        } else {
+            self.description.as_deref()
         }
     }
 }
@@ -1490,10 +1494,10 @@ impl MessageChunk for CandlePersistenceEvent {
     }
 
     fn error(&self) -> Option<&str> {
-        if !self.success {
-            Some("Persistence operation failed")
-        } else {
+        if self.success {
             None
+        } else {
+            Some("Persistence operation failed")
         }
     }
 }

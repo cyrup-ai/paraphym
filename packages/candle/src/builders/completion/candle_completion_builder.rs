@@ -22,7 +22,7 @@ pub struct CompletionCoreRequestBuilder<'a> {
 
 impl<'a> CompletionCoreRequestBuilder<'a> {
     /// Create a new builder
-    #[inline(always)]
+    #[inline]
     pub fn new() -> Self {
         Self {
             prompt: ArrayVec::new(),
@@ -38,7 +38,7 @@ impl<'a> CompletionCoreRequestBuilder<'a> {
     }
 
     /// Set the prompt text
-    #[inline(always)]
+    #[inline]
     pub fn prompt<S: AsRef<str>>(mut self, prompt: S) -> Self {
         let prompt_bytes = prompt.as_ref().as_bytes();
         self.prompt.clear();
@@ -47,35 +47,35 @@ impl<'a> CompletionCoreRequestBuilder<'a> {
     }
 
     /// Set maximum tokens to generate
-    #[inline(always)]
+    #[inline]
     pub fn max_tokens(mut self, max_tokens: u32) -> Self {
         self.max_tokens = max_tokens.min(MAX_TOKEN_BUFFER as u32);
         self
     }
 
     /// Set sampling temperature
-    #[inline(always)]
+    #[inline]
     pub fn temperature(mut self, temperature: f32) -> Self {
         self.temperature = temperature.clamp(0.0, 2.0);
         self
     }
 
     /// Set top-k sampling parameter
-    #[inline(always)]
+    #[inline]
     pub fn top_k(mut self, top_k: u32) -> Self {
         self.top_k = top_k;
         self
     }
 
     /// Set top-p sampling parameter
-    #[inline(always)]
+    #[inline]
     pub fn top_p(mut self, top_p: f32) -> Self {
         self.top_p = top_p.clamp(0.0, 1.0);
         self
     }
 
     /// Add a stop token
-    #[inline(always)]
+    #[inline]
     pub fn stop_token(mut self, token: &'a str) -> Self {
         if self.stop_tokens.len() < MAX_STOP_TOKENS {
             self.stop_tokens.push(token);
@@ -84,28 +84,28 @@ impl<'a> CompletionCoreRequestBuilder<'a> {
     }
 
     /// Enable streaming response
-    #[inline(always)]
+    #[inline]
     pub fn stream(mut self, stream: bool) -> Self {
         self.stream = stream;
         self
     }
 
     /// Set model parameters
-    #[inline(always)]
+    #[inline]
     pub fn model_params(mut self, params: ModelParams) -> Self {
         self.model_params = params;
         self
     }
 
     /// Set random seed
-    #[inline(always)]
+    #[inline]
     pub fn seed(mut self, seed: u64) -> Self {
         self.seed = Some(seed);
         self
     }
 
     /// Build the completion request
-    #[inline(always)]
+    #[inline]
     pub fn build(self) -> CompletionCoreResult<CompletionCoreRequest<'a>> {
         if self.prompt.is_empty() {
             return Err(CompletionCoreError::InvalidRequest(String::from(
@@ -151,7 +151,7 @@ pub struct CompletionCoreResponseBuilder {
 
 impl CompletionCoreResponseBuilder {
     /// Create a new builder
-    #[inline(always)]
+    #[inline]
     pub fn new() -> Self {
         Self {
             text: ArrayVec::new(),
@@ -164,7 +164,7 @@ impl CompletionCoreResponseBuilder {
     }
 
     /// Set the generated text
-    #[inline(always)]
+    #[inline]
     pub fn text<S: AsRef<str>>(mut self, text: S) -> Self {
         let text_bytes = text.as_ref().as_bytes();
         self.text.clear();
@@ -173,28 +173,28 @@ impl CompletionCoreResponseBuilder {
     }
 
     /// Set tokens generated
-    #[inline(always)]
+    #[inline]
     pub fn tokens_generated(mut self, tokens: u32) -> Self {
         self.tokens_generated = tokens;
         self
     }
 
     /// Set generation time
-    #[inline(always)]
+    #[inline]
     pub fn generation_time_ms(mut self, time_ms: u32) -> Self {
         self.generation_time_ms = time_ms;
         self
     }
 
     /// Set tokens per second
-    #[inline(always)]
+    #[inline]
     pub fn tokens_per_second(mut self, tps: u32) -> Self {
         self.tokens_per_second = tps;
         self
     }
 
     /// Set finish reason
-    #[inline(always)]
+    #[inline]
     pub fn finish_reason<S: AsRef<str>>(mut self, reason: S) -> Self {
         let reason_bytes = reason.as_ref().as_bytes();
         self.finish_reason.clear();
@@ -203,7 +203,7 @@ impl CompletionCoreResponseBuilder {
     }
 
     /// Set model name
-    #[inline(always)]
+    #[inline]
     pub fn model<S: AsRef<str>>(mut self, model: S) -> Self {
         let model_bytes = model.as_ref().as_bytes();
         self.model.clear();
@@ -212,7 +212,7 @@ impl CompletionCoreResponseBuilder {
     }
 
     /// Build the completion response
-    #[inline(always)]
+    #[inline]
     pub fn build(self) -> CompletionCoreResult<CompletionCoreResponse> {
         if self.text.is_empty() {
             return Err(CompletionCoreError::Internal(String::from(

@@ -24,6 +24,10 @@ impl TemplateManager {
     }
 
     /// Store a template
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleTemplateError` if template validation fails
     pub fn store(&self, template: CandleChatTemplate) -> CandleTemplateResult<()> {
         template.validate()?;
         let name = template.name().clone();
@@ -32,6 +36,10 @@ impl TemplateManager {
     }
 
     /// Get a template by name
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleTemplateError` if template with the given name is not found
     pub fn get(&self, name: &str) -> CandleTemplateResult<CandleChatTemplate> {
         self.templates
             .get(name)
@@ -42,6 +50,10 @@ impl TemplateManager {
     }
 
     /// Delete a template
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleTemplateError` if template with the given name is not found
     pub fn delete(&self, name: &str) -> CandleTemplateResult<()> {
         self.templates
             .remove(name)
@@ -60,6 +72,10 @@ impl TemplateManager {
     }
 
     /// Get template info
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleTemplateError` if template with the given name is not found
     pub fn get_info(&self, name: &str) -> CandleTemplateResult<CandleTemplateInfo> {
         let template = self.get(name)?;
         Ok(template.info())

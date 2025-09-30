@@ -10,7 +10,7 @@ use ystream::AsyncStream;
 use serde::{Deserialize, Serialize};
 use cyrup_sugars::prelude::MessageChunk;
 
-/// CandleContext trait - mirrors paraphym-domain::Context exactly with Candle prefix
+/// `CandleContext` trait - mirrors `paraphym-domain::Context` exactly with Candle prefix
 ///
 /// This trait enables:
 /// - Trait composition for flexible context architectures  
@@ -21,7 +21,7 @@ pub trait CandleContext: Send + Sync + 'static {
     /// Load context content from the source
     ///
     /// # Returns
-    /// AsyncStream containing context content chunks
+    /// `AsyncStream` containing context content chunks
     fn load_content(&self) -> AsyncStream<CandleContextChunk>;
 
     /// Get context metadata and information
@@ -33,13 +33,13 @@ pub trait CandleContext: Send + Sync + 'static {
     /// Refresh context content if it has changed
     ///
     /// # Returns
-    /// AsyncStream indicating whether refresh was successful
+    /// `AsyncStream` indicating whether refresh was successful
     fn refresh(&self) -> AsyncStream<crate::domain::context::chunk::CandleRefreshResult>;
 
     /// Get context capabilities and supported operations
     ///
     /// # Returns
-    /// AsyncStream containing context capabilities
+    /// `AsyncStream` containing context capabilities
     fn get_capabilities(&self) -> AsyncStream<CandleContextCapabilities>;
 }
 
@@ -71,18 +71,21 @@ impl CandleContextChunk {
     }
 
     /// Mark chunk as final
+    #[must_use]
     pub fn with_final(mut self) -> Self {
         self.is_final = true;
         self
     }
 
     /// Set chunk sequence number
+    #[must_use]
     pub fn with_sequence(mut self, sequence: u64) -> Self {
         self.sequence = sequence;
         self
     }
 
     /// Add metadata to chunk
+    #[must_use]
     pub fn with_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         if self.metadata.is_none() {
             self.metadata = Some(HashMap::new());
@@ -127,9 +130,10 @@ impl Default for CandleContextChunk {
 }
 
 /// Context content type enumeration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum CandleContextType {
     /// Plain text content
+    #[default]
     Text,
     /// Code content with language
     Code(String),
@@ -147,12 +151,6 @@ pub enum CandleContextType {
     FileInfo,
     /// Unknown content type
     Unknown,
-}
-
-impl Default for CandleContextType {
-    fn default() -> Self {
-        CandleContextType::Text
-    }
 }
 
 /// Context metadata for introspection and management
@@ -196,24 +194,28 @@ impl CandleContextMetadata {
     }
 
     /// Set description
+    #[must_use]
     pub fn with_description(mut self, description: impl Into<String>) -> Self {
         self.description = description.into();
         self
     }
 
     /// Set content size
+    #[must_use]
     pub fn with_size(mut self, size: u64) -> Self {
         self.content_size = Some(size);
         self
     }
 
     /// Set last modified timestamp
+    #[must_use]
     pub fn with_last_modified(mut self, timestamp: u64) -> Self {
         self.last_modified = Some(timestamp);
         self
     }
 
     /// Add metadata field
+    #[must_use]
     pub fn with_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.metadata.insert(key.into(), value.into());
         self
@@ -324,6 +326,7 @@ impl CandleFileContext {
     }
 
     /// Create file context with description
+    #[must_use]
     pub fn with_description(mut self, description: impl Into<String>) -> Self {
         self.metadata = self.metadata.with_description(description);
         self
@@ -334,8 +337,8 @@ impl CandleContext for CandleFileContext {
     fn load_content(&self) -> AsyncStream<CandleContextChunk> {
         let path = self.path.clone();
 
-        AsyncStream::with_channel(move |sender| match std::fs::read_to_string(&path) {
-            Ok(content) => {
+        AsyncStream::with_channel(move |sender| {
+            if let Ok(content) = std::fs::read_to_string(&path) {
                 let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
                 let content_type = match extension {
                     "rs" | "py" | "js" | "ts" | "go" | "java" | "cpp" | "c" | "h" => {
@@ -353,8 +356,7 @@ impl CandleContext for CandleFileContext {
                     .with_metadata("file_path", path.to_string_lossy());
 
                 let _ = sender.send(chunk);
-            }
-            Err(_) => {
+            } else {
                 let error_chunk = CandleContextChunk::new(
                     format!("Error reading file: {}", path.display()),
                     CandleContextType::Text,

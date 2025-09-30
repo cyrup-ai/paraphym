@@ -108,6 +108,10 @@ impl RealtimeChat {
     }
 
     /// Broadcast an event to all subscribers
+    ///
+    /// # Errors
+    ///
+    /// Returns `broadcast::error::SendError` if there are no active receivers
     pub fn broadcast_event(
         &self,
         event: RealTimeEvent,

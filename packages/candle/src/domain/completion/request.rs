@@ -55,6 +55,12 @@ pub enum CompletionRequestError {
 
 impl CompletionRequest {
     /// Validate the request parameters
+    ///
+    /// # Errors
+    ///
+    /// Returns `ValidationError` if:
+    /// - Temperature is outside valid range
+    /// - Other request parameters fail validation
     pub fn validate(&self) -> ValidationResult<()> {
         // Validate temperature
         if !TEMPERATURE_RANGE.contains(&self.temperature) {
@@ -95,6 +101,7 @@ impl CompletionRequest {
     }
 
     /// Convert to a static lifetime version by making all borrowed data owned
+    #[must_use]
     #[inline]
     pub fn into_static(self) -> CompletionRequest {
         CompletionRequest {

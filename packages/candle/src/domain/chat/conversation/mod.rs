@@ -224,6 +224,10 @@ impl CandleStreamingConversation {
     }
 
     /// Add Candle user message (creates new immutable message)
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleConversationError` if message cannot be added to the conversation
     #[inline]
     pub fn add_user_message(
         &mut self,
@@ -251,6 +255,10 @@ impl CandleStreamingConversation {
     }
 
     /// Add Candle assistant message (creates new immutable message)
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleConversationError` if message cannot be added to the conversation
     #[inline]
     pub fn add_assistant_message(
         &mut self,
@@ -278,6 +286,10 @@ impl CandleStreamingConversation {
     }
 
     /// Add Candle system message (creates new immutable message)
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleConversationError` if message cannot be added to the conversation
     #[inline]
     pub fn add_system_message(
         &mut self,
@@ -449,6 +461,7 @@ pub struct CandleConversationStats {
 
 impl CandleConversationStats {
     /// Calculate user message percentage
+    #[allow(clippy::cast_precision_loss)] // Acceptable for percentage calculations
     #[inline]
     pub fn user_percentage(&self) -> f64 {
         if self.total_messages == 0 {
@@ -459,6 +472,7 @@ impl CandleConversationStats {
     }
 
     /// Calculate assistant message percentage
+    #[allow(clippy::cast_precision_loss)] // Acceptable for percentage calculations
     #[inline]
     pub fn assistant_percentage(&self) -> f64 {
         if self.total_messages == 0 {
@@ -469,6 +483,7 @@ impl CandleConversationStats {
     }
 
     /// Calculate system message percentage
+    #[allow(clippy::cast_precision_loss)] // Acceptable for percentage calculations
     #[inline]
     pub fn system_percentage(&self) -> f64 {
         if self.total_messages == 0 {

@@ -55,6 +55,13 @@ impl TemplateParser {
     }
 
     /// Parse template content into AST
+    ///
+    /// # Errors
+    ///
+    /// Returns `TemplateError` if:
+    /// - Maximum parsing depth is exceeded
+    /// - Template syntax is invalid
+    /// - Variable or expression parsing fails
     pub fn parse(&self, content: &str) -> TemplateResult<TemplateAst> {
         self.parse_with_depth(content, 0)
     }
@@ -81,7 +88,7 @@ impl TemplateParser {
                 }
 
                 // Parse variable or expression
-                let var_content = Self::parse_until_closing(&mut chars)?;
+                let var_content = Self::parse_until_closing(&mut chars);
                 let ast_node = self.parse_variable_or_expression(&var_content, depth + 1)?;
                 nodes.push(ast_node);
             } else {
@@ -96,7 +103,7 @@ impl TemplateParser {
 
         // Return single node or block
         match nodes.len() {
-            0 => Ok(TemplateAst::Text("".to_string())),
+            0 => Ok(TemplateAst::Text(String::new())),
             1 => Ok(nodes.into_iter().next()
                 .expect("Vector with length 1 should have exactly one element")),
             _ => Ok(TemplateAst::Block(nodes.into())),
@@ -105,7 +112,7 @@ impl TemplateParser {
 
     fn parse_until_closing(
         chars: &mut std::iter::Peekable<std::str::Chars>,
-    ) -> TemplateResult<String> {
+    ) -> String {
         let mut content = String::new();
         let mut brace_count = 0;
 
@@ -125,7 +132,7 @@ impl TemplateParser {
             }
         }
 
-        Ok(content)
+        content
     }
 
     fn parse_variable_or_expression(
@@ -137,7 +144,7 @@ impl TemplateParser {
 
         // Check for conditional statements
         if trimmed.starts_with("if ") {
-            return Self::parse_conditional(trimmed, depth);
+            return Ok(Self::parse_conditional(trimmed, depth));
         }
 
         // Check for loop statements
@@ -157,21 +164,21 @@ impl TemplateParser {
                 || trimmed.contains('*')
                 || trimmed.contains('/'))
         {
-            return Self::parse_expression(trimmed, depth);
+            return Ok(Self::parse_expression(trimmed, depth));
         }
 
         // Simple variable
         Ok(TemplateAst::Variable(trimmed.to_string()))
     }
 
-    fn parse_conditional(content: &str, _depth: usize) -> TemplateResult<TemplateAst> {
+    fn parse_conditional(content: &str, _depth: usize) -> TemplateAst {
         // Simple conditional parsing - just return variable for now
         let condition_var = content.strip_prefix("if ").unwrap_or("").trim();
-        Ok(TemplateAst::Conditional {
+        TemplateAst::Conditional {
             condition: Arc::new(TemplateAst::Variable(condition_var.to_string())),
             if_true: Arc::new(TemplateAst::Text("true".to_string())),
             if_false: Some(Arc::new(TemplateAst::Text("false".to_string()))),
-        })
+        }
     }
 
     fn parse_loop(content: &str, _depth: usize) -> TemplateResult<TemplateAst> {
@@ -208,15 +215,19 @@ impl TemplateParser {
         })
     }
 
-    fn parse_expression(content: &str, _depth: usize) -> TemplateResult<TemplateAst> {
+    fn parse_expression(content: &str, _depth: usize) -> TemplateAst {
         // Simple expression parsing - return as variable for now
-        Ok(TemplateAst::Expression {
+        TemplateAst::Expression {
             operator: "+".to_string(),
             operands: Arc::new([TemplateAst::Variable(content.to_string())]),
-        })
+        }
     }
 
     /// Extract variables from template content
+    ///
+    /// # Errors
+    ///
+    /// Returns `TemplateError` if variable extraction fails
     pub fn extract_variables(&self, content: &str) -> TemplateResult<Vec<TemplateVariable>> {
         let mut variables = HashMap::new();
         let mut chars = content.chars().peekable();
@@ -225,7 +236,7 @@ impl TemplateParser {
             if ch == '{' && chars.peek() == Some(&'{') {
                 chars.next(); // consume second '{'
 
-                let var_content = Self::parse_until_closing(&mut chars)?;
+                let var_content = Self::parse_until_closing(&mut chars);
                 let var_name = var_content.trim();
 
                 // Skip control structures
@@ -256,7 +267,7 @@ impl TemplateParser {
                         clean_name.to_string(),
                         TemplateVariable {
                             name: clean_name.to_string(),
-                            description: "".to_string(),
+                            description: String::new(),
                             var_type: VariableType::String,
                             default_value: None,
                             required: false,
@@ -300,18 +311,30 @@ pub type ParseError = TemplateError;
 pub type ParseResult<T> = Result<T, ParseError>;
 
 /// Quick parse function for convenience
+///
+/// # Errors
+///
+/// Returns `TemplateError` if parsing fails (see `TemplateParser::parse`)
 pub fn parse_template(content: &str) -> TemplateResult<TemplateAst> {
     let parser = TemplateParser::new();
     parser.parse(content)
 }
 
 /// Extract variables from template content
+///
+/// # Errors
+///
+/// Returns `TemplateError` if variable extraction fails
 pub fn extract_variables(content: &str) -> TemplateResult<Vec<TemplateVariable>> {
     let parser = TemplateParser::new();
     parser.extract_variables(content)
 }
 
 /// Validate template syntax
+///
+/// # Errors
+///
+/// Returns `TemplateError` if template syntax is invalid
 pub fn validate_template(content: &str) -> TemplateResult<()> {
     let parser = TemplateParser::new();
     parser.parse(content)?;

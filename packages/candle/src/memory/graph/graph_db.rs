@@ -207,6 +207,7 @@ impl Node {
     }
 
     /// Add a property to the node
+    #[must_use]
     pub fn with_property(mut self, key: &str, value: serde_json::Value) -> Self {
         self.properties.insert(key.to_string(), value);
         self
@@ -237,18 +238,21 @@ impl GraphQueryOptions {
     }
 
     /// Set limit
+    #[must_use]
     pub fn with_limit(mut self, limit: usize) -> Self {
         self.limit = Some(limit);
         self
     }
 
     /// Set offset
+    #[must_use]
     pub fn with_offset(mut self, offset: usize) -> Self {
         self.offset = Some(offset);
         self
     }
 
     /// Add filter
+    #[must_use]
     pub fn with_filter(mut self, key: &str, value: serde_json::Value) -> Self {
         self.filters.insert(key.to_string(), value);
         self

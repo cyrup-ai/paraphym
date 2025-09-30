@@ -6,7 +6,7 @@ use chrono::{DateTime, Utc};
 static CACHED_TIMESTAMP: AtomicU64 = AtomicU64::new(0);
 
 /// Get cached timestamp with zero allocation - updates every ~100ms
-#[inline(always)]
+#[inline]
 #[must_use]
 pub fn get_cached_timestamp() -> u64 {
     let cached = CACHED_TIMESTAMP.load(Ordering::Relaxed);
@@ -29,16 +29,16 @@ fn update_cached_timestamp() {
     CACHED_TIMESTAMP.store(now, Ordering::Relaxed);
 }
 
-/// Get cached SystemTime for compatibility with existing APIs
-#[inline(always)]
+/// Get cached `SystemTime` for compatibility with existing APIs
+#[inline]
 #[must_use]
 pub fn get_cached_system_time() -> SystemTime {
     let timestamp = get_cached_timestamp();
     UNIX_EPOCH + std::time::Duration::from_secs(timestamp)
 }
 
-/// Get cached DateTime<Utc> for chrono compatibility
-#[inline(always)]
+/// Get cached `DateTime`<Utc> for chrono compatibility
+#[inline]
 #[must_use]
 pub fn get_cached_utc() -> DateTime<Utc> {
     let timestamp = get_cached_timestamp();

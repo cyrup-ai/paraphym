@@ -16,7 +16,7 @@ use crate::domain::chat::config::CandleModelConfig as ModelConfig;
 /// - LLM configuration for language model integration
 /// - Cognitive configuration for advanced cognitive processing
 /// - Performance and optimization settings
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MemoryConfig {
     /// Database configuration for persistent memory storage
     pub database: DatabaseConfig,
@@ -170,22 +170,6 @@ pub struct MemoryAccessPermissions {
     pub admin: bool,
     /// Allowed user roles
     pub allowed_roles: Vec<String>,
-}
-
-impl Default for MemoryConfig {
-    fn default() -> Self {
-        Self {
-            database: DatabaseConfig::default(),
-            vector_store: VectorStoreConfig::default(),
-            provider_model: ModelConfig::default(),
-            cognitive: CognitiveMemoryConfig::default(),
-            cognitive_processor: CognitiveProcessorConfig::default(),
-            performance: MemoryPerformanceConfig::default(),
-            retention: MemoryRetentionConfig::default(),
-            security: MemorySecurityConfig::default(),
-            monitoring: MemoryMonitoringConfig::default(),
-        }
-    }
 }
 
 impl Default for MemoryPerformanceConfig {

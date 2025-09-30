@@ -42,11 +42,11 @@ pub struct DatabaseConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum DatabaseType {
-    /// SurrealDB - High-performance multi-model database
+    /// `SurrealDB` - High-performance multi-model database
     SurrealDB = 0,
-    /// PostgreSQL - Robust relational database
+    /// `PostgreSQL` - Robust relational database
     PostgreSQL = 1,
-    /// SQLite - Embedded database
+    /// `SQLite` - Embedded database
     SQLite = 2,
     /// In-memory database for testing
     Memory = 3,
@@ -59,8 +59,7 @@ impl DatabaseType {
         match self {
             Self::SurrealDB => 8000,
             Self::PostgreSQL => 5432,
-            Self::SQLite => 0, // File-based, no port
-            Self::Memory => 0, // In-memory, no port
+            Self::SQLite | Self::Memory => 0, // File-based/in-memory, no port
         }
     }
 
@@ -215,10 +214,10 @@ pub struct HealthCheckConfig {
     pub recovery_threshold: usize,
 }
 
-impl HealthCheckConfig {
+impl Default for HealthCheckConfig {
     /// Create default health check configuration
     #[inline]
-    pub fn default() -> Self {
+    fn default() -> Self {
         Self {
             enabled: true,
             interval: Duration::from_secs(30),
@@ -228,6 +227,9 @@ impl HealthCheckConfig {
             recovery_threshold: 2,
         }
     }
+}
+
+impl HealthCheckConfig {
 
     /// Create disabled health check configuration
     #[inline]
@@ -378,6 +380,7 @@ impl DatabaseConfig {
     }
 
     /// Create configuration with credentials
+    #[must_use]
     pub fn with_credentials(
         mut self,
         username: impl Into<String>,
@@ -389,6 +392,7 @@ impl DatabaseConfig {
     }
 
     /// Set pool configuration
+    #[must_use]
     #[inline]
     pub fn with_pool_config(mut self, pool_config: PoolConfig) -> Self {
         self.pool_config = pool_config;
@@ -396,6 +400,7 @@ impl DatabaseConfig {
     }
 
     /// Set timeout configuration
+    #[must_use]
     #[inline]
     pub fn with_timeout_config(mut self, timeout_config: TimeoutConfig) -> Self {
         self.timeout_config = timeout_config;
@@ -403,6 +408,7 @@ impl DatabaseConfig {
     }
 
     /// Set health check configuration
+    #[must_use]
     #[inline]
     pub fn with_health_check_config(mut self, health_check_config: HealthCheckConfig) -> Self {
         self.health_check_config = health_check_config;
@@ -410,6 +416,7 @@ impl DatabaseConfig {
     }
 
     /// Set additional options
+    #[must_use]
     #[inline]
     pub fn with_options(mut self, options: serde_json::Value) -> Self {
         self.options = Some(Arc::new(options));

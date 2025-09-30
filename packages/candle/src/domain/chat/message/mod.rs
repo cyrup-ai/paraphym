@@ -376,7 +376,7 @@ pub mod media {
     pub enum CandleVideoMediaType {
         /// MP4 video
         Mp4,
-        /// WebM video
+        /// `WebM` video
         WebM,
         /// Other video type
         Other(String),
@@ -498,6 +498,10 @@ pub mod processing {
     use super::types::CandleMessage;
 
     /// Process a Candle message in place, applying transformations
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleMessageError` if message is empty after processing
     pub fn candle_process_message(message: &mut CandleMessage) -> Result<(), CandleMessageError> {
         // Trim whitespace
         message.content = message.content.trim().to_string();

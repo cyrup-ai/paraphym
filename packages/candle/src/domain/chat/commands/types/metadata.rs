@@ -310,6 +310,7 @@ impl ResourceUsage {
     }
 
     /// Get execution duration as human readable string
+    #[allow(clippy::cast_precision_loss)] // Acceptable for display formatting
     #[inline]
     pub fn duration_human(&self) -> String {
         let duration_us = self.duration_us();
@@ -396,6 +397,7 @@ impl ResourceUsage {
     }
 
     /// Get memory efficiency metric (operations per MB)
+    #[allow(clippy::cast_precision_loss)] // Acceptable for metrics calculations
     #[inline]
     pub fn memory_efficiency(&self) -> f64 {
         if self.peak_memory_bytes == 0 {
@@ -519,6 +521,7 @@ impl PerformanceMetrics {
     }
 
     /// Get error rate as percentage
+    #[allow(clippy::cast_precision_loss)] // Acceptable for percentage calculations
     #[inline]
     pub fn error_rate(&self) -> f64 {
         let total = self.total_executions.load(Ordering::Relaxed);

@@ -90,7 +90,7 @@ impl ResponseFormatter {
     /// Returns `ResponseError::SerializationError` if JSON serialization fails
     pub fn format_output(&self, output: &CommandOutput) -> Result<String, ResponseError> {
         match self.format {
-            ResponseFormat::Text => self.format_text(output),
+            ResponseFormat::Text => Ok(self.format_text(output)),
             ResponseFormat::Json => self.format_json(output),
             ResponseFormat::Structured => self.format_structured(output),
             ResponseFormat::Streaming => self.format_streaming(output),
@@ -98,7 +98,7 @@ impl ResponseFormatter {
     }
 
     /// Format as plain text
-    fn format_text(&self, output: &CommandOutput) -> Result<String, ResponseError> {
+    fn format_text(&self, output: &CommandOutput) -> String {
         let mut result = String::new();
 
         // Add status indicator based on output type
@@ -122,7 +122,7 @@ impl ResponseFormatter {
             write!(&mut result, " [{timestamp}]").unwrap();
         }
 
-        Ok(result)
+        result
     }
 
     /// Format as JSON
@@ -296,12 +296,12 @@ impl ResponseFormatter {
     pub fn format_help(&self, commands: &[CommandInfo]) -> Result<String, ResponseError> {
         match self.format {
             ResponseFormat::Json => self.format_help_json(commands),
-            _ => Self::format_help_text(commands),
+            _ => Ok(Self::format_help_text(commands)),
         }
     }
 
     /// Format help as text
-    fn format_help_text(commands: &[CommandInfo]) -> Result<String, ResponseError> {
+    fn format_help_text(commands: &[CommandInfo]) -> String {
         let mut result = String::new();
         result.push_str("Available Commands:\n\n");
 
@@ -339,7 +339,7 @@ impl ResponseFormatter {
             result.push('\n');
         }
 
-        Ok(result)
+        result
     }
 
     /// Format help as JSON

@@ -9,7 +9,7 @@ use cyrup_sugars::prelude::MessageChunk;
 use serde::{Deserialize, Serialize};
 
 
-/// Result type for channel operations that implements MessageChunk
+/// Result type for channel operations that implements `MessageChunk`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChannelResult {
     pub success: bool,
@@ -148,7 +148,7 @@ impl<T: Send + 'static + MessageChunk + Default> OneshotChannel<T> {
     /// Send a value through the channel
     pub fn send(mut self, value: T) -> Result<(), T> {
         if let Some(sender) = self.sender.take() {
-            sender.send(value).map_err(|err| err.into_inner())
+            sender.send(value).map_err(crossbeam_channel::SendError::into_inner)
         } else {
             Err(value)
         }
@@ -158,21 +158,18 @@ impl<T: Send + 'static + MessageChunk + Default> OneshotChannel<T> {
     pub fn recv(self) -> AsyncStream<ChannelResult> {
         AsyncStream::with_channel(|stream_sender| {
             std::thread::spawn(move || {
-                match self.receiver.recv() {
-                    Ok(_value) => {
-                        // For oneshot channels, we need a different approach since T might not implement MessageChunk
-                        // This is a design issue - oneshot channels need to return the actual value
-                        // For now, signal success
-                        let result = ChannelResult {
-                            success: true,
-                            error_message: None,
-                        };
-                        let _ = stream_sender.send(result);
-                    }
-                    Err(_) => {
-                        let result = ChannelResult::bad_chunk("Channel closed".to_string());
-                        let _ = stream_sender.send(result);
-                    }
+                if let Ok(_value) = self.receiver.recv() {
+                    // For oneshot channels, we need a different approach since T might not implement MessageChunk
+                    // This is a design issue - oneshot channels need to return the actual value
+                    // For now, signal success
+                    let result = ChannelResult {
+                        success: true,
+                        error_message: None,
+                    };
+                    let _ = stream_sender.send(result);
+                } else {
+                    let result = ChannelResult::bad_chunk("Channel closed".to_string());
+                    let _ = stream_sender.send(result);
                 }
             });
         })

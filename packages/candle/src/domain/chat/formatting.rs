@@ -89,11 +89,15 @@ impl ImmutableMessageContent {
         match self {
             Self::Plain { text } => text.chars().count(),
             Self::Markdown { content, .. } | Self::Code { content, .. } | Self::Formatted { content, .. } => content.chars().count(),
-            Self::Composite { parts } => parts.iter().map(|p| p.char_count()).sum(),
+            Self::Composite { parts } => parts.iter().map(Self::char_count).sum(),
         }
     }
 
     /// Validate content structure
+    ///
+    /// # Errors
+    ///
+    /// Returns `FormatError::InvalidContent` if validation fails
     #[inline]
     pub fn validate(&self) -> FormatResult<()> {
         match self {
@@ -142,6 +146,10 @@ pub struct FormatStyle {
 
 impl FormatStyle {
     /// Create new format style with validation
+    ///
+    /// # Errors
+    ///
+    /// Returns `FormatError::InvalidContent` if start >= end
     #[inline]
     pub fn new(start: usize, end: usize, style: StyleType) -> FormatResult<Self> {
         if start >= end {
@@ -363,6 +371,10 @@ impl ImmutableFormatOptions {
     }
 
     /// Validate configuration
+    ///
+    /// # Errors
+    ///
+    /// Returns `FormatError::ConfigurationError` if validation fails
     #[inline]
     pub fn validate(&self) -> FormatResult<()> {
         if self.max_line_length > 0 && self.max_line_length < 10 {
@@ -471,6 +483,10 @@ pub struct ImmutableColorScheme {
 
 impl ImmutableColorScheme {
     /// Create new color scheme with validation
+    ///
+    /// # Errors
+    ///
+    /// Returns `FormatError::ConfigurationError` if any color is invalid
     #[inline]
     pub fn new(
         primary_text: String,
@@ -497,6 +513,10 @@ impl ImmutableColorScheme {
     }
 
     /// Validate color values
+    ///
+    /// # Errors
+    ///
+    /// Returns `FormatError::ConfigurationError` if any color format is invalid
     #[inline]
     pub fn validate(&self) -> FormatResult<()> {
         let colors = [
@@ -607,6 +627,10 @@ pub struct ImmutableCustomFormatRule {
 
 impl ImmutableCustomFormatRule {
     /// Create new custom format rule with validation
+    ///
+    /// # Errors
+    ///
+    /// Returns `FormatError::ConfigurationError` if name or pattern is empty
     #[inline]
     pub fn new(
         name: String,
@@ -636,6 +660,10 @@ impl ImmutableCustomFormatRule {
     }
 
     /// Validate rule configuration
+    ///
+    /// # Errors
+    ///
+    /// Returns `FormatError::ConfigurationError` if validation fails
     #[inline]
     pub fn validate(&self) -> FormatResult<()> {
         if self.name.is_empty() {
@@ -789,6 +817,10 @@ impl std::fmt::Debug for StreamingMessageFormatter {
 
 impl StreamingMessageFormatter {
     /// Create new streaming message formatter
+    ///
+    /// # Errors
+    ///
+    /// Returns `FormatError::ConfigurationError` if options validation fails
     #[inline]
     pub fn new(options: ImmutableFormatOptions) -> FormatResult<Self> {
         options.validate()?;
@@ -804,6 +836,10 @@ impl StreamingMessageFormatter {
     }
 
     /// Create formatter with event streaming
+    ///
+    /// # Errors
+    ///
+    /// Returns `FormatError::ConfigurationError` if options validation fails
     #[inline]
     pub fn with_streaming(
         options: ImmutableFormatOptions,
@@ -825,6 +861,10 @@ impl StreamingMessageFormatter {
     }
 
     /// Format content with streaming events
+    ///
+    /// # Errors
+    ///
+    /// Returns `FormatError::InvalidContent` if content validation fails
     #[inline]
     pub fn format_content(&self, content: &ImmutableMessageContent) -> FormatResult<u64> {
         // Validate content first
@@ -879,6 +919,10 @@ impl StreamingMessageFormatter {
     }
 
     /// Update formatter options
+    ///
+    /// # Errors
+    ///
+    /// Returns `FormatError` if options validation fails
     #[inline]
     pub fn update_options(&mut self, options: ImmutableFormatOptions) -> FormatResult<()> {
         options.validate()?;
@@ -902,6 +946,7 @@ pub struct FormatterStats {
 
 impl FormatterStats {
     /// Calculate success rate as percentage
+    #[allow(clippy::cast_precision_loss)] // Acceptable for percentage calculations
     #[inline]
     pub fn success_rate(&self) -> f64 {
         let completed = self.successful_operations + self.failed_operations;

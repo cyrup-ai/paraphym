@@ -57,6 +57,11 @@ impl CommandValidator {
     }
 
     /// Validate a command with comprehensive checks
+    ///
+    /// # Errors
+    ///
+    /// Returns `ValidationError` if any command parameter fails validation checks
+    /// including string length, integer ranges, file paths, or command-specific rules
     pub fn validate_command(&self, command: &ImmutableChatCommand) -> Result<(), ValidationError> {
         match command {
             ImmutableChatCommand::Help { command, .. } => {
@@ -216,9 +221,9 @@ impl CommandValidator {
                     && (*attempts == 0 || *attempts > 100)
                 {
                     return Err(ValidationError::InvalidParameterFormat {
-                        parameter: "attempts".to_string().into(),
-                        value: attempts.to_string().into(),
-                        expected_format: "1-100".to_string().into(),
+                        parameter: "attempts".to_string(),
+                        value: attempts.to_string(),
+                        expected_format: "1-100".to_string(),
                     });
                 }
             }
@@ -227,9 +232,9 @@ impl CommandValidator {
                     && (*cnt == 0 || *cnt > 1000)
                 {
                     return Err(ValidationError::InvalidParameterFormat {
-                        parameter: "count".to_string().into(),
-                        value: cnt.to_string().into(),
-                        expected_format: "1-1000".to_string().into(),
+                        parameter: "count".to_string(),
+                        value: cnt.to_string(),
+                        expected_format: "1-1000".to_string(),
                     });
                 }
             }
@@ -244,9 +249,9 @@ impl CommandValidator {
                 }
                 if *priority > 10 {
                     return Err(ValidationError::InvalidParameterFormat {
-                        parameter: "priority".to_string().into(),
-                        value: priority.to_string().into(),
-                        expected_format: "0-10".to_string().into(),
+                        parameter: "priority".to_string(),
+                        value: priority.to_string(),
+                        expected_format: "0-10".to_string(),
                     });
                 }
             }
@@ -331,7 +336,7 @@ impl CommandValidator {
             return Err(ValidationError::InvalidEnumValue {
                 parameter: name.to_string(),
                 value: value.to_string(),
-                allowed_values: allowed.iter().map(|s| s.to_string()).collect(),
+                allowed_values: allowed.iter().map(ToString::to_string).collect(),
             });
         }
         Ok(())
@@ -620,6 +625,10 @@ pub fn get_global_validator() -> &'static CommandValidator {
 }
 
 /// Validate command using global validator
+///
+/// # Errors
+///
+/// Returns `ValidationError` if command validation fails (see `CommandValidator::validate_command`)
 pub fn validate_global_command(command: &ImmutableChatCommand) -> Result<(), ValidationError> {
     get_global_validator().validate_command(command)
 }

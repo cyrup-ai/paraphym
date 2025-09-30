@@ -1,7 +1,7 @@
 //! Chunk Types for Streaming Operations
 //!
-//! These types represent partial data that flows through AsyncStream<T>
-//! and are designed to work with the NotResult constraint.
+//! These types represent partial data that flows through `AsyncStream<T>`
+//! and are designed to work with the `NotResult` constraint.
 //! Originally from chunk.rs.
 
 use std::collections::HashMap;
@@ -15,7 +15,7 @@ use uuid;
 use crate::domain::model::CandleUsage as Usage;
 
 /// Candle chunk of document content for streaming file operations
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CandleDocumentChunk {
     /// Optional path to the source file
     pub path: Option<PathBuf>,
@@ -188,34 +188,29 @@ impl MessageChunk for CandleCompletionChunk {
     }
 }
 
-/// A simple unit chunk type that implements MessageChunk for operations that don't return data
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// A simple unit chunk type that implements `MessageChunk` for operations that don't return data
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum CandleUnitChunk {
     /// Operation completed successfully
+    #[default]
     Success,
     /// Operation failed with error
     Error(String),
 }
 
-/// Simple wrapper for String to implement MessageChunk
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Simple wrapper for String to implement `MessageChunk`
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CandleStringChunk(pub String);
 
-/// Wrapper for JSON Value to implement MessageChunk
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Wrapper for JSON Value to implement `MessageChunk`
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CandleJsonChunk(pub Value);
 
-/// Generic wrapper for collections to implement MessageChunk
+/// Generic wrapper for collections to implement `MessageChunk`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CandleCollectionChunk<T> {
     pub items: T,
     pub error_message: Option<String>,
-}
-
-impl Default for CandleUnitChunk {
-    fn default() -> Self {
-        CandleUnitChunk::Success
-    }
 }
 
 impl MessageChunk for CandleUnitChunk {
@@ -231,12 +226,6 @@ impl MessageChunk for CandleUnitChunk {
     }
 }
 
-impl Default for CandleStringChunk {
-    fn default() -> Self {
-        CandleStringChunk(String::new())
-    }
-}
-
 impl MessageChunk for CandleStringChunk {
     fn bad_chunk(error: String) -> Self {
         CandleStringChunk(format!("Error: {error}"))
@@ -248,12 +237,6 @@ impl MessageChunk for CandleStringChunk {
         } else {
             None
         }
-    }
-}
-
-impl Default for CandleJsonChunk {
-    fn default() -> Self {
-        CandleJsonChunk(Value::Null)
     }
 }
 
@@ -402,20 +385,10 @@ impl CandleDocumentChunk {
         }
     }
 
+    #[must_use]
     pub fn with_range(mut self, start: usize, end: usize) -> Self {
         self.byte_range = Some((start, end));
         self
-    }
-}
-
-impl Default for CandleDocumentChunk {
-    fn default() -> Self {
-        Self {
-            path: None,
-            content: String::new(),
-            byte_range: None,
-            metadata: HashMap::new(),
-        }
     }
 }
 
@@ -543,7 +516,7 @@ impl CompletionChunk {
 
 // Wrapper types to avoid orphan rule violations
 
-/// Wrapper for unit type () to implement MessageChunk
+/// Wrapper for unit type () to implement `MessageChunk`
 #[derive(Debug, Clone, Default)]
 pub struct CandleUnit(pub ());
 
@@ -564,7 +537,7 @@ impl MessageChunk for CandleUnit {
 // Removed orphan rule violating implementations for (A, B) tuple types
 // Use CandleTuple<A, B> wrapper type instead
 
-/// Wrapper for tuple types to implement MessageChunk without orphan rule violations
+/// Wrapper for tuple types to implement `MessageChunk` without orphan rule violations
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CandleTuple<A, B> {
     pub first: A,
@@ -606,7 +579,7 @@ where
     }
 }
 
-/// Wrapper for Result types to implement MessageChunk without orphan rule violations
+/// Wrapper for Result types to implement `MessageChunk` without orphan rule violations
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CandleResult<T, E> {
     pub result: Result<T, E>,
@@ -628,9 +601,9 @@ where
     T: MessageChunk + Default,
     E: std::fmt::Display,
 {
-    fn bad_chunk(_error: String) -> Self {
+    fn bad_chunk(error: String) -> Self {
         CandleResult {
-            result: Ok(T::bad_chunk(_error)),
+            result: Ok(T::bad_chunk(error)),
         }
     }
 
@@ -645,7 +618,7 @@ where
 /// Zero-cost result wrapper for N-way parallel operations
 ///
 /// This wrapper maintains all performance characteristics of the
-/// inner result while providing operation tracking and MessageChunk compliance.
+/// inner result while providing operation tracking and `MessageChunk` compliance.
 ///
 /// # Performance
 /// - Zero runtime overhead with transparent wrapper design
@@ -717,10 +690,10 @@ impl<T: Default> Default for ParallelResult<T> {
 }
 
 impl<T: MessageChunk> MessageChunk for ParallelResult<T> {
-    fn bad_chunk(_error: String) -> Self {
+    fn bad_chunk(error: String) -> Self {
         Self {
             operation_index: 0,
-            result: T::bad_chunk(_error),
+            result: T::bad_chunk(error),
         }
     }
 
@@ -801,8 +774,8 @@ impl CandleRefreshResult {
 }
 
 impl MessageChunk for CandleRefreshResult {
-    fn bad_chunk(_error: String) -> Self {
-        Self::failure(_error)
+    fn bad_chunk(error: String) -> Self {
+        Self::failure(error)
     }
 
     fn error(&self) -> Option<&str> {
@@ -870,8 +843,8 @@ impl CandleMemoryOperationResult {
 }
 
 impl MessageChunk for CandleMemoryOperationResult {
-    fn bad_chunk(_error: String) -> Self {
-        Self::failure(_error)
+    fn bad_chunk(error: String) -> Self {
+        Self::failure(error)
     }
 
     fn error(&self) -> Option<&str> {
@@ -893,9 +866,9 @@ pub struct WorkflowDataChunk {
 }
 
 impl MessageChunk for WorkflowDataChunk {
-    fn bad_chunk(_error: String) -> Self {
+    fn bad_chunk(error: String) -> Self {
         Self {
-            data: Value::String(format!("Error: {_error}")),
+            data: Value::String(format!("Error: {error}")),
             step_name: Some("error".to_string()),
             timestamp: Some(
                 std::time::SystemTime::now()
@@ -903,7 +876,7 @@ impl MessageChunk for WorkflowDataChunk {
                     .unwrap_or_default()
                     .as_secs(),
             ),
-            error_message: Some(_error),
+            error_message: Some(error),
         }
     }
 
@@ -939,7 +912,7 @@ impl From<Value> for WorkflowDataChunk {
     }
 }
 
-/// Wrapper for Uuid to implement MessageChunk without orphan rule violations
+/// Wrapper for Uuid to implement `MessageChunk` without orphan rule violations
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CandleUuidChunk(pub uuid::Uuid);
 
@@ -966,15 +939,9 @@ impl From<uuid::Uuid> for CandleUuidChunk {
     }
 }
 
-/// Wrapper for bool to implement MessageChunk without orphan rule violations
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Wrapper for bool to implement `MessageChunk` without orphan rule violations
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CandleBoolChunk(pub bool);
-
-impl Default for CandleBoolChunk {
-    fn default() -> Self {
-        CandleBoolChunk(false)
-    }
-}
 
 impl MessageChunk for CandleBoolChunk {
     fn bad_chunk(_error: String) -> Self {
@@ -992,7 +959,7 @@ impl From<bool> for CandleBoolChunk {
     }
 }
 
-/// Wrapper for Duration to implement MessageChunk without orphan rule violations
+/// Wrapper for Duration to implement `MessageChunk` without orphan rule violations
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CandleDurationChunk(#[serde(with = "duration_serde")] pub std::time::Duration);
 
@@ -1018,7 +985,7 @@ impl From<std::time::Duration> for CandleDurationChunk {
     }
 }
 
-/// Wrapper for ZeroOneOrMany to implement MessageChunk without orphan rule violations
+/// Wrapper for `ZeroOneOrMany` to implement `MessageChunk` without orphan rule violations
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CandleZeroOneOrManyChunk<T>(pub ZeroOneOrMany<T>);
 
@@ -1061,7 +1028,7 @@ impl<T> std::ops::DerefMut for CandleZeroOneOrManyChunk<T> {
     }
 }
 
-/// Wrapper for DateTime<Utc> to implement MessageChunk without orphan rule violations
+/// Wrapper for `DateTime`<Utc> to implement `MessageChunk` without orphan rule violations
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CandleDateTimeChunk(pub chrono::DateTime<chrono::Utc>);
 
@@ -1108,7 +1075,7 @@ mod duration_serde {
     }
 }
 
-/// Wrapper for ZeroOneOrMany<f32> to implement MessageChunk without orphan rule violations
+/// Wrapper for `ZeroOneOrMany`<f32> to implement `MessageChunk` without orphan rule violations
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ZeroOneOrManyF32Chunk(pub cyrup_sugars::ZeroOneOrMany<f32>);
 

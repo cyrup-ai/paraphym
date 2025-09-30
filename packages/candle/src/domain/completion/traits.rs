@@ -10,7 +10,7 @@ use crate::domain::completion::CandleCompletionChunk;
 use crate::domain::completion::{CandleCompletionRequest, CandleCompletionResponse};
 use crate::domain::prompt::CandlePrompt;
 
-/// Core trait for completion models - EXACT REPLICA of domain CompletionModel
+/// Core trait for completion models - EXACT REPLICA of domain `CompletionModel`
 pub trait CandleCompletionModel: Send + Sync + 'static {
     /// Generate completion from prompt
     ///
@@ -27,7 +27,7 @@ pub trait CandleCompletionModel: Send + Sync + 'static {
     ) -> AsyncStream<CandleCompletionChunk>;
 }
 
-/// Backend for completion processing - EXACT REPLICA of domain CompletionBackend
+/// Backend for completion processing - EXACT REPLICA of domain `CompletionBackend`
 pub trait CandleCompletionBackend: Send + Sync + 'static {
     /// Submit a completion request
     ///
@@ -36,10 +36,10 @@ pub trait CandleCompletionBackend: Send + Sync + 'static {
     ///
     /// # Returns
     /// Async task that resolves to the completion result
-    fn submit_completion<'a>(
-        &'a self,
+    fn submit_completion(
+        &self,
         request: CandleCompletionRequest,
-    ) -> ystream::AsyncTask<CandleCompletionResponse<'a>>;
+    ) -> ystream::AsyncTask<CandleCompletionResponse<'_>>;
 }
 
 // Backward compatibility trait alias for existing code

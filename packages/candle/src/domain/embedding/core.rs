@@ -32,22 +32,19 @@ pub trait EmbeddingModel: Send + Sync + Clone {
         crate::AsyncStream::with_channel(move |sender| {
             // Spawn task to handle the embedding computation
             ystream::spawn_task(move || {
-                match embedding_task.collect() {
-                    Ok(embedding) => {
-                        let processed = handler(embedding);
-                        // Create EmbeddingChunk with processed embeddings
-                        let chunk = EmbeddingChunk {
-                            embeddings: processed,
-                            index: 0,
-                            metadata: std::collections::HashMap::new(),
-                        };
-                        let _ = sender.send(chunk);
-                    }
-                    Err(_) => {
-                        // Return bad_chunk for errors using MessageChunk pattern
-                        let error_chunk = EmbeddingChunk::bad_chunk("Embedding computation failed".to_string());
-                        let _ = sender.send(error_chunk);
-                    }
+                if let Ok(embedding) = embedding_task.collect() {
+                    let processed = handler(embedding);
+                    // Create EmbeddingChunk with processed embeddings
+                    let chunk = EmbeddingChunk {
+                        embeddings: processed,
+                        index: 0,
+                        metadata: std::collections::HashMap::new(),
+                    };
+                    let _ = sender.send(chunk);
+                } else {
+                    // Return bad_chunk for errors using MessageChunk pattern
+                    let error_chunk = EmbeddingChunk::bad_chunk("Embedding computation failed".to_string());
+                    let _ = sender.send(error_chunk);
                 }
             });
         })

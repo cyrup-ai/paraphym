@@ -125,6 +125,10 @@ pub trait DomainCommandExecutor: Send + Sync + 'static {
     fn get_info(&self) -> &CommandInfo;
 
     /// Validate command parameters - zero allocation validation
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleCommandError` if command parameters are invalid
     fn validate_parameters(&self, command: &ImmutableChatCommand) -> ValidationResult;
 
     /// Get command name as static string slice for zero allocation
@@ -177,7 +181,7 @@ pub enum DomainCommandExecutorEnum {
 
 impl DomainCommandExecutorEnum {
     /// Execute command using enum dispatch for zero allocation and maximum performance
-    #[inline(always)]
+    #[inline]
     pub fn execute(
         &self,
         context: &CommandExecutionContext,
@@ -210,7 +214,7 @@ impl DomainCommandExecutorEnum {
     }
 
     /// Get command info using enum dispatch - zero allocation
-    #[inline(always)]
+    #[inline]
     pub fn get_info(&self) -> &CommandInfo {
         match self {
             Self::Help(executor) => executor.get_info(),
@@ -240,7 +244,7 @@ impl DomainCommandExecutorEnum {
     }
 
     /// Get command name using enum dispatch - zero allocation
-    #[inline(always)]
+    #[inline]
     pub fn name(&self) -> &'static str {
         match self {
             Self::Help(_) => "help",
@@ -297,6 +301,10 @@ impl DomainCommandRegistry {
     }
 
     /// Register a command with the registry - zero allocation after initial setup
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleCommandError` if command with the given name is already registered
     #[inline]
     pub fn register(
         &self,
@@ -313,6 +321,12 @@ impl DomainCommandRegistry {
     }
 
     /// Register an alias for an existing command - zero allocation lookup and insertion
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleCommandError` if:
+    /// - Command with `command_name` does not exist
+    /// - Alias is already registered
     #[inline]
     pub fn register_alias(
         &self,
@@ -498,6 +512,7 @@ impl RegistryStatistics {
     }
 
     /// Calculate lookup hit rate as percentage
+    #[allow(clippy::cast_precision_loss)] // Acceptable for percentage calculations
     #[inline]
     pub fn hit_rate(&self) -> f64 {
         let total = self.lookup_count.load(Ordering::Relaxed);

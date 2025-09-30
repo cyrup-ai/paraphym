@@ -61,30 +61,35 @@ impl MemoryFilter {
     }
 
     /// Add memory type filter
+    #[must_use]
     pub fn with_memory_types(mut self, types: Vec<MemoryTypeEnum>) -> Self {
         self.memory_types = Some(types);
         self
     }
 
     /// Add user ID filter
+    #[must_use]
     pub fn with_user_id(mut self, user_id: impl Into<String>) -> Self {
         self.user_id = Some(user_id.into());
         self
     }
 
     /// Add agent ID filter
+    #[must_use]
     pub fn with_agent_id(mut self, agent_id: impl Into<String>) -> Self {
         self.agent_id = Some(agent_id.into());
         self
     }
 
     /// Add tags filter
+    #[must_use]
     pub fn with_tags(mut self, tags: Vec<String>) -> Self {
         self.tags = Some(tags);
         self
     }
 
     /// Add time range filter
+    #[must_use]
     pub fn with_time_range(
         mut self,
         start: Option<DateTime<Utc>>,
@@ -95,12 +100,14 @@ impl MemoryFilter {
     }
 
     /// Add importance range filter
+    #[must_use]
     pub fn with_importance_range(mut self, min: f32, max: f32) -> Self {
         self.importance_range = Some((min, max));
         self
     }
 
     /// Add metadata filter
+    #[must_use]
     pub fn with_metadata(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
         let mut metadata = self.metadata.unwrap_or_default();
         metadata.insert(key.into(), value);
@@ -109,12 +116,14 @@ impl MemoryFilter {
     }
 
     /// Set result limit
+    #[must_use]
     pub fn with_limit(mut self, limit: usize) -> Self {
         self.limit = Some(limit);
         self
     }
 
     /// Set result offset
+    #[must_use]
     pub fn with_offset(mut self, offset: usize) -> Self {
         self.offset = Some(offset);
         self

@@ -3,13 +3,13 @@
 //! This module provides a single, unified interface for all tool execution
 //! that transparently handles both MCP server tools and native code execution.
 //! Users never directly call tools - they prompt naturally and the LLM
-//! decides which tools to call, similar to OpenAI function calling.
+//! decides which tools to call, similar to `OpenAI` function calling.
 //!
 //! Key components:
-//! - UnifiedToolExecutor: Single interface for all tool execution
+//! - `UnifiedToolExecutor`: Single interface for all tool execution
 //! - Automatic routing between MCP servers and Cylo secure execution
 //! - OpenAI-style function calling experience
-//! - Full ystream::AsyncStream compatibility
+//! - Full `ystream::AsyncStream` compatibility
 
 pub mod unified;
 pub mod router;

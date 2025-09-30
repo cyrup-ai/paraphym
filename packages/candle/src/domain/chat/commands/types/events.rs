@@ -651,6 +651,7 @@ pub struct CommandExecutorStats {
 
 impl CommandExecutorStats {
     /// Calculate success rate as percentage - zero allocation
+    #[allow(clippy::cast_precision_loss)] // Acceptable for percentage calculations
     #[inline]
     pub const fn success_rate(&self) -> f64 {
         let completed = self.successful_executions + self.failed_executions;
@@ -668,6 +669,7 @@ impl CommandExecutorStats {
     }
 
     /// Get completion rate (completed vs total) - zero allocation
+    #[allow(clippy::cast_precision_loss)] // Acceptable for percentage calculations
     #[inline]
     pub const fn completion_rate(&self) -> f64 {
         if self.total_executions == 0 {

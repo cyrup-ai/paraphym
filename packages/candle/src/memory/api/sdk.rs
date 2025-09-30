@@ -330,18 +330,21 @@ impl MemorySDKBuilder {
     }
     
     /// Set memory manager
+    #[must_use]
     pub fn with_memory_manager(mut self, memory_manager: Arc<dyn MemoryManager>) -> Self {
         self.memory_manager = Some(memory_manager);
         self
     }
     
     /// Set vector search
+    #[must_use]
     pub fn with_vector_search(mut self, vector_search: Arc<VectorSearch>) -> Self {
         self.vector_search = Some(vector_search);
         self
     }
     
     /// Set completion provider
+    #[must_use]
     pub fn with_completion_provider(mut self, completion_provider: Arc<dyn CompletionProvider>) -> Self {
         self.completion_provider = Some(completion_provider);
         self

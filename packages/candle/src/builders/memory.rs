@@ -53,7 +53,7 @@ pub struct Memory;
 
 impl Memory {
     /// Create memory node builder - EXACT syntax: Memory::node()
-    #[inline(always)]
+    #[inline]
     pub fn node() -> impl MemoryNodeBuilder {
         MemoryNodeBuilderImpl {
             id: ZeroOneOrMany::None,
@@ -70,7 +70,7 @@ impl Memory {
     }
 
     /// Create memory system builder - EXACT syntax: Memory::system()
-    #[inline(always)]
+    #[inline]
     pub fn system() -> impl MemorySystemBuilder {
         MemorySystemBuilderImpl {
             database_config: ZeroOneOrMany::Zero,
@@ -82,31 +82,31 @@ impl Memory {
     }
 
     /// Create optimized memory system - EXACT syntax: Memory::optimized()
-    #[inline(always)]
+    #[inline]
     pub fn optimized() -> MemoryResult<MemorySystemConfig> {
         MemorySystemConfig::optimized()
     }
 
     /// Create minimal memory system - EXACT syntax: Memory::minimal()
-    #[inline(always)]
+    #[inline]
     pub fn minimal() -> MemoryResult<MemorySystemConfig> {
         MemorySystemConfig::minimal()
     }
 
     /// Create semantic search optimized system - EXACT syntax: Memory::for_semantic_search()
-    #[inline(always)]
+    #[inline]
     pub fn for_semantic_search() -> MemoryResult<MemorySystemConfig> {
         MemorySystemConfig::for_semantic_search()
     }
 
     /// Create realtime chat optimized system - EXACT syntax: Memory::for_realtime_chat()
-    #[inline(always)]
+    #[inline]
     pub fn for_realtime_chat() -> MemoryResult<MemorySystemConfig> {
         MemorySystemConfig::for_realtime_chat()
     }
 
     /// Create large scale optimized system - EXACT syntax: Memory::for_large_scale()
-    #[inline(always)]
+    #[inline]
     pub fn for_large_scale() -> MemoryResult<MemorySystemConfig> {
         MemorySystemConfig::for_large_scale()
     }
@@ -136,7 +136,7 @@ struct MemorySystemBuilderImpl {
 }
 
 impl MemoryNodeBuilder for MemoryNodeBuilderImpl {
-    #[inline(always)]
+    #[inline]
     fn with_id(self, id: Uuid) -> impl MemoryNodeBuilder {
         MemoryNodeBuilderImpl {
             id: self.id.with_pushed(id),
@@ -144,7 +144,7 @@ impl MemoryNodeBuilder for MemoryNodeBuilderImpl {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     fn with_memory_type(self, memory_type: MemoryTypeEnum) -> impl MemoryNodeBuilder {
         MemoryNodeBuilderImpl {
             memory_type: self.memory_type.with_pushed(memory_type),
@@ -152,7 +152,7 @@ impl MemoryNodeBuilder for MemoryNodeBuilderImpl {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     fn with_content(self, content: MemoryContent) -> impl MemoryNodeBuilder {
         MemoryNodeBuilderImpl {
             content: self.content.with_pushed(content),
@@ -160,7 +160,7 @@ impl MemoryNodeBuilder for MemoryNodeBuilderImpl {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     fn with_text(self, text: impl Into<Arc<str>>) -> impl MemoryNodeBuilder {
         let content = MemoryContent::text(text);
         MemoryNodeBuilderImpl {
@@ -169,7 +169,7 @@ impl MemoryNodeBuilder for MemoryNodeBuilderImpl {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     fn with_base_memory(self, base_memory: BaseMemory) -> impl MemoryNodeBuilder {
         MemoryNodeBuilderImpl {
             id: self.id.with_pushed(base_memory.id),
@@ -180,7 +180,7 @@ impl MemoryNodeBuilder for MemoryNodeBuilderImpl {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     fn with_embedding(self, embedding: impl Into<ZeroOneOrMany<f32>>) -> impl MemoryNodeBuilder {
         MemoryNodeBuilderImpl {
             embedding: embedding.into(),
@@ -188,7 +188,7 @@ impl MemoryNodeBuilder for MemoryNodeBuilderImpl {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     fn with_importance(self, importance: f32) -> impl MemoryNodeBuilder {
         MemoryNodeBuilderImpl {
             importance: self.importance.with_pushed(importance),
@@ -196,7 +196,7 @@ impl MemoryNodeBuilder for MemoryNodeBuilderImpl {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     fn with_creation_time(self, time: SystemTime) -> impl MemoryNodeBuilder {
         MemoryNodeBuilderImpl {
             creation_time: self.creation_time.with_pushed(time),
@@ -204,7 +204,7 @@ impl MemoryNodeBuilder for MemoryNodeBuilderImpl {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     fn with_last_accessed(self, time: SystemTime) -> impl MemoryNodeBuilder {
         MemoryNodeBuilderImpl {
             last_accessed: self.last_accessed.with_pushed(time),
@@ -212,7 +212,7 @@ impl MemoryNodeBuilder for MemoryNodeBuilderImpl {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     fn with_keyword(self, keyword: impl Into<Arc<str>>) -> impl MemoryNodeBuilder {
         MemoryNodeBuilderImpl {
             keywords: self.keywords.with_pushed(keyword.into()),
@@ -220,7 +220,7 @@ impl MemoryNodeBuilder for MemoryNodeBuilderImpl {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     fn with_tag(self, tag: impl Into<Arc<str>>) -> impl MemoryNodeBuilder {
         MemoryNodeBuilderImpl {
             tags: self.tags.with_pushed(tag.into()),
@@ -228,7 +228,7 @@ impl MemoryNodeBuilder for MemoryNodeBuilderImpl {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     fn with_custom_metadata(self, key: impl Into<Arc<str>>, value: Value) -> impl MemoryNodeBuilder {
         MemoryNodeBuilderImpl {
             custom_metadata: self.custom_metadata.with_pushed((key.into(), value)),
@@ -298,7 +298,7 @@ impl MemoryNodeBuilder for MemoryNodeBuilderImpl {
 }
 
 impl MemorySystemBuilder for MemorySystemBuilderImpl {
-    #[inline(always)]
+    #[inline]
     fn with_database_config(self, config: DatabaseConfig) -> impl MemorySystemBuilder {
         MemorySystemBuilderImpl {
             database_config: self.database_config.with_pushed(config),
@@ -306,7 +306,7 @@ impl MemorySystemBuilder for MemorySystemBuilderImpl {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     fn with_vector_config(self, config: VectorStoreConfig) -> impl MemorySystemBuilder {
         MemorySystemBuilderImpl {
             vector_config: self.vector_config.with_pushed(config),
@@ -314,7 +314,7 @@ impl MemorySystemBuilder for MemorySystemBuilderImpl {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     fn with_llm_config(self, config: LLMConfig) -> impl MemorySystemBuilder {
         MemorySystemBuilderImpl {
             llm_config: self.llm_config.with_pushed(config),
@@ -322,7 +322,7 @@ impl MemorySystemBuilder for MemorySystemBuilderImpl {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     fn with_cognitive(self, enabled: bool) -> impl MemorySystemBuilder {
         MemorySystemBuilderImpl {
             enable_cognitive: self.enable_cognitive.with_pushed(enabled),
@@ -330,7 +330,7 @@ impl MemorySystemBuilder for MemorySystemBuilderImpl {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     fn with_compatibility_mode(self, mode: CompatibilityMode) -> impl MemorySystemBuilder {
         MemorySystemBuilderImpl {
             compatibility_mode: self.compatibility_mode.with_pushed(mode),
@@ -376,7 +376,7 @@ pub trait MemoryNodeBuilderExt {
 }
 
 impl MemoryNodeBuilderExt for MemoryNode {
-    #[inline(always)]
+    #[inline]
     fn builder() -> impl MemoryNodeBuilder {
         Memory::node()
     }
@@ -389,20 +389,20 @@ pub trait MemorySystemBuilderExt {
 }
 
 impl MemorySystemBuilderExt for MemorySystemConfig {
-    #[inline(always)]
+    #[inline]
     fn builder() -> impl MemorySystemBuilder {
         Memory::system()
     }
 }
 
 /// Convenience function for creating memory nodes - EXACT syntax: memory_node()
-#[inline(always)]
+#[inline]
 pub fn memory_node() -> impl MemoryNodeBuilder {
     Memory::node()
 }
 
 /// Convenience function for creating memory systems - EXACT syntax: memory_system()
-#[inline(always)]
+#[inline]
 pub fn memory_system() -> impl MemorySystemBuilder {
     Memory::system()
 }
@@ -412,7 +412,7 @@ pub struct AdvancedMemoryBuilder;
 
 impl AdvancedMemoryBuilder {
     /// Create high-performance memory node - EXACT syntax: AdvancedMemoryBuilder::high_performance()
-    #[inline(always)]
+    #[inline]
     pub fn high_performance() -> impl MemoryNodeBuilder {
         Memory::node()
             .with_importance(0.9)
@@ -420,7 +420,7 @@ impl AdvancedMemoryBuilder {
     }
 
     /// Create semantic search optimized node - EXACT syntax: AdvancedMemoryBuilder::semantic_search()
-    #[inline(always)]
+    #[inline]
     pub fn semantic_search() -> impl MemoryNodeBuilder {
         Memory::node()
             .with_importance(0.8)
@@ -428,7 +428,7 @@ impl AdvancedMemoryBuilder {
     }
 
     /// Create episodic memory node - EXACT syntax: AdvancedMemoryBuilder::episodic()
-    #[inline(always)]
+    #[inline]
     pub fn episodic() -> impl MemoryNodeBuilder {
         Memory::node()
             .with_importance(0.7)
@@ -436,7 +436,7 @@ impl AdvancedMemoryBuilder {
     }
 
     /// Create working memory node - EXACT syntax: AdvancedMemoryBuilder::working()
-    #[inline(always)]
+    #[inline]
     pub fn working() -> impl MemoryNodeBuilder {
         Memory::node()
             .with_importance(0.6)

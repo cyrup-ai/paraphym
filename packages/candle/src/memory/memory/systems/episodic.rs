@@ -94,6 +94,7 @@ impl EpisodicContext {
     }
 
     /// Add metadata to the context
+    #[must_use]
     pub fn with_metadata(mut self, key: &str, value: Value) -> Self {
         self.metadata.insert(key.to_string(), value);
         self
@@ -150,12 +151,14 @@ impl EpisodicEvent {
     }
 
     /// Add a context to the event
+    #[must_use]
     pub fn with_context(mut self, context: EpisodicContext) -> Self {
         self.context.push(context);
         self
     }
 
     /// Add metadata to the event
+    #[must_use]
     pub fn with_metadata(mut self, key: &str, value: Value) -> Self {
         self.metadata.insert(key.to_string(), value);
         self

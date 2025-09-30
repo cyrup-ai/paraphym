@@ -31,7 +31,7 @@ pub struct CompletionResponse<'a> {
     pub tokens_per_second: Option<f64>,
 }
 
-impl<'a> CompletionResponse<'a> {
+impl CompletionResponse<'_> {
     /// Get the completion text
     pub fn text(&self) -> &str {
         &self.text
@@ -88,7 +88,7 @@ impl<'a> CompletionResponse<'a> {
     }
 }
 
-impl<'a> Default for CompletionResponse<'a> {
+impl Default for CompletionResponse<'_> {
     fn default() -> Self {
         CompletionResponse {
             text: std::borrow::Cow::Borrowed(""),
@@ -103,7 +103,7 @@ impl<'a> Default for CompletionResponse<'a> {
     }
 }
 
-impl<'a> MessageChunk for CompletionResponse<'a> {
+impl MessageChunk for CompletionResponse<'_> {
     fn bad_chunk(error: String) -> Self {
         CompletionResponse {
             text: std::borrow::Cow::Owned(format!("Error: {error}")),
@@ -148,7 +148,7 @@ pub struct CompactCompletionResponse {
 }
 
 impl CompactCompletionResponse {
-    /// Convert back to a standard CompletionResponse
+    /// Convert back to a standard `CompletionResponse`
     pub fn into_standard(self) -> CompletionResponse<'static> {
         CompletionResponse {
             text: Cow::Owned((*self.content).to_owned()),

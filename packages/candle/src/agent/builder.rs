@@ -215,7 +215,7 @@ impl<M: Model> AgentBuilder<M, MissingSys, MissingCtx> {
     }
 
     /// Set system prompt - transitions to MissingCtx state
-    #[inline(always)]
+    #[inline]
     pub fn system_prompt(mut self, prompt: impl Into<String>) -> AgentBuilder<M, (), MissingCtx> {
         self.system_prompt = Some(prompt.into());
         AgentBuilder {
@@ -240,7 +240,7 @@ impl<M: Model> AgentBuilder<M, MissingSys, MissingCtx> {
 // ---- Has system prompt but missing context ----
 impl<M: Model> AgentBuilder<M, (), MissingCtx> {
     /// Add context - transitions to Ready state
-    #[inline(always)]
+    #[inline]
     pub fn context(mut self, doc: impl Into<String>) -> AgentBuilder<M, (), Ready> {
         self.static_context = self.static_context.with_pushed(Document {
             content: doc.into()});
@@ -263,7 +263,7 @@ impl<M: Model> AgentBuilder<M, (), MissingCtx> {
     }
 
     /// Add dynamic context from vector store
-    #[inline(always)]
+    #[inline]
     pub fn dynamic_context(
         mut self,
         sample: usize,
@@ -292,21 +292,21 @@ impl<M: Model> AgentBuilder<M, (), MissingCtx> {
 // ---- Ready state - all required fields present ----
 impl<M: Model> AgentBuilder<M, (), Ready> {
     /// Add a single tool - uses ToolInfo from SweetMCP
-    #[inline(always)]
+    #[inline]
     pub fn tool(mut self, tool_info: ToolInfo) -> Self {
         self.tools = self.tools.with_pushed(tool_info);
         self
     }
 
     /// Set multiple tools - uses ZeroOneOrMany<ToolInfo> from SweetMCP
-    #[inline(always)]
+    #[inline]
     pub fn mcp_tools(mut self, tools: ZeroOneOrMany<ToolInfo>) -> Self {
         self.tools = tools;
         self
     }
 
     /// Add MCP server for tool execution and discovery
-    #[inline(always)]
+    #[inline]
     pub fn mcp_server(mut self, server_url: String) -> Result<Self, AgentBuilderError> {
         let executor = UnifiedToolExecutor::with_mcp_server(Some(server_url), true)
             .map_err(|e| AgentBuilderError::StreamingError(format!("MCP client creation failed: {}", e)))?;
@@ -316,21 +316,21 @@ impl<M: Model> AgentBuilder<M, (), Ready> {
     }
 
     /// Set temperature
-    #[inline(always)]
+    #[inline]
     pub fn temperature(mut self, temp: f64) -> Self {
         self.temperature = Some(temp);
         self
     }
 
     /// Set max tokens
-    #[inline(always)]
+    #[inline]
     pub fn max_tokens(mut self, tokens: u64) -> Self {
         self.max_tokens = Some(tokens);
         self
     }
 
     /// Enable extended thinking
-    #[inline(always)]
+    #[inline]
     pub fn extended_thinking(mut self, enabled: bool) -> Self {
         self.extended_thinking = enabled;
         self

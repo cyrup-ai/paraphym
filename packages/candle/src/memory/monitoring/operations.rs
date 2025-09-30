@@ -178,7 +178,7 @@ pub struct OperationTrackerMetrics {
 
 impl OperationTrackerMetrics {
     /// Create new metrics with zero allocation
-    #[inline(always)]
+    #[inline]
     pub fn new() -> Self {
         Self {
             operations_started: RelaxedCounter::new(0),
@@ -211,7 +211,7 @@ impl OperationTrackerMetrics {
     }
 
     /// Get success rate (0.0-1.0)
-    #[inline(always)]
+    #[inline]
     pub fn success_rate(&self) -> f64 {
         let completed = self.operations_completed.get() as f64;
         let failed = self.operations_failed.get() as f64;
@@ -222,7 +222,7 @@ impl OperationTrackerMetrics {
 }
 
 impl Default for OperationTrackerMetrics {
-    #[inline(always)]
+    #[inline]
     fn default() -> Self {
         Self::new()
     }
@@ -337,14 +337,12 @@ impl OperationTracker {
         if current_count >= self.max_history {
             // Remove oldest entries (simplified eviction - production would use more sophisticated LRU)
             let entries_to_remove = current_count - self.max_history + 100; // Remove in batches
-            let mut removed = 0;
 
-            for entry in self.completed.iter() {
-                if removed >= entries_to_remove {
+            for (index, entry) in self.completed.iter().enumerate() {
+                if index >= entries_to_remove {
                     break;
                 }
                 self.completed.remove(entry.key());
-                removed += 1;
                 self.metrics.history_count.fetch_sub(1, Ordering::Relaxed);
             }
         }
@@ -389,19 +387,19 @@ impl OperationTracker {
     }
 
     /// Get current metrics with atomic operations
-    #[inline(always)]
+    #[inline]
     pub fn metrics(&self) -> &OperationTrackerMetrics {
         &self.metrics
     }
 
     /// Get active operations count (atomic)
-    #[inline(always)]
+    #[inline]
     pub fn active_count(&self) -> usize {
         self.metrics.active_count.load(Ordering::Relaxed)
     }
 
     /// Get history count (atomic)
-    #[inline(always)]
+    #[inline]
     pub fn history_count(&self) -> usize {
         self.metrics.history_count.load(Ordering::Relaxed)
     }
@@ -415,7 +413,7 @@ impl OperationTracker {
 }
 
 impl Default for OperationTracker {
-    #[inline(always)]
+    #[inline]
     fn default() -> Self {
         Self::new(1000)
     }

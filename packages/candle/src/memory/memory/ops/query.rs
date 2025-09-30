@@ -50,36 +50,42 @@ impl MemoryQuery {
     }
 
     /// Set text query
+    #[must_use]
     pub fn with_text(mut self, text: impl Into<String>) -> Self {
         self.text = Some(text.into());
         self
     }
 
     /// Set filter
+    #[must_use]
     pub fn with_filter(mut self, filter: MemoryFilter) -> Self {
         self.filter = filter;
         self
     }
 
     /// Set sort order
+    #[must_use]
     pub fn with_sort(mut self, sort: SortOrder) -> Self {
         self.sort = Some(sort);
         self
     }
 
     /// Include relationships in results
+    #[must_use]
     pub fn include_relationships(mut self) -> Self {
         self.include_relationships = true;
         self
     }
 
     /// Include embeddings in results
+    #[must_use]
     pub fn include_embeddings(mut self) -> Self {
         self.include_embeddings = true;
         self
     }
 
     /// Set minimum similarity score
+    #[must_use]
     pub fn with_min_similarity(mut self, score: f32) -> Self {
         self.min_similarity = Some(score);
         self

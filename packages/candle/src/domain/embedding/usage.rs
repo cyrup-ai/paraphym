@@ -15,7 +15,7 @@ pub struct EmbeddingUsage {
 }
 
 impl EmbeddingUsage {
-    /// Create a new EmbeddingUsage with the given token counts
+    /// Create a new `EmbeddingUsage` with the given token counts
     #[inline]
     pub const fn new(prompt_tokens: u32, total_tokens: u32) -> Self {
         Self {
@@ -24,7 +24,7 @@ impl EmbeddingUsage {
         }
     }
 
-    /// Create a new EmbeddingUsage with the same value for both prompt and total tokens
+    /// Create a new `EmbeddingUsage` with the same value for both prompt and total tokens
     #[inline]
     pub const fn from_prompt_tokens(prompt_tokens: u32) -> Self {
         Self {
@@ -33,7 +33,7 @@ impl EmbeddingUsage {
         }
     }
 
-    /// Add another EmbeddingUsage to this one
+    /// Add another `EmbeddingUsage` to this one
     #[inline]
     #[must_use = "Returns a new EmbeddingUsage without modifying the original"]
     pub const fn add(&self, other: &Self) -> Self {
@@ -43,7 +43,7 @@ impl EmbeddingUsage {
         }
     }
 
-    /// Calculate the overhead tokens (total_tokens - prompt_tokens)
+    /// Calculate the overhead tokens (`total_tokens` - `prompt_tokens`)
     #[inline]
     pub const fn overhead_tokens(&self) -> u32 {
         self.total_tokens.saturating_sub(self.prompt_tokens)

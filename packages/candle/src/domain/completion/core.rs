@@ -37,8 +37,8 @@ pub trait CandleCompletionBackend: Send + Sync + 'static {
     ///
     /// # Returns
     /// Async task that resolves to the Candle completion result
-    fn submit_completion<'a>(
-        &'a self,
+    fn submit_completion(
+        &self,
         request: CompletionRequest,
-    ) -> ystream::AsyncTask<CompletionResponse<'a>>;
+    ) -> ystream::AsyncTask<CompletionResponse<'_>>;
 }

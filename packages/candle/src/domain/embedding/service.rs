@@ -63,7 +63,7 @@ impl EmbeddingPool {
     }
 
     /// Get vector from pool or create new one (zero-allocation in common case)
-    #[inline(always)]
+    #[inline]
     pub fn acquire(&self) -> Vec<f32> {
         self.available
             .pop()
@@ -71,7 +71,7 @@ impl EmbeddingPool {
     }
 
     /// Return vector to pool for reuse
-    #[inline(always)]
+    #[inline]
     pub fn release(&self, mut vec: Vec<f32>) {
         if vec.len() == self.dimension {
             vec.fill(0.0); // Clear data

@@ -17,7 +17,7 @@ use crate::domain::model::error::{CandleModelError, CandleResult};
 ///
 /// **IMPORTANT**: This struct deserializes directly from the external models.yaml
 /// file curated by sigoden on GitHub. The field names and structure must match
-/// that YAML format exactly. CandleModelInfo is the single source of truth for model data.
+/// that YAML format exactly. `CandleModelInfo` is the single source of truth for model data.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[must_use = "CandleModelInfo should be used to make informed decisions about model selection"]
 pub struct CandleModelInfo {
@@ -55,7 +55,7 @@ pub struct CandleModelInfo {
     #[serde(default)]
     pub supports_embeddings: bool,
 
-    /// Whether the model requires max_tokens to be specified
+    /// Whether the model requires `max_tokens` to be specified
     #[serde(default)]
     pub requires_max_tokens: bool,
 
@@ -81,10 +81,10 @@ pub struct CandleModelInfo {
     /// Short CLI identifier for model selection (e.g., "kimi-k2", "qwen-coder")
     pub model_id: &'static str,
 
-    /// HuggingFace repository URL for automatic model downloads
+    /// `HuggingFace` repository URL for automatic model downloads
     pub hf_repo_url: &'static str,
 
-    /// Model quantization format (e.g., "Q4_0", "Q5_0", "F16")
+    /// Model quantization format (e.g., "`Q4_0`", "`Q5_0`", "F16")
     pub quantization: &'static str,
 
     /// Patch configuration for API requests
@@ -135,7 +135,7 @@ impl CandleModelInfo {
         self.supports_embeddings
     }
 
-    /// Check if the model requires max_tokens to be specified
+    /// Check if the model requires `max_tokens` to be specified
     #[inline]
     pub fn requires_max_tokens(&self) -> bool {
         self.requires_max_tokens
@@ -159,7 +159,7 @@ impl CandleModelInfo {
         self.model_id
     }
 
-    /// Get the HuggingFace repository URL for automatic downloads
+    /// Get the `HuggingFace` repository URL for automatic downloads
     #[inline]
     pub fn hf_repo_url(&self) -> &'static str {
         self.hf_repo_url
@@ -185,10 +185,10 @@ impl CandleModelInfo {
             .map(|price| (price * tokens as f64) / 1_000_000.0)
     }
 
-    /// Convert to CandleModelCapabilities for filtering and querying
+    /// Convert to `CandleModelCapabilities` for filtering and querying
     ///
-    /// This creates a CandleModelCapabilities struct from this CandleModelInfo instance.
-    /// CandleModelInfo remains the single source of truth from YAML deserialization.
+    /// This creates a `CandleModelCapabilities` struct from this `CandleModelInfo` instance.
+    /// `CandleModelInfo` remains the single source of truth from YAML deserialization.
     pub fn to_capabilities(&self) -> crate::domain::model::capabilities::CandleModelCapabilities {
         crate::domain::model::capabilities::CandleModelCapabilities {
             supports_vision: self.supports_vision,

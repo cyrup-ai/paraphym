@@ -163,7 +163,7 @@ impl CandleQwen3CoderProvider {
                         .iter()
                         .filter(|file| file.filename.ends_with(".gguf"))
                         .max_by_key(|file| file.expected_size)
-                        .ok_or_else(|| "No GGUF files found in downloaded model")?;
+                        .ok_or("No GGUF files found in downloaded model")?;
 
                     let gguf_path = gguf_file.path.display().to_string();
                     (cache_dir, gguf_path)
@@ -227,7 +227,7 @@ impl CandleQwen3CoderProvider {
     ///
     /// This method reads the GGUF file metadata to extract real Qwen3-Coder model configuration
     /// instead of using hardcoded values, ensuring accurate model parameters for code generation.
-    #[inline(always)]
+    #[inline]
     pub fn with_config_sync_gguf(
         model_cache_dir: String,
         gguf_file_path: String,

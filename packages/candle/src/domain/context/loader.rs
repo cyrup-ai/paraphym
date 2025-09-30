@@ -13,7 +13,7 @@ use ystream::AsyncStream;
 use ystream::AsyncTask;
 use serde::{Serialize, Deserialize};
 
-/// Wrapper for PathBuf that implements MessageChunk for streaming
+/// Wrapper for `PathBuf` that implements `MessageChunk` for streaming
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CandlePathChunk {
     pub path: PathBuf,
@@ -71,15 +71,17 @@ where
     fn new(pattern: impl Into<String>) -> Self;
 
     /// Set recursive loading
+    #[must_use]
     fn with_recursive(self, recursive: bool) -> Self;
 
     /// Apply filter to results
+    #[must_use]
     fn with_filter<F>(self, filter: F) -> Self
     where
         F: Fn(&T) -> bool + Send + Sync + 'static;
 }
 
-/// Implementation of the Loader trait for PathBuf
+/// Implementation of the Loader trait for `PathBuf`
 pub struct LoaderImpl<T: Send + Sync + fmt::Debug + Clone + 'static> {
     #[allow(dead_code)] // TODO: Use for file glob pattern matching and directory traversal
     pattern: Option<String>,
@@ -183,7 +185,7 @@ impl Loader<PathBuf> for LoaderImpl<PathBuf> {
             let results: Vec<U> = match paths {
                 Ok(ZeroOneOrMany::None) | Err(_) => Vec::new(),
                 Ok(ZeroOneOrMany::One(path)) => vec![processor(&path)],
-                Ok(ZeroOneOrMany::Many(paths)) => paths.iter().map(|p| processor(p)).collect(),
+                Ok(ZeroOneOrMany::Many(paths)) => paths.iter().map(processor).collect(),
             };
 
             // Convert Vec<U> to ZeroOneOrMany<U> without unwrap

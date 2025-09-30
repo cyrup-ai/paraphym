@@ -265,36 +265,42 @@ impl Step {
     }
 
     /// Add a condition
+    #[must_use]
     pub fn with_condition(mut self, condition: Condition) -> Self {
         self.conditions.push(condition);
         self
     }
 
     /// Add a dependency
+    #[must_use]
     pub fn with_dependency(mut self, dependency_id: &str) -> Self {
         self.dependencies.push(dependency_id.to_string());
         self
     }
 
     /// Set status
+    #[must_use]
     pub fn with_status(mut self, status: StepStatus) -> Self {
         self.status = status;
         self
     }
 
     /// Set result
+    #[must_use]
     pub fn with_result(mut self, result: Value) -> Self {
         self.result = Some(result);
         self
     }
 
     /// Set error
+    #[must_use]
     pub fn with_error(mut self, error: &str) -> Self {
         self.error = Some(error.to_string());
         self
     }
 
     /// Add metadata
+    #[must_use]
     pub fn with_metadata<T: Into<Value>>(mut self, key: &str, value: T) -> Self {
         self.metadata.insert(key.to_string(), value.into());
         self

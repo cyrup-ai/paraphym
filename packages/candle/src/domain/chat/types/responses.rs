@@ -15,7 +15,7 @@ pub struct OpenAIFunctionCallResponse {
     pub tool_calls: Option<Vec<ToolCall>>,
 }
 
-/// Individual tool call in OpenAI format
+/// Individual tool call in `OpenAI` format
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ToolCall {
     pub id: String,

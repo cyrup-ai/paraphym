@@ -22,6 +22,10 @@ impl QueryProcessor {
     }
 
     /// Process a query string
+    ///
+    /// # Errors
+    ///
+    /// Returns error if query parsing or processing fails
     pub fn process_query(
         &self,
         query: &str,
@@ -31,14 +35,11 @@ impl QueryProcessor {
 
         let terms: Vec<String> = query
             .split_whitespace()
-            .map(|term| term.to_lowercase())
+            .map(str::to_lowercase)
             .collect();
 
         let expanded_terms = if options.enable_query_expansion {
-            match self.expand_terms_sync(&terms, &options.expansion_dictionary) {
-                Ok(terms) => terms,
-                Err(_) => Vec::new(),
-            }
+            self.expand_terms_sync(&terms, &options.expansion_dictionary)
         } else {
             Vec::new()
         };
@@ -67,7 +68,7 @@ impl QueryProcessor {
         &self,
         terms: &[String],
         dictionary: &HashMap<String, Vec<String>>,
-    ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Vec<String> {
         let mut expanded = Vec::new();
 
         for term in terms {
@@ -76,7 +77,7 @@ impl QueryProcessor {
             }
         }
 
-        Ok(expanded)
+        expanded
     }
 }
 

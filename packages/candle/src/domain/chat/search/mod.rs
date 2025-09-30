@@ -138,8 +138,7 @@ impl ChatSearcher {
                     .message
                     .id
                     .as_ref()
-                    .map(|id| id.contains(session_filter.as_ref() as &str))
-                    .unwrap_or(false)
+                    .is_some_and(|id| id.contains(session_filter.as_ref() as &str))
             });
         }
 
@@ -231,12 +230,20 @@ impl ChatSearcher {
     }
 
     /// Search messages (blocking, collects all results)
+    ///
+    /// # Errors
+    ///
+    /// Returns `SearchError` if search execution fails
     pub fn search(&self, query: SearchQuery) -> Result<Vec<SearchResult>, SearchError> {
         let stream = self.search_stream(query);
         Ok(stream.collect())
     }
 
     /// Add message to search index
+    ///
+    /// # Errors
+    ///
+    /// Returns `SearchError` if message cannot be added to the index
     pub fn add_message(&self, message: SearchChatMessage) -> Result<(), SearchError> {
         self.index.add_message(message)
     }

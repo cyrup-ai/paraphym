@@ -100,8 +100,7 @@ impl ChatSearchIndex {
                             self_clone
                                 .inverted_index()
                                 .get(&**term)
-                                .map(|entries| entries.value().iter().any(|e| e.doc_id == doc_id))
-                                .unwrap_or(false)
+                                .is_some_and(|entries| entries.value().iter().any(|e| e.doc_id == doc_id))
                         })
                         .cloned()
                         .collect();
@@ -232,7 +231,7 @@ impl ChatSearchIndex {
             // Build the phrase to search for
             let phrase: String = terms_clone
                 .iter()
-                .map(|t| t.as_ref())
+                .map(AsRef::as_ref)
                 .collect::<Vec<_>>()
                 .join(" ");
 

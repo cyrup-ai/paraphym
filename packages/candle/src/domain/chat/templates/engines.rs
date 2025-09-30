@@ -11,6 +11,10 @@ use crate::domain::chat::templates::core::{
 /// Template rendering engine trait
 pub trait TemplateEngine: Send + Sync {
     /// Render a template with the given context
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleTemplateError` if template rendering fails
     fn render(
         &self,
         template: &CandleChatTemplate,
@@ -97,10 +101,16 @@ impl EngineRegistry {
         self.engines
             .iter()
             .find(|engine| engine.supports(template))
-            .map(|engine| engine.as_ref())
+            .map(AsRef::as_ref)
     }
 
     /// Render a template using the best available engine
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleTemplateError` if:
+    /// - No suitable engine is found for the template
+    /// - Template rendering fails
     pub fn render(
         &self,
         template: &CandleChatTemplate,

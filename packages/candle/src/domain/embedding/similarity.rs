@@ -6,9 +6,10 @@
 use serde::{Deserialize, Serialize};
 
 /// Similarity metrics that can be used for comparing vectors
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum SimilarityMetric {
     /// Cosine similarity (normalized dot product)
+    #[default]
     Cosine,
     /// Euclidean distance (L2 norm)
     Euclidean,
@@ -18,12 +19,6 @@ pub enum SimilarityMetric {
     DotProduct,
     /// Jaccard similarity for sets
     Jaccard,
-}
-
-impl Default for SimilarityMetric {
-    fn default() -> Self {
-        Self::Cosine
-    }
 }
 
 /// Result of a similarity computation between two vectors or embeddings

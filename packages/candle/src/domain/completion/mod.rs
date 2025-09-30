@@ -1,6 +1,6 @@
 //! Candle completion module - Consolidated completion functionality
 //!
-//! This module consolidates Candle completion-related functionality from completion.rs and candle_completion.rs
+//! This module consolidates Candle completion-related functionality from completion.rs and `candle_completion.rs`
 //! into a clean, unified module structure with zero-allocation patterns and production-ready functionality.
 //!
 //! ## Architecture

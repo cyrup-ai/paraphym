@@ -93,7 +93,7 @@ pub struct CompletionCoreRequest<'a> {
 
 impl<'a> CompletionCoreRequest<'a> {
     /// Create a new completion request from builder
-    #[inline(always)]
+    #[inline]
     pub fn from_builder(
         prompt: ArrayVec<u8, MAX_PROMPT_SIZE>,
         max_tokens: u32,
@@ -119,26 +119,26 @@ impl<'a> CompletionCoreRequest<'a> {
     }
 
     /// Get the prompt as a string slice
-    #[inline(always)]
+    #[inline]
     pub fn prompt(&self) -> &[u8] {
         &self.prompt
     }
 
     /// Get the stop tokens
-    #[inline(always)]
+    #[inline]
     pub fn stop_tokens(&self) -> &[&'a str] {
         &self.stop_tokens
     }
 
     /// Estimate token count for the prompt (fast approximation)
-    #[inline(always)]
+    #[inline]
     pub fn estimate_token_count(&self) -> u32 {
         // Simple approximation: ~4 characters per token
         (self.prompt.len() / 4) as u32
     }
 
     /// Create a new default completion request
-    #[inline(always)]
+    #[inline]
     pub fn new() -> Self {
         Self {
             prompt: ArrayVec::new(),
@@ -154,7 +154,11 @@ impl<'a> CompletionCoreRequest<'a> {
     }
 
     /// Set the prompt text
-    #[inline(always)]
+    ///
+    /// # Errors
+    ///
+    /// Returns `CompletionCoreError::InvalidRequest` if prompt exceeds buffer capacity
+    #[inline]
     pub fn set_prompt(&mut self, prompt: &str) -> Result<(), CompletionCoreError> {
         self.prompt.clear();
         self.prompt
@@ -164,26 +168,26 @@ impl<'a> CompletionCoreRequest<'a> {
     }
 
     /// Set maximum tokens to generate
-    #[inline(always)]
+    #[inline]
     pub fn set_max_tokens(&mut self, max_tokens: u32) {
         self.max_tokens = max_tokens;
     }
 
     /// Set temperature for sampling
-    #[inline(always)]
+    #[inline]
     pub fn set_temperature(&mut self, temperature: f32) {
         self.temperature = f64::from(temperature);
     }
 
     /// Enable or disable streaming
-    #[inline(always)]
+    #[inline]
     pub fn set_stream(&mut self, stream: bool) {
         self.stream = stream;
     }
 }
 
-impl<'a> Default for CompletionCoreRequest<'a> {
-    #[inline(always)]
+impl Default for CompletionCoreRequest<'_> {
+    #[inline]
     fn default() -> Self {
         Self::new()
     }
@@ -208,7 +212,7 @@ pub struct CompletionCoreResponse {
 
 impl CompletionCoreResponse {
     /// Create a new completion response from builder
-    #[inline(always)]
+    #[inline]
     pub fn from_builder(
         text: ArrayVec<u8, MAX_RESPONSE_SIZE>,
         tokens_generated: u32,
@@ -228,62 +232,66 @@ impl CompletionCoreResponse {
     }
 
     /// Get the generated text as a string slice
-    #[inline(always)]
+    ///
+    /// # Errors
+    ///
+    /// Returns `CompletionCoreError::Internal` if response contains invalid UTF-8
+    #[inline]
     pub fn text(&self) -> CompletionCoreResult<&str> {
         std::str::from_utf8(&self.text)
             .map_err(|_| CompletionCoreError::Internal(String::from("invalid UTF-8 in response")))
     }
 
     /// Get the number of tokens generated
-    #[inline(always)]
+    #[inline]
     pub fn tokens_generated(&self) -> u32 {
         self.tokens_generated.load(Ordering::Relaxed)
     }
 
     /// Get the generation time in milliseconds
-    #[inline(always)]
+    #[inline]
     pub fn generation_time_ms(&self) -> u32 {
         self.generation_time_ms.load(Ordering::Relaxed)
     }
 
     /// Get tokens per second
-    #[inline(always)]
+    #[inline]
     pub fn tokens_per_second(&self) -> u32 {
         self.tokens_per_second.load(Ordering::Relaxed)
     }
 
     /// Get the finish reason
-    #[inline(always)]
+    #[inline]
     pub fn finish_reason(&self) -> &str {
         std::str::from_utf8(&self.finish_reason).unwrap_or("unknown")
     }
 
     /// Get the model name
-    #[inline(always)]
+    #[inline]
     pub fn model(&self) -> &str {
         std::str::from_utf8(&self.model).unwrap_or("unknown")
     }
 
     /// Set tokens generated (atomic)
-    #[inline(always)]
+    #[inline]
     pub fn set_tokens_generated(&self, tokens: u32) {
         self.tokens_generated.store(tokens, Ordering::Relaxed);
     }
 
     /// Set generation time (atomic)
-    #[inline(always)]
+    #[inline]
     pub fn set_generation_time_ms(&self, time_ms: u32) {
         self.generation_time_ms.store(time_ms, Ordering::Relaxed);
     }
 
     /// Set tokens per second (atomic)
-    #[inline(always)]
+    #[inline]
     pub fn set_tokens_per_second(&self, tps: u32) {
         self.tokens_per_second.store(tps, Ordering::Relaxed);
     }
 
     /// Create a new completion response
-    #[inline(always)]
+    #[inline]
     pub fn new() -> Self {
         Self {
             text: ArrayVec::new(),
@@ -296,7 +304,11 @@ impl CompletionCoreResponse {
     }
 
     /// Set the response text
-    #[inline(always)]
+    ///
+    /// # Errors
+    ///
+    /// Returns `CompletionCoreError::Internal` if text exceeds buffer capacity
+    #[inline]
     pub fn set_text(&mut self, text: &str) -> Result<(), CompletionCoreError> {
         self.text.clear();
         self.text
@@ -313,7 +325,7 @@ pub struct StreamingCoreResponse {
 
 impl StreamingCoreResponse {
     /// Create a new streaming response
-    #[inline(always)]
+    #[inline]
     pub fn new(
         stream: Pin<Box<dyn Stream<Item = CompletionCoreResult<CompletionCoreResponse>> + Send>>,
     ) -> Self {
@@ -321,7 +333,7 @@ impl StreamingCoreResponse {
     }
 
     /// Get the underlying stream
-    #[inline(always)]
+    #[inline]
     pub fn into_stream(
         self,
     ) -> Pin<Box<dyn Stream<Item = CompletionCoreResult<CompletionCoreResponse>> + Send>> {
@@ -341,7 +353,7 @@ impl Stream for StreamingCoreResponse {
 }
 
 /// Zero-cost wrapper for stack-allocated collections
-#[inline(always)]
+#[inline]
 pub fn with_stack_buffer<T, F, R>(f: F) -> R
 where
     T: Copy,
@@ -362,7 +374,7 @@ macro_rules! static_str {
 }
 
 /// Performance hint for hot path optimization
-#[inline(always)]
+#[inline]
 pub const fn is_hot_path() -> bool {
     true
 }

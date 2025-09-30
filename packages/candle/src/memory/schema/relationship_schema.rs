@@ -84,12 +84,14 @@ impl Relationship {
     }
 
     /// Set metadata
+    #[must_use]
     pub fn with_metadata(mut self, metadata: Value) -> Self {
         self.metadata = metadata;
         self
     }
 
     /// Set strength
+    #[must_use]
     pub fn with_strength(mut self, strength: f32) -> Self {
         self.strength = strength.clamp(0.0, 1.0);
         self

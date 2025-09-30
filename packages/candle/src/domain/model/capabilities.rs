@@ -1,7 +1,7 @@
 //! Model capability utilities for filtering and querying
 //!
 //! This module provides utility types for working with model capabilities.
-//! ModelCapabilities is derived from ModelInfo (the single source of truth)
+//! `ModelCapabilities` is derived from `ModelInfo` (the single source of truth)
 //! which deserializes directly from the external models.yaml file.
 
 use serde::{Deserialize, Serialize};
@@ -53,9 +53,9 @@ pub enum CandleCapability {
 
 /// Candle model capability flags for filtering and selection
 ///
-/// This is a utility struct derived from CandleModelInfo for capability-based filtering.
-/// CandleModelInfo (which deserializes from the external models.yaml) is the single source of truth.
-/// Use CandleModelInfo::to_capabilities() to create this struct.
+/// This is a utility struct derived from `CandleModelInfo` for capability-based filtering.
+/// `CandleModelInfo` (which deserializes from the external models.yaml) is the single source of truth.
+/// Use `CandleModelInfo::to_capabilities()` to create this struct.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct CandleModelCapabilities {
     /// Whether the model supports vision/image inputs
@@ -101,22 +101,24 @@ pub struct CandleModelCapabilities {
 }
 
 impl CandleModelCapabilities {
-    /// Create a new ModelCapabilities with all capabilities disabled
+    /// Create a new `ModelCapabilities` with all capabilities disabled
     ///
     /// **NOTE**: In most cases, you should use `ModelInfo::to_capabilities()` instead
-    /// of creating ModelCapabilities directly, since ModelInfo is the single source
+    /// of creating `ModelCapabilities` directly, since `ModelInfo` is the single source
     /// of truth that deserializes from the external models.yaml file.
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Enable a specific capability
+    #[must_use]
     pub fn with_capability(mut self, capability: CandleCapability) -> Self {
         self.set_capability(capability, true);
         self
     }
 
     /// Disable a specific capability
+    #[must_use]
     pub fn without_capability(mut self, capability: CandleCapability) -> Self {
         self.set_capability(capability, false);
         self

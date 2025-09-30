@@ -180,7 +180,7 @@ mod tests {
         // Higher probability should sort first (reverse order)
         assert!(token1 < token2);
 
-        let mut tokens = vec![token2, token1];
+        let mut tokens = [token2, token1];
         tokens.sort();
         assert_eq!(tokens[0].prob, 0.8);
     }

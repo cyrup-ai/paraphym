@@ -116,6 +116,10 @@ pub struct MemorySystemConfig {
 
 impl MemorySystemConfig {
     /// Create optimized configuration for production use
+    ///
+    /// # Errors
+    ///
+    /// Returns error if configuration validation fails
     pub fn optimized() -> primitives::MemoryResult<Self> {
         Ok(Self {
             database: DatabaseConfig::default(),
@@ -127,6 +131,10 @@ impl MemorySystemConfig {
     }
 
     /// Create minimal configuration for testing
+    ///
+    /// # Errors
+    ///
+    /// Returns error if configuration validation fails
     pub fn minimal() -> primitives::MemoryResult<Self> {
         Ok(Self {
             database: DatabaseConfig::default(),
@@ -142,6 +150,10 @@ impl MemorySystemConfig {
     }
 
     /// Validate configuration consistency
+    ///
+    /// # Errors
+    ///
+    /// Returns error if vector store or LLM configuration is invalid
     pub fn validate(&self) -> primitives::MemoryResult<()> {
         self.vector_store.validate()?;
         self.llm.validate()?;
@@ -158,6 +170,10 @@ impl Default for MemorySystemConfig {
 /// Convenience functions for creating memory system configurations
 impl MemorySystemConfig {
     /// Create configuration optimized for semantic search
+    ///
+    /// # Errors
+    ///
+    /// Returns error if vector store configuration fails
     pub fn for_semantic_search() -> primitives::MemoryResult<Self> {
         Ok(Self {
             database: DatabaseConfig::default(),
@@ -175,6 +191,10 @@ impl MemorySystemConfig {
     }
 
     /// Create configuration optimized for real-time chat
+    ///
+    /// # Errors
+    ///
+    /// Returns error if database, vector store, or LLM configuration fails
     pub fn for_realtime_chat() -> primitives::MemoryResult<Self> {
         Ok(Self {
             database: DatabaseConfig::new(DatabaseType::Memory, "memory", "chat", "realtime")?
@@ -192,6 +212,10 @@ impl MemorySystemConfig {
     }
 
     /// Create configuration optimized for large-scale data processing
+    ///
+    /// # Errors
+    ///
+    /// Returns error if database or vector store configuration fails
     pub fn for_large_scale() -> primitives::MemoryResult<Self> {
         Ok(Self {
             database: DatabaseConfig::new(

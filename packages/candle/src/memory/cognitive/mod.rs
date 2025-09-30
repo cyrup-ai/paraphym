@@ -26,21 +26,11 @@ pub struct LocalCognitiveManager {
 }
 
 /// Configuration for local cognitive operations
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CognitiveConfig {
     pub enable_quantum_routing: bool,
     pub enable_committee_evaluation: bool,
     pub local_model_path: Option<String>,
-}
-
-impl Default for CognitiveConfig {
-    fn default() -> Self {
-        Self {
-            enable_quantum_routing: false,
-            enable_committee_evaluation: false,
-            local_model_path: None,
-        }
-    }
 }
 
 impl LocalCognitiveManager {

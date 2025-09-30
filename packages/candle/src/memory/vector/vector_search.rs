@@ -83,12 +83,14 @@ impl SearchResult {
     }
 
     /// Set the ranking position
+    #[must_use]
     pub fn with_rank(mut self, rank: usize) -> Self {
         self.rank = Some(rank);
         self
     }
 
     /// Set the combined score for hybrid search
+    #[must_use]
     pub fn with_combined_score(mut self, score: f32) -> Self {
         self.combined_score = Some(score);
         self

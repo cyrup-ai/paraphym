@@ -1,7 +1,7 @@
 //! Live message streaming system with zero-allocation patterns
 //!
 //! This module provides high-performance message streaming using lock-free queues,
-//! atomic counters, and AsyncStream patterns for blazing-fast real-time updates.
+//! atomic counters, and `AsyncStream` patterns for blazing-fast real-time updates.
 
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -106,6 +106,7 @@ impl LiveUpdateMessage {
     }
 
     /// Add metadata to the message
+    #[must_use]
     #[inline]
     pub fn with_metadata(mut self, metadata: String) -> Self {
         self.size_bytes += metadata.len() as u32;
@@ -114,6 +115,7 @@ impl LiveUpdateMessage {
     }
 
     /// Get timestamp in seconds
+    #[allow(clippy::cast_precision_loss)] // Acceptable for timestamp conversion
     #[inline]
     pub fn timestamp_seconds(&self) -> f64 {
         self.timestamp_nanos as f64 / 1_000_000_000.0
@@ -484,6 +486,7 @@ impl LiveMessageStreamer {
     }
 
     /// Start message processing task with lock-free distribution
+    #[allow(clippy::cast_precision_loss)] // Acceptable for rate calculations
     pub fn start_processing(&self) -> AsyncStream<ProcessingEvent> {
         if self
             .processing_active

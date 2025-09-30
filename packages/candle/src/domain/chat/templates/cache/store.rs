@@ -9,18 +9,38 @@ use crate::domain::chat::templates::core::{ChatTemplate, TemplateError, Template
 /// Template storage interface
 pub trait TemplateStore: Send + Sync {
     /// Store a template
+    ///
+    /// # Errors
+    ///
+    /// Returns `TemplateError` if template cannot be stored
     fn store(&self, template: &ChatTemplate) -> TemplateResult<()>;
 
     /// Retrieve a template by name
+    ///
+    /// # Errors
+    ///
+    /// Returns `TemplateError` if template retrieval fails
     fn get(&self, name: &str) -> TemplateResult<Option<ChatTemplate>>;
 
     /// Delete a template
+    ///
+    /// # Errors
+    ///
+    /// Returns `TemplateError` if template deletion fails
     fn delete(&self, name: &str) -> TemplateResult<bool>;
 
     /// List all template names
+    ///
+    /// # Errors
+    ///
+    /// Returns `TemplateError` if template listing fails
     fn list(&self) -> TemplateResult<Vec<String>>;
 
     /// Check if template exists
+    ///
+    /// # Errors
+    ///
+    /// Returns `TemplateError` if existence check fails
     fn exists(&self, name: &str) -> TemplateResult<bool>;
 }
 

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use super::primitives::MemoryNode;
 
-/// Wrapper for memory lookup results that implements MessageChunk
+/// Wrapper for memory lookup results that implements `MessageChunk`
 #[derive(Debug, Clone, Default)]
 pub struct MemoryLookupResult {
     /// The memory node if found
@@ -37,7 +37,7 @@ impl cyrup_sugars::prelude::MessageChunk for MemoryLookupResult {
     }
 }
 
-/// CandleMemory trait - mirrors paraphym-domain::Memory exactly with Candle prefix
+/// `CandleMemory` trait - mirrors `paraphym-domain::Memory` exactly with Candle prefix
 ///
 /// This trait enables:
 /// - Trait composition for flexible memory architectures  
@@ -51,7 +51,7 @@ pub trait CandleMemory: Send + Sync + 'static {
     /// * `memory_node` - The memory node to store
     ///
     /// # Returns
-    /// AsyncStream that completes when the memory is stored
+    /// `AsyncStream` that completes when the memory is stored
     fn store_memory(&self, memory_node: &MemoryNode) -> AsyncStream<crate::domain::context::chunk::CandleUnit>;
 
     /// Retrieve memory nodes by similarity search
@@ -61,7 +61,7 @@ pub trait CandleMemory: Send + Sync + 'static {
     /// * `limit` - Maximum number of results to return
     ///
     /// # Returns
-    /// AsyncStream of memory nodes ranked by similarity
+    /// `AsyncStream` of memory nodes ranked by similarity
     fn search_memory(&self, query: &str, limit: usize) -> AsyncStream<MemoryNode>;
 
     /// Get memory node by ID
@@ -70,7 +70,7 @@ pub trait CandleMemory: Send + Sync + 'static {
     /// * `id` - The unique ID of the memory node
     ///
     /// # Returns
-    /// AsyncStream containing the memory lookup result
+    /// `AsyncStream` containing the memory lookup result
     fn get_memory(&self, id: &str) -> AsyncStream<MemoryLookupResult>;
 
     /// Delete memory node by ID
@@ -79,13 +79,13 @@ pub trait CandleMemory: Send + Sync + 'static {
     /// * `id` - The unique ID of the memory node to delete
     ///
     /// # Returns
-    /// AsyncStream that completes when the memory is deleted
+    /// `AsyncStream` that completes when the memory is deleted
     fn delete_memory(&self, id: &str) -> AsyncStream<crate::domain::context::chunk::CandleMemoryOperationResult>;
 
     /// Get memory statistics
     ///
     /// # Returns
-    /// AsyncStream containing memory system statistics
+    /// `AsyncStream` containing memory system statistics
     fn get_stats(&self) -> AsyncStream<CandleMemoryStats>;
 }
 

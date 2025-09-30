@@ -50,6 +50,12 @@ impl FilterRegistry {
     }
 
     /// Apply a filter to a value
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleTemplateError` if:
+    /// - Filter with the given name does not exist
+    /// - Filter execution fails
     pub fn apply(
         &self,
         name: &str,

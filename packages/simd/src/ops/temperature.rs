@@ -54,6 +54,9 @@ unsafe fn avx2_temperature_scale(logits: &mut [f32], temperature: f32) -> SimdRe
     let inv_temp_scalar = 1.0 / temperature;
     for logit in logits.iter_mut().skip(i) {
         *logit *= inv_temp_scalar;
+        if !logit.is_finite() {
+            *logit = 0.0;
+        }
     }
 
     Ok(())
@@ -86,6 +89,47 @@ unsafe fn sse41_temperature_scale(logits: &mut [f32], temperature: f32) -> SimdR
     let inv_temp_scalar = 1.0 / temperature;
     for logit in logits.iter_mut().skip(i) {
         *logit *= inv_temp_scalar;
+        if !logit.is_finite() {
+            *logit = 0.0;
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "avx512f")]
+unsafe fn avx512_temperature_scale(logits: &mut [f32], temperature: f32) -> SimdResult<()> {
+    #[cfg(target_arch = "x86")]
+    use std::arch::x86::*;
+    #[cfg(target_arch = "x86_64")]
+    use std::arch::x86_64::*;
+
+    if temperature <= 0.0 {
+        return Err(crate::error::SimdError::InvalidInput(
+            "Temperature must be positive".to_string(),
+        ));
+    }
+
+    let inv_temp = _mm512_set1_ps(1.0 / temperature);
+    let len = logits.len();
+    let mut i = 0;
+
+    while i + 16 <= len {
+        let ptr = logits.as_mut_ptr().add(i);
+        let val = _mm512_loadu_ps(ptr);
+        let scaled = _mm512_mul_ps(val, inv_temp);
+        _mm512_storeu_ps(ptr, scaled);
+        i += 16;
+    }
+
+    // Handle remainder scalar with finite check
+    let inv_temp_scalar = 1.0 / temperature;
+    for j in i..len {
+        logits[j] *= inv_temp_scalar;
+        if !logits[j].is_finite() {
+            logits[j] = 0.0;
+        }
     }
 
     Ok(())
@@ -118,6 +162,9 @@ unsafe fn neon_temperature_scale(logits: &mut [f32], temperature: f32) -> SimdRe
     let inv_temp_scalar = 1.0 / temperature;
     for logit in logits.iter_mut().skip(i) {
         *logit *= inv_temp_scalar;
+        if !logit.is_finite() {
+            *logit = 0.0;
+        }
     }
 
     Ok(())
@@ -152,7 +199,10 @@ pub fn scale_temperature(logits: &mut [f32], temperature: f32) -> SimdResult<()>
 
 fn create_temperature_dispatch() -> TemperatureDispatch {
     TemperatureDispatch {
-        avx512: None, // To be implemented if AVX512 support is added
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        avx512: Some(avx512_temperature_scale),
+        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+        avx512: None,
 
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         avx2: Some(avx2_temperature_scale),

@@ -69,12 +69,14 @@ impl Audio {
     }
 
     /// Set the format of the audio data
+    #[must_use]
     pub fn with_format(mut self, format: ContentFormat) -> Self {
         self.format = Some(format);
         self
     }
 
     /// Set the media type of the audio
+    #[must_use]
     pub fn with_media_type(mut self, media_type: AudioMediaType) -> Self {
         self.media_type = Some(media_type);
         self

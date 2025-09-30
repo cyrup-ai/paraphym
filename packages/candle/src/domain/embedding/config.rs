@@ -74,12 +74,14 @@ impl EmbeddingConfig {
     }
 
     /// Set the model identifier
+    #[must_use]
     pub fn with_model(mut self, model: impl Into<String>) -> Self {
         self.model = Some(model.into());
         self
     }
 
     /// Set the embedding dimensions
+    #[must_use]
     pub fn with_dimensions(mut self, dimensions: usize) -> Self {
         self.dimensions = Some(dimensions);
         self
@@ -204,35 +206,41 @@ impl EmbeddingConfig {
     }
 
     /// Enable or disable normalization
+    #[must_use]
     pub fn with_normalize(mut self, normalize: bool) -> Self {
         self.normalize = normalize;
         self
     }
     /// Set the batch size
+    #[must_use]
     pub fn with_batch_size(mut self, batch_size: usize) -> Self {
         self.batch_size = batch_size;
         self
     }
 
     /// Enable or disable truncation
+    #[must_use]
     pub fn with_truncate(mut self, truncate: bool) -> Self {
         self.truncate = truncate;
         self
     }
 
     /// Add an additional parameter
+    #[must_use]
     pub fn with_param(mut self, key: impl Into<String>, value: impl Into<Value>) -> Self {
         self.additional_params.insert(key.into(), value.into());
         self
     }
 
     /// Set the user identifier
+    #[must_use]
     pub fn with_user(mut self, user: impl Into<String>) -> Self {
         self.user = Some(user.into());
         self
     }
 
     /// Set the encoding format
+    #[must_use]
     pub fn with_encoding_format(mut self, format: impl Into<String>) -> Self {
         self.encoding_format = Some(format.into());
         self
@@ -277,9 +285,9 @@ impl EmbeddingConfig {
     }
 }
 
-/// Trait for types that can be converted to an EmbeddingConfig
+/// Trait for types that can be converted to an `EmbeddingConfig`
 pub trait IntoEmbeddingConfig {
-    /// Convert to an EmbeddingConfig
+    /// Convert to an `EmbeddingConfig`
     fn into_embedding_config(self) -> EmbeddingConfig;
 }
 

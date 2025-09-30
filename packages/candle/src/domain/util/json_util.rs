@@ -34,7 +34,7 @@ use serde::{Deserialize, Serializer};
 /// let merged = merge(a, b);
 /// // Result: {"key1": "value1", "key2": "value2"}
 /// ```
-#[inline(always)]
+#[inline]
 pub fn merge(mut a: serde_json::Value, b: serde_json::Value) -> serde_json::Value {
     match (&mut a, b) {
         (serde_json::Value::Object(a_map), serde_json::Value::Object(b_map)) => {
@@ -68,7 +68,7 @@ pub fn merge(mut a: serde_json::Value, b: serde_json::Value) -> serde_json::Valu
 /// merge_inplace(&mut a, json!({"key2": "value2"}));
 /// // `a` is now {"key1": "value1", "key2": "value2"}
 /// ```
-#[inline(always)]
+#[inline]
 pub fn merge_inplace(a: &mut serde_json::Value, b: serde_json::Value) {
     if let (serde_json::Value::Object(a_map), serde_json::Value::Object(b_map)) = (a, b) {
         // Zero allocation: direct key insertion
@@ -96,7 +96,11 @@ pub mod stringified_json {
 
     /// Serialize a `serde_json::Value` as its compact string representation
     /// Performance: Single allocation for string conversion only
-    #[inline(always)]
+    ///
+    /// # Errors
+    ///
+    /// Returns error if serialization fails
+    #[inline]
     pub fn serialize<S>(value: &serde_json::Value, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -107,7 +111,11 @@ pub mod stringified_json {
 
     /// Deserialize a JSON string back into a `serde_json::Value`
     /// Performance: Direct parsing, no intermediate allocations
-    #[inline(always)]
+    ///
+    /// # Errors
+    ///
+    /// Returns error if deserialization or JSON parsing fails
+    #[inline]
     pub fn deserialize<'de, D>(deserializer: D) -> Result<serde_json::Value, D::Error>
     where
         D: Deserializer<'de>,
@@ -142,7 +150,11 @@ pub mod stringified_json {
 ///     values: Vec<String>,
 /// }
 /// ```
-#[inline(always)]
+///
+/// # Errors
+///
+/// Returns error if deserialization or string parsing fails
+#[inline]
 pub fn string_or_vec<'de, T, D>(deserializer: D) -> Result<Vec<T>, D::Error>
 where
     T: Deserialize<'de> + FromStr,
@@ -159,13 +171,13 @@ where
     {
         type Value = Vec<T>;
 
-        #[inline(always)]
+        #[inline]
         fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
             f.write_str("string, sequence, null, or unit")
         }
 
         /// Handle string input: parse single value into Vec
-        #[inline(always)]
+        #[inline]
         fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
         where
             E: de::Error,
@@ -175,7 +187,7 @@ where
         }
 
         /// Handle array input: deserialize sequence directly
-        #[inline(always)]
+        #[inline]
         fn visit_seq<A>(self, seq: A) -> Result<Self::Value, A::Error>
         where
             A: SeqAccess<'de>,
@@ -185,7 +197,7 @@ where
         }
 
         /// Handle null/unit input: return empty Vec
-        #[inline(always)]
+        #[inline]
         fn visit_unit<E>(self) -> Result<Self::Value, E>
         where
             E: de::Error,
@@ -195,7 +207,7 @@ where
         }
 
         /// Handle null input: return empty Vec
-        #[inline(always)]
+        #[inline]
         fn visit_none<E>(self) -> Result<Self::Value, E>
         where
             E: de::Error,
@@ -228,7 +240,11 @@ where
 ///     optional_items: Vec<Item>,
 /// }
 /// ```
-#[inline(always)]
+///
+/// # Errors
+///
+/// Returns error if deserialization fails
+#[inline]
 pub fn null_or_vec<'de, T, D>(deserializer: D) -> Result<Vec<T>, D::Error>
 where
     T: Deserialize<'de>,
@@ -243,13 +259,13 @@ where
     {
         type Value = Vec<T>;
 
-        #[inline(always)]
+        #[inline]
         fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
             f.write_str("sequence, null, or unit")
         }
 
         /// Handle array input: deserialize sequence directly
-        #[inline(always)]
+        #[inline]
         fn visit_seq<A>(self, seq: A) -> Result<Self::Value, A::Error>
         where
             A: SeqAccess<'de>,
@@ -259,7 +275,7 @@ where
         }
 
         /// Handle null/unit input: return empty Vec
-        #[inline(always)]
+        #[inline]
         fn visit_unit<E>(self) -> Result<Self::Value, E>
         where
             E: de::Error,
@@ -269,7 +285,7 @@ where
         }
 
         /// Handle null input: return empty Vec
-        #[inline(always)]
+        #[inline]
         fn visit_none<E>(self) -> Result<Self::Value, E>
         where
             E: de::Error,
@@ -289,7 +305,7 @@ where
 
 /// Merge JSON value into existing object, creating object if necessary
 /// Performance: Zero allocation if target is already an object
-#[inline(always)]
+#[inline]
 pub fn ensure_object_and_merge(target: &mut serde_json::Value, source: serde_json::Value) {
     if !target.is_object() {
         *target = serde_json::Value::Object(serde_json::Map::new());
@@ -299,7 +315,7 @@ pub fn ensure_object_and_merge(target: &mut serde_json::Value, source: serde_jso
 
 /// Get mutable reference to object map, creating empty object if necessary
 /// Performance: Zero allocation if already an object
-#[inline(always)]
+#[inline]
 pub fn ensure_object_map(
     value: &mut serde_json::Value,
 ) -> Option<&mut serde_json::Map<String, serde_json::Value>> {
@@ -311,7 +327,7 @@ pub fn ensure_object_map(
 
 /// Insert key-value pair, creating object if necessary
 /// Performance: Zero allocation if target is already an object
-#[inline(always)]
+#[inline]
 pub fn insert_or_create(target: &mut serde_json::Value, key: String, value: serde_json::Value) {
     if let Some(map) = ensure_object_map(target) {
         map.insert(key, value);
@@ -320,7 +336,7 @@ pub fn insert_or_create(target: &mut serde_json::Value, key: String, value: serd
 
 /// Merge multiple JSON values in sequence with optimal allocation
 /// Performance: Reuses first value's allocation, extends efficiently
-#[inline(always)]
+#[inline]
 pub fn merge_multiple<I>(values: I) -> serde_json::Value
 where
     I: IntoIterator<Item = serde_json::Value>,
@@ -340,7 +356,7 @@ where
 
 /// Check if JSON value is empty (null, empty object, empty array)
 /// Performance: Inlined, no allocations
-#[inline(always)]
+#[inline]
 pub fn is_empty_value(value: &serde_json::Value) -> bool {
     match value {
         serde_json::Value::Null => true,
@@ -353,14 +369,18 @@ pub fn is_empty_value(value: &serde_json::Value) -> bool {
 
 /// Compact JSON serialization with minimal allocation
 /// Performance: Single allocation for output string
-#[inline(always)]
+#[inline]
 pub fn to_compact_string(value: &serde_json::Value) -> String {
     value.to_string() // serde_json uses compact format by default
 }
 
 /// Pretty JSON serialization with controlled formatting
 /// Performance: Single allocation for output string, optimized formatting
-#[inline(always)]
+///
+/// # Errors
+///
+/// Returns error if JSON serialization fails
+#[inline]
 pub fn to_pretty_string(value: &serde_json::Value) -> Result<String, serde_json::Error> {
     serde_json::to_string_pretty(value)
 }

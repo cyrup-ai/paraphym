@@ -138,12 +138,12 @@ impl CommandParser {
                     .iter()
                     .position(|&arg| arg == "--format")
                     .and_then(|i| args.get(i + 1))
-                    .map_or_else(|| "json".to_string(), |s| (*s).to_string());
+                    .map_or_else(|| "json".to_string(), std::string::ToString::to_string);
                 let output = args
                     .iter()
                     .position(|&arg| arg == "--output")
                     .and_then(|i| args.get(i + 1))
-                    .map(|s| (*s).to_string());
+                    .map(std::string::ToString::to_string);
                 let include_metadata = args.contains(&"--metadata");
                 Ok(ImmutableChatCommand::Export {
                     format,
@@ -157,7 +157,7 @@ impl CommandParser {
                 let key = args
                     .iter()
                     .find(|&&arg| !arg.starts_with("--"))
-                    .map(|s| (*s).to_string());
+                    .map(std::string::ToString::to_string);
                 let value =
                     if let Some(key_pos) = args.iter().position(|&arg| !arg.starts_with("--")) {
                         if let Some(&arg) = args.get(key_pos + 1) {
@@ -183,7 +183,7 @@ impl CommandParser {
                 let query = args
                     .iter()
                     .find(|&&arg| !arg.starts_with("--"))
-                    .map(|s| (*s).to_string())
+                    .map(std::string::ToString::to_string)
                     .unwrap_or_default();
                 let scope = if args.contains(&"--current") {
                     SearchScope::Current
@@ -571,7 +571,7 @@ impl CommandParser {
         let resolved_name = self
             .aliases
             .get(command_name)
-            .map_or(command_name, |s| s.as_str());
+            .map_or(command_name, std::string::String::as_str);
 
         // Parse based on command type
         match resolved_name {

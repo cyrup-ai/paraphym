@@ -82,7 +82,7 @@ pub struct OwnedPromptRequest<M: CompletionModel> {
 
 impl<'a, M: CompletionModel> PromptRequest<'a, M> {
     /// **Constructor** – never public, only called from `Agent::prompt`.
-    #[inline(always)]
+    #[inline]
     pub(super) fn new(agent: &'a Agent<M>, prompt: impl Prompt) -> Self {
         Self {
             agent,
@@ -98,7 +98,7 @@ impl<'a, M: CompletionModel> PromptRequest<'a, M> {
 
     /// Enable multi‑turn conversations.
     /// `depth = 0` (*default*) ➜ single‑shot, no tool loops.
-    #[inline(always)]
+    #[inline]
     pub fn multi_turn(mut self, depth: usize) -> Self {
         self.max_depth = depth;
         self
@@ -106,7 +106,7 @@ impl<'a, M: CompletionModel> PromptRequest<'a, M> {
 
     /// Attach an external **chat‑history buffer** (caller‑owned).
     /// The buffer may be reused across calls and different agents.
-    #[inline(always)]
+    #[inline]
     pub fn with_history(mut self, hist: &'a mut Vec<Message>) -> Self {
         self.chat_hist = Some(hist);
         self

@@ -44,6 +44,10 @@ impl TemplateCompiler {
     }
 
     /// Compile a template
+    ///
+    /// # Errors
+    ///
+    /// Returns `TemplateError` if template compilation fails
     pub fn compile(&self, template: &ChatTemplate) -> TemplateResult<CompiledTemplate> {
         // For now, just create a simple AST from the content
         let ast = TemplateAst::Text(template.get_content().clone());

@@ -546,6 +546,15 @@ impl ImmutableChatCommand {
     }
 
     /// Validate command arguments with comprehensive error checking
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleCommandError` if:
+    /// - Export format is not one of the supported formats (json, markdown, pdf, html, csv, xml, yaml)
+    /// - Search query is empty or exceeds maximum length
+    /// - File path validation fails for Copy, Move, or Read commands
+    /// - Replace patterns are invalid or unsafe
+    /// - Other command-specific validation rules fail
     #[inline]
     pub fn validate(&self) -> CommandResult<()> {
         match self {

@@ -160,7 +160,7 @@ impl cyrup_sugars::prelude::MessageChunk for ModelResolution {
     }
 }
 
-/// Wrapper for registered model lookup results that implements MessageChunk
+/// Wrapper for registered model lookup results that implements `MessageChunk`
 #[derive(Debug, Clone)]
 pub struct RegisteredModelResult<M: Model + 'static> {
     /// The registered model if found
@@ -283,19 +283,16 @@ impl ModelResolver {
         let registry = self.registry.clone();
         let resolver = self.clone();
         let model_name = model_name.to_string();
-        let provider = provider.map(|s| s.to_string());
+        let provider = provider.map(str::to_string);
 
         AsyncStream::with_channel(move |sender| {
-            match resolver.resolve_with_registry::<M>(&registry, &model_name, provider.as_deref()) {
-                Ok(resolution) => {
-                    let _ = sender.try_send(resolution);
-                }
-                Err(_) => {
-                    // Provide a fallback resolution
-                    let fallback =
-                        ModelResolution::new("fallback", model_name.clone(), None, None, 0.0);
-                    let _ = sender.try_send(fallback);
-                }
+            if let Ok(resolution) = resolver.resolve_with_registry::<M>(&registry, &model_name, provider.as_deref()) {
+                let _ = sender.try_send(resolution);
+            } else {
+                // Provide a fallback resolution
+                let fallback =
+                    ModelResolution::new("fallback", model_name.clone(), None, None, 0.0);
+                let _ = sender.try_send(fallback);
             }
         })
     }
@@ -380,7 +377,7 @@ impl ModelResolver {
     ) -> AsyncStream<RegisteredModelResult<M>> {
         let resolver = self.clone();
         let model_name = model_name.to_string();
-        let provider = provider.map(|s| s.to_string());
+        let provider = provider.map(str::to_string);
 
         AsyncStream::with_channel(move |sender| {
             let resolution_stream = resolver.resolve::<M>(&model_name, provider.as_deref());

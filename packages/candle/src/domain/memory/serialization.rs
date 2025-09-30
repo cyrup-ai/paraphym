@@ -21,7 +21,7 @@ pub struct MemoryRecord {
 
 impl MemoryRecord {
     /// Create new memory record with zero allocation
-    #[inline(always)]
+    #[inline]
     pub fn new(input: &str, output: &str, timestamp: u64) -> Self {
         Self {
             input_hash: content_hash(input),
@@ -33,7 +33,7 @@ impl MemoryRecord {
     }
 
     /// Serialize to binary format with zero allocation
-    #[inline(always)]
+    #[inline]
     pub fn serialize_to_buffer(&self, buffer: &mut SerializationBuffer) {
         buffer.clear();
         buffer.write_u64(self.input_hash);
@@ -44,7 +44,7 @@ impl MemoryRecord {
     }
 
     /// Deserialize from binary format with zero allocation
-    #[inline(always)]
+    #[inline]
     pub fn deserialize_from_buffer(buffer: &SerializationBuffer) -> Option<Self> {
         if buffer.data.len() < 32 {
             // 8+8+8+4+4 = 32 bytes
@@ -103,37 +103,37 @@ impl SerializationBuffer {
     }
 
     /// Clear buffer for reuse (zero allocation)
-    #[inline(always)]
+    #[inline]
     pub fn clear(&mut self) {
         self.data.clear();
     }
 
     /// Write u64 in little-endian format
-    #[inline(always)]
+    #[inline]
     pub fn write_u64(&mut self, value: u64) {
         self.data.extend_from_slice(&value.to_le_bytes());
     }
 
     /// Write u32 in little-endian format
-    #[inline(always)]
+    #[inline]
     pub fn write_u32(&mut self, value: u32) {
         self.data.extend_from_slice(&value.to_le_bytes());
     }
 
     /// Get buffer data as slice
-    #[inline(always)]
+    #[inline]
     pub fn as_slice(&self) -> &[u8] {
         &self.data
     }
 
     /// Get buffer length
-    #[inline(always)]
+    #[inline]
     pub fn len(&self) -> usize {
         self.data.len()
     }
 
     /// Check if buffer is empty
-    #[inline(always)]
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
@@ -162,7 +162,7 @@ thread_local! {
 }
 
 /// Get thread-local serialization buffer for zero-allocation operations
-#[inline(always)]
+#[inline]
 pub fn with_serialization_buffer<F, R>(f: F) -> R
 where
     F: FnOnce(&mut SerializationBuffer) -> R,

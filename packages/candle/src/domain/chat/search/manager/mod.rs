@@ -42,7 +42,7 @@ impl CandleEnhancedHistoryManager {
     }
 
     /// Add message to history manager (streaming)
-    pub fn add_message_stream(&self, message: CandleSearchChatMessage) -> AsyncStream<super::types::IndexOperationResult> {
+    pub fn add_message_stream(&self, message: &CandleSearchChatMessage) -> AsyncStream<super::types::IndexOperationResult> {
         let message_id = message.message.id.clone();
         let timestamp = message.message.timestamp;
         let message_clone = message.clone();
@@ -80,7 +80,7 @@ impl CandleEnhancedHistoryManager {
     /// Search messages (streaming)
     pub fn search_messages_stream(
         &self,
-        query: CandleSearchQuery,
+        query: &CandleSearchQuery,
     ) -> AsyncStream<CandleSearchResult> {
         // TODO: Implement full search functionality in Phase 2.3
         // For now, return empty stream until domain ChatSearchIndex has search methods

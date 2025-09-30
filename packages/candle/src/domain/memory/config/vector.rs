@@ -40,7 +40,7 @@ pub struct VectorStoreConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum VectorStoreType {
-    /// SurrealDB vector store - Multi-model database with vector support
+    /// `SurrealDB` vector store - Multi-model database with vector support
     SurrealDB = 0,
     /// In-memory vector store - Fastest for small datasets
     Memory = 1,
@@ -61,12 +61,10 @@ impl VectorStoreType {
     #[inline]
     pub const fn recommended_index_type(&self) -> IndexType {
         match self {
-            Self::SurrealDB | Self::Memory => IndexType::FlatIP,
-            Self::FAISS => IndexType::IVFPQ,
+            Self::FAISS | Self::Milvus => IndexType::IVFPQ,
             Self::HNSW => IndexType::HNSW,
             Self::Annoy => IndexType::Annoy,
-            Self::Milvus => IndexType::IVFPQ,
-            Self::Pinecone => IndexType::FlatIP,
+            Self::SurrealDB | Self::Memory | Self::Pinecone => IndexType::FlatIP,
         }
     }
 
@@ -83,13 +81,11 @@ impl VectorStoreType {
     #[inline]
     pub const fn optimal_batch_size(&self) -> usize {
         match self {
-            Self::SurrealDB => 1000,
-            Self::Memory => 100,
+            Self::SurrealDB | Self::HNSW => 1000,
+            Self::Memory | Self::Pinecone => 100,
             Self::FAISS => 10000,
-            Self::HNSW => 1000,
             Self::Annoy => 1,
             Self::Milvus => 2000,
-            Self::Pinecone => 100,
         }
     }
 
@@ -541,6 +537,7 @@ impl VectorConnectionConfig {
     }
 
     /// Set API key
+    #[must_use]
     #[inline]
     pub fn with_api_key(mut self, api_key: impl Into<Arc<str>>) -> Self {
         self.api_key = Some(api_key.into().to_string());
@@ -548,6 +545,7 @@ impl VectorConnectionConfig {
     }
 
     /// Set timeout
+    #[must_use]
     #[inline]
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
@@ -755,6 +753,7 @@ impl VectorStoreConfig {
     }
 
     /// Set distance metric
+    #[must_use]
     #[inline]
     pub fn with_distance_metric(mut self, metric: DistanceMetric) -> Self {
         self.distance_metric = metric;
@@ -762,6 +761,7 @@ impl VectorStoreConfig {
     }
 
     /// Set index configuration
+    #[must_use]
     #[inline]
     pub fn with_index_config(mut self, config: IndexConfig) -> Self {
         self.index_config = config;
@@ -769,6 +769,7 @@ impl VectorStoreConfig {
     }
 
     /// Set SIMD configuration
+    #[must_use]
     #[inline]
     pub fn with_simd_config(mut self, config: SimdConfig) -> Self {
         self.simd_config = config;
@@ -776,6 +777,7 @@ impl VectorStoreConfig {
     }
 
     /// Set connection configuration
+    #[must_use]
     #[inline]
     pub fn with_connection_config(mut self, config: VectorConnectionConfig) -> Self {
         self.connection_config = Some(config);
@@ -783,6 +785,7 @@ impl VectorStoreConfig {
     }
 
     /// Set performance configuration
+    #[must_use]
     #[inline]
     pub fn with_performance_config(mut self, config: PerformanceConfig) -> Self {
         self.performance_config = config;

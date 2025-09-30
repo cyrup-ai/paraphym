@@ -44,18 +44,15 @@ impl SearchExporter {
         let self_clone = self.clone();
 
         AsyncStream::with_channel(move |sender| {
-            match export_options.format {
-                ExportFormat::Json => {
-                    if let Ok(json) = self_clone.export_json_sync(&limited_results, &export_options)
-                        && let Ok(value) = serde_json::from_str(&json) {
-                            let _ = sender.send(CandleJsonChunk(value));
-                        }
-                }
-                _ => {
-                    // Other formats not implemented in simplified version
-                    let error_value = serde_json::json!({"error": "Export format not supported"});
-                    let _ = sender.send(CandleJsonChunk(error_value));
-                }
+            if let ExportFormat::Json = export_options.format {
+                if let Ok(json) = self_clone.export_json_sync(&limited_results, &export_options)
+                    && let Ok(value) = serde_json::from_str(&json) {
+                        let _ = sender.send(CandleJsonChunk(value));
+                    }
+            } else {
+                // Other formats not implemented in simplified version
+                let error_value = serde_json::json!({"error": "Export format not supported"});
+                let _ = sender.send(CandleJsonChunk(error_value));
             }
         })
     }

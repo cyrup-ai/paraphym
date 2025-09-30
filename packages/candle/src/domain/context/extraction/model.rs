@@ -51,12 +51,14 @@ impl<T> ExtractionRequest<T> {
     }
 
     /// Set the system prompt
+    #[must_use]
     pub fn with_system_prompt(mut self, prompt: impl Into<String>) -> Self {
         self.system_prompt = Some(prompt.into());
         self
     }
 
     /// Set the extraction configuration
+    #[must_use]
     pub fn with_config(mut self, config: ExtractionConfig) -> Self {
         self.config = config;
         self

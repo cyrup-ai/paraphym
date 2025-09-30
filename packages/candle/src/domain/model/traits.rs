@@ -30,13 +30,13 @@ pub trait CandleModel: Send + Sync + std::fmt::Debug + 'static {
     /// Get the model's maximum input tokens
     #[inline]
     fn max_input_tokens(&self) -> Option<u32> {
-        self.info().max_input_tokens.map(|n| n.get())
+        self.info().max_input_tokens.map(std::num::NonZeroU32::get)
     }
 
     /// Get the model's maximum output tokens
     #[inline]
     fn max_output_tokens(&self) -> Option<u32> {
-        self.info().max_output_tokens.map(|n| n.get())
+        self.info().max_output_tokens.map(std::num::NonZeroU32::get)
     }
 
     /// Check if the model supports vision
@@ -57,7 +57,7 @@ pub trait CandleModel: Send + Sync + std::fmt::Debug + 'static {
         self.info().has_streaming()
     }
 
-    /// Check if the model requires max_tokens to be specified
+    /// Check if the model requires `max_tokens` to be specified
     #[inline]
     fn requires_max_tokens(&self) -> bool {
         self.info().requires_max_tokens()
@@ -69,13 +69,13 @@ pub trait CandleModel: Send + Sync + std::fmt::Debug + 'static {
         self.info().model_id()
     }
 
-    /// Get the HuggingFace repository URL for automatic model downloads
+    /// Get the `HuggingFace` repository URL for automatic model downloads
     #[inline]
     fn hf_repo_url(&self) -> &'static str {
         self.info().hf_repo_url()
     }
 
-    /// Get the model's quantization format (e.g., "Q4_0", "Q5_0", "F16")
+    /// Get the model's quantization format (e.g., "`Q4_0`", "`Q5_0`", "F16")
     #[inline]
     fn quantization(&self) -> &'static str {
         self.info().quantization()

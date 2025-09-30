@@ -46,6 +46,12 @@ pub fn get_candle_command_executor() -> Option<CommandExecutor> {
 }
 
 /// Parse Candle command using global executor - PURE SYNC (no futures)
+///
+/// # Errors
+///
+/// Returns `CandleCommandError` if:
+/// - Candle command executor is not initialized
+/// - Command parsing fails
 pub fn parse_candle_command(input: &str) -> CommandResult<ImmutableChatCommand> {
     if let Some(executor) = get_candle_command_executor() {
         executor

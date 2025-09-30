@@ -33,7 +33,7 @@ static TOOL_STATS: LazyLock<CachePadded<AtomicUsize>> =
     LazyLock::new(|| CachePadded::new(AtomicUsize::new(0)));
 
 /// Lock-free result queue for aggregation
-static RESULT_QUEUE: LazyLock<SegQueue<MemoryNode>> = LazyLock::new(|| SegQueue::new());
+static RESULT_QUEUE: LazyLock<SegQueue<MemoryNode>> = LazyLock::new(SegQueue::new);
 
 /// Zero-allocation memory tool with lock-free cognitive search
 #[derive(Debug, Clone)]

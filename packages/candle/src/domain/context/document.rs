@@ -89,7 +89,7 @@ pub enum CandleDocumentMediaType {
     TXT,
     /// Rich Text Format
     RTF,
-    /// OpenDocument Text format
+    /// `OpenDocument` Text format
     ODT,
     /// JSON document format
     Json,

@@ -1,7 +1,7 @@
 //! Typing indicator system with lock-free atomic operations
 //!
 //! This module provides zero-allocation typing state management using atomic operations,
-//! crossbeam-skiplist for concurrent access, and AsyncStream integration for blazing-fast
+//! crossbeam-skiplist for concurrent access, and `AsyncStream` integration for blazing-fast
 //! performance without any locking mechanisms.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -123,6 +123,7 @@ impl TypingState {
     /// Get total typing duration in seconds
     #[inline]
     #[allow(dead_code)] // Statistics API method
+    #[allow(clippy::cast_precision_loss)] // Acceptable for duration conversion
     pub fn total_typing_duration_seconds(&self) -> f64 {
         self.total_typing_duration_nanos() as f64 / 1_000_000_000.0
     }
@@ -233,7 +234,7 @@ impl TypingIndicator {
         user_id: String,
         session_id: String,
     ) -> AsyncStream<RealTimeEvent> {
-        let key: String = format!("{user_id}:{session_id}").into();
+        let key = format!("{user_id}:{session_id}");
         let typing_states = self.typing_states.clone();
         let event_broadcaster = self.event_broadcaster.clone();
         let active_users = self.active_users.clone();
@@ -267,7 +268,7 @@ impl TypingIndicator {
         user_id: String,
         session_id: String,
     ) -> AsyncStream<RealTimeEvent> {
-        let key: String = format!("{user_id}:{session_id}").into();
+        let key = format!("{user_id}:{session_id}");
         let typing_states = self.typing_states.clone();
         let event_broadcaster = self.event_broadcaster.clone();
         let typing_events = self.typing_events.clone();
@@ -532,6 +533,7 @@ pub struct TypingCleanupEvent {
 impl TypingCleanupEvent {
     /// Get cleanup duration in seconds
     #[inline]
+    #[allow(clippy::cast_precision_loss)] // Acceptable for duration conversion
     pub fn cleanup_duration_seconds(&self) -> f64 {
         self.cleanup_duration_nanos as f64 / 1_000_000_000.0
     }

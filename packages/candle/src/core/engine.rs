@@ -143,6 +143,7 @@ impl EngineConfig {
     }
 
     /// Set API key
+    #[must_use]
     #[inline]
     pub fn with_api_key(mut self, api_key: impl Into<String>) -> Self {
         self.api_key = Some(api_key.into());
@@ -150,6 +151,7 @@ impl EngineConfig {
     }
 
     /// Set timeout in seconds
+    #[must_use]
     #[inline]
     pub fn with_timeout(mut self, timeout_seconds: u64) -> Self {
         self.timeout_seconds = timeout_seconds;
@@ -157,6 +159,7 @@ impl EngineConfig {
     }
 
     /// Set max tokens
+    #[must_use]
     #[inline]
     pub fn with_max_tokens(mut self, max_tokens: u32) -> Self {
         self.max_tokens = Some(max_tokens);
@@ -164,6 +167,7 @@ impl EngineConfig {
     }
 
     /// Set temperature (clamped to valid range)
+    #[must_use]
     #[inline]
     pub fn with_temperature(mut self, temperature: f32) -> Self {
         self.temperature = Some(temperature.clamp(0.0, 1.0));
@@ -171,6 +175,7 @@ impl EngineConfig {
     }
 
     /// Enable streaming responses
+    #[must_use]
     #[inline]
     pub fn with_streaming(mut self) -> Self {
         self.enable_streaming = true;
@@ -178,6 +183,7 @@ impl EngineConfig {
     }
 
     /// Set custom endpoint URL
+    #[must_use]
     #[inline]
     pub fn with_endpoint(mut self, endpoint_url: impl Into<String>) -> Self {
         self.endpoint_url = Some(endpoint_url.into());
@@ -240,6 +246,7 @@ impl<'a> CompletionRequest<'a> {
     }
 
     /// Set system prompt
+    #[must_use]
     #[inline]
     pub fn with_system_prompt(mut self, system_prompt: &'a str) -> Self {
         self.system_prompt = Some(system_prompt);
@@ -247,6 +254,7 @@ impl<'a> CompletionRequest<'a> {
     }
 
     /// Set conversation history
+    #[must_use]
     #[inline]
     pub fn with_history(mut self, history: &'a [&'a str]) -> Self {
         self.conversation_history = history;
@@ -254,6 +262,7 @@ impl<'a> CompletionRequest<'a> {
     }
 
     /// Set available tools
+    #[must_use]
     #[inline]
     pub fn with_tools(mut self, tools: &'a [&'a str]) -> Self {
         self.tools = tools;
@@ -261,6 +270,7 @@ impl<'a> CompletionRequest<'a> {
     }
 
     /// Set metadata
+    #[must_use]
     #[inline]
     pub fn with_metadata(mut self, metadata: &'a str) -> Self {
         self.metadata = Some(metadata);

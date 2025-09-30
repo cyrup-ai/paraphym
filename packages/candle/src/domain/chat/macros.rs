@@ -360,7 +360,7 @@ impl MacroSystem {
     }
 
     /// Start recording a new macro
-    pub fn start_recording(&self, name: String, description: String) -> AsyncStream<MacroSessionId> {
+    pub fn start_recording(&self, name: String, description: &str) -> AsyncStream<MacroSessionId> {
         let session_id = Uuid::new_v4();
         let macro_id = Uuid::new_v4();
 
@@ -368,7 +368,7 @@ impl MacroSystem {
         let metadata = MacroMetadata {
             id: macro_id,
             name: name.clone(),
-            description: description.clone(),
+            description: description.to_string(),
             created_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default(),
@@ -435,6 +435,12 @@ impl MacroSystem {
     }
 
     /// Stop recording and save the macro
+    ///
+    /// # Errors
+    ///
+    /// Returns `MacroSystemError` if:
+    /// - Recording session with the given ID does not exist
+    /// - Macro cannot be saved
     pub fn stop_recording(&self, session_id: Uuid) -> Result<Uuid, MacroSystemError> {
         if let Some((_, session)) = self.recording_sessions.remove(&session_id) {
             let mut session = session; // make mutable
@@ -450,7 +456,7 @@ impl MacroSystem {
             // Create the macro
             let chat_macro = ChatMacro {
                 metadata: session.metadata.clone(),
-                actions: actions.into(),
+                actions,
                 variables: session.variables,
                 triggers: Vec::new(),
                 conditions: Vec::new(),
@@ -512,6 +518,12 @@ impl MacroSystem {
     }
 
     /// Start macro playback
+    ///
+    /// # Errors
+    ///
+    /// Returns `MacroSystemError` if:
+    /// - Macro with the given ID does not exist
+    /// - Playback session cannot be created
     pub fn start_playback(
         &self,
         macro_id: Uuid,
@@ -552,6 +564,12 @@ impl MacroSystem {
     }
 
     /// Execute the next action in a playback session
+    ///
+    /// # Errors
+    ///
+    /// Returns `MacroSystemError` if:
+    /// - Playback session with the given ID does not exist
+    /// - Action execution fails
     pub fn execute_next_action(
         &self,
         session_id: Uuid,
@@ -640,7 +658,7 @@ impl MacroSystem {
                 MacroAction::Wait { duration, .. } => Ok(ActionExecutionResult::Wait(*duration)),
                 MacroAction::SetVariable { name, value, .. } => {
                     let resolved_value = resolve_variables_sync(value, &context_vars);
-                    ctx.variables.insert(name.clone(), resolved_value.into());
+                    ctx.variables.insert(name.clone(), resolved_value);
                     Ok::<ActionExecutionResult, MacroSystemError>(ActionExecutionResult::Success)
                 }
                 MacroAction::Conditional {
@@ -661,7 +679,7 @@ impl MacroSystem {
                     };
 
                     // Execute conditional actions synchronously
-                    for action in actions_to_execute.iter() {
+                    for action in actions_to_execute {
                         match execute_action_sync(action, &mut ctx) {
                             Ok(ActionExecutionResult::Error(error)) => {
                                 let _ = sender.send(ActionExecutionResult::Error(error));
@@ -788,8 +806,8 @@ pub enum ActionExecutionResult {
 }
 
 impl MessageChunk for ActionExecutionResult {
-    fn bad_chunk(_error: String) -> Self {
-        ActionExecutionResult::Error(_error)
+    fn bad_chunk(error: String) -> Self {
+        ActionExecutionResult::Error(error)
     }
     
     fn error(&self) -> Option<&str> {
@@ -950,10 +968,10 @@ pub struct MacroExecutionResult {
 }
 
 impl MessageChunk for MacroExecutionResult {
-    fn bad_chunk(_error: String) -> Self {
+    fn bad_chunk(error: String) -> Self {
         MacroExecutionResult {
             success: false,
-            message: _error,
+            message: error,
             actions_executed: 0,
             execution_duration: Duration::from_secs(0),
             modified_variables: HashMap::new(),
@@ -962,10 +980,10 @@ impl MessageChunk for MacroExecutionResult {
     }
     
     fn error(&self) -> Option<&str> {
-        if !self.success {
-            Some(&self.message)
-        } else {
+        if self.success {
             None
+        } else {
+            Some(&self.message)
         }
     }
 }
@@ -1039,6 +1057,10 @@ impl MacroProcessor {
     }
 
     /// Register a macro
+    ///
+    /// # Errors
+    ///
+    /// Returns `MacroSystemError` if macro validation fails
     pub fn register_macro(&self, macro_def: ChatMacro) -> Result<(), MacroSystemError> {
         // Validate macro
         self.validate_macro(&macro_def)?;
@@ -1050,6 +1072,10 @@ impl MacroProcessor {
     }
 
     /// Unregister a macro
+    ///
+    /// # Errors
+    ///
+    /// Returns `MacroSystemError` if macro with the given ID does not exist
     pub fn unregister_macro(&self, macro_id: &Uuid) -> Result<(), MacroSystemError> {
         if self.macros.remove(macro_id).is_none() {
             return Err(MacroSystemError::MacroNotFound);
@@ -1254,6 +1280,10 @@ impl MacroProcessor {
     }
 
     /// Set a global variable that persists across macro executions
+    ///
+    /// # Errors
+    ///
+    /// Returns `MacroSystemError` if lock on variables cannot be acquired
     pub fn set_global_variable(
         &self,
         name: String,
@@ -1439,7 +1469,7 @@ impl From<MacroSessionId> for Uuid {
     }
 }
 
-/// Implementation of MessageChunk for MacroSessionId to enable streaming
+/// Implementation of `MessageChunk` for `MacroSessionId` to enable streaming
 impl MessageChunk for MacroSessionId {
     fn bad_chunk(_error: String) -> Self {
         // For errors, we'll generate a nil UUID and log the error
@@ -1453,7 +1483,7 @@ impl MessageChunk for MacroSessionId {
     }
 }
 
-/// Implementation of MessageChunk for MacroActionResult to enable streaming
+/// Implementation of `MessageChunk` for `MacroActionResult` to enable streaming
 impl MessageChunk for MacroActionResult {
     fn bad_chunk(_error: String) -> Self {
         // For action results, we just return the default unit result

@@ -431,6 +431,7 @@ impl EventFilter {
     }
 
     /// Filter by user ID
+    #[must_use]
     #[inline]
     pub fn user_id(mut self, user_id: String) -> Self {
         self.user_id = Some(user_id);
@@ -438,6 +439,7 @@ impl EventFilter {
     }
 
     /// Filter by session ID
+    #[must_use]
     #[inline]
     pub fn session_id(mut self, session_id: String) -> Self {
         self.session_id = Some(session_id);
@@ -445,6 +447,7 @@ impl EventFilter {
     }
 
     /// Filter by event types
+    #[must_use]
     #[inline]
     pub fn event_types(mut self, types: Vec<&'static str>) -> Self {
         self.event_types = Some(types);
@@ -452,6 +455,7 @@ impl EventFilter {
     }
 
     /// Filter by minimum notification level
+    #[must_use]
     #[inline]
     pub fn min_notification_level(mut self, level: NotificationLevel) -> Self {
         self.min_notification_level = Some(level);
@@ -459,6 +463,7 @@ impl EventFilter {
     }
 
     /// Filter by timestamp range
+    #[must_use]
     #[inline]
     pub fn timestamp_range(mut self, start: u64, end: u64) -> Self {
         self.timestamp_range = Some((start, end));

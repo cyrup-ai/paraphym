@@ -59,6 +59,15 @@ pub enum ParameterType {
 impl ParameterType {
     /// Validate a string value against this parameter type
     /// Returns validation result with zero allocation where possible
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleCommandError` if:
+    /// - Value cannot be parsed as the expected type (Integer, Float, Boolean, etc.)
+    /// - Duration format is invalid
+    /// - URL format is invalid
+    /// - File path is invalid or contains unsafe characters
+    /// - JSON value cannot be parsed
     #[inline]
     pub fn validate(&self, value: &str) -> ValidationResult {
         match self {
@@ -391,6 +400,13 @@ impl ParameterInfo {
     }
 
     /// Validate parameter value with comprehensive checking
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleCommandError` if:
+    /// - Type validation fails (via `parameter_type.validate()`)
+    /// - Value is required but empty
+    /// - Value doesn't match any of the allowed values (if specified)
     #[inline]
     pub fn validate(&self, value: &str) -> ValidationResult {
         // Type validation first
@@ -480,6 +496,12 @@ impl ParameterValidator {
     }
 
     /// Validate all parameters in a command with comprehensive error reporting
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleCommandError` if:
+    /// - Any required parameter is missing
+    /// - Any provided parameter fails validation via `ParameterInfo::validate()`
     #[inline]
     pub fn validate_all(&self, values: &HashMap<String, String>) -> ValidationResult {
         let mut errors = Vec::new();

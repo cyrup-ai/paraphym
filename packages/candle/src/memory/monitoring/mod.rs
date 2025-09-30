@@ -168,7 +168,7 @@ impl Monitor {
     /// All metric operations will succeed but do nothing. This method NEVER panics or exits.
     ///
     /// Uses comprehensive fallback strategies to ensure reliability in all scenarios.
-    #[inline(always)]
+    #[inline]
     fn create_disabled_monitor() -> Self {
         use prometheus::Registry;
 
@@ -407,7 +407,7 @@ impl Monitor {
     /// 6. Memory address-based names
     /// 7. Random identifier fallback
     /// 8. Emergency minimal configuration
-    #[inline(always)]
+    #[inline]
     fn create_bulletproof_counter_vec(base_name: &str) -> CounterVec {
         // Level 1: Try requested name with description
         if let Ok(counter) = CounterVec::new(
@@ -460,7 +460,7 @@ impl Monitor {
 
         // Level 7: Try thread-local identifier fallback
         std::thread_local! {
-            static COUNTER_ID: std::cell::Cell<u32> = std::cell::Cell::new(0);
+            static COUNTER_ID: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
         }
 
         let thread_id = COUNTER_ID.with(|id| {
@@ -486,7 +486,7 @@ impl Monitor {
     ///
     /// This method handles the extreme edge case where all normal metric creation fails.
     /// It provides a working CounterVec interface while gracefully degrading functionality.
-    #[inline(always)]
+    #[inline]
     fn create_emergency_counter_vec() -> CounterVec {
         // In emergency scenarios, we create a working metric that silently discards operations
         // The metric is valid but unregistered, so it doesn't affect monitoring infrastructure
@@ -560,7 +560,7 @@ impl Monitor {
     }
 
     /// Create emergency Counter as absolute fallback
-    #[inline(always)]
+    #[inline]
     #[allow(dead_code)]
     fn create_emergency_counter() -> Counter {
         use std::sync::OnceLock;
@@ -587,7 +587,7 @@ impl Monitor {
 
     /// Create emergency Gauge as absolute fallback
     #[allow(dead_code)]
-    #[inline(always)]
+    #[inline]
     fn create_emergency_gauge() -> Gauge {
         use std::sync::OnceLock;
         static EMERGENCY_GAUGE: OnceLock<Gauge> = OnceLock::new();
@@ -614,7 +614,7 @@ impl Monitor {
     /// Create emergency Histogram as absolute fallback
     #[allow(dead_code)]
     #[allow(dead_code)]
-    #[inline(always)]
+    #[inline]
     fn create_emergency_histogram() -> Histogram {
         use std::sync::OnceLock;
         static EMERGENCY_HISTOGRAM: OnceLock<Histogram> = OnceLock::new();
@@ -644,7 +644,7 @@ impl Monitor {
     /// Create emergency HistogramVec as absolute fallback
     #[allow(dead_code)]
     #[allow(dead_code)]
-    #[inline(always)]
+    #[inline]
     fn create_emergency_histogram_vec() -> HistogramVec {
         use std::sync::OnceLock;
         static EMERGENCY_HISTOGRAM_VEC: OnceLock<HistogramVec> = OnceLock::new();
@@ -677,7 +677,7 @@ impl Monitor {
     }
 
     /// Create a Gauge with bulletproof fallback strategy - NEVER panics
-    #[inline(always)]
+    #[inline]
     fn create_bulletproof_gauge(base_name: &str) -> Gauge {
         // Level 1: Try requested name with description
         if let Ok(gauge) = Gauge::new(base_name, "Disabled monitoring metric") {
@@ -703,7 +703,7 @@ impl Monitor {
     }
 
     /// Create a Histogram with bulletproof fallback strategy - NEVER panics
-    #[inline(always)]
+    #[inline]
     fn create_bulletproof_histogram(base_name: &str) -> Histogram {
         // Level 1: Try requested name with description
         if let Ok(histogram) = Histogram::with_opts(prometheus::HistogramOpts::new(
@@ -733,7 +733,7 @@ impl Monitor {
     }
 
     /// Create a GaugeVec with bulletproof fallback strategy - NEVER panics
-    #[inline(always)]
+    #[inline]
     fn create_bulletproof_gauge_vec(base_name: &str) -> GaugeVec {
         // Level 1: Try requested name with description
         if let Ok(gauge) = GaugeVec::new(
@@ -762,7 +762,7 @@ impl Monitor {
     }
 
     /// Create a HistogramVec with bulletproof fallback strategy - NEVER panics
-    #[inline(always)]
+    #[inline]
     fn create_bulletproof_histogram_vec(base_name: &str) -> HistogramVec {
         // Level 1: Try requested name with description
         if let Ok(histogram) = HistogramVec::new(

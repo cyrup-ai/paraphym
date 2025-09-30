@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 /// LLM provider enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum LLMProvider {
-    /// OpenAI GPT models
+    /// `OpenAI` GPT models
     OpenAI,
     /// Anthropic Claude models  
     Anthropic,
@@ -67,42 +67,49 @@ impl LLMConfig {
     }
 
     /// Enable streaming responses
+    #[must_use]
     pub fn with_streaming(mut self, streaming: bool) -> Self {
         self.streaming = streaming;
         self
     }
 
     /// Set API endpoint
+    #[must_use]
     pub fn with_endpoint(mut self, endpoint: impl Into<String>) -> Self {
         self.endpoint = Some(endpoint.into());
         self
     }
 
     /// Set API key
+    #[must_use]
     pub fn with_api_key(mut self, api_key: impl Into<String>) -> Self {
         self.api_key = Some(api_key.into());
         self
     }
 
     /// Set maximum tokens
+    #[must_use]
     pub fn with_max_tokens(mut self, max_tokens: u32) -> Self {
         self.max_tokens = max_tokens;
         self
     }
 
     /// Set temperature
+    #[must_use]
     pub fn with_temperature(mut self, temperature: f64) -> Self {
         self.temperature = temperature;
         self
     }
 
     /// Set timeout
+    #[must_use]
     pub fn with_timeout_ms(mut self, timeout_ms: u64) -> Self {
         self.timeout_ms = timeout_ms;
         self
     }
 
     /// Set max retries
+    #[must_use]
     pub fn with_max_retries(mut self, max_retries: u32) -> Self {
         self.max_retries = max_retries;
         self

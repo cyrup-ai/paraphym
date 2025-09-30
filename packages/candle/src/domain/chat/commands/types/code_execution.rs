@@ -542,6 +542,7 @@ impl CodeExecutionResult {
     }
 
     /// Get execution duration as human readable string
+    #[allow(clippy::cast_precision_loss)] // Acceptable for display formatting
     #[inline]
     pub fn duration_human(&self) -> String {
         let duration_us = self.duration_us;
@@ -764,10 +765,10 @@ pub struct ValidationConfig {
     pub max_call_depth: u32,
 }
 
-impl ValidationConfig {
+impl Default for ValidationConfig {
     /// Create default validation configuration
     #[inline]
-    pub fn default() -> Self {
+    fn default() -> Self {
         Self {
             max_code_size_bytes: 64 * 1024, // 64KB
             prohibited_patterns: vec![
@@ -793,6 +794,9 @@ impl ValidationConfig {
             max_call_depth: 50,
         }
     }
+}
+
+impl ValidationConfig {
 
     /// Create secure Python validation configuration
     #[inline]
@@ -991,6 +995,13 @@ impl ValidationConfig {
     }
 
     /// Validate code against this configuration
+    ///
+    /// # Errors
+    ///
+    /// Returns `ValidationError` if:
+    /// - Code size exceeds `max_code_size_bytes`
+    /// - Security scanning is enabled and prohibited patterns are found
+    /// - Language-specific validation fails
     #[inline]
     pub fn validate_code(&self, code: &str, language: &CodeLanguage) -> Result<(), ValidationError> {
         // Check code size
@@ -1111,10 +1122,10 @@ pub struct ResourceLimits {
     pub max_processes: u32,
 }
 
-impl ResourceLimits {
+impl Default for ResourceLimits {
     /// Create default resource limits
     #[inline]
-    pub fn default() -> Self {
+    fn default() -> Self {
         Self {
             max_execution_time_seconds: 30,
             max_memory_bytes: 128 * 1024 * 1024, // 128MB
@@ -1125,6 +1136,9 @@ impl ResourceLimits {
             max_processes: 1,
         }
     }
+}
+
+impl ResourceLimits {
 
     /// Create resource limits for analysis workloads
     #[inline]
@@ -1183,6 +1197,12 @@ impl ResourceLimits {
     }
 
     /// Validate execution request against these limits
+    ///
+    /// # Errors
+    ///
+    /// Returns `ValidationError` if:
+    /// - Request timeout exceeds `max_execution_time_seconds`
+    /// - Request memory limit exceeds `max_memory_bytes`
     #[inline]
     pub fn validate_request(&self, request: &CodeExecutionRequest) -> Result<(), ValidationError> {
         if request.timeout_seconds > self.max_execution_time_seconds {
