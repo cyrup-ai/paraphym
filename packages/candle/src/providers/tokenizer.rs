@@ -465,7 +465,7 @@ mod tests {
     fn test_tokenizer_config_default() {
         let config = CandleTokenizerConfig::default();
         assert_eq!(config.max_length, 4096);
-        assert_eq!(config.add_special_tokens, true);
+        assert!(config.add_special_tokens);
         assert_eq!(config.eos_token_id, Some(2));
     }
 

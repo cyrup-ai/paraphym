@@ -20,6 +20,7 @@ use crate::domain::model::error::{CandleModelError, CandleResult};
 /// that YAML format exactly. `CandleModelInfo` is the single source of truth for model data.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[must_use = "CandleModelInfo should be used to make informed decisions about model selection"]
+#[allow(clippy::struct_excessive_bools)] // YAML deserialization; bools are independent feature flags from external source
 pub struct CandleModelInfo {
     /// The name of the provider (e.g., "candle-kimi", "candle-qwen")
     pub provider_name: &'static str,

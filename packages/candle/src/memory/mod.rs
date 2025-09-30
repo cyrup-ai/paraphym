@@ -5,8 +5,8 @@
 pub mod api;
 pub mod cognitive;
 pub mod constants;
+pub mod core;
 pub mod graph;
-pub mod memory;
 pub mod migration;
 pub mod monitoring;
 pub mod query;
@@ -20,18 +20,18 @@ pub mod vector;
 #[cfg(feature = "api")]
 pub use api::APIServer;
 
-// Re-export memory submodules for backward compatibility
-pub use self::memory::{
+// Re-export core memory submodules for backward compatibility
+pub use self::core::{
     MemoryMetadata, MemoryNode, SurrealDBMemoryManager, MemoryRelationship,
     manager::{MemoryManager, coordinator::MemoryCoordinator},
     primitives, filter, repository, storage, ops,
 };
-pub use self::memory::SurrealDBMemoryManager as SurrealMemoryManager;
+pub use self::core::SurrealDBMemoryManager as SurrealMemoryManager;
 
 // Re-export manager module for compatibility
-pub use self::memory::manager;
+pub use self::core::manager;
 // Re-export MemoryType from memory primitives (the actual implementation)
-pub use self::memory::primitives::types::MemoryType;
+pub use self::core::primitives::types::MemoryType;
 #[cfg(feature = "api")]
 pub use utils::config::APIConfig;
 pub use utils::config::MemoryConfig;

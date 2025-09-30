@@ -4,7 +4,7 @@
 use std::sync::Arc;
 use serde_json::Value;
 
-use crate::memory::memory_manager::MemoryManager;
+use crate::memory::core_manager::MemoryManager;
 use crate::memory::vector::vector_search::{VectorSearch, SearchOptions};
 // Use domain types for traits and provider clients for completion services
 use paraphym_domain::{

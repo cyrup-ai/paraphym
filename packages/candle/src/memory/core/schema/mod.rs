@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::memory::memory::primitives::types::MemoryTypeEnum;
+use crate::memory::core::primitives::types::MemoryTypeEnum;
 use crate::memory::utils; // For utility functions like generate_id and current_timestamp_ms
 
 /// Represents a memory node in the system.

@@ -328,7 +328,7 @@ impl SurrealDBMemoryManager {
 
         MemoryNode {
             id,
-            content: crate::memory::memory::primitives::types::MemoryContent::new(&schema.content),
+            content: crate::memory::core::primitives::types::MemoryContent::new(&schema.content),
             memory_type: schema.memory_type,
             created_at: schema.metadata.created_at,
             updated_at: schema.metadata.last_accessed_at,

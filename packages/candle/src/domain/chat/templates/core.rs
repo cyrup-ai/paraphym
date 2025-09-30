@@ -385,6 +385,7 @@ impl CompiledTemplate {
         self.render_ast(&self.ast, context)
     }
 
+    #[allow(clippy::only_used_in_recursion)]
     fn render_ast(&self, ast: &TemplateAst, context: &TemplateContext) -> TemplateResult<String> {
         match ast {
             TemplateAst::Text(text) => Ok(text.clone()),

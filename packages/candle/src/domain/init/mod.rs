@@ -4,7 +4,7 @@ pub mod globals;
 
 use std::sync::{Arc, LazyLock};
 
-use crate::memory::memory::manager::surreal::SurrealDBMemoryManager;
+use crate::memory::core::manager::surreal::SurrealDBMemoryManager;
 use crate::domain::memory::MemoryConfig;
 use surrealdb::engine::any;
 

@@ -16,8 +16,8 @@ pub mod config;
 pub use config::llm::{LLMConfig, LLMProvider};
 
 // Re-export real memory manager from packages/memory
-pub use crate::memory::memory::manager::surreal::SurrealDBMemoryManager;
-pub use crate::memory::memory::manager::MemoryManager;
+pub use crate::memory::core::manager::surreal::SurrealDBMemoryManager;
+pub use crate::memory::core::manager::MemoryManager;
 
 /// SIMD-optimized vector operations for high-performance memory processing
 pub mod ops;
@@ -69,7 +69,7 @@ pub use config::{DatabaseConfig, MemoryConfig, VectorStoreConfig};
 // Re-export paraphym_memory types for convenience
 // Removed unexpected cfg condition "paraphym-memory" - feature does not exist
 // Re-export memory primitives from packages/memory for backward compatibility
-pub use crate::memory::memory::primitives::MemoryNode;
+pub use crate::memory::core::primitives::MemoryNode;
 pub use ops::{
     CpuArchitecture, CpuFeatures, Op, EMBEDDING_DIMENSION, SIMD_WIDTH, SMALL_EMBEDDING_DIMENSION,
 };

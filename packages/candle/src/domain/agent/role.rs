@@ -18,7 +18,7 @@ use sweet_mcp_type::ToolInfo;
 use sweet_mcp_type::JsonValue as SweetJsonValue;
 use simd_json::value::owned::Object as JsonObject;
 use ystream::AsyncStream;
-use crate::memory::memory::manager::MemoryManager;
+use crate::memory::core::manager::MemoryManager;
 use std::sync::Arc;
 use std::path::Path;
 

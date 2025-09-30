@@ -617,8 +617,7 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
                     let mut filters = std::collections::HashMap::new();
                     filters.insert("value".to_string(), json_value);
                     filters
-                },
-                ..Default::default()
+                }
             };
             
             let node_stream = db.query(&query, Some(options));

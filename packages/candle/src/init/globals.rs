@@ -14,7 +14,7 @@ use once_cell::sync::Lazy;
 use crate::domain::error::SimpleCircuitBreaker;
 // Temporarily disabled to break circular dependency
 // use crate::memory::{MemoryConfig, SurrealDBMemoryManager};
-// use crate::memory::memory::MemoryMetadata;
+// use crate::memory::core::MemoryMetadata;
 
 // Use stub types from memory::manager
 use crate::memory::manager::{MemoryConfig, SurrealDBMemoryManager};

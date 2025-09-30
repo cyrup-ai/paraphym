@@ -14,11 +14,11 @@ use crossbeam_utils::CachePadded;
 use crate::domain::error::SimpleCircuitBreaker;
 // Temporarily disabled to break circular dependency
 // use crate::memory::{MemoryConfig, SurrealDBMemoryManager};
-// use crate::memory::memory::MemoryMetadata;
+// use crate::memory::core::MemoryMetadata;
 
 // Use stub types from memory::manager
 use crate::domain::memory::MemoryConfig;
-use crate::memory::memory::manager::surreal::SurrealDBMemoryManager;
+use crate::memory::core::manager::surreal::SurrealDBMemoryManager;
 
 /// Global configuration cache with copy-on-write semantics for zero-allocation access
 pub static CONFIG_CACHE: LazyLock<ArcSwap<MemoryConfig>> =

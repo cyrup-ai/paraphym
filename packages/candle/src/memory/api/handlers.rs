@@ -14,7 +14,7 @@ use futures_util::StreamExt;
 use super::models::{CreateMemoryRequest, HealthResponse, MemoryResponse, SearchRequest};
 use crate::memory::SurrealMemoryManager;
 use crate::memory::manager::surreal::MemoryManager;
-use crate::memory::memory::primitives::node::MemoryNode;
+use crate::memory::core::primitives::node::MemoryNode;
 
 /// Create a new memory
 pub async fn create_memory(
@@ -27,7 +27,7 @@ pub async fn create_memory(
     }
 
     // Create memory node from request
-    let content = crate::memory::memory::primitives::types::MemoryContent::new(&request.content);
+    let content = crate::memory::core::primitives::types::MemoryContent::new(&request.content);
     let memory_node = MemoryNode::new(request.memory_type, content);
 
     // Create memory using the manager
@@ -97,7 +97,7 @@ pub async fn update_memory(
 
     // Update memory using the manager
     // Create updated memory node
-    let content = crate::memory::memory::primitives::types::MemoryContent::new(&request.content);
+    let content = crate::memory::core::primitives::types::MemoryContent::new(&request.content);
     let updated_memory = MemoryNode::with_id(id.clone(), request.memory_type, content);
 
     let pending_memory = memory_manager.update_memory(updated_memory);

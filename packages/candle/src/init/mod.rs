@@ -3,7 +3,7 @@
 pub mod globals;
 
 use std::sync::Arc;
-use crate::memory::memory::manager::surreal::SurrealDBMemoryManager;
+use crate::memory::core::manager::surreal::SurrealDBMemoryManager;
 use crate::memory::utils::config::MemoryConfig;
 use surrealdb::{Surreal, engine::any::{self, Any}};
 use crate::core::DomainInitError;

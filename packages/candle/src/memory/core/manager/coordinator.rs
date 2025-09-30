@@ -13,13 +13,13 @@ use crate::memory::{
     MemoryMetadata, MemoryRelationship, 
     repository::MemoryRepository,
 };
-use crate::memory::memory::ops::filter::MemoryFilter;
+use crate::memory::core::ops::filter::MemoryFilter;
 use crate::domain::memory::primitives::{
     types::MemoryTypeEnum,
     node::MemoryNode,
 };
 use crate::memory::utils::{Error, Result};
-use crate::memory::memory::manager::surreal::{SurrealDBMemoryManager, MemoryManager};
+use crate::memory::core::manager::surreal::{SurrealDBMemoryManager, MemoryManager};
 use futures_util::StreamExt;
 
 /// High-level memory manager that uses SurrealDB's native capabilities directly
@@ -102,7 +102,7 @@ impl MemoryCoordinator {
 
         // Update content if provided
         if let Some(new_content) = content {
-            updated_memory.content = crate::memory::memory::primitives::types::MemoryContent::new(&new_content);
+            updated_memory.content = crate::memory::core::primitives::types::MemoryContent::new(&new_content);
 
             // Re-generate embedding for updated content
             let embedding = self.generate_embedding(&new_content).await?;
@@ -171,22 +171,22 @@ impl MemoryCoordinator {
                     if let Some(memory_types) = &filter.memory_types {
                         let domain_memory_type = memory.memory_type();
                         let converted_type = match domain_memory_type {
-                            crate::domain::memory::primitives::types::MemoryTypeEnum::Semantic => crate::memory::memory::primitives::types::MemoryTypeEnum::Semantic,
-                            crate::domain::memory::primitives::types::MemoryTypeEnum::Episodic => crate::memory::memory::primitives::types::MemoryTypeEnum::Episodic,
-                            crate::domain::memory::primitives::types::MemoryTypeEnum::Procedural => crate::memory::memory::primitives::types::MemoryTypeEnum::Procedural,
-                            crate::domain::memory::primitives::types::MemoryTypeEnum::Working => crate::memory::memory::primitives::types::MemoryTypeEnum::Working,
-                            crate::domain::memory::primitives::types::MemoryTypeEnum::LongTerm => crate::memory::memory::primitives::types::MemoryTypeEnum::LongTerm,
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::Semantic => crate::memory::core::primitives::types::MemoryTypeEnum::Semantic,
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::Episodic => crate::memory::core::primitives::types::MemoryTypeEnum::Episodic,
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::Procedural => crate::memory::core::primitives::types::MemoryTypeEnum::Procedural,
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::Working => crate::memory::core::primitives::types::MemoryTypeEnum::Working,
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::LongTerm => crate::memory::core::primitives::types::MemoryTypeEnum::LongTerm,
                             // Map additional domain variants to closest memory system equivalents
-                            crate::domain::memory::primitives::types::MemoryTypeEnum::Fact => crate::memory::memory::primitives::types::MemoryTypeEnum::Semantic,
-                            crate::domain::memory::primitives::types::MemoryTypeEnum::Episode => crate::memory::memory::primitives::types::MemoryTypeEnum::Episodic,
-                            crate::domain::memory::primitives::types::MemoryTypeEnum::Declarative => crate::memory::memory::primitives::types::MemoryTypeEnum::Semantic,
-                            crate::domain::memory::primitives::types::MemoryTypeEnum::Implicit => crate::memory::memory::primitives::types::MemoryTypeEnum::Procedural,
-                            crate::domain::memory::primitives::types::MemoryTypeEnum::Explicit => crate::memory::memory::primitives::types::MemoryTypeEnum::Semantic,
-                            crate::domain::memory::primitives::types::MemoryTypeEnum::Contextual => crate::memory::memory::primitives::types::MemoryTypeEnum::Semantic,
-                            crate::domain::memory::primitives::types::MemoryTypeEnum::Temporal => crate::memory::memory::primitives::types::MemoryTypeEnum::Episodic,
-                            crate::domain::memory::primitives::types::MemoryTypeEnum::Spatial => crate::memory::memory::primitives::types::MemoryTypeEnum::Episodic,
-                            crate::domain::memory::primitives::types::MemoryTypeEnum::Associative => crate::memory::memory::primitives::types::MemoryTypeEnum::Semantic,
-                            crate::domain::memory::primitives::types::MemoryTypeEnum::Emotional => crate::memory::memory::primitives::types::MemoryTypeEnum::Episodic,
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::Fact => crate::memory::core::primitives::types::MemoryTypeEnum::Semantic,
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::Episode => crate::memory::core::primitives::types::MemoryTypeEnum::Episodic,
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::Declarative => crate::memory::core::primitives::types::MemoryTypeEnum::Semantic,
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::Implicit => crate::memory::core::primitives::types::MemoryTypeEnum::Procedural,
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::Explicit => crate::memory::core::primitives::types::MemoryTypeEnum::Semantic,
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::Contextual => crate::memory::core::primitives::types::MemoryTypeEnum::Semantic,
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::Temporal => crate::memory::core::primitives::types::MemoryTypeEnum::Episodic,
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::Spatial => crate::memory::core::primitives::types::MemoryTypeEnum::Episodic,
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::Associative => crate::memory::core::primitives::types::MemoryTypeEnum::Semantic,
+                            crate::domain::memory::primitives::types::MemoryTypeEnum::Emotional => crate::memory::core::primitives::types::MemoryTypeEnum::Episodic,
                         };
                         if !memory_types.contains(&converted_type) {
                             return false;
@@ -285,8 +285,8 @@ impl MemoryCoordinator {
     }
 
     /// Convert domain MemoryNode to memory MemoryNode for storage compatibility
-    fn convert_domain_to_memory_node(&self, domain_node: &crate::domain::memory::primitives::node::MemoryNode) -> crate::memory::memory::primitives::node::MemoryNode {
-        use crate::memory::memory::primitives::{
+    fn convert_domain_to_memory_node(&self, domain_node: &crate::domain::memory::primitives::node::MemoryNode) -> crate::memory::core::primitives::node::MemoryNode {
+        use crate::memory::core::primitives::{
             node::MemoryNode as MemoryMemoryNode,
             metadata::MemoryMetadata as MemoryMemoryMetadata,
             types::MemoryContent as MemoryMemoryContent,
@@ -359,7 +359,7 @@ impl MemoryCoordinator {
     }
 
     /// Convert memory MemoryNode to domain MemoryNode for API compatibility
-    fn convert_memory_to_domain_node(&self, memory_node: &crate::memory::memory::primitives::node::MemoryNode) -> Result<crate::domain::memory::primitives::node::MemoryNode> {
+    fn convert_memory_to_domain_node(&self, memory_node: &crate::memory::core::primitives::node::MemoryNode) -> Result<crate::domain::memory::primitives::node::MemoryNode> {
         use uuid::Uuid;
         use crate::domain::memory::primitives::{
             node::{MemoryNode as DomainMemoryNode, MemoryNodeMetadata, AlignedEmbedding},
@@ -368,11 +368,11 @@ impl MemoryCoordinator {
 
         // Convert memory type - map to closest equivalent
         let domain_memory_type = match memory_node.memory_type {
-            crate::memory::memory::primitives::types::MemoryTypeEnum::Semantic => DomainMemoryTypeEnum::Semantic,
-            crate::memory::memory::primitives::types::MemoryTypeEnum::Episodic => DomainMemoryTypeEnum::Episodic,
-            crate::memory::memory::primitives::types::MemoryTypeEnum::Procedural => DomainMemoryTypeEnum::Procedural,
-            crate::memory::memory::primitives::types::MemoryTypeEnum::Working => DomainMemoryTypeEnum::Working,
-            crate::memory::memory::primitives::types::MemoryTypeEnum::LongTerm => DomainMemoryTypeEnum::LongTerm,
+            crate::memory::core::primitives::types::MemoryTypeEnum::Semantic => DomainMemoryTypeEnum::Semantic,
+            crate::memory::core::primitives::types::MemoryTypeEnum::Episodic => DomainMemoryTypeEnum::Episodic,
+            crate::memory::core::primitives::types::MemoryTypeEnum::Procedural => DomainMemoryTypeEnum::Procedural,
+            crate::memory::core::primitives::types::MemoryTypeEnum::Working => DomainMemoryTypeEnum::Working,
+            crate::memory::core::primitives::types::MemoryTypeEnum::LongTerm => DomainMemoryTypeEnum::LongTerm,
         };
 
         // Create domain content

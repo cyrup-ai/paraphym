@@ -158,18 +158,55 @@ pub enum KeyDerivationMethod {
 }
 
 /// Memory access permissions
+/// Memory access permissions using bitflags
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryAccessPermissions {
-    /// Allow read access
-    pub read: bool,
-    /// Allow write access
-    pub write: bool,
-    /// Allow delete access
-    pub delete: bool,
-    /// Allow admin access
-    pub admin: bool,
+    /// Permission flags
+    pub flags: MemoryPermissionFlags,
     /// Allowed user roles
     pub allowed_roles: Vec<String>,
+}
+
+/// Permission flags for memory access
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum MemoryPermissionFlags {
+    /// No permissions
+    None = 0,
+    /// Read-only access
+    Read = 1,
+    /// Read and write access
+    ReadWrite = 2,
+    /// Read, write, and delete access
+    ReadWriteDelete = 3,
+    /// Full admin access (all permissions)
+    Admin = 4,
+}
+
+impl MemoryPermissionFlags {
+    /// Check if has read permission
+    #[inline]
+    pub const fn can_read(self) -> bool {
+        !matches!(self, Self::None)
+    }
+
+    /// Check if has write permission
+    #[inline]
+    pub const fn can_write(self) -> bool {
+        matches!(self, Self::ReadWrite | Self::ReadWriteDelete | Self::Admin)
+    }
+
+    /// Check if has delete permission
+    #[inline]
+    pub const fn can_delete(self) -> bool {
+        matches!(self, Self::ReadWriteDelete | Self::Admin)
+    }
+
+    /// Check if has admin permission
+    #[inline]
+    pub const fn is_admin(self) -> bool {
+        matches!(self, Self::Admin)
+    }
 }
 
 impl Default for MemoryPerformanceConfig {
@@ -231,10 +268,7 @@ impl Default for MemoryMonitoringConfig {
 impl Default for MemoryAccessPermissions {
     fn default() -> Self {
         Self {
-            read: true,
-            write: true,
-            delete: false,
-            admin: false,
+            flags: MemoryPermissionFlags::ReadWrite,
             allowed_roles: vec!["user".to_string()],
         }
     }

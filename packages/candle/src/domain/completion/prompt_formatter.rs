@@ -6,7 +6,7 @@
 use cyrup_sugars::ZeroOneOrMany;
 use crate::domain::chat::message::types::CandleMessage as ChatMessage;
 use crate::domain::context::CandleDocument as Document;
-use crate::memory::memory::ops::retrieval::RetrievalResult;
+use crate::memory::core::ops::retrieval::RetrievalResult;
 
 /// Prompt formatter that creates sectioned prompts distinguishing memories from context
 #[derive(Debug, Clone)]
@@ -245,7 +245,7 @@ mod tests {
         let memory = RetrievalResult {
             id: "mem1".to_string(),
             score: 0.85,
-            method: crate::memory::memory::ops::retrieval::RetrievalMethod::Semantic,
+            method: crate::memory::core::ops::retrieval::RetrievalMethod::Semantic,
             metadata: {
                 let mut meta = HashMap::new();
                 meta.insert("content".to_string(), serde_json::Value::String("User prefers coffee over tea".to_string()));

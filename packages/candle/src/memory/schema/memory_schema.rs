@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use surrealdb::RecordId;
 use uuid::Uuid;
 
-use crate::memory::memory::primitives::types::MemoryTypeEnum;
+use crate::memory::core::primitives::types::MemoryTypeEnum;
 
 /// Database schema for memory nodes
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -24,10 +24,10 @@ use crate::domain::completion::types::CandleCompletionParams;
 use crate::domain::context::chunk::CandleCompletionChunk;
 use std::num::{NonZeroU64, NonZeroU8};
 
-use crate::memory::memory::primitives::types::{MemoryTypeEnum, MemoryContent};
-use crate::memory::memory::{MemoryNode};
-use crate::memory::memory::manager::surreal::MemoryManager;
-use crate::memory::memory::ops::retrieval::RetrievalResult;
+use crate::memory::core::primitives::types::{MemoryTypeEnum, MemoryContent};
+use crate::memory::core::{MemoryNode};
+use crate::memory::core::manager::surreal::MemoryManager;
+use crate::memory::core::ops::retrieval::RetrievalResult;
 use crate::domain::memory::{Error as MemoryError};
 use crate::domain::context::chunk::CandleCollectionChunk;
 use crate::domain::context::CandleDocument as Document;
@@ -370,7 +370,7 @@ impl CandleAgentRoleImpl {
                         let retrieval_result = RetrievalResult {
                             id: memory_node.id.clone(),
                             score: 0.8, // Good relevance from content search
-                            method: crate::memory::memory::ops::retrieval::RetrievalMethod::Semantic,
+                            method: crate::memory::core::ops::retrieval::RetrievalMethod::Semantic,
                             metadata: {
                                 let mut metadata = std::collections::HashMap::new();
                                 metadata.insert("content".to_string(), serde_json::Value::String(

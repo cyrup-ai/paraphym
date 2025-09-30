@@ -253,7 +253,8 @@ impl ParameterType {
             "m" => num * 60,
             "h" => num * 3600,
             "d" => num * 86400,
-            "s" | _ => num, // seconds or any other defaults to seconds
+            "s" | "" => num, // seconds or empty defaults to seconds
+            _ => return None, // invalid unit
         })
     }
 

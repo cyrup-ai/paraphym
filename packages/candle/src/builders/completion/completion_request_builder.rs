@@ -13,7 +13,7 @@ use crate::domain::{
     model::{CandleValidationError as ValidationError},
 
 };
-use crate::memory::memory::ops::retrieval::RetrievalResult;
+use crate::memory::core::ops::retrieval::RetrievalResult;
 use sweet_mcp_type::ToolInfo;
 use cyrup_sugars::ZeroOneOrMany;
 

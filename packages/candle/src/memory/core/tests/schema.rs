@@ -2,7 +2,7 @@
 //! Tests for the memory schema.
 
 use chrono::Utc;
-use crate::memory::memory::primitives::types::MemoryTypeEnum;
+use crate::memory::core::primitives::types::MemoryTypeEnum;
 use crate::memory::schema::memory_schema::Memory;
 
 #[test]

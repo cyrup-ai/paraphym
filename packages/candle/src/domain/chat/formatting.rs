@@ -494,6 +494,10 @@ impl ImmutableColorScheme {
     ///     // ... other fields
     /// }.validated()?;
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `FormatError::ConfigurationError` if any color format is invalid
     #[inline]
     pub fn validated(self) -> FormatResult<Self> {
         self.validate()?;

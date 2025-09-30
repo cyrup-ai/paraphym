@@ -11,7 +11,7 @@ use crate::domain::context::CandleDocument as Document;
 use crate::domain::memory::config::memory::MemoryConfig as ComprehensiveMemoryConfig;
 use crate::domain::memory::MemoryConfig;
 use crate::domain::memory::{Error as MemoryError, MemoryTool, MemoryToolError};
-use crate::memory::memory::SurrealDBMemoryManager;
+use crate::memory::core::SurrealDBMemoryManager;
 use crate::domain::model::CandleModel as Model;
 // Tool data now comes from SweetMCP ToolInfo directly
 use cyrup_sugars::ZeroOneOrMany;

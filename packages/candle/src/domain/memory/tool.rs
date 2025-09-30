@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 
 // Removed unused import: serde_json::Value
 use super::{Error as MemoryError};
-use crate::memory::memory::{SurrealDBMemoryManager, MemoryNode, MemoryType};
+use crate::memory::core::{SurrealDBMemoryManager, MemoryNode, MemoryType};
 // Removed unused imports: AsyncStream, AsyncTask, spawn_async
 use crate::domain::error::ZeroAllocError;
 use crate::domain::agent::role::convert_serde_to_sweet_json;
