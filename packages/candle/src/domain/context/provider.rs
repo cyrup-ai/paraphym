@@ -477,9 +477,9 @@ pub struct CandleStreamingContextProcessor {
     event_sender: Option<AsyncStreamSender<CandleContextEvent>>,
 
     /// Performance thresholds
-    _max_processing_time_ms: u64,
-    _max_documents_per_context: usize,
-    _max_concurrent_contexts: usize,
+    max_processing_time_ms: u64,
+    max_documents_per_context: usize,
+    max_concurrent_contexts: usize,
 }
 
 impl std::fmt::Debug for CandleStreamingContextProcessor {
@@ -529,12 +529,12 @@ impl std::fmt::Debug for CandleStreamingContextProcessor {
                     .load(std::sync::atomic::Ordering::Relaxed),
             )
             .field("event_sender", &self.event_sender.is_some())
-            .field("max_processing_time_ms", &self._max_processing_time_ms)
+            .field("max_processing_time_ms", &self.max_processing_time_ms)
             .field(
                 "max_documents_per_context",
-                &self._max_documents_per_context,
+                &self.max_documents_per_context,
             )
-            .field("max_concurrent_contexts", &self._max_concurrent_contexts)
+            .field("max_concurrent_contexts", &self.max_concurrent_contexts)
             .finish()
     }
 }
@@ -553,9 +553,9 @@ impl CandleStreamingContextProcessor {
             total_documents_loaded: AtomicU64::new(0),
             total_processing_time_nanos: AtomicU64::new(0),
             event_sender: None,
-            _max_processing_time_ms: 30000, // 30 seconds default
-            _max_documents_per_context: 10000,
-            _max_concurrent_contexts: 100,
+            max_processing_time_ms: 30000, // 30 seconds default
+            max_documents_per_context: 10000,
+            max_concurrent_contexts: 100,
         }
     }
 

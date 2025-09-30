@@ -21,17 +21,17 @@ pub mod vector;
 pub use api::APIServer;
 
 // Re-export memory submodules for backward compatibility
-pub use memory::{
+pub use self::memory::{
     MemoryMetadata, MemoryNode, SurrealDBMemoryManager, MemoryRelationship,
     manager::{MemoryManager, coordinator::MemoryCoordinator},
     primitives, filter, repository, storage, ops,
 };
-pub use memory::SurrealDBMemoryManager as SurrealMemoryManager;
+pub use self::memory::SurrealDBMemoryManager as SurrealMemoryManager;
 
 // Re-export manager module for compatibility
-pub use memory::manager;
+pub use self::memory::manager;
 // Re-export MemoryType from memory primitives (the actual implementation)
-pub use memory::primitives::types::MemoryType;
+pub use self::memory::primitives::types::MemoryType;
 #[cfg(feature = "api")]
 pub use utils::config::APIConfig;
 pub use utils::config::MemoryConfig;

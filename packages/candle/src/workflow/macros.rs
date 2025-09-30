@@ -22,6 +22,7 @@
 /// - Binary tree structure for optimal parallel execution
 /// - Tuple flattening eliminates type complexity
 /// - Template specialization for concrete operation types
+///
 /// Public macro for ergonomic N-way parallel execution
 ///
 /// Creates a ParallelN combinator that executes all provided operations
@@ -66,7 +67,7 @@ macro_rules! parallel {
         {
             let mut parallel = $crate::workflow::parallel::ParallelN::new();
             $(
-                parallel = parallel.add($op);
+                parallel = parallel.add_operation($op);
             )*
             parallel
         }

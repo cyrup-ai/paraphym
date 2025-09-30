@@ -180,6 +180,12 @@ pub struct MemoryNodeStats {
     pub last_access_nanos: AtomicU64,
 }
 
+impl Default for MemoryNodeStats {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MemoryNodeStats {
     /// Create new stats with zero counters
     #[inline]

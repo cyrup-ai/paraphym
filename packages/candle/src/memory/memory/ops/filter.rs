@@ -168,10 +168,10 @@ impl MemoryFilter {
         }
 
         // Check importance range filter
-        if let Some((min, max)) = self.importance_range {
-            if memory.metadata.importance < min || memory.metadata.importance > max {
-                return false;
-            }
+        if let Some((min, max)) = self.importance_range
+            && (memory.metadata.importance < min || memory.metadata.importance > max)
+        {
+            return false;
         }
 
         // Check metadata filter

@@ -251,10 +251,14 @@ pub mod types {
                 } => {
                     let mut output = text.clone();
                     if let Some(reason) = finish_reason {
-                        output.push_str(&format!(" [{reason}]"));
+                        output.push_str(" [");
+                        output.push_str(reason);
+                        output.push(']');
                     }
                     if let Some(usage_info) = usage {
-                        output.push_str(&format!(" ({usage_info})"));
+                        output.push_str(" (");
+                        output.push_str(usage_info);
+                        output.push(')');
                     }
                     write!(f, "{output}")
                 }

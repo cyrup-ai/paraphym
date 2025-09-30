@@ -48,7 +48,7 @@ pub static CIRCUIT_BREAKER_LAST_RESET: std::sync::atomic::AtomicU64 =
 // Thread-local storage for configuration caching
 thread_local! {
     pub static LOCAL_CONFIG: std::cell::RefCell<Option<Arc<MemoryConfig>>> =
-        std::cell::RefCell::new(None);
+        const { std::cell::RefCell::new(None) };
 }
 
 /// Create default configuration for the domain (stub)

@@ -412,7 +412,7 @@ impl CandleCompletionModel for CandleKimiK2Provider {
                 .with_presence_penalty(0.0);
 
         // Format prompt
-        let _prompt_text = format!("User: {}\nAssistant: ", prompt.to_string());
+        let _prompt_text = format!("User: {}\nAssistant: ", prompt);
         let _max_tokens = params.max_tokens.map(|n| n.get()).unwrap_or(1000);
 
         // Create TextGenerator and perform local inference

@@ -718,7 +718,11 @@ impl ImmutableChatCommand {
             Self::Search { .. } | Self::Save { .. } => 2000,
             Self::Import { .. } => 10000,
             Self::Stats { .. } | Self::Load { .. } => 3000,
-            Self::Debug { .. } | Self::History { .. } | _ => 1000,
+            // All commands with default duration
+            Self::Debug { .. } | Self::History { .. } | Self::Config { .. } | Self::Template { .. } 
+            | Self::Macro { .. } | Self::Branch { .. } | Self::Session { .. } | Self::Tool { .. } 
+            | Self::Theme { .. } | Self::Settings { .. } | Self::Custom { .. } | Self::Copy { .. } 
+            | Self::Retry { .. } | Self::Undo { .. } => 1000,
         }
     }
 

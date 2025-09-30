@@ -457,10 +457,10 @@ impl LiveMessageStreamer {
     }
 
     /// Unsubscribe from live updates
-    pub fn unsubscribe(&self, subscriber_id: &String) -> AsyncStream<UnsubscribeResult> {
+    pub fn unsubscribe(&self, subscriber_id: &str) -> AsyncStream<UnsubscribeResult> {
         let subscribers = self.subscribers.clone();
         let subscriber_counter = self.subscriber_counter.clone();
-        let id = subscriber_id.clone();
+        let id = subscriber_id.to_string();
 
         AsyncStream::with_channel(move |sender| {
             let result = if subscribers.remove(&id).is_some() {
@@ -715,7 +715,7 @@ impl MessageChunk for UnsubscribeResult {
     fn error(&self) -> Option<&str> {
         match self {
             UnsubscribeResult::NotFound { subscriber_id } => Some(subscriber_id),
-            _ => None,
+            UnsubscribeResult::Success { .. } => None,
         }
     }
 }

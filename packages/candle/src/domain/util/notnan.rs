@@ -111,8 +111,8 @@ mod tests {
 
     #[test]
     fn test_notnan_into_inner() {
-        let val = 3.14;
+        let val = std::f32::consts::PI;
         let not_nan = NotNan::new(val).unwrap();
-        assert_eq!(not_nan.into_inner(), val);
+        assert!((not_nan.into_inner() - val).abs() < f32::EPSILON);
     }
 }

@@ -11,7 +11,7 @@ use thiserror::Error;
 mod arc_str_serde {
     use super::{Serializer, Deserializer, Deserialize};
 
-    pub fn serialize<S>(arc_str: &String, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(arc_str: &str, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {

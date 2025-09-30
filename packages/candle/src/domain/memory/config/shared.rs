@@ -120,6 +120,7 @@ impl RetryConfig {
 
         #[allow(clippy::cast_precision_loss)] // Acceptable for delay calculation
         let base_delay = self.initial_delay.as_millis() as f64;
+        #[allow(clippy::cast_possible_wrap)]
         let multiplier = self
             .backoff_multiplier
             .powi(attempt.saturating_sub(1) as i32);
@@ -157,9 +158,9 @@ impl RetryConfig {
     /// # Errors
     ///
     /// Returns error string if:
-    /// - max_retries exceeds 100
-    /// - initial_delay is greater than max_delay
-    /// - backoff_multiplier is non-positive or exceeds 10.0
+    /// - `max_retries` exceeds 100
+    /// - `initial_delay` is greater than `max_delay`
+    /// - `backoff_multiplier` is non-positive or exceeds 10.0
     pub fn validate(&self) -> Result<(), String> {
         if self.max_retries > 100 {
             return Err("Maximum retries cannot exceed 100".to_string());
@@ -350,9 +351,9 @@ impl EmbeddingConfig {
     /// # Errors
     ///
     /// Returns error string if:
-    /// - dimension is 0 or exceeds 10,000
-    /// - cache_size is 0 when caching is enabled
-    /// - model_name is empty
+    /// - `dimension` is 0 or exceeds 10,000
+    /// - `cache_size` is 0 when caching is enabled
+    /// - `model_name` is empty
     pub fn validate(&self) -> Result<(), String> {
         if self.dimension == 0 {
             return Err("Embedding dimension must be greater than 0".to_string());

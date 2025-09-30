@@ -89,9 +89,9 @@ pub fn get_template(name: &str) -> Option<ChatTemplate> {
 /// Returns `TemplateError` if:
 /// - Template with the given name is not found
 /// - Template rendering fails
-pub fn render_template(
+pub fn render_template<S: std::hash::BuildHasher>(
     name: &str,
-    variables: &HashMap<String, String>,
+    variables: &HashMap<String, String, S>,
 ) -> TemplateResult<String> {
     if let Some(template) = get_template(name) {
         template.render(variables)
@@ -107,7 +107,7 @@ pub fn render_template(
 /// # Errors
 ///
 /// Returns `TemplateError` if template rendering fails (see `render_template`)
-pub fn render_simple(name: &str, variables: HashMap<&str, &str>) -> TemplateResult<String> {
+pub fn render_simple<S: std::hash::BuildHasher>(name: &str, variables: HashMap<&str, &str, S>) -> TemplateResult<String> {
     let arc_variables: HashMap<String, String> = variables
         .into_iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -120,9 +120,9 @@ pub fn render_simple(name: &str, variables: HashMap<&str, &str>) -> TemplateResu
 /// # Errors
 ///
 /// Returns `TemplateError` if template rendering fails
-pub fn render(
+pub fn render<S: std::hash::BuildHasher>(
     template: &ChatTemplate,
-    variables: &HashMap<String, String>,
+    variables: &HashMap<String, String, S>,
 ) -> TemplateResult<String> {
     template.render(variables)
 }

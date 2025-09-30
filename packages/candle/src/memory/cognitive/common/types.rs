@@ -97,7 +97,7 @@ impl EvaluationRubric {
         for criterion_spec in spec.split(';') {
             let parts: Vec<&str> = criterion_spec.trim().split(':').collect();
             
-            if parts.len() < 1 || parts.len() > 3 {
+            if parts.is_empty() || parts.len() > 3 {
                 return Err(format!("Invalid criterion format: '{}'. Expected 'name[:weight[:description]]'", criterion_spec));
             }
 
@@ -113,7 +113,7 @@ impl EvaluationRubric {
                 1.0
             };
 
-            if weight < 0.0 || weight > 10.0 {
+            if !(0.0..=10.0).contains(&weight) {
                 return Err(format!("Weight {} for criterion '{}' must be between 0.0 and 10.0", weight, name));
             }
 
@@ -185,7 +185,7 @@ impl Default for ImpactFactors {
 impl From<Vec<f64>> for ImpactFactors {
     fn from(factors: Vec<f64>) -> Self {
         Self {
-            relevance: factors.get(0).copied().unwrap_or(1.0),
+            relevance: factors.first().copied().unwrap_or(1.0),
             freshness: factors.get(1).copied().unwrap_or(0.8),
             quality: factors.get(2).copied().unwrap_or(1.0),
             complexity: factors.get(3).copied().unwrap_or(0.6),

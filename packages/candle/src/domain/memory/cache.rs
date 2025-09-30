@@ -42,7 +42,7 @@ pub fn get_cached_system_time() -> SystemTime {
 #[must_use]
 pub fn get_cached_utc() -> DateTime<Utc> {
     let timestamp = get_cached_timestamp();
-    DateTime::from_timestamp(timestamp as i64, 0).unwrap_or_else(Utc::now)
+    DateTime::from_timestamp(timestamp.cast_signed(), 0).unwrap_or_else(Utc::now)
 }
 
 /// Initialize timestamp caching system (call once at startup)

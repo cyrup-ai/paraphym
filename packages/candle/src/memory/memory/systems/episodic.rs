@@ -248,7 +248,7 @@ impl MemoryType for EpisodicMemory {
         let description = entity
             .get_attribute("description")
             .and_then(|v| from_value::<String>(v.clone()).ok())
-            .unwrap_or_else(|| "".to_string());
+            .unwrap_or_default();
 
         Ok(Self::new(entity.id(), &name, &description))
     }

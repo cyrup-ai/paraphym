@@ -84,7 +84,7 @@ impl MemoryCoordinator {
         self.repository.write().await.add(memory_for_storage);
 
         // Convert stored memory back to domain format for return
-        Ok(self.convert_memory_to_domain_node(&stored_memory)?)
+        self.convert_memory_to_domain_node(&stored_memory)
     }
 
     /// Update an existing memory using SurrealDB's native capabilities
@@ -121,7 +121,7 @@ impl MemoryCoordinator {
         self.repository.write().await.update(updated_memory);
 
         // Convert to domain MemoryNode for return
-        Ok(self.convert_memory_to_domain_node(&stored_memory)?)
+        self.convert_memory_to_domain_node(&stored_memory)
     }
 
     /// Delete a memory using SurrealDB's native capabilities
@@ -232,7 +232,7 @@ impl MemoryCoordinator {
         let memories = self.repository.read().await.filter(&filter);
         let mut result_memories = Vec::new();
         for arc_memory in memories {
-            let domain_memory = self.convert_memory_to_domain_node(&*arc_memory)?;
+            let domain_memory = self.convert_memory_to_domain_node(&arc_memory)?;
             result_memories.push(domain_memory);
         }
         Ok(result_memories)

@@ -386,8 +386,14 @@ mod tests {
         
         // Test that we can create a new state
         let state = constraint.new_state();
-        assert_eq!(state.current_state(), 0, "Initial state should be 0");
+        let initial_state_id = state.current_state();
+        // Note: initial state ID is determined by the DFA library and may not be 0
+        // We just verify that it's consistent and creates a valid state
         assert_eq!(state.tokens_processed(), 0, "Should start with 0 tokens processed");
+        
+        // Verify that creating another state gives the same initial state
+        let state2 = constraint.new_state();
+        assert_eq!(state2.current_state(), initial_state_id, "All new states should start at the same initial state");
         
         // Test constraint for predefined boolean type
         let boolean_regex = r"(true|false)";
@@ -418,6 +424,10 @@ mod tests {
         
         // Test constraint creation with the generated regex
         let final_constraint = SchemaConstraint::new(&regex_pattern, vocabulary);
+        if let Err(ref e) = final_constraint {
+            println!("Failed to create constraint: {}", e);
+            println!("Regex pattern was: {}", regex_pattern);
+        }
         assert!(final_constraint.is_ok(), "Should create constraint from generated regex");
     }
 

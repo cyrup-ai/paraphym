@@ -1480,6 +1480,13 @@ impl CognitiveMetrics {
     }
 }
 
+impl Default for CognitiveMetrics {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProcessingState {
     /// Create new processing state
     pub fn new() -> Self {
@@ -1488,6 +1495,13 @@ impl ProcessingState {
             current_iteration: AtomicU64::new(0),
             start_time: std::sync::atomic::AtomicU64::new(0),
         }
+    }
+}
+
+impl Default for ProcessingState {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -1507,6 +1521,7 @@ impl PatternMatcher {
     /// Returns `CognitiveError` if pattern strength is below threshold
     pub fn match_pattern(&self, input: &[f32]) -> CognitiveResult<f32> {
         // Simple pattern matching logic - in production this would be more sophisticated
+        #[allow(clippy::cast_precision_loss)]
         let pattern_strength = input.iter().map(|x| x.abs()).sum::<f32>() / input.len() as f32;
 
         if pattern_strength >= self.threshold {

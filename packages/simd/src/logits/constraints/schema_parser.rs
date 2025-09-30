@@ -183,7 +183,7 @@ impl<'a> SchemaParser<'a> {
                 if max_optional > 0 {
                     let optional_count = std::cmp::min(max_optional, optional_patterns.len());
                     regex.push_str(&format!(
-                        "({},{},{}))?",
+                        "({},{},{})?",
                         ws, ws,
                         Self::generate_property_combinations(&optional_patterns, optional_count, ws)
                     ));

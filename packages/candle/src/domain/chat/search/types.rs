@@ -240,6 +240,7 @@ impl TermFrequency {
     /// Calculate TF-IDF score
     pub fn calculate_tfidf(&self) -> f32 {
         let tf = self.tf;
+        #[allow(clippy::cast_precision_loss)]
         let idf = ((self.total_docs as f32) / (self.df as f32)).ln();
         tf * idf
     }

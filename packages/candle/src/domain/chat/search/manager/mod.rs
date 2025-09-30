@@ -57,7 +57,8 @@ impl CandleEnhancedHistoryManager {
 
                 // Index by timestamp - only if timestamp is present
                 if let Some(ts_u64) = timestamp {
-                    let ts_i64 = ts_u64 as i64; // Convert u64 to i64 for timestamp indexing
+                    #[allow(clippy::cast_possible_wrap)]
+                    let ts_i64 = ts_u64 as i64;
                     message_timestamps.insert(ts_i64, id);
                 }
             }

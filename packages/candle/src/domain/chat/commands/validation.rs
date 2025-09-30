@@ -32,6 +32,9 @@ impl Default for CommandValidator {
 
 impl CommandValidator {
     /// Create a new command validator with default settings
+    ///
+    /// # Panics
+    /// Panics if internal regex patterns fail to compile (should never happen with valid patterns)
     pub fn new() -> Self {
         Self {
             max_command_length: 1024,

@@ -93,6 +93,7 @@ pub struct CompletionCoreRequest<'a> {
 
 impl<'a> CompletionCoreRequest<'a> {
     /// Create a new completion request from builder
+    #[allow(clippy::too_many_arguments)]
     #[inline]
     pub fn from_builder(
         prompt: ArrayVec<u8, MAX_PROMPT_SIZE>,
@@ -208,6 +209,12 @@ pub struct CompletionCoreResponse {
     finish_reason: ArrayVec<u8, 32>,
     /// Model name/identifier (inline string, 64 bytes max)
     model: ArrayVec<u8, 64>,
+}
+
+impl Default for CompletionCoreResponse {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CompletionCoreResponse {

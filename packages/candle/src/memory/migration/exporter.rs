@@ -234,7 +234,7 @@ impl DataExporter {
         }
 
         // Final flush and finalization
-        csv_writer.flush().map_err(|e| MigrationError::IoError(e))?;
+        csv_writer.flush().map_err(MigrationError::IoError)?;
 
         // Get final metrics
         let final_records = records_processed.load(Ordering::Relaxed);
@@ -310,7 +310,7 @@ impl DataExporter {
                     let current_count = records_processed.fetch_add(1, Ordering::Relaxed) + 1;
 
                     // Periodic progress reporting and flushing
-                    if current_count % progress_interval as u64 == 0 {
+                    if current_count.is_multiple_of(progress_interval as u64) {
                         if let Err(e) = csv_writer.flush() {
                             return Err(MigrationError::DatabaseError(format!(
                                 "Failed to flush during streaming: {}",

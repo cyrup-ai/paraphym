@@ -96,7 +96,7 @@ pub enum MemoryToolError {
     NotSupported(String),
     /// Zero allocation error
     #[error("Zero allocation error: {0}")]
-    ZeroAlloc(#[from] ZeroAllocError),
+    ZeroAlloc(#[from] Box<ZeroAllocError>),
     /// Buffer overflow error
     #[error("Buffer overflow: operation would exceed capacity")]
     BufferOverflow,

@@ -98,12 +98,14 @@ where
     /// ## Returns
     /// Self for fluent method chaining
     ///
+    /// Add an operation to the parallel combinator
+    ///
     /// ## Performance
     /// - Constant time addition for ≤16 operations  
     /// - Automatic heap allocation beyond 16 operations
     /// - Operation is boxed for dynamic dispatch
     #[inline]
-    pub fn add<OpType>(mut self, operation: OpType) -> Self
+    pub fn add_operation<OpType>(mut self, operation: OpType) -> Self
     where
         OpType: Op<In, Out> + Clone + Send + Sync + 'static,
     {
@@ -326,7 +328,7 @@ where
     where
         OpType: Op<In, Out> + Clone + Send + Sync + 'static,
     {
-        self.parallel = self.parallel.add(operation);
+        self.parallel.operations.push(Box::new(operation));
         self
     }
 
@@ -343,7 +345,9 @@ where
         I: IntoIterator<Item = OpType>,
         OpType: Op<In, Out> + Clone + Send + Sync + 'static,
     {
-        self.parallel = self.parallel.add_all(operations);
+        for operation in operations {
+            self.parallel.operations.push(Box::new(operation));
+        }
         self
     }
 
@@ -476,13 +480,13 @@ mod tests {
         
         // Add 16 operations - should still be stack allocated
         for _ in 0..16 {
-            parallel = parallel.add(map(|x: i32| TestChunk::from(x + 1)));
+            parallel = parallel.add_operation(map(|x: i32| TestChunk::from(x + 1)));
         }
         assert!(parallel.is_stack_allocated());
         assert_eq!(parallel.operation_count(), 16);
         
         // Add 17th operation - should trigger heap allocation
-        parallel = parallel.add(map(|x: i32| TestChunk::from(x + 1)));
+        parallel = parallel.add_operation(map(|x: i32| TestChunk::from(x + 1)));
         assert!(!parallel.is_stack_allocated());
         assert_eq!(parallel.operation_count(), 17);
     }

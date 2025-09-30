@@ -755,7 +755,6 @@ impl MacroSystem {
 
     /// Evaluate a condition string - planned feature
     fn _evaluate_condition(
-        &self,
         condition: &str,
         variables: &HashMap<String, String>,
     ) -> bool {
@@ -1381,9 +1380,7 @@ fn execute_action_sync(
 
             // Execute conditional actions synchronously
             for action in actions_to_execute {
-                if let Err(e) = execute_action_sync(action, context) {
-                    return Err(e);
-                }
+                execute_action_sync(action, context)?;
             }
 
             Ok(ActionExecutionResult::Success)

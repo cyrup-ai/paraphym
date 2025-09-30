@@ -509,7 +509,7 @@ impl MemoryType for BaseMemory {
             && let Ok(tags) = serde_json::from_value::<Vec<String>>(tags_val) {
                 metadata.tags = tags;
             }
-        if let Some(custom_val) = get_attr("custom", &attributes).ok() {
+        if let Ok(custom_val) = get_attr("custom", &attributes) {
             metadata.custom = custom_val;
         }
 

@@ -246,7 +246,7 @@ pub struct ZeroAllocError {
     pub message: ErrorMessage,
     /// Error code for machine processing
     pub code: u64,
-    /// Source location (file:line)
+    /// Source location (`<file:line>`)
     pub location: Option<ErrorMessage>,
     /// Cause chain for nested errors
     pub cause: Option<Box<ZeroAllocError>>,
@@ -540,7 +540,7 @@ impl ErrorCircuitBreaker {
     ///
     /// Returns `ZeroAllocError` if operation fails or circuit is open
     #[inline]
-    pub fn execute<T, E, F>(&self, operation: F) -> Result<T, ZeroAllocError>
+    pub fn execute<T, E, F>(&self, operation: F) -> Result<T, Box<ZeroAllocError>>
     where
         F: FnOnce() -> Result<T, E>,
         E: Into<ZeroAllocError>,
@@ -550,7 +550,7 @@ impl ErrorCircuitBreaker {
             Err(CircuitBreakerError::Inner(e)) => {
                 let error = e.into();
                 self.counter.record(&error);
-                Err(error)
+                Err(Box::new(error))
             }
             Err(CircuitBreakerError::CircuitOpen) => {
                 let error = ZeroAllocError::new(
@@ -561,7 +561,7 @@ impl ErrorCircuitBreaker {
                     500,
                 );
                 self.counter.record(&error);
-                Err(error)
+                Err(Box::new(error))
             }
         }
     }
@@ -776,7 +776,7 @@ pub fn total_errors() -> usize {
 /// Reset global error statistics
 #[inline]
 pub fn reset_error_stats() {
-    ERROR_AGGREGATOR.reset()
+    ERROR_AGGREGATOR.reset();
 }
 
 /// Convenience macro for creating errors with location
@@ -845,7 +845,7 @@ impl IntoZeroAllocError for std::io::Error {
             ErrorSeverity::Error,
             ErrorRecoverability::Retriable,
             &self.to_string(),
-            self.raw_os_error().unwrap_or(0) as u64,
+            u64::from(self.raw_os_error().unwrap_or(0).unsigned_abs()),
         )
     }
 }
@@ -929,7 +929,7 @@ pub trait ZeroAllocResultExt<T> {
     /// # Errors
     ///
     /// Returns `ZeroAllocError` from mapper function if self is Err
-    fn map_zero_alloc_err<F>(self, f: F) -> ZeroAllocResult<T>
+    fn map_zero_alloc_err<F>(self, f: F) -> Result<T, Box<ZeroAllocError>>
     where
         F: FnOnce() -> ZeroAllocError;
 
@@ -938,101 +938,101 @@ pub trait ZeroAllocResultExt<T> {
     /// # Errors
     ///
     /// Returns original error with added metadata if self is Err
-    fn with_error_metadata(self, key: &str, value: &str) -> ZeroAllocResult<T>;
+    fn with_error_metadata(self, key: &str, value: &str) -> Result<T, Box<ZeroAllocError>>;
 
     /// Add error code
     ///
     /// # Errors
     ///
     /// Returns original error with added code if self is Err
-    fn with_error_code(self, code: u64) -> ZeroAllocResult<T>;
+    fn with_error_code(self, code: u64) -> Result<T, Box<ZeroAllocError>>;
 
     /// Record error to global counter
     ///
     /// # Errors
     ///
     /// Returns original error after recording if self is Err
-    fn record_error(self) -> ZeroAllocResult<T>;
+    fn record_error(self) -> Result<T, Box<ZeroAllocError>>;
 }
 
 impl<T, E> ZeroAllocResultExt<T> for Result<T, E>
 where
     E: IntoZeroAllocError,
 {
-    fn map_zero_alloc_err<F>(self, f: F) -> ZeroAllocResult<T>
+    fn map_zero_alloc_err<F>(self, f: F) -> Result<T, Box<ZeroAllocError>>
     where
         F: FnOnce() -> ZeroAllocError,
     {
         match self {
             Ok(value) => Ok(value),
-            Err(_) => Err(f()),
+            Err(_) => Err(Box::new(f())),
         }
     }
 
-    fn with_error_metadata(self, key: &str, value: &str) -> ZeroAllocResult<T> {
+    fn with_error_metadata(self, key: &str, value: &str) -> Result<T, Box<ZeroAllocError>> {
         match self {
             Ok(value) => Ok(value),
-            Err(e) => Err(e.into_zero_alloc_error().with_metadata(key, value)),
+            Err(e) => Err(Box::new(e.into_zero_alloc_error().with_metadata(key, value))),
         }
     }
 
-    fn with_error_code(self, code: u64) -> ZeroAllocResult<T> {
+    fn with_error_code(self, code: u64) -> Result<T, Box<ZeroAllocError>> {
         match self {
             Ok(value) => Ok(value),
             Err(e) => {
                 let mut error = e.into_zero_alloc_error();
                 error.code = code;
-                Err(error)
+                Err(Box::new(error))
             }
         }
     }
 
-    fn record_error(self) -> ZeroAllocResult<T> {
+    fn record_error(self) -> Result<T, Box<ZeroAllocError>> {
         match self {
             Ok(value) => Ok(value),
             Err(e) => {
                 let error = e.into_zero_alloc_error();
                 record_error(&error);
-                Err(error)
+                Err(Box::new(error))
             }
         }
     }
 }
 
 impl<T> ZeroAllocResultExt<T> for ZeroAllocResult<T> {
-    fn map_zero_alloc_err<F>(self, f: F) -> ZeroAllocResult<T>
+    fn map_zero_alloc_err<F>(self, f: F) -> Result<T, Box<ZeroAllocError>>
     where
         F: FnOnce() -> ZeroAllocError,
     {
         match self {
             Ok(value) => Ok(value),
-            Err(_) => Err(f()),
+            Err(_) => Err(Box::new(f())),
         }
     }
 
-    fn with_error_metadata(self, key: &str, value: &str) -> ZeroAllocResult<T> {
+    fn with_error_metadata(self, key: &str, value: &str) -> Result<T, Box<ZeroAllocError>> {
         match self {
             Ok(value) => Ok(value),
-            Err(e) => Err(e.with_metadata(key, value)),
+            Err(e) => Err(Box::new(e.with_metadata(key, value))),
         }
     }
 
-    fn with_error_code(self, code: u64) -> ZeroAllocResult<T> {
+    fn with_error_code(self, code: u64) -> Result<T, Box<ZeroAllocError>> {
         match self {
             Ok(value) => Ok(value),
             Err(mut e) => {
                 e.code = code;
-                Err(e)
+                Err(Box::new(e))
             }
         }
     }
 
-    fn record_error(self) -> ZeroAllocResult<T> {
+    fn record_error(self) -> Result<T, Box<ZeroAllocError>> {
         match self {
             Ok(value) => Ok(value),
             Err(e) => {
                 record_error(&e);
-                Err(e)
+                Err(Box::new(e))
             }
         }
     }

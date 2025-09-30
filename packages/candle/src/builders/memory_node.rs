@@ -34,6 +34,7 @@ impl MemoryNodeBuilder {
     }
 
     /// Set node ID (generates UUID if not set)
+    #[must_use]
     #[inline]
     pub fn with_id(mut self, id: Uuid) -> Self {
         self.id = Some(id);
@@ -41,6 +42,7 @@ impl MemoryNodeBuilder {
     }
 
     /// Set memory type
+    #[must_use]
     #[inline]
     pub fn with_memory_type(mut self, memory_type: MemoryTypeEnum) -> Self {
         self.memory_type = Some(memory_type);
@@ -48,6 +50,7 @@ impl MemoryNodeBuilder {
     }
 
     /// Set content
+    #[must_use]
     #[inline]
     pub fn with_content(mut self, content: MemoryContent) -> Self {
         self.content = Some(content);
@@ -55,6 +58,7 @@ impl MemoryNodeBuilder {
     }
 
     /// Set text content (convenience method)
+    #[must_use]
     #[inline]
     pub fn with_text(mut self, text: impl Into<Arc<str>>) -> Self {
         self.content = Some(MemoryContent::text(text));
@@ -62,6 +66,7 @@ impl MemoryNodeBuilder {
     }
 
     /// Set base memory
+    #[must_use]
     #[inline]
     pub fn with_base_memory(mut self, base_memory: BaseMemory) -> Self {
         self.id = Some(base_memory.id);
@@ -71,6 +76,7 @@ impl MemoryNodeBuilder {
     }
 
     /// Set embedding
+    #[must_use]
     #[inline]
     pub fn with_embedding(mut self, embedding: Vec<f32>) -> Self {
         self.embedding = Some(embedding);
@@ -78,6 +84,7 @@ impl MemoryNodeBuilder {
     }
 
     /// Set importance
+    #[must_use]
     #[inline]
     pub fn with_importance(mut self, importance: f32) -> Self {
         self.importance = Some(importance);
@@ -85,6 +92,7 @@ impl MemoryNodeBuilder {
     }
 
     /// Set creation time (for compatibility)
+    #[must_use]
     #[inline]
     pub fn with_creation_time(self, _time: SystemTime) -> Self {
         // Creation time is handled by BaseMemory constructor
@@ -92,6 +100,7 @@ impl MemoryNodeBuilder {
     }
 
     /// Set last accessed time (for compatibility)
+    #[must_use]
     #[inline]
     pub fn with_last_accessed(self, _time: SystemTime) -> Self {
         // Last accessed is tracked by stats automatically
@@ -99,6 +108,7 @@ impl MemoryNodeBuilder {
     }
 
     /// Add keyword
+    #[must_use]
     #[inline]
     pub fn with_keyword(mut self, keyword: impl Into<Arc<str>>) -> Self {
         self.keywords.push(keyword.into());
@@ -106,6 +116,7 @@ impl MemoryNodeBuilder {
     }
 
     /// Add tag
+    #[must_use]
     #[inline]
     pub fn with_tag(mut self, tag: impl Into<Arc<str>>) -> Self {
         self.tags.push(tag.into());
@@ -113,6 +124,7 @@ impl MemoryNodeBuilder {
     }
 
     /// Add custom metadata
+    #[must_use]
     #[inline]
     pub fn with_custom_metadata(
         mut self,

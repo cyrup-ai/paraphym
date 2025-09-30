@@ -125,10 +125,10 @@ impl CandleTokenizer {
             token_ids.truncate(self.config.max_length);
 
             // Add EOS token if truncated
-            if let Some(eos_id) = self.config.eos_token_id {
-                if let Some(last) = token_ids.last_mut() {
-                    *last = eos_id;
-                }
+            if let Some(eos_id) = self.config.eos_token_id
+                && let Some(last) = token_ids.last_mut()
+            {
+                *last = eos_id;
             }
         }
 

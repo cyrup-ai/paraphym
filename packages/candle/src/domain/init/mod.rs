@@ -37,7 +37,7 @@ pub async fn initialize_memory_service() -> Result<SurrealDBMemoryManager, Domai
 /// # Errors
 ///
 /// Returns `DomainInitError` if:
-/// - Database connection to SurrealDB fails
+/// - Database connection to `SurrealDB` fails
 /// - Namespace or database selection fails
 /// - Memory schema and index initialization fails
 ///

@@ -492,7 +492,7 @@ impl std::fmt::Debug for TypingIndicator {
                 "cleanup_active",
                 &self.cleanup_task_active.load(Ordering::Relaxed),
             )
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

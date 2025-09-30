@@ -174,6 +174,7 @@ impl ChatSearchIndex {
 
             // Update inverted index
             for (term, count) in term_counts {
+                #[allow(clippy::cast_precision_loss)]
                 let tf = (count as f32) / (total_tokens as f32);
 
                 let index_entry = IndexEntry {

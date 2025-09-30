@@ -125,7 +125,7 @@ impl LLMConfig {
     ///
     /// Returns `LLMConfigError` if:
     /// - Model name is empty
-    /// - max_tokens is 0
+    /// - `max_tokens` is 0
     /// - Temperature is not between 0.0 and 2.0
     /// - Timeout is 0
     pub fn validate(&self) -> Result<(), LLMConfigError> {
@@ -201,10 +201,7 @@ impl LLMProvider {
 
     /// Check if provider requires API key
     pub fn requires_api_key(&self) -> bool {
-        match self {
-            Self::Local => false,
-            _ => true,
-        }
+        !matches!(self, Self::Local)
     }
 
     /// Get common models for provider

@@ -90,8 +90,11 @@ pub struct LoaderImpl<T: Send + Sync + fmt::Debug + Clone + 'static> {
     #[allow(dead_code)] // TODO: Use for custom file iteration and processing
     iterator: Option<Box<dyn Iterator<Item = T> + Send + Sync>>,
     #[allow(dead_code)] // TODO: Use for file filtering and selection criteria
-    filter_fn: Option<Box<dyn Fn(&T) -> bool + Send + Sync>>,
+    filter_fn: Option<FilterFn<T>>,
 }
+
+/// Type alias for filter function
+pub type FilterFn<T> = Box<dyn Fn(&T) -> bool + Send + Sync>;
 
 // LoaderImpl implements NotResult since it contains no Result types
 

@@ -175,14 +175,14 @@ impl CandleModelInfo {
     #[inline]
     pub fn price_for_input(&self, tokens: u32) -> Option<f64> {
         self.input_price
-            .map(|price| (price * tokens as f64) / 1_000_000.0)
+            .map(|price| (price * f64::from(tokens)) / 1_000_000.0)
     }
 
     /// Get the price for a given number of output tokens
     #[inline]
     pub fn price_for_output(&self, tokens: u32) -> Option<f64> {
         self.output_price
-            .map(|price| (price * tokens as f64) / 1_000_000.0)
+            .map(|price| (price * f64::from(tokens)) / 1_000_000.0)
     }
 
     /// Convert to `CandleModelCapabilities` for filtering and querying
@@ -207,7 +207,7 @@ impl CandleModelInfo {
             supports_zero_shot_learning: true, // Assume all models support zero-shot
             has_long_context: self
                 .max_input_tokens
-                .map_or(false, |tokens| tokens.get() > 32000),
+                .is_some_and(|tokens| tokens.get() > 32000),
             is_low_latency: false,        // Not in ModelInfo yet
             is_high_throughput: false,    // Not in ModelInfo yet
             supports_quantization: false, // Not in ModelInfo yet
@@ -221,8 +221,8 @@ impl CandleModelInfo {
     /// # Errors
     ///
     /// Returns `CandleModelError::InvalidConfiguration` if:
-    /// - provider_name or name is empty
-    /// - max_input_tokens or max_output_tokens is 0
+    /// - `provider_name` or `name` is empty
+    /// - `max_input_tokens` or `max_output_tokens` is 0
     pub fn validate(&self) -> CandleResult<()> {
         if self.provider_name.is_empty() {
             return Err(CandleModelError::InvalidConfiguration(

@@ -65,7 +65,7 @@ impl FilterRegistry {
         match self.get(name) {
             Some(filter) => filter(value, args),
             None => Err(CandleTemplateError::RenderError {
-                message: format!("Unknown filter: {}", name.to_string()),
+                message: format!("Unknown filter: {name}"),
             }),
         }
     }

@@ -75,7 +75,7 @@ impl MemoryNode {
 
     /// Add custom metadata to this memory
     pub fn with_custom_metadata(mut self, key: String, value: serde_json::Value) -> Self {
-        if let Err(_) = self.metadata.set_custom(&key, value.clone()) {
+        if self.metadata.set_custom(&key, value.clone()).is_err() {
             // If setting custom fails, create a new object and insert
             if let serde_json::Value::Object(ref mut map) = self.metadata.custom {
                 map.insert(key, value);
@@ -127,9 +127,10 @@ impl Default for MemoryNode {
 
 impl MessageChunk for MemoryNode {
     fn bad_chunk(error: String) -> Self {
-        let mut node = Self::default();
-        node.content = MemoryContent::new(&format!("ERROR: {}", error));
-        node
+        Self {
+            content: MemoryContent::new(&format!("ERROR: {}", error)),
+            ..Default::default()
+        }
     }
 
     fn error(&self) -> Option<&str> {

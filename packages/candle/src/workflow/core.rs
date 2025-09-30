@@ -75,9 +75,8 @@ impl CandleWorkflowStep<WorkflowDataChunk, WorkflowDataChunk> for CandlePassthro
     #[inline]
     fn execute(&self, input: WorkflowDataChunk) -> AsyncStream<WorkflowDataChunk> {
         AsyncStream::with_channel(move |sender| {
-            if sender.send(input).is_err() {
-                return; // Receiver dropped, terminate gracefully
-            }
+            // Receiver dropped, terminate gracefully
+            let _ = sender.send(input);
         })
     }
 }
@@ -174,8 +173,9 @@ where
                 let second_stream = second_clone.execute(intermediate);
                 let second_results = second_stream.collect();
                 for output in second_results {
+                    // Receiver dropped, terminate gracefully
                     if sender.send(output).is_err() {
-                        return; // Receiver dropped, terminate gracefully
+                        break;
                     }
                 }
             }

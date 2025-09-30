@@ -28,9 +28,9 @@ impl CandlePrompt {
 
 // PromptBuilder moved to paraphym/src/builders/prompt.rs
 
-impl Into<String> for CandlePrompt {
-    fn into(self) -> String {
-        self.content
+impl From<CandlePrompt> for String {
+    fn from(val: CandlePrompt) -> Self {
+        val.content
     }
 }
 

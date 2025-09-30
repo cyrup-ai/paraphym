@@ -10,6 +10,12 @@ use crate::runtime::TemperatureDispatch;
 
 /// Scalar implementation of temperature scaling as a fallback
 fn scalar_temperature_scale(logits: &mut [f32], temperature: f32) -> SimdResult<()> {
+    if logits.is_empty() {
+        return Err(crate::error::SimdError::InvalidInput(
+            "Logits slice is empty".to_string(),
+        ));
+    }
+
     if temperature <= 0.0 {
         return Err(crate::error::SimdError::InvalidInput(
             "Temperature must be positive".to_string(),
@@ -31,6 +37,12 @@ fn scalar_temperature_scale(logits: &mut [f32], temperature: f32) -> SimdResult<
 #[target_feature(enable = "avx2")]
 unsafe fn avx2_temperature_scale(logits: &mut [f32], temperature: f32) -> SimdResult<()> {
     use std::arch::x86_64::*;
+
+    if logits.is_empty() {
+        return Err(crate::error::SimdError::InvalidInput(
+            "Logits slice is empty".to_string(),
+        ));
+    }
 
     if temperature <= 0.0 {
         return Err(crate::error::SimdError::InvalidInput(
@@ -66,6 +78,12 @@ unsafe fn avx2_temperature_scale(logits: &mut [f32], temperature: f32) -> SimdRe
 #[target_feature(enable = "sse4.1")]
 unsafe fn sse41_temperature_scale(logits: &mut [f32], temperature: f32) -> SimdResult<()> {
     use std::arch::x86_64::*;
+
+    if logits.is_empty() {
+        return Err(crate::error::SimdError::InvalidInput(
+            "Logits slice is empty".to_string(),
+        ));
+    }
 
     if temperature <= 0.0 {
         return Err(crate::error::SimdError::InvalidInput(
@@ -105,6 +123,12 @@ unsafe fn avx512_temperature_scale(logits: &mut [f32], temperature: f32) -> Simd
     #[cfg(target_arch = "x86_64")]
     use std::arch::x86_64::*;
 
+    if logits.is_empty() {
+        return Err(crate::error::SimdError::InvalidInput(
+            "Logits slice is empty".to_string(),
+        ));
+    }
+
     if temperature <= 0.0 {
         return Err(crate::error::SimdError::InvalidInput(
             "Temperature must be positive".to_string(),
@@ -139,6 +163,12 @@ unsafe fn avx512_temperature_scale(logits: &mut [f32], temperature: f32) -> Simd
 #[target_feature(enable = "neon")]
 unsafe fn neon_temperature_scale(logits: &mut [f32], temperature: f32) -> SimdResult<()> {
     use std::arch::aarch64::*;
+
+    if logits.is_empty() {
+        return Err(crate::error::SimdError::InvalidInput(
+            "Logits slice is empty".to_string(),
+        ));
+    }
 
     if temperature <= 0.0 {
         return Err(crate::error::SimdError::InvalidInput(

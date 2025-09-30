@@ -54,7 +54,10 @@ impl std::ops::Add for EmbeddingUsage {
 
     #[inline]
     fn add(self, rhs: Self) -> Self::Output {
-        (&self).add(&rhs)
+        Self {
+            prompt_tokens: self.prompt_tokens + rhs.prompt_tokens,
+            total_tokens: self.total_tokens + rhs.total_tokens,
+        }
     }
 }
 

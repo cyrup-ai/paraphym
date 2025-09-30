@@ -95,7 +95,7 @@ impl CounterMetric {
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs())
                     .unwrap_or(0);
-                Counter::new(&format!("minimal_counter_{}", timestamp), "Minimal counter")
+                Counter::new(format!("minimal_counter_{}", timestamp), "Minimal counter")
                     .unwrap_or_else(|e| {
                         eprintln!("Critical: All counter creation attempts failed: {}. Creating no-op counter.", e);
                         // Return a counter that will work but may not record properly
@@ -152,7 +152,7 @@ impl GaugeMetric {
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs())
                     .unwrap_or(0);
-                Gauge::new(&format!("minimal_gauge_{}", timestamp), "Minimal gauge")
+                Gauge::new(format!("minimal_gauge_{}", timestamp), "Minimal gauge")
                     .unwrap_or_else(|e| {
                         eprintln!("Critical: All gauge creation attempts failed: {}. Creating emergency gauge.", e);
                         // Return a gauge that will work but may not record properly
@@ -213,7 +213,7 @@ impl HistogramMetric {
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs())
                     .unwrap_or(0);
-                Histogram::with_opts(HistogramOpts::new(&format!("minimal_histogram_{}", timestamp), "Minimal histogram"))
+                Histogram::with_opts(HistogramOpts::new(format!("minimal_histogram_{}", timestamp), "Minimal histogram"))
                     .unwrap_or_else(|e| {
                         eprintln!("Critical: All histogram creation attempts failed: {}. Creating emergency histogram.", e);
                         // Return a histogram that will work but may not record properly

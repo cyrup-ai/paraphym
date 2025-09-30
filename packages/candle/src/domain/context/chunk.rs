@@ -221,7 +221,7 @@ impl MessageChunk for CandleUnitChunk {
     fn error(&self) -> Option<&str> {
         match self {
             CandleUnitChunk::Error(err) => Some(err),
-            _ => None,
+            CandleUnitChunk::Success => None,
         }
     }
 }

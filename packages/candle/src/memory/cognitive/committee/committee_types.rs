@@ -96,7 +96,7 @@ pub fn parse_score_from_response(response: &str) -> Option<f64> {
 
     for cap in re.captures_iter(response) {
         if let Ok(score) = cap[1].parse::<f64>()
-            && score >= 0.0 && score <= 1.0 {
+            && (0.0..=1.0).contains(&score) {
                 return Some(score);
             }
     }

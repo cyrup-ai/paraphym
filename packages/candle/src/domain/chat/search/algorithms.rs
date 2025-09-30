@@ -142,7 +142,10 @@ impl ChatSearchIndex {
                 }
         }
 
-        score / terms.len() as f32
+        #[allow(clippy::cast_precision_loss)]
+        {
+            score / terms.len() as f32
+        }
     }
 
     /// Find match positions in content
@@ -339,7 +342,7 @@ impl ChatSearchIndex {
                 if token.to_lowercase() == term.to_lowercase() {
                     term_positions
                         .entry(term.clone())
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push(i);
                 }
             }
@@ -385,7 +388,7 @@ impl ChatSearchIndex {
         tokens: &[String],
         distance: u32,
     ) -> f32 {
-        let mut min_distance = distance;
+        let mut min_distance = distance as usize;
         let mut term_positions: std::collections::HashMap<String, Vec<usize>> =
             std::collections::HashMap::new();
 
@@ -395,7 +398,7 @@ impl ChatSearchIndex {
                 if token.to_lowercase() == term.to_lowercase() {
                     term_positions
                         .entry(term.clone())
-                        .or_insert_with(Vec::new)
+                        .or_default()
                         .push(i);
                 }
             }
@@ -410,7 +413,7 @@ impl ChatSearchIndex {
 
                 for &pos1 in positions1 {
                     for &pos2 in positions2 {
-                        let dist = (pos1 as i32 - pos2 as i32).abs() as u32;
+                        let dist = pos1.abs_diff(pos2);
                         if dist < min_distance {
                             min_distance = dist;
                         }
@@ -420,6 +423,9 @@ impl ChatSearchIndex {
         }
 
         // Score inversely proportional to distance
-        1.0 - (min_distance as f32 / distance as f32)
+        #[allow(clippy::cast_precision_loss)]
+        {
+            1.0 - (min_distance as f32 / distance as f32)
+        }
     }
 }

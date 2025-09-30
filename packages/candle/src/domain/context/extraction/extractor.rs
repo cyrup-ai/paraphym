@@ -93,6 +93,9 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + MessageC
     /// - Model execution fails
     /// - Response parsing fails
     /// - Deserialization fails
+    ///
+    /// # Panics
+    /// Panics if `NonZeroU8::new(1)` fails (should never happen as 1 is always non-zero)
     pub async fn execute_extraction(
         agent: Agent,
         completion_request: CompletionRequest,

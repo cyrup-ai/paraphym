@@ -87,6 +87,10 @@ pub trait MemoryManagerTrait: Send + Sync {
     type Error;
     type MemoryNode;
 
+    /// Store a memory node
+    ///
+    /// # Errors
+    /// Returns an error if the memory cannot be stored
     fn store_memory(&self, memory: Self::MemoryNode) -> Result<(), Self::Error>;
 }
 

@@ -94,6 +94,15 @@ impl<T> IntoIterator for ZeroOneOrMany<T> {
     }
 }
 
+impl<'a, T> IntoIterator for &'a ZeroOneOrMany<T> {
+    type Item = &'a T;
+    type IntoIter = ZeroOneOrManyIter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 /// Iterator for `ZeroOneOrMany` references
 pub enum ZeroOneOrManyIter<'a, T> {
     /// No items to iterate

@@ -439,7 +439,7 @@ impl IndexConfig {
             IndexType::IVFPQ => {
                 #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
                 let num_clusters = (expected_vectors as f64).sqrt() as usize;
-                let pq_subspaces = (dimension / 4).max(1).min(64);
+                let pq_subspaces = (dimension / 4).clamp(1, 64);
                 Self {
                     index_type,
                     num_clusters: Some(num_clusters),
@@ -714,8 +714,8 @@ impl VectorStoreConfig {
     /// # Errors
     ///
     /// Returns `MemoryError` if:
-    /// - dimension is 0 or exceeds 65536
-    /// - dimension doesn't match embedding_config dimension
+    /// - `dimension` is 0 or exceeds 65536
+    /// - `dimension` doesn't match `embedding_config` dimension
     pub fn new(
         store_type: VectorStoreType,
         embedding_config: EmbeddingConfig,

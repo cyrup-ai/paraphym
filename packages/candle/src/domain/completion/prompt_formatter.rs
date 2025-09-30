@@ -222,7 +222,10 @@ impl PromptFormatter {
         }
 
         for msg in history_items {
-            section.push_str(&format!("{}: {}\n", msg.role, msg.content));
+            section.push_str(&msg.role.to_string());
+            section.push_str(": ");
+            section.push_str(&msg.content);
+            section.push('\n');
         }
 
         Some(section.trim_end().to_string())

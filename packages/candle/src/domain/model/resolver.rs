@@ -49,11 +49,7 @@ impl ModelPattern {
                     match c {
                         '*' => regex.push_str(".*"),
                         '?' => regex.push('.'),
-                        '.' | '^' | '$' | '|' | '(' | ')' | '[' | ']' | '{' | '}' | '+' => {
-                            regex.push('\\');
-                            regex.push(c);
-                        }
-                        '\\' => {
+                        '.' | '^' | '$' | '|' | '(' | ')' | '[' | ']' | '{' | '}' | '+' | '\\' => {
                             regex.push('\\');
                             regex.push(c);
                         }
@@ -77,9 +73,7 @@ impl ModelPattern {
     /// Get the pattern as a string
     pub fn as_str(&self) -> &str {
         match self {
-            ModelPattern::Exact(s) => s,
-            ModelPattern::Pattern(s) => s,
-            ModelPattern::Regex(s) => s,
+            ModelPattern::Exact(s) | ModelPattern::Pattern(s) | ModelPattern::Regex(s) => s,
         }
     }
 }
@@ -441,7 +435,7 @@ impl ModelResolver {
         // Find the best match using Jaro-Winkler similarity
         let best_match = all_models
             .iter()
-            .filter(|m| provider.map_or(true, |p| m.info().provider() == p))
+            .filter(|m| provider.is_none_or(|p| m.info().provider() == p))
             .map(|m| {
                 let info = m.info();
                 (info, strsim::jaro_winkler(info.name(), model_name))

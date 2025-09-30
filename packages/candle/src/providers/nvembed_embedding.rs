@@ -109,8 +109,8 @@ impl CandleNvEmbedEmbeddingProvider {
                     };
 
                     // Mark instruction tokens as 0.0 (exclude from pooling)
-                    for token_idx in 0..instruction_token_count.min(seq_len) {
-                        instruction_mask_data[batch_idx][token_idx] = 0.0;
+                    for item in instruction_mask_data[batch_idx].iter_mut().take(instruction_token_count.min(seq_len)) {
+                        *item = 0.0;
                     }
                 }
             }

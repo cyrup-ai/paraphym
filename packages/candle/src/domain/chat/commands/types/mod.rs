@@ -362,7 +362,7 @@ impl DomainCommandRegistry {
             return self.commands.get(command_name).map(|e| e.value().clone());
         }
 
-        self.registry_stats.increment_lookup_misses();
+        self.registry_stats.increment_misses();
         None
     }
 
@@ -431,11 +431,11 @@ impl Default for DomainCommandRegistry {
 /// Registry statistics for monitoring and performance analysis
 #[derive(Debug)]
 pub struct RegistryStatistics {
-    command_count: AtomicU64,
-    alias_count: AtomicU64,
-    execution_count: AtomicU64,
-    lookup_count: AtomicU64,
-    lookup_miss_count: AtomicU64,
+    commands: AtomicU64,
+    aliases: AtomicU64,
+    executions: AtomicU64,
+    lookups: AtomicU64,
+    misses: AtomicU64,
 }
 
 impl RegistryStatistics {
@@ -443,83 +443,83 @@ impl RegistryStatistics {
     #[inline]
     pub const fn new() -> Self {
         Self {
-            command_count: AtomicU64::new(0),
-            alias_count: AtomicU64::new(0),
-            execution_count: AtomicU64::new(0),
-            lookup_count: AtomicU64::new(0),
-            lookup_miss_count: AtomicU64::new(0),
+            commands: AtomicU64::new(0),
+            aliases: AtomicU64::new(0),
+            executions: AtomicU64::new(0),
+            lookups: AtomicU64::new(0),
+            misses: AtomicU64::new(0),
         }
     }
 
     /// Increment command count
     #[inline]
     pub fn increment_commands(&self) {
-        self.command_count.fetch_add(1, Ordering::Relaxed);
+        self.commands.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Increment alias count
     #[inline]
     pub fn increment_aliases(&self) {
-        self.alias_count.fetch_add(1, Ordering::Relaxed);
+        self.aliases.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Increment execution count
     #[inline]
     pub fn increment_executions(&self) {
-        self.execution_count.fetch_add(1, Ordering::Relaxed);
+        self.executions.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Increment lookup count
     #[inline]
     pub fn increment_lookups(&self) {
-        self.lookup_count.fetch_add(1, Ordering::Relaxed);
+        self.lookups.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Increment lookup miss count
     #[inline]
-    pub fn increment_lookup_misses(&self) {
-        self.lookup_miss_count.fetch_add(1, Ordering::Relaxed);
+    pub fn increment_misses(&self) {
+        self.misses.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Get command count
     #[inline]
     pub fn commands(&self) -> u64 {
-        self.command_count.load(Ordering::Relaxed)
+        self.commands.load(Ordering::Relaxed)
     }
 
     /// Get alias count
     #[inline]
     pub fn aliases(&self) -> u64 {
-        self.alias_count.load(Ordering::Relaxed)
+        self.aliases.load(Ordering::Relaxed)
     }
 
     /// Get execution count
     #[inline]
     pub fn executions(&self) -> u64 {
-        self.execution_count.load(Ordering::Relaxed)
+        self.executions.load(Ordering::Relaxed)
     }
 
     /// Get lookup count
     #[inline]
     pub fn lookups(&self) -> u64 {
-        self.lookup_count.load(Ordering::Relaxed)
+        self.lookups.load(Ordering::Relaxed)
     }
 
     /// Get lookup miss count
     #[inline]
-    pub fn lookup_misses(&self) -> u64 {
-        self.lookup_miss_count.load(Ordering::Relaxed)
+    pub fn misses(&self) -> u64 {
+        self.misses.load(Ordering::Relaxed)
     }
 
     /// Calculate lookup hit rate as percentage
     #[allow(clippy::cast_precision_loss)] // Acceptable for percentage calculations
     #[inline]
     pub fn hit_rate(&self) -> f64 {
-        let total = self.lookup_count.load(Ordering::Relaxed);
+        let total = self.lookups.load(Ordering::Relaxed);
         if total == 0 {
             0.0
         } else {
-            let hits = total - self.lookup_miss_count.load(Ordering::Relaxed);
+            let hits = total - self.misses.load(Ordering::Relaxed);
             (hits as f64 / total as f64) * 100.0
         }
     }

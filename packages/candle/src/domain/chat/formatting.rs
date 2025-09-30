@@ -484,32 +484,20 @@ pub struct ImmutableColorScheme {
 impl ImmutableColorScheme {
     /// Create new color scheme with validation
     ///
-    /// # Errors
+    /// Users should construct the struct directly and call `validated()` to ensure validity.
     ///
-    /// Returns `FormatError::ConfigurationError` if any color is invalid
+    /// # Example
+    /// ```ignore
+    /// let scheme = ImmutableColorScheme {
+    ///     primary_text: "#000000".to_string(),
+    ///     secondary_text: "#666666".to_string(),
+    ///     // ... other fields
+    /// }.validated()?;
+    /// ```
     #[inline]
-    pub fn new(
-        primary_text: String,
-        secondary_text: String,
-        background: String,
-        accent: String,
-        error: String,
-        warning: String,
-        success: String,
-        link: String,
-    ) -> FormatResult<Self> {
-        let scheme = Self {
-            primary_text,
-            secondary_text,
-            background,
-            accent,
-            error,
-            warning,
-            success,
-            link,
-        };
-        scheme.validate()?;
-        Ok(scheme)
+    pub fn validated(self) -> FormatResult<Self> {
+        self.validate()?;
+        Ok(self)
     }
 
     /// Validate color values

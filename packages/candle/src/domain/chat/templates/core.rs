@@ -251,16 +251,16 @@ impl From<bool> for TemplateValue {
     }
 }
 
+/// Type alias for template function
+pub type TemplateFn = Arc<dyn Fn(&[TemplateValue]) -> TemplateResult<TemplateValue> + Send + Sync>;
+
 /// Template context for rendering
 #[derive(Clone)]
 pub struct TemplateContext {
     /// Variables available during template rendering
     pub variables: HashMap<String, TemplateValue>,
     /// Functions available during template rendering
-    pub functions: HashMap<
-        String,
-        Arc<dyn Fn(&[TemplateValue]) -> TemplateResult<TemplateValue> + Send + Sync>,
-    >,
+    pub functions: HashMap<String, TemplateFn>,
 }
 
 impl TemplateContext {
@@ -468,7 +468,7 @@ impl ChatTemplate {
     /// # Errors
     ///
     /// Returns `TemplateError` if template rendering fails or required variables are missing
-    pub fn render(&self, variables: &HashMap<String, String>) -> TemplateResult<String> {
+    pub fn render<S: std::hash::BuildHasher>(&self, variables: &HashMap<String, String, S>) -> TemplateResult<String> {
         let mut context = TemplateContext::new();
         for (key, value) in variables {
             context.set_variable(key.clone(), TemplateValue::String(value.clone()));
@@ -545,8 +545,8 @@ impl ChatTemplate {
             category: self.metadata.category,
             size: self.content.len(),
             variable_count: self.variables.len(),
-            created_at: self.metadata.created_at as i64,
-            modified_at: self.metadata.modified_at as i64,
+            created_at: self.metadata.created_at.cast_signed(),
+            modified_at: self.metadata.modified_at.cast_signed(),
             version: self.metadata.version.clone(),
         }
     }

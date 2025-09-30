@@ -155,7 +155,7 @@ impl Entity for BaseEntity {
         let mut properties = std::collections::HashMap::new();
         for (key, value) in &self.attributes {
             // Convert surrealdb::Value to serde_json::Value via serialization
-            let json_value = serde_json::to_value(&value)
+            let json_value = serde_json::to_value(value)
                 .unwrap_or_else(|_| serde_json::Value::String(format!("{:?}", value)));
             properties.insert(key.clone(), json_value);
         }
@@ -570,9 +570,8 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
                             }
                             
                             // Convert node to entity
-                            match E::from_node(node) {
-                                Ok(entity) => entities.push(Box::new(entity) as Box<dyn Entity>),
-                                Err(_) => {} // Skip invalid entities
+                            if let Ok(entity) = E::from_node(node) {
+                                entities.push(Box::new(entity) as Box<dyn Entity>);
                             }
                             count += 1;
                         }
@@ -611,10 +610,16 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
             
             // Build query for attribute filtering
             let query = format!("SELECT * FROM {} WHERE {} = $value", table_name, attribute_name);
-            let mut options = GraphQueryOptions::default();
-            options.limit = limit;
-            options.offset = offset;
-            options.filters.insert("value".to_string(), json_value);
+            let options = GraphQueryOptions {
+                limit,
+                offset,
+                filters: {
+                    let mut filters = std::collections::HashMap::new();
+                    filters.insert("value".to_string(), json_value);
+                    filters
+                },
+                ..Default::default()
+            };
             
             let node_stream = db.query(&query, Some(options));
             

@@ -60,42 +60,49 @@ impl SamplingConfig {
     }
 
     /// Builder method to set top-k sampling
+    #[must_use]
     pub fn with_top_k(mut self, top_k: usize) -> Self {
         self.top_k = Some(top_k);
         self
     }
 
     /// Builder method to set top-p sampling
+    #[must_use]
     pub fn with_top_p(mut self, top_p: f64) -> Self {
         self.top_p = Some(top_p);
         self
     }
 
     /// Builder method to set repetition penalty
+    #[must_use]
     pub fn with_repetition_penalty(mut self, penalty: f32) -> Self {
         self.repetition_penalty = penalty;
         self
     }
 
     /// Builder method to set frequency penalty
+    #[must_use]
     pub fn with_frequency_penalty(mut self, penalty: f32) -> Self {
         self.frequency_penalty = penalty;
         self
     }
 
     /// Builder method to set presence penalty
+    #[must_use]
     pub fn with_presence_penalty(mut self, penalty: f32) -> Self {
         self.presence_penalty = penalty;
         self
     }
 
     /// Builder method to set random seed
+    #[must_use]
     pub fn with_seed(mut self, seed: u64) -> Self {
         self.seed = Some(seed);
         self
     }
 
     /// Builder method to disable SIMD acceleration
+    #[must_use]
     pub fn without_simd(mut self) -> Self {
         self.use_simd = false;
         self

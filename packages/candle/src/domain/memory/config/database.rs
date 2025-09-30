@@ -452,10 +452,14 @@ impl DatabaseConfig {
                 }
             }
             DatabaseType::SQLite => {
-                if conn_str == ":memory:"
-                    || conn_str.ends_with(".db")
-                    || conn_str.ends_with(".sqlite")
-                {
+                let has_db_ext = std::path::Path::new(conn_str)
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("db"));
+                let has_sqlite_ext = std::path::Path::new(conn_str)
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("sqlite"));
+                
+                if conn_str == ":memory:" || has_db_ext || has_sqlite_ext {
                     Ok(())
                 } else {
                     Err(MemoryError::validation(
