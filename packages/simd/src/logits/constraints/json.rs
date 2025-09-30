@@ -55,12 +55,21 @@ pub struct JsonState {
 impl JsonState {
     /// Creates a new JSON state in the initial value-expecting state.
     pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl Default for JsonState {
+    fn default() -> Self {
         JsonState {
             stack: [None; MAX_DEPTH],
             stack_len: 0,
             current: JsonCurrentState::ExpectValue,
         }
     }
+}
+
+impl JsonState {
 
     fn push_stack(&mut self, item: JsonStackItem) -> AnyResult<()> {
         if self.stack_len >= MAX_DEPTH {
@@ -173,7 +182,7 @@ impl JsonState {
                 match b {
                     b'\\' => S::InString { escape: true, is_key },
                     b'"' => if is_key { S::ExpectColon } else { self.set_after_value(); self.current },
-                    b if b >= 32 && b <= 126 => S::InString { escape: false, is_key },
+                    b if (32..=126).contains(&b) => S::InString { escape: false, is_key },
                     _ => return Err(anyhow::anyhow!("Invalid string char: {}", b as char)),
                 }
             },
@@ -283,14 +292,13 @@ impl<'a> JsonConstraint<'a> {
     pub fn new(tokenizer: &'a Tokenizer) -> AnyResult<Self> {
         let vocab_size = tokenizer.get_vocab_size(false);
         let mut token_bytes = vec![vec![]; vocab_size];
-        for i in 0..vocab_size {
+        for (i, bytes) in token_bytes.iter_mut().enumerate().take(vocab_size) {
             if let Some(s) = tokenizer.id_to_token(i as u32) {
-                token_bytes[i] = s.into_bytes();
+                *bytes = s.into_bytes();
             }
         }
         let mut tokens_per_start_byte: [Vec<u32>; 256] = std::array::from_fn(|_| vec![]);
-        for i in 0..vocab_size {
-            let bytes = &token_bytes[i];
+        for (i, bytes) in token_bytes.iter().enumerate().take(vocab_size) {
             if !bytes.is_empty() {
                 let first = bytes[0] as usize;
                 tokens_per_start_byte[first].push(i as u32);
@@ -374,8 +382,8 @@ impl<'a> GenerationConstraint for JsonConstraint<'a> {
             let poss_bytes = self.possible_next_bytes(&current);
             let mut count = 0;
             let mut the_token: Option<u32> = None;
-            'outer: for byte_idx in 0..256 {
-                if !poss_bytes[byte_idx] {
+            'outer: for (byte_idx, &possible) in poss_bytes.iter().enumerate() {
+                if !possible {
                     continue;
                 }
                 for &t in &self.tokens_per_start_byte[byte_idx] {

@@ -88,7 +88,7 @@ mod tests {
 
         // Verify filesystem type
         let output = Command::new("diskutil")
-            .args(&["info", config.mount_point.to_str().unwrap()])
+            .args(["info", config.mount_point.to_str().unwrap()])
             .output()
             .unwrap();
         let info = String::from_utf8_lossy(&output.stdout);

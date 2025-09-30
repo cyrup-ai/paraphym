@@ -572,10 +572,10 @@ impl CommandParser {
 
         // Parse based on command type
         match resolved_name {
-            "help" => self.parse_help_command(args),
-            "clear" => self.parse_clear_command(args),
-            "export" => self.parse_export_command(args),
-            "config" => self.parse_config_command(args),
+            "help" => Self::parse_help_command(args),
+            "clear" => Self::parse_clear_command(args),
+            "export" => Self::parse_export_command(args),
+            "config" => Self::parse_config_command(args),
             "search" => self.parse_search_args(args),
             _ => Err(ParseError::InvalidSyntax {
                 detail: format!("Unknown command: {command_name}"),
@@ -584,7 +584,7 @@ impl CommandParser {
     }
 
     /// Parse help command
-    fn parse_help_command(&self, args: &[&str]) -> ParseResult<ImmutableChatCommand> {
+    fn parse_help_command(args: &[&str]) -> ParseResult<ImmutableChatCommand> {
         let mut command = None;
         let mut extended = false;
 
@@ -606,7 +606,7 @@ impl CommandParser {
     }
 
     /// Parse clear command
-    fn parse_clear_command(&self, args: &[&str]) -> ParseResult<ImmutableChatCommand> {
+    fn parse_clear_command(args: &[&str]) -> ParseResult<ImmutableChatCommand> {
         let mut confirm = false;
         let mut keep_last = None;
 
@@ -644,7 +644,7 @@ impl CommandParser {
     }
 
     /// Parse export command
-    fn parse_export_command(&self, args: &[&str]) -> ParseResult<ImmutableChatCommand> {
+    fn parse_export_command(args: &[&str]) -> ParseResult<ImmutableChatCommand> {
         let mut format = None;
         let mut output = None;
         let mut include_metadata = false;
@@ -692,7 +692,7 @@ impl CommandParser {
     }
 
     /// Parse config command
-    fn parse_config_command(&self, args: &[&str]) -> ParseResult<ImmutableChatCommand> {
+    fn parse_config_command(args: &[&str]) -> ParseResult<ImmutableChatCommand> {
         let mut key = None;
         let mut value = None;
         let mut show = false;

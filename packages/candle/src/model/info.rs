@@ -180,7 +180,7 @@ impl ModelInfo {
             supports_zero_shot_learning: true, // Assume all models support zero-shot
             has_long_context: self
                 .max_input_tokens
-                .map_or(false, |tokens| tokens.get() > 32000),
+                .is_some_and(|tokens| tokens.get() > 32000),
             is_low_latency: false,        // Not in ModelInfo yet
             is_high_throughput: false,    // Not in ModelInfo yet
             supports_quantization: false, // Not in ModelInfo yet
@@ -203,20 +203,20 @@ impl ModelInfo {
             ));
         }
 
-        if let Some(max_input) = self.max_input_tokens {
-            if max_input.get() == 0 {
-                return Err(ModelError::InvalidConfiguration(
-                    "max_input_tokens cannot be zero".into(),
-                ));
-            }
+        if let Some(max_input) = self.max_input_tokens
+            && max_input.get() == 0
+        {
+            return Err(ModelError::InvalidConfiguration(
+                "max_input_tokens cannot be zero".into(),
+            ));
         }
 
-        if let Some(max_output) = self.max_output_tokens {
-            if max_output.get() == 0 {
-                return Err(ModelError::InvalidConfiguration(
-                    "max_output_tokens cannot be zero".into(),
-                ));
-            }
+        if let Some(max_output) = self.max_output_tokens
+            && max_output.get() == 0
+        {
+            return Err(ModelError::InvalidConfiguration(
+                "max_output_tokens cannot be zero".into(),
+            ));
         }
 
         if self.supports_thinking && self.optimal_thinking_budget.is_none() {

@@ -141,7 +141,9 @@ impl RetryConfig {
             delay_ms *= jitter;
         }
 
-        Duration::from_millis(delay_ms as u64)
+        #[allow(clippy::cast_possible_truncation)]
+        #[allow(clippy::cast_sign_loss)]
+        Duration::from_millis(delay_ms.round() as u64)
     }
 
     /// Validate the retry configuration

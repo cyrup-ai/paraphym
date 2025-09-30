@@ -78,7 +78,7 @@ impl<'a> SchemaParser<'a> {
 
     /// Handle empty schema objects (any JSON type allowed)
     fn parse_empty_object(&mut self) -> AnyResult<String> {
-        let types = vec![
+        let types = [
             json!({"type": "boolean"}),
             json!({"type": "null"}),
             json!({"type": "number"}),
@@ -580,7 +580,10 @@ impl<'a> SchemaParser<'a> {
 
         if ref_path.starts_with("#/") {
             // Try to resolve within root document using JSON pointer
-            let path_parts: Vec<&str> = ref_path[2..].split('/').collect();
+            let path_parts: Vec<&str> = ref_path.strip_prefix("#/")
+                .unwrap_or(ref_path)
+                .split('/')
+                .collect();
             let mut current = self.root;
             let empty_object = json!({});
 

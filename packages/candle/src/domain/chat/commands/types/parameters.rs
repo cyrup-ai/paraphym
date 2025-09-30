@@ -130,7 +130,7 @@ impl ParameterType {
             }
             Self::Duration => {
                 // Parse duration like "5s", "10m", "1h", "2d"
-                if self.parse_duration(value).is_some() {
+                if Self::parse_duration(value).is_some() {
                     Ok(())
                 } else {
                     Err(CandleCommandError::validation_failed(format!(
@@ -140,7 +140,7 @@ impl ParameterType {
             }
             Self::Size => {
                 // Parse size like "100", "1KB", "2MB", "1GB"
-                if self.parse_size(value).is_some() {
+                if Self::parse_size(value).is_some() {
                     Ok(())
                 } else {
                     Err(CandleCommandError::validation_failed(format!(
@@ -179,8 +179,7 @@ impl ParameterType {
                     Ok(())
                 } else {
                     Err(CandleCommandError::validation_failed(format!(
-                        "Invalid UUID format: {}",
-                        value
+                        "Invalid UUID format: {value}"
                     )))
                 }
             }
@@ -190,8 +189,7 @@ impl ParameterType {
                     Ok(())
                 } else {
                     Err(CandleCommandError::validation_failed(format!(
-                        "Invalid date format (expected YYYY-MM-DD): {}",
-                        value
+                        "Invalid date format (expected YYYY-MM-DD): {value}"
                     )))
                 }
             }
@@ -201,8 +199,7 @@ impl ParameterType {
                     Ok(())
                 } else {
                     Err(CandleCommandError::validation_failed(format!(
-                        "Invalid time format (expected HH:MM:SS): {}",
-                        value
+                        "Invalid time format (expected HH:MM:SS): {value}"
                     )))
                 }
             }
@@ -212,8 +209,7 @@ impl ParameterType {
                     Ok(())
                 } else {
                     Err(CandleCommandError::validation_failed(format!(
-                        "Invalid datetime format (expected ISO 8601): {}",
-                        value
+                        "Invalid datetime format (expected ISO 8601): {value}"
                     )))
                 }
             }
@@ -222,7 +218,7 @@ impl ParameterType {
 
     /// Parse duration string to seconds - zero allocation where possible
     #[inline]
-    fn parse_duration(&self, value: &str) -> Option<u64> {
+    fn parse_duration(value: &str) -> Option<u64> {
         if value.is_empty() {
             return None;
         }
@@ -255,7 +251,7 @@ impl ParameterType {
 
     /// Parse size string to bytes - zero allocation where possible
     #[inline]
-    fn parse_size(&self, value: &str) -> Option<u64> {
+    fn parse_size(value: &str) -> Option<u64> {
         if value.is_empty() {
             return None;
         }
@@ -407,8 +403,7 @@ impl ParameterInfo {
                         .map_err(|_| CandleCommandError::validation_failed("Invalid integer"))?;
                     if (val as f64) < min {
                         return Err(CandleCommandError::validation_failed(format!(
-                            "Value {} is below minimum {}",
-                            val, min
+                            "Value {val} is below minimum {min}"
                         )));
                     }
                 }
@@ -418,8 +413,7 @@ impl ParameterInfo {
                         .map_err(|_| CandleCommandError::validation_failed("Invalid float"))?;
                     if val < min {
                         return Err(CandleCommandError::validation_failed(format!(
-                            "Value {} is below minimum {}",
-                            val, min
+                            "Value {val} is below minimum {min}"
                         )));
                     }
                 }
@@ -435,8 +429,7 @@ impl ParameterInfo {
                         .map_err(|_| CandleCommandError::validation_failed("Invalid integer"))?;
                     if (val as f64) > max {
                         return Err(CandleCommandError::validation_failed(format!(
-                            "Value {} is above maximum {}",
-                            val, max
+                            "Value {val} is above maximum {max}"
                         )));
                     }
                 }
@@ -446,8 +439,7 @@ impl ParameterInfo {
                         .map_err(|_| CandleCommandError::validation_failed("Invalid float"))?;
                     if val > max {
                         return Err(CandleCommandError::validation_failed(format!(
-                            "Value {} is above maximum {}",
-                            val, max
+                            "Value {val} is above maximum {max}"
                         )));
                     }
                 }
@@ -461,8 +453,7 @@ impl ParameterInfo {
                 .map_err(|_| CandleCommandError::validation_failed("Invalid validation pattern"))?;
             if !regex.is_match(value) {
                 return Err(CandleCommandError::validation_failed(format!(
-                    "Value '{}' does not match required pattern",
-                    value
+                    "Value '{value}' does not match required pattern"
                 )));
             }
         }
@@ -497,10 +488,10 @@ impl ParameterValidator {
             }
 
             // Validate provided values
-            if let Some(value) = values.get(&param.name) {
-                if let Err(err) = param.validate(value) {
-                    errors.push(format!("Parameter '{}': {}", param.name, err));
-                }
+            if let Some(value) = values.get(&param.name)
+                && let Err(err) = param.validate(value)
+            {
+                errors.push(format!("Parameter '{}': {}", param.name, err));
             }
         }
 

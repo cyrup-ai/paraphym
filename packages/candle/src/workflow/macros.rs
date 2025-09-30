@@ -73,17 +73,17 @@ macro_rules! parallel {
     };
 }
 
-/// Internal macro for recursive error-propagating parallel operation tree construction
-///
-/// Similar to parallel_op! but builds trees of TryParallel combinators that
-/// short-circuit on first error. The recursive expansion creates efficient
-/// error-propagating parallel execution with clean error handling semantics.
-///
-/// ## Error Propagation Semantics
-/// - Short-circuit on first error from any parallel branch
-/// - Consistent error types across all parallel operations
-/// - Clean error composition without nested Result types
-/// - Compile-time error type validation and consistency
+// Internal macro for recursive error-propagating parallel operation tree construction
+//
+// Similar to parallel_op! but builds trees of TryParallel combinators that
+// short-circuit on first error. The recursive expansion creates efficient
+// error-propagating parallel execution with clean error handling semantics.
+//
+// ## Error Propagation Semantics
+// - Short-circuit on first error from any parallel branch
+// - Consistent error types across all parallel operations
+// - Clean error composition without nested Result types
+// - Compile-time error type validation and consistency
 // try_parallel_internal macro REMOVED - depended on TryOp trait that violated streams-only architecture
 // try_parallel macro REMOVED - violated streams-only architecture with Result-wrapped streams
 
@@ -102,5 +102,6 @@ macro_rules! parallel {
 ///
 /// Counts the number of comma-separated expressions at compile time,
 /// enabling size-specific optimizations and type generation.
+///
 // Re-export main public macro only
 pub use parallel;

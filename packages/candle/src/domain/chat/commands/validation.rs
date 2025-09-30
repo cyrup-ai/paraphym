@@ -66,11 +66,11 @@ impl CommandValidator {
             }
             ImmutableChatCommand::Clear { keep_last, .. } => {
                 if let Some(n) = keep_last {
-                    self.validate_integer_parameter("keep_last", i64::try_from(*n).unwrap_or(i64::MAX), Some(1), Some(1000))?;
+                    Self::validate_integer_parameter("keep_last", i64::try_from(*n).unwrap_or(i64::MAX), Some(1), Some(1000))?;
                 }
             }
             ImmutableChatCommand::Export { format, output, .. } => {
-                self.validate_enum_parameter(
+                Self::validate_enum_parameter(
                     "format",
                     format,
                     &["json", "markdown", "pdf", "html"],
@@ -90,7 +90,7 @@ impl CommandValidator {
             ImmutableChatCommand::Search { query, limit, .. } => {
                 self.validate_string_parameter("query", query, false)?;
                 if let Some(n) = limit {
-                    self.validate_integer_parameter("limit", i64::try_from(*n).unwrap_or(i64::MAX), Some(1), Some(100))?;
+                    Self::validate_integer_parameter("limit", i64::try_from(*n).unwrap_or(i64::MAX), Some(1), Some(100))?;
                 }
             }
             ImmutableChatCommand::Template {
@@ -112,7 +112,7 @@ impl CommandValidator {
                     self.validate_name_parameter("name", n)?;
                 }
                 for (i, cmd) in commands.iter().enumerate() {
-                    self.validate_string_parameter(&format!("command_{}", i), cmd, false)?;
+                    self.validate_string_parameter(&format!("command_{i}"), cmd, false)?;
                 }
             }
             ImmutableChatCommand::Branch { name, source, .. } => {
@@ -136,7 +136,7 @@ impl CommandValidator {
             }
             ImmutableChatCommand::Stats { period, .. } => {
                 if let Some(p) = period {
-                    self.validate_enum_parameter("period", p, &["day", "week", "month", "year"])?;
+                    Self::validate_enum_parameter("period", p, &["day", "week", "month", "year"])?;
                 }
             }
             ImmutableChatCommand::Theme {
@@ -149,7 +149,7 @@ impl CommandValidator {
             }
             ImmutableChatCommand::Debug { level, .. } => {
                 if let Some(l) = level {
-                    self.validate_enum_parameter(
+                    Self::validate_enum_parameter(
                         "level",
                         l,
                         &["trace", "debug", "info", "warn", "error"],
@@ -190,7 +190,7 @@ impl CommandValidator {
             ImmutableChatCommand::Custom { name, args, .. } => {
                 self.validate_name_parameter("name", name)?;
                 for (k, v) in args {
-                    self.validate_string_parameter(&format!("arg_{}", k), v, true)?;
+                    self.validate_string_parameter(&format!("arg_{k}"), v, true)?;
                 }
             }
             ImmutableChatCommand::Copy {
@@ -212,25 +212,25 @@ impl CommandValidator {
                 if let Some(cmd) = command {
                     self.validate_string_parameter("command", cmd, false)?;
                 }
-                if let Some(attempts) = attempts {
-                    if *attempts == 0 || *attempts > 100 {
-                        return Err(ValidationError::InvalidParameterFormat {
-                            parameter: "attempts".to_string().into(),
-                            value: attempts.to_string().into(),
-                            expected_format: "1-100".to_string().into(),
-                        });
-                    }
+                if let Some(attempts) = attempts
+                    && (*attempts == 0 || *attempts > 100)
+                {
+                    return Err(ValidationError::InvalidParameterFormat {
+                        parameter: "attempts".to_string().into(),
+                        value: attempts.to_string().into(),
+                        expected_format: "1-100".to_string().into(),
+                    });
                 }
             }
             ImmutableChatCommand::Undo { count, .. } => {
-                if let Some(cnt) = count {
-                    if *cnt == 0 || *cnt > 1000 {
-                        return Err(ValidationError::InvalidParameterFormat {
-                            parameter: "count".to_string().into(),
-                            value: cnt.to_string().into(),
-                            expected_format: "1-1000".to_string().into(),
-                        });
-                    }
+                if let Some(cnt) = count
+                    && (*cnt == 0 || *cnt > 1000)
+                {
+                    return Err(ValidationError::InvalidParameterFormat {
+                        parameter: "count".to_string().into(),
+                        value: cnt.to_string().into(),
+                        expected_format: "1-1000".to_string().into(),
+                    });
                 }
             }
             ImmutableChatCommand::Chat {
@@ -291,32 +291,31 @@ impl CommandValidator {
 
     /// Validate integer parameter
     fn validate_integer_parameter(
-        &self,
         name: &str,
         value: i64,
         min: Option<i64>,
         max: Option<i64>,
     ) -> Result<(), ValidationError> {
-        if let Some(min_val) = min {
-            if value < min_val {
-                return Err(ValidationError::ParameterOutOfRange {
-                    parameter: name.to_string(),
-                    value: value.to_string(),
-                    min: Some(min_val.to_string()),
-                    max: max.map(|m| m.to_string()),
-                });
-            }
+        if let Some(min_val) = min
+            && value < min_val
+        {
+            return Err(ValidationError::ParameterOutOfRange {
+                parameter: name.to_string(),
+                value: value.to_string(),
+                min: Some(min_val.to_string()),
+                max: max.map(|m| m.to_string()),
+            });
         }
 
-        if let Some(max_val) = max {
-            if value > max_val {
-                return Err(ValidationError::ParameterOutOfRange {
-                    parameter: name.to_string(),
-                    value: value.to_string(),
-                    min: min.map(|m| m.to_string()),
-                    max: Some(max_val.to_string()),
-                });
-            }
+        if let Some(max_val) = max
+            && value > max_val
+        {
+            return Err(ValidationError::ParameterOutOfRange {
+                parameter: name.to_string(),
+                value: value.to_string(),
+                min: min.map(|m| m.to_string()),
+                max: Some(max_val.to_string()),
+            });
         }
 
         Ok(())
@@ -324,7 +323,6 @@ impl CommandValidator {
 
     /// Validate enum parameter
     fn validate_enum_parameter(
-        &self,
         name: &str,
         value: &str,
         allowed: &[&str],

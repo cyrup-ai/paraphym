@@ -132,7 +132,7 @@ pub trait CandleAgentRole: Send + Sync + fmt::Debug + Clone {
 /// Default implementation of the `CandleAgentRole` trait
 pub struct CandleAgentRoleImpl {
     name: String,
-    /// Completion provider integration (KimiK2, Qwen3Coder, etc.) - Local models only
+    /// Completion provider integration (`KimiK2`, `Qwen3Coder`, etc.) - Local models only
     completion_provider: Option<Arc<CandleCompletionProviderType>>,
     temperature: Option<f64>,
     max_tokens: Option<u64>,
@@ -352,10 +352,10 @@ impl CandleAgentRoleImpl {
     ///
     /// # Arguments
     /// * `tool_name` - Name of the tool to execute
-    /// * `args` - Arguments to pass to the tool as serde_json::Value
+    /// * `args` - Arguments to pass to the tool as `serde_json::Value`
     ///
     /// # Returns
-    /// AsyncStream of tool execution results for ystream compatibility
+    /// `AsyncStream` of tool execution results for `ystream` compatibility
     pub fn execute_tool(&self, tool_name: &str, args: Value) -> ystream::AsyncStream<CandleJsonChunk> {
         if let Some(ref executor) = self.tool_executor {
             // Convert serde_json::Value to sweet_mcp_type::JsonValue
@@ -375,7 +375,7 @@ impl CandleAgentRoleImpl {
     /// Get all available tools for LLM function calling
     ///
     /// # Returns
-    /// Vector of ToolInfo structs describing available tools
+    /// Vector of `ToolInfo` structs describing available tools
     pub async fn get_available_tools(&self) -> Vec<ToolInfo> {
         if let Some(ref executor) = self.tool_executor {
             executor.get_available_tools().await
@@ -553,10 +553,10 @@ pub trait CandleConversationHistoryArgs {
 
 // Import CandleChatError from chat module (removed - unused)
 
-/// Convert serde_json::Value to sweet_mcp_type::JsonValue
+/// Convert `serde_json::Value` to `sweet_mcp_type::JsonValue`
 ///
-/// This function bridges the gap between serde_json and sweet_mcp_type for
-/// compatibility with existing ystream-based architecture while using
+/// This function bridges the gap between `serde_json` and `sweet_mcp_type` for
+/// compatibility with existing `ystream`-based architecture while using
 /// high-performance simd-json internally.
 pub fn convert_serde_to_sweet_json(value: Value) -> SweetJsonValue {
     match value {

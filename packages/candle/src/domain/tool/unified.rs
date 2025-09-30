@@ -1,9 +1,9 @@
 //! Unified Tool Execution Interface
 //!
 //! This module provides a single, unified interface for tool execution that
-//! transparently handles both MCP server tools and native code execution.
-//! Users never directly call tools - they prompt naturally and the LLM
-//! decides which tools to call, similar to OpenAI function calling.
+//! transparently handles both `MCP` server tools and native code execution.
+//! Users never directly call tools - they prompt naturally and the `LLM`
+//! decides which tools to call, similar to `OpenAI` function calling.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -21,9 +21,9 @@ use crate::builders::agent_role::McpServerConfig;
 use crate::domain::context::chunk::CandleJsonChunk;
 use crate::domain::tool::router::SweetMcpRouter;
 
-/// Unified tool execution interface that handles both MCP and native tools
+/// Unified tool execution interface that handles both `MCP` and native tools
 pub struct UnifiedToolExecutor {
-    /// MCP clients for multiple servers (server_id -> client)
+    /// `MCP` clients for multiple servers (`server_id` -> client)
     mcp_clients: Arc<tokio::sync::RwLock<HashMap<String, Arc<dyn McpClient + Send + Sync>>>>,
     /// Available tools discovered from MCP servers and native capabilities
     available_tools: Arc<tokio::sync::RwLock<Vec<ToolInfo>>>,
@@ -70,7 +70,10 @@ impl UnifiedToolExecutor {
         }
     }
 
-    /// Create a new unified tool executor with MCP server URL
+    /// Create a new unified tool executor with `MCP` server URL
+    ///
+    /// # Errors
+    /// Returns `ToolError::McpError` if the `MCP` client fails to initialize
     pub fn with_mcp_server(server_url: Option<String>) -> Result<Self, ToolError> {
         let mcp_client = if let Some(url) = server_url {
             let client = JsonClient::new(&url)?;
@@ -95,13 +98,16 @@ impl UnifiedToolExecutor {
     }
 
     /// Initialize the executor by discovering available tools
+    ///
+    /// # Errors
+    /// Returns `ToolError` if router initialization fails or `MCP` server connection fails
     pub async fn initialize(&self) -> Result<(), ToolError> {
         let mut tools = Vec::new();
 
         // Initialize native router for code execution tools
         let mut router = SweetMcpRouter::new();
         router.initialize().await
-            .map_err(|e| ToolError::Other(anyhow::anyhow!("Failed to initialize router: {}", e)))?;
+            .map_err(|e| ToolError::Other(anyhow::anyhow!("Failed to initialize router: {e}")))?;
         
         // Store router with interior mutability
         {
@@ -111,19 +117,19 @@ impl UnifiedToolExecutor {
 
         // Connect to and discover tools from all MCP servers
         for (i, server_config) in self.mcp_server_configs.iter().enumerate() {
-            let server_id = format!("server_{}", i);
+            let server_id = format!("server_{i}");
             
             // Parse init_command properly handling quoted arguments
             let command_parts = match shell_words::split(&server_config.init_command) {
                 Ok(parts) => parts,
                 Err(e) => {
-                    tracing::warn!("Failed to parse init_command for server {}: {}", server_id, e);
+                    tracing::warn!("Failed to parse init_command for server {server_id}: {e}");
                     continue;
                 }
             };
             
             if command_parts.is_empty() {
-                tracing::warn!("Empty init_command for server {}", server_id);
+                tracing::warn!("Empty init_command for server {server_id}");
                 continue;
             }
 
@@ -183,8 +189,11 @@ impl UnifiedToolExecutor {
         Ok(())
     }
 
-    /// Execute a tool by name with arguments - OpenAI-style function calling
-    /// Users never call this directly - the LLM calls tools automatically
+    /// Execute a tool by name with arguments - `OpenAI`-style function calling
+    /// Users never call this directly - the `LLM` calls tools automatically
+    ///
+    /// # Errors
+    /// Returns `ToolError::ToolNotFound` if tool doesn't exist, or execution errors
     pub async fn call_tool(&self, tool_name: &str, args: JsonValue) -> Result<Response, ToolError> {
         // Find the tool
         let tools = self.available_tools.read().await;
@@ -194,7 +203,7 @@ impl UnifiedToolExecutor {
             .ok_or_else(|| ToolError::ToolNotFound(tool_name.to_string()))?;
 
         // Route based on tool type - implementation detail hidden from user
-        if self.is_mcp_tool(tool_info) {
+        if Self::is_mcp_tool(tool_info) {
             self.execute_mcp_tool(tool_name, args).await
         } else {
             self.execute_native_tool(tool_info, args)
@@ -230,38 +239,40 @@ impl UnifiedToolExecutor {
         tools.clone()
     }
 
-    /// Check if this is an MCP tool or native tool
-    fn is_mcp_tool(&self, tool_info: &ToolInfo) -> bool {
+    /// Check if this is an `MCP` tool or native tool
+    fn is_mcp_tool(tool_info: &ToolInfo) -> bool {
         // MCP tools typically have more complex schemas and descriptions
         // Native code execution tools have simpler, code-focused schemas
-        !self.is_code_execution_tool(tool_info)
+        !Self::is_code_execution_tool(tool_info)
     }
 
     /// Check if this is a code execution tool
-    fn is_code_execution_tool(&self, tool_info: &ToolInfo) -> bool {
-        tool_info.name.starts_with("execute_") ||
-        tool_info.name == "code_execution" ||
-        tool_info.description.as_ref().map_or(false, |d| d.contains("execute code"))
+    fn is_code_execution_tool(tool_info: &ToolInfo) -> bool {
+        tool_info.name.starts_with("execute_")
+            || tool_info.name == "code_execution"
+            || tool_info.description.as_ref().is_some_and(|d| d.contains("execute code"))
     }
 
-    /// Execute MCP server tool using O(1) HashMap lookup
+    /// Execute `MCP` server tool using `O(1)` `HashMap` lookup
     async fn execute_mcp_tool(&self, tool_name: &str, args: JsonValue) -> Result<Response, ToolError> {
         // O(1) lookup of server_id from tool name
         let tool_map = self.tool_server_map.read().await;
         let server_id = tool_map.get(tool_name)
-            .ok_or_else(|| ToolError::ToolNotFound(format!("Tool '{}' not found in any MCP server", tool_name)))?;
+            .ok_or_else(|| ToolError::ToolNotFound(format!("Tool '{tool_name}' not found in any MCP server")))?;
         
         // Get the specific client for this tool
         let clients = self.mcp_clients.read().await;
         let client = clients.get(server_id)
-            .ok_or_else(|| ToolError::ToolNotFound(format!("Server '{}' not found for tool '{}'", server_id, tool_name)))?;
+            .ok_or_else(|| ToolError::ToolNotFound(format!("Server '{server_id}' not found for tool '{tool_name}'")))?;
         
         // Call tool on the correct server
         client.call_tool(tool_name, args).await.map_err(ToolError::from)
     }
 
-    /// Execute native tool via SweetMcpRouter delegation
+    /// Execute native tool via `SweetMcpRouter` delegation
     fn execute_native_tool(&self, tool_info: &ToolInfo, args: JsonValue) -> Result<Response, ToolError> {
+        use crate::domain::agent::role::convert_serde_to_sweet_json;
+        
         // Get router through RwLock
         let router_guard = crate::runtime::shared_runtime()
             .block_on(self.native_router.read());
@@ -275,17 +286,17 @@ impl UnifiedToolExecutor {
             .map_err(|e| ToolError::CyloError(e.to_string()))?;
 
         // Convert serde_json::Value result to Response
-        use crate::domain::agent::role::convert_serde_to_sweet_json;
         let response_data = convert_serde_to_sweet_json(result);
         
+        let native_id = uuid::Uuid::new_v4();
         Ok(Response {
-            id: sweet_mcp_type::RequestId::Str(format!("native_{}", uuid::Uuid::new_v4())),
+            id: sweet_mcp_type::RequestId::Str(format!("native_{native_id}")),
             result: Some(response_data),
             error: None,
         })
     }
 
-    /// Create a clone for async operations - Arc<JsonClient> allows cheap cloning
+    /// Create a clone for async operations - `Arc<JsonClient>` allows cheap cloning
     fn clone_for_async(&self) -> Self {
         Self {
             mcp_clients: self.mcp_clients.clone(), // HashMap of Arc allows cheap cloning
@@ -297,9 +308,9 @@ impl UnifiedToolExecutor {
     }
 }
 
-/// Convert cylo ExecutionResult to MCP Response
+/// Convert `cylo` `ExecutionResult` to `MCP` `Response`
 #[allow(dead_code)]
-fn create_tool_response(result: ExecutionResult) -> Response {
+fn create_tool_response(result: &ExecutionResult) -> Response {
     
     // Create response data as JsonValue using serde conversion
     let response_data = if result.exit_code == 0 {
@@ -327,7 +338,7 @@ fn create_tool_response(result: ExecutionResult) -> Response {
     }
 }
 
-/// Convert sweet-mcp-type Response to serde_json::Value for ystream compatibility
+/// Convert `sweet-mcp-type` `Response` to `serde_json::Value` for `ystream` compatibility
 fn response_to_value(response: Response) -> Value {
     // Convert the response to a generic Value format
     if let Some(result_data) = response.result {
@@ -346,7 +357,7 @@ fn response_to_value(response: Response) -> Value {
     }
 }
 
-/// Convert sweet_mcp_type::JsonValue to serde_json::Value
+/// Convert `sweet_mcp_type::JsonValue` to `serde_json::Value`
 fn convert_sweet_json_to_serde(value: JsonValue) -> Value {
     match value {
         JsonValue::Static(node) => match node {

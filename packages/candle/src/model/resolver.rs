@@ -299,29 +299,29 @@ impl ModelResolver {
         provider: Option<&'a str>,
     ) -> Result<ModelResolution> {
         // Check for exact match first (provider:model)
-        if let Some(provider) = provider {
-            if let Ok(Some(model)) = registry.get::<M>(provider, model_name) {
-                return Ok(ModelResolution::new(
-                    provider.to_string(),
-                    model_name.to_string(),
-                    Some(model.info().clone()),
-                    None,
-                    1.0,
-                ));
-            }
+        if let Some(provider) = provider
+            && let Ok(Some(model)) = registry.get::<M>(provider, model_name)
+        {
+            return Ok(ModelResolution::new(
+                provider.to_string(),
+                model_name.to_string(),
+                Some(model.info().clone()),
+                None,
+                1.0,
+            ));
         }
 
         // Check for exact match in the default provider
-        if let Some(default_provider) = self.get_default_provider() {
-            if let Ok(Some(model)) = registry.get::<M>(default_provider, model_name) {
-                return Ok(ModelResolution::new(
-                    default_provider.to_string(),
-                    model_name.to_string(),
-                    Some(model.info().clone()),
-                    None,
-                    0.9,
-                ));
-            }
+        if let Some(default_provider) = self.get_default_provider()
+            && let Ok(Some(model)) = registry.get::<M>(default_provider, model_name)
+        {
+            return Ok(ModelResolution::new(
+                default_provider.to_string(),
+                model_name.to_string(),
+                Some(model.info().clone()),
+                None,
+                0.9,
+            ));
         }
 
         // Check for aliases
@@ -341,10 +341,10 @@ impl ModelResolver {
         // Apply resolution rules
         for rule in &self.rules {
             if rule.pattern.matches(model_name) {
-                if let Some(condition) = &rule.condition {
-                    if !self.check_condition(condition) {
-                        continue;
-                    }
+                if let Some(condition) = &rule.condition
+                    && !self.check_condition(condition)
+                {
+                    continue;
                 }
 
                 if let Ok(Some(model)) = registry.get::<M>(&rule.provider, &rule.target) {
@@ -437,7 +437,7 @@ impl ModelResolver {
         // Find the best match using Jaro-Winkler similarity
         let best_match = all_models
             .iter()
-            .filter(|m| provider.map_or(true, |p| m.info().provider() == p))
+            .filter(|m| provider.is_none_or(|p| m.info().provider() == p))
             .map(|m| {
                 let info = m.info();
                 (info, strsim::jaro_winkler(info.name(), model_name))

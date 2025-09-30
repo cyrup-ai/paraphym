@@ -201,7 +201,7 @@ impl ClientError {
             Self::Protocol(_) => false, // Protocol errors are usually not retryable
             Self::ToolExecution { code, .. } => {
                 // Only retry if it's a server-side error
-                code.map_or(false, |c| c >= 500)
+                code.is_some_and(|c| c >= 500)
             }
             _ => false,
         }

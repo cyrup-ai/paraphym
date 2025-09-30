@@ -610,7 +610,6 @@ impl MacroSystem {
 
     /// Execute a single macro action with streaming results - planned feature
     fn _execute_action(
-        &self,
         action: &MacroAction,
         context: &mut MacroExecutionContext,
     ) -> AsyncStream<ActionExecutionResult> {
@@ -1076,36 +1075,33 @@ impl MacroProcessor {
             .get(macro_id)
             .ok_or(MacroSystemError::MacroNotFound);
 
-        match macro_def {
-            Ok(macro_entry) => {
-                let macro_def = macro_entry.value().clone();
-                self.execute_macro_impl(macro_def, context_variables)
-            }
-            Err(_) => {
-                let macro_id = *macro_id;
-                AsyncStream::with_channel(move |sender| {
-                    std::thread::spawn(move || {
-                        // Error handling via on_chunk pattern - for now just return default
-                        let default_result = MacroExecutionResult {
-                            success: false,
-                            message: String::from("Macro not found"),
-                            actions_executed: 0,
-                            execution_duration: Duration::from_secs(0),
-                            modified_variables: HashMap::new(),
-                            metadata: MacroExecutionMetadata {
-                                execution_id: Uuid::new_v4(),
-                                macro_id,
-                                started_at: Duration::from_secs(0),
-                                completed_at: Duration::from_secs(0),
-                                context: HashMap::new(),
-                                performance: MacroPerformanceMetrics::default(),
-                            },
-                        };
+        if let Ok(macro_entry) = macro_def {
+            let macro_def = macro_entry.value().clone();
+            self.execute_macro_impl(macro_def, context_variables)
+        } else {
+            let macro_id = *macro_id;
+            AsyncStream::with_channel(move |sender| {
+                std::thread::spawn(move || {
+                    // Error handling via on_chunk pattern - for now just return default
+                    let default_result = MacroExecutionResult {
+                        success: false,
+                        message: String::from("Macro not found"),
+                        actions_executed: 0,
+                        execution_duration: Duration::from_secs(0),
+                        modified_variables: HashMap::new(),
+                        metadata: MacroExecutionMetadata {
+                            execution_id: Uuid::new_v4(),
+                            macro_id,
+                            started_at: Duration::from_secs(0),
+                            completed_at: Duration::from_secs(0),
+                            context: HashMap::new(),
+                            performance: MacroPerformanceMetrics::default(),
+                        },
+                    };
 
-                        let _ = sender.send(default_result);
-                    });
-                })
-            }
+                    let _ = sender.send(default_result);
+                });
+            })
         }
     }
 

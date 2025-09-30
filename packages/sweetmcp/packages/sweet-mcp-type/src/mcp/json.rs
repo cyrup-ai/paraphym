@@ -81,11 +81,7 @@ impl Message {
                         .ok_or(McpError::BadField("error.message"))?
                         .to_owned(),
                     // ---------- NO iterator Map / Cloned here ----------
-                    data: if let Some(d) = eobj.get("data") {
-                        Some(d.clone())
-                    } else {
-                        None
-                    },
+                    data: eobj.get("data").cloned(),
                 })
             })
             .transpose()?;
@@ -104,8 +100,8 @@ impl Message {
         let mut out = String::with_capacity(256);
         out.push_str(r#"{"jsonrpc":"2.0","#);
 
-        match self {
-            &Message::Req(ref r) => {
+        match *self {
+            Message::Req(ref r) => {
                 out.push_str(r#""id":"#);
                 id_to_json(&r.id, &mut out);
 
@@ -123,7 +119,7 @@ impl Message {
                 out.push('}');
             }
 
-            &Message::Notif(ref n) => {
+            Message::Notif(ref n) => {
                 out.push_str(r#""method":""#);
                 json_escape(&n.method, &mut out);
                 out.push('"');
@@ -135,7 +131,7 @@ impl Message {
                 out.push('}');
             }
 
-            &Message::Res(ref r) => {
+            Message::Res(ref r) => {
                 out.push_str(r#""id":"#);
                 id_to_json(&r.id, &mut out);
 

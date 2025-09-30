@@ -1,8 +1,8 @@
-//! SweetMCP Tool Router
+//! `SweetMCP` Tool Router
 //!
-//! This module provides the unified tool routing interface described in TOOL_CALLING.md.
+//! This module provides the unified tool routing interface described in `TOOL_CALLING.md`.
 //! It implements Stage 3 (Function Calling) of the chat loop architecture, providing
-//! transparent routing between SweetMCP plugins, container MCP tools, and Cylo execution.
+//! transparent routing between `SweetMCP` plugins, container `MCP` tools, and `Cylo` execution.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -14,34 +14,50 @@ use sweet_mcp_type::{ToolInfo, JsonValue};
 use cylo::{Cylo, create_backend, BackendConfig, ExecutionRequest, ExecutionResult};
 use crate::domain::context::chunk::CandleJsonChunk;
 
-/// SweetMCP Tool Router
+/// `SweetMCP` Tool Router
 ///
 /// Provides transparent tool routing for the 5-stage chat loop architecture.
-/// Tools appear identical via ToolInfo interface regardless of execution method.
+/// Tools appear identical via `ToolInfo` interface regardless of execution method.
 #[derive(Debug)]
 pub struct SweetMcpRouter {
     /// Available tools discovered from all sources
     available_tools: Arc<tokio::sync::RwLock<Vec<ToolInfo>>>,
-    /// Tool routing map: tool_name -> execution strategy
+    /// Tool routing map: `tool_name` -> execution strategy
     tool_routes: Arc<tokio::sync::RwLock<HashMap<String, ToolRoute>>>,
-    /// WASM plugin configurations (user-provided)
+    /// `WASM` plugin configurations (user-provided)
     plugin_configs: Vec<PluginConfig>,
-    /// Cylo backend configuration (optional)
+    /// `Cylo` backend configuration (optional)
     cylo_config: Option<CyloBackendConfig>,
 }
 
 /// Tool execution route strategy
 #[derive(Debug, Clone)]
 pub enum ToolRoute {
-    /// Execute via SweetMCP WASM plugin
+    /// Execute via `SweetMCP` `WASM` plugin
     SweetMcpPlugin {
         plugin_path: String,
     },
-    /// Execute directly via Cylo backend
+    /// Execute directly via `Cylo` backend
     CyloExecution {
         backend_type: String,
         config: String,
     },
+}
+
+/// Configuration for a WASM plugin tool
+#[derive(Debug, Clone)]
+pub struct PluginConfig {
+    pub tool_name: String,
+    pub wasm_path: String,
+    pub description: String,
+    pub input_schema: JsonValue,
+}
+
+/// Configuration for Cylo execution backend
+#[derive(Debug, Clone)]
+pub struct CyloBackendConfig {
+    pub backend_type: String,  // "Apple", "LandLock", "FireCracker"
+    pub config_value: String,  // e.g., "python:alpine3.20" or "/tmp/sandbox"
 }
 
 /// Tool execution error types
@@ -58,30 +74,42 @@ pub enum RouterError {
 }
 
 impl SweetMcpRouter {
-    /// Create a new SweetMCP router
+    /// Create a new `SweetMCP` router with empty configuration
     pub fn new() -> Self {
+        Self::with_configs(Vec::new(), None)
+    }
+
+    /// Create a new `SweetMCP` router with plugin and `Cylo` backend configurations
+    pub fn with_configs(
+        plugin_configs: Vec<PluginConfig>,
+        cylo_config: Option<CyloBackendConfig>,
+    ) -> Self {
         Self {
             available_tools: Arc::new(tokio::sync::RwLock::new(Vec::new())),
             tool_routes: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
-            backend_configs: HashMap::new(),
+            plugin_configs,
+            cylo_config,
         }
     }
 
     /// Initialize router by discovering available tools
     ///
     /// Stage 1 (Discovery) - Scan all available tool sources:
-    /// - SweetMCP WASM plugins
-    /// - Container MCP servers
-    /// - Native Cylo execution capabilities
+    /// - `SweetMCP` `WASM` plugins
+    /// - Container `MCP` servers
+    /// - Native `Cylo` execution capabilities
+    ///
+    /// # Errors
+    /// Returns `RouterError` if plugin discovery or tool registration fails
     pub async fn initialize(&mut self) -> Result<(), RouterError> {
         let mut tools = Vec::new();
         let mut routes = HashMap::new();
 
         // Discover SweetMCP plugins from configuration
-        self.discover_sweetmcp_plugins(&mut tools, &mut routes)?;
+        self.discover_sweetmcp_plugins(&mut tools, &mut routes);
 
         // Add native code execution tools
-        self.add_native_execution_tools(&mut tools, &mut routes)?;
+        self.add_native_execution_tools(&mut tools, &mut routes);
 
         // Store discovered tools and routes
         {
@@ -99,7 +127,10 @@ impl SweetMcpRouter {
     /// Execute a tool by name with arguments
     ///
     /// Stage 3 (Function Calling) - Transparent tool execution via routing.
-    /// The LLM calls tools naturally without knowing execution method.
+    /// The `LLM` calls tools naturally without knowing execution method.
+    ///
+    /// # Errors
+    /// Returns `RouterError::ToolNotFound` if tool doesn't exist or execution fails
     pub async fn call_tool(&self, tool_name: &str, args: JsonValue) -> Result<Value, RouterError> {
         // Find the tool route
         let route = {
@@ -119,16 +150,16 @@ impl SweetMcpRouter {
         }
     }
 
-    /// Get all available tools for LLM function calling
+    /// Get all available tools for `LLM` function calling
     ///
-    /// Stage 2 (Selection) - Provide ToolInfo for LLM tool selection.
+    /// Stage 2 (Selection) - Provide `ToolInfo` for `LLM` tool selection.
     /// All tools appear identical regardless of execution method.
     pub async fn get_available_tools(&self) -> Vec<ToolInfo> {
         let tools = self.available_tools.read().await;
         tools.clone()
     }
 
-    /// Execute tool and return ystream for compatibility
+    /// Execute tool and return `ystream` for compatibility
     pub fn call_tool_stream(&self, tool_name: &str, args: JsonValue) -> AsyncStream<CandleJsonChunk> {
         let tool_name = tool_name.to_string();
         let router = self.clone_for_async();
@@ -151,12 +182,12 @@ impl SweetMcpRouter {
         })
     }
 
-    /// Discover SweetMCP WASM plugins from user configuration
+    /// Discover `SweetMCP` `WASM` plugins from user configuration
     fn discover_sweetmcp_plugins(
         &self,
         tools: &mut Vec<ToolInfo>,
         routes: &mut HashMap<String, ToolRoute>,
-    ) -> Result<(), RouterError> {
+    ) {
         // Create tools from user-provided plugin configurations
         for plugin_config in &self.plugin_configs {
             let tool_info = ToolInfo {
@@ -173,20 +204,17 @@ impl SweetMcpRouter {
                 },
             );
         }
-
-        Ok(())
     }
 
-    /// Add native code execution tools via Cylo (if configured)
+    /// Add native code execution tools via `Cylo` (if configured)
     fn add_native_execution_tools(
         &self,
         tools: &mut Vec<ToolInfo>,
         routes: &mut HashMap<String, ToolRoute>,
-    ) -> Result<(), RouterError> {
+    ) {
         // Only add native execution tools if Cylo backend is configured
-        let cylo_config = match &self.cylo_config {
-            Some(config) => config,
-            None => return Ok(()), // No Cylo configured, skip native execution tools
+        let Some(cylo_config) = &self.cylo_config else {
+            return; // No Cylo configured, skip native execution tools
         };
 
         // Add native execution tools for different languages
@@ -201,8 +229,8 @@ impl SweetMcpRouter {
         for (tool_name, language) in languages {
             let tool = ToolInfo {
                 name: tool_name.to_string(),
-                description: Some(format!("Execute {} code securely via Cylo", language)),
-                input_schema: self.create_code_execution_schema(&format!("{} code to execute", language)),
+                description: Some(format!("Execute {language} code securely via Cylo")),
+                input_schema: Self::create_code_execution_schema(&format!("{language} code to execute")),
             };
 
             tools.push(tool);
@@ -216,11 +244,9 @@ impl SweetMcpRouter {
                 },
             );
         }
-
-        Ok(())
     }
 
-    /// Execute SweetMCP WASM plugin
+    /// Execute `SweetMCP` `WASM` plugin
     async fn execute_sweetmcp_plugin(&self, plugin_path: &str, args: JsonValue) -> Result<Value, RouterError> {
         // Create Cylo backend for SweetMCP plugin execution
         let cylo_env = Cylo::SweetMcpPlugin(plugin_path.to_string());
@@ -230,7 +256,7 @@ impl SweetMcpRouter {
             .map_err(|e| RouterError::BackendError(e.to_string()))?;
 
         // Convert JsonValue args to ExecutionRequest
-        let request = self.json_args_to_execution_request(args)?;
+        let request = Self::json_args_to_execution_request(args)?;
 
         // Execute via backend
         let result_handle = backend.execute_code(request);
@@ -238,7 +264,7 @@ impl SweetMcpRouter {
             .map_err(|e| RouterError::ExecutionFailed(e.to_string()))?;
 
         // Convert ExecutionResult to JSON Value
-        self.execution_result_to_json(result)
+        Ok(Self::execution_result_to_json(&result))
     }
 
     /// Execute via Cylo backend directly
@@ -249,7 +275,7 @@ impl SweetMcpRouter {
             "LandLock" => Cylo::LandLock(config.to_string()),
             "FireCracker" => Cylo::FireCracker(config.to_string()),
             "SweetMcpPlugin" => Cylo::SweetMcpPlugin(config.to_string()),
-            _ => return Err(RouterError::BackendError(format!("Unknown backend type: {}", backend_type))),
+            _ => return Err(RouterError::BackendError(format!("Unknown backend type: {backend_type}"))),
         };
 
         let backend_config = BackendConfig::new(backend_type);
@@ -257,7 +283,7 @@ impl SweetMcpRouter {
             .map_err(|e| RouterError::BackendError(e.to_string()))?;
 
         // Convert JsonValue args to ExecutionRequest
-        let request = self.json_args_to_execution_request(args)?;
+        let request = Self::json_args_to_execution_request(args)?;
 
         // Execute via backend
         let result_handle = backend.execute_code(request);
@@ -265,13 +291,13 @@ impl SweetMcpRouter {
             .map_err(|e| RouterError::ExecutionFailed(e.to_string()))?;
 
         // Convert ExecutionResult to JSON Value
-        self.execution_result_to_json(result)
+        Ok(Self::execution_result_to_json(&result))
     }
 
-    /// Convert JsonValue arguments to ExecutionRequest
-    fn json_args_to_execution_request(&self, args: JsonValue) -> Result<ExecutionRequest, RouterError> {
+    /// Convert `JsonValue` arguments to `ExecutionRequest`
+    fn json_args_to_execution_request(args: JsonValue) -> Result<ExecutionRequest, RouterError> {
         // Convert sweet_mcp_type::JsonValue to serde_json::Value first
-        let args_value = self.convert_sweet_json_to_serde(args);
+        let args_value = Self::convert_sweet_json_to_serde(args);
 
         let code = args_value.get("code")
             .and_then(|v| v.as_str())
@@ -299,9 +325,9 @@ impl SweetMcpRouter {
         Ok(request)
     }
 
-    /// Convert ExecutionResult to JSON Value
-    fn execution_result_to_json(&self, result: ExecutionResult) -> Result<Value, RouterError> {
-        let result_json = serde_json::json!({
+    /// Convert `ExecutionResult` to JSON `Value`
+    fn execution_result_to_json(result: &ExecutionResult) -> Value {
+        serde_json::json!({
             "success": result.exit_code == 0,
             "exit_code": result.exit_code,
             "stdout": result.stdout,
@@ -312,13 +338,11 @@ impl SweetMcpRouter {
                 "cpu_time_ms": result.resource_usage.cpu_time_ms,
                 "process_count": result.resource_usage.process_count,
             }
-        });
-
-        Ok(result_json)
+        })
     }
 
-    /// Convert sweet_mcp_type::JsonValue to serde_json::Value
-    fn convert_sweet_json_to_serde(&self, value: JsonValue) -> serde_json::Value {
+    /// Convert `sweet_mcp_type::JsonValue` to `serde_json::Value`
+    fn convert_sweet_json_to_serde(value: JsonValue) -> serde_json::Value {
         use simd_json::StaticNode;
         match value {
             JsonValue::Static(StaticNode::Null) => serde_json::Value::Null,
@@ -330,16 +354,16 @@ impl SweetMcpRouter {
             }
             JsonValue::String(s) => serde_json::Value::String(s),
             JsonValue::Array(arr) => {
-                serde_json::Value::Array(arr.into_iter().map(|v| self.convert_sweet_json_to_serde(v)).collect())
+                serde_json::Value::Array(arr.into_iter().map(Self::convert_sweet_json_to_serde).collect())
             }
             JsonValue::Object(obj) => {
-                serde_json::Value::Object(obj.into_iter().map(|(k, v)| (k, self.convert_sweet_json_to_serde(v))).collect())
+                serde_json::Value::Object(obj.into_iter().map(|(k, v)| (k, Self::convert_sweet_json_to_serde(v))).collect())
             }
         }
     }
 
     /// Create a code execution input schema
-    fn create_code_execution_schema(&self, description: &str) -> JsonValue {
+    fn create_code_execution_schema(description: &str) -> JsonValue {
         use crate::domain::agent::role::convert_serde_to_sweet_json;
         
         // Build schema using serde_json macro for clean, type-safe construction

@@ -105,7 +105,7 @@ impl Query {
         use crate::GraphQLClient;
         let _client_ctx = ctx.data::<McpClientContext<GraphQLClient>>()?;
         // Try to ping the server to get basic info
-        Ok(format!("GraphQL client connected to MCP server"))
+        Ok("GraphQL client connected to MCP server".to_string())
     }
 }
 
@@ -211,27 +211,25 @@ fn parse_time_response(response: McpResponse) -> Result<TimeResult, String> {
     let result = response.result.ok_or("No result in response")?;
     
     // Try to extract content from MCP response format
-    if let Some(content_array) = result.get("content").and_then(|c| c.as_array()) {
-        if let Some(first_item) = content_array.first() {
-            if let Some(text_content) = first_item.get("text").and_then(|t| t.as_str()) {
-                // Parse the JSON response from time tool
-                let mut time_data_bytes = text_content.as_bytes().to_vec();
-                if let Ok(time_data) = simd_json::to_owned_value(&mut time_data_bytes) {
-                    return Ok(TimeResult {
-                        utc_time: time_data.get("utc_time")
-                            .and_then(|t| t.as_str())
-                            .unwrap_or("unknown").to_string(),
-                        formatted_time: time_data.get("formatted_time")
-                            .and_then(|t| t.as_str())
-                            .unwrap_or("unknown").to_string(),
-                        timezone: time_data.get("timezone")
-                            .and_then(|t| t.as_str())
-                            .unwrap_or("UTC").to_string(),
-                        unix_timestamp: time_data.get("unix_timestamp")
-                            .and_then(|t| t.as_i64()),
-                    });
-                }
-            }
+    if let Some(content_array) = result.get("content").and_then(|c| c.as_array())
+        && let Some(first_item) = content_array.first()
+        && let Some(text_content) = first_item.get("text").and_then(|t| t.as_str()) {
+        // Parse the JSON response from time tool
+        let mut time_data_bytes = text_content.as_bytes().to_vec();
+        if let Ok(time_data) = simd_json::to_owned_value(&mut time_data_bytes) {
+            return Ok(TimeResult {
+                utc_time: time_data.get("utc_time")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("unknown").to_string(),
+                formatted_time: time_data.get("formatted_time")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("unknown").to_string(),
+                timezone: time_data.get("timezone")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("UTC").to_string(),
+                unix_timestamp: time_data.get("unix_timestamp")
+                    .and_then(|t| t.as_i64()),
+            });
         }
     }
 
@@ -247,28 +245,26 @@ fn parse_hash_response(response: McpResponse) -> Result<HashResult, String> {
     let result = response.result.ok_or("No result in response")?;
     
     // Try to extract content from MCP response format
-    if let Some(content_array) = result.get("content").and_then(|c| c.as_array()) {
-        if let Some(first_item) = content_array.first() {
-            if let Some(text_content) = first_item.get("text").and_then(|t| t.as_str()) {
-                // Parse the JSON response from hash tool
-                let mut hash_data_bytes = text_content.as_bytes().to_vec();
-                if let Ok(hash_data) = simd_json::to_owned_value(&mut hash_data_bytes) {
-                    let hash_value = hash_data.get("hash")
-                        .and_then(|h| h.as_str())
-                        .unwrap_or("unknown").to_string();
-                    
-                    return Ok(HashResult {
-                        algorithm: hash_data.get("algorithm")
-                            .and_then(|a| a.as_str())
-                            .unwrap_or("unknown").to_string(),
-                        input_data: hash_data.get("input")
-                            .and_then(|i| i.as_str())
-                            .unwrap_or("unknown").to_string(),
-                        hash_value: hash_value.clone(),
-                        hash_length: hash_value.len() as i32,
-                    });
-                }
-            }
+    if let Some(content_array) = result.get("content").and_then(|c| c.as_array())
+        && let Some(first_item) = content_array.first()
+        && let Some(text_content) = first_item.get("text").and_then(|t| t.as_str()) {
+        // Parse the JSON response from hash tool
+        let mut hash_data_bytes = text_content.as_bytes().to_vec();
+        if let Ok(hash_data) = simd_json::to_owned_value(&mut hash_data_bytes) {
+            let hash_value = hash_data.get("hash")
+                .and_then(|h| h.as_str())
+                .unwrap_or("unknown").to_string();
+            
+            return Ok(HashResult {
+                algorithm: hash_data.get("algorithm")
+                    .and_then(|a| a.as_str())
+                    .unwrap_or("unknown").to_string(),
+                input_data: hash_data.get("input")
+                    .and_then(|i| i.as_str())
+                    .unwrap_or("unknown").to_string(),
+                hash_value: hash_value.clone(),
+                hash_length: hash_value.len() as i32,
+            });
         }
     }
 

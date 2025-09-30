@@ -446,6 +446,7 @@ impl IndexConfig {
                 annoy_trees: None,
             },
             IndexType::IVFPQ => {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
                 let num_clusters = (expected_vectors as f64).sqrt() as usize;
                 let pq_subspaces = (dimension / 4).max(1).min(64);
                 Self {
@@ -477,6 +478,7 @@ impl IndexConfig {
                 hnsw_max_connections: None,
                 hnsw_ef_construction: None,
                 search_ef: None,
+                #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
                 annoy_trees: Some((expected_vectors as f64).log2() as usize * 2),
             },
             IndexType::LSH | IndexType::SQ => Self {
@@ -496,7 +498,9 @@ impl IndexConfig {
     pub fn estimate_memory_usage(&self, dimension: usize, num_vectors: usize) -> usize {
         let base_size = num_vectors * dimension * 4; // f32 vectors
         let multiplier = self.index_type.memory_multiplier();
-        (base_size as f32 * multiplier) as usize
+        #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+        let result = (base_size as f32 * multiplier) as usize;
+        result
     }
 }
 

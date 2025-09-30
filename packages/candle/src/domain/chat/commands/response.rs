@@ -279,12 +279,12 @@ impl ResponseFormatter {
     pub fn format_help(&self, commands: &[CommandInfo]) -> Result<String, ResponseError> {
         match self.format {
             ResponseFormat::Json => self.format_help_json(commands),
-            _ => self.format_help_text(commands),
+            _ => Self::format_help_text(commands),
         }
     }
 
     /// Format help as text
-    fn format_help_text(&self, commands: &[CommandInfo]) -> Result<String, ResponseError> {
+    fn format_help_text(commands: &[CommandInfo]) -> Result<String, ResponseError> {
         let mut result = String::new();
         result.push_str("Available Commands:\n\n");
 

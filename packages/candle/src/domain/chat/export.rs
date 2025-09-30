@@ -197,7 +197,7 @@ impl ChatExporter {
             };
 
         let content = match self.config.format {
-            ExportFormat::Json => self.export_as_json(messages_to_export)?,
+            ExportFormat::Json => Self::export_as_json(messages_to_export)?,
             ExportFormat::Markdown => self.export_as_markdown(messages_to_export)?,
             ExportFormat::Text => self.export_as_text(messages_to_export)?,
             ExportFormat::Csv => self.export_as_csv(messages_to_export)?,
@@ -239,7 +239,6 @@ impl ChatExporter {
 
     /// Export as JSON format
     fn export_as_json(
-        &self,
         messages: &[crate::domain::chat::message::types::CandleMessage],
     ) -> Result<String, ExportError> {
         serde_json::to_string_pretty(messages).map_err(|e| ExportError::SerializationError {
@@ -276,7 +275,7 @@ impl ChatExporter {
 
             output.push_str(&format!("**Role:** {:?}\n\n", message.role));
             let content_str = &message.content;
-            output.push_str(&format!("{}", content_str));
+            output.push_str(&content_str.to_string());
             output.push_str("---\n\n");
         }
 

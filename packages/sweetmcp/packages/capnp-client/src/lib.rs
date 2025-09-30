@@ -118,7 +118,7 @@ impl McpCapnProtoClient {
         // Send Cap'n Proto binary data to SweetMCP server
         let response = self
             .client
-            .post(&format!("{}/mcp", self.base_url))
+            .post(format!("{}/mcp", self.base_url))
             .header("Content-Type", "application/capnp")
             .body(capnp_request)
             .send()
@@ -149,10 +149,9 @@ impl McpCapnProtoClient {
         }
 
         // Fallback: try to parse as JSON for debugging
-        if let Ok(json_str) = std::str::from_utf8(&response_bytes) {
-            if let Ok(json_value) = serde_json::from_str::<Value>(json_str) {
-                return Ok(McpResponse::Json(json_value));
-            }
+        if let Ok(json_str) = std::str::from_utf8(&response_bytes)
+            && let Ok(json_value) = serde_json::from_str::<Value>(json_str) {
+            return Ok(McpResponse::Json(json_value));
         }
 
         Err(anyhow::anyhow!("Could not parse response as Cap'n Proto or JSON"))
@@ -189,9 +188,9 @@ impl McpCapnProtoClient {
 
         // Parse result content
         let mut content_items = Vec::new();
-        if let Ok(result) = response.get_result() {
-            if let Ok(content_list) = result.get_content() {
-                for content_item in content_list {
+        if let Ok(result) = response.get_result()
+            && let Ok(content_list) = result.get_content() {
+            for content_item in content_list {
                     let content_type = content_item
                         .get_content_type()
                         .and_then(|t| Ok(t.to_string()?))
@@ -205,12 +204,11 @@ impl McpCapnProtoClient {
                         .and_then(|m| Ok(m.to_string()?))
                         .unwrap_or_else(|_| String::new());
 
-                    content_items.push(ContentItem {
-                        content_type,
-                        data,
-                        mime_type,
-                    });
-                }
+                content_items.push(ContentItem {
+                    content_type,
+                    data,
+                    mime_type,
+                });
             }
         }
 
@@ -269,7 +267,7 @@ impl McpResponse {
     pub fn is_success(&self) -> bool {
         match self {
             McpResponse::CapnProto { status, .. } => status == "success",
-            McpResponse::Json(value) => !value.get("error").is_some(),
+            McpResponse::Json(value) => value.get("error").is_none(),
         }
     }
 }

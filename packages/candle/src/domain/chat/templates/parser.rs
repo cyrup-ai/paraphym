@@ -81,7 +81,7 @@ impl TemplateParser {
                 }
 
                 // Parse variable or expression
-                let var_content = self.parse_until_closing(&mut chars)?;
+                let var_content = Self::parse_until_closing(&mut chars)?;
                 let ast_node = self.parse_variable_or_expression(&var_content, depth + 1)?;
                 nodes.push(ast_node);
             } else {
@@ -104,7 +104,6 @@ impl TemplateParser {
     }
 
     fn parse_until_closing(
-        &self,
         chars: &mut std::iter::Peekable<std::str::Chars>,
     ) -> TemplateResult<String> {
         let mut content = String::new();
@@ -138,12 +137,12 @@ impl TemplateParser {
 
         // Check for conditional statements
         if trimmed.starts_with("if ") {
-            return self.parse_conditional(trimmed, depth);
+            return Self::parse_conditional(trimmed, depth);
         }
 
         // Check for loop statements
         if trimmed.starts_with("for ") {
-            return self.parse_loop(trimmed, depth);
+            return Self::parse_loop(trimmed, depth);
         }
 
         // Check for function calls
@@ -158,14 +157,14 @@ impl TemplateParser {
                 || trimmed.contains('*')
                 || trimmed.contains('/'))
         {
-            return self.parse_expression(trimmed, depth);
+            return Self::parse_expression(trimmed, depth);
         }
 
         // Simple variable
         Ok(TemplateAst::Variable(trimmed.to_string()))
     }
 
-    fn parse_conditional(&self, content: &str, _depth: usize) -> TemplateResult<TemplateAst> {
+    fn parse_conditional(content: &str, _depth: usize) -> TemplateResult<TemplateAst> {
         // Simple conditional parsing - just return variable for now
         let condition_var = content.strip_prefix("if ").unwrap_or("").trim();
         Ok(TemplateAst::Conditional {
@@ -175,7 +174,7 @@ impl TemplateParser {
         })
     }
 
-    fn parse_loop(&self, content: &str, _depth: usize) -> TemplateResult<TemplateAst> {
+    fn parse_loop(content: &str, _depth: usize) -> TemplateResult<TemplateAst> {
         // Simple loop parsing - just return variable for now
         let loop_content = content.strip_prefix("for ").unwrap_or("").trim();
         let parts: Vec<&str> = loop_content.split(" in ").collect();
@@ -209,7 +208,7 @@ impl TemplateParser {
         })
     }
 
-    fn parse_expression(&self, content: &str, _depth: usize) -> TemplateResult<TemplateAst> {
+    fn parse_expression(content: &str, _depth: usize) -> TemplateResult<TemplateAst> {
         // Simple expression parsing - return as variable for now
         Ok(TemplateAst::Expression {
             operator: "+".to_string(),
@@ -226,7 +225,7 @@ impl TemplateParser {
             if ch == '{' && chars.peek() == Some(&'{') {
                 chars.next(); // consume second '{'
 
-                let var_content = self.parse_until_closing(&mut chars)?;
+                let var_content = Self::parse_until_closing(&mut chars)?;
                 let var_name = var_content.trim();
 
                 // Skip control structures

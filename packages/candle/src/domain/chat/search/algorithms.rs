@@ -55,7 +55,7 @@ impl ChatSearchIndex {
                             highlighted_content: None,
                             tags: Vec::new(),
                             context: Vec::new(),
-                            match_positions: self_clone.find_match_positions(
+                            match_positions: Self::find_match_positions(
                                 &terms_clone,
                                 &message.value().message.content,
                             ),
@@ -114,8 +114,7 @@ impl ChatSearchIndex {
                         highlighted_content: None,
                         tags: Vec::new(),
                         context: Vec::new(),
-                        match_positions: self_clone
-                            .find_match_positions(&terms_clone, &message.value().message.content),
+                        match_positions: Self::find_match_positions(&terms_clone, &message.value().message.content),
                         metadata: Some(SearchResultMetadata {
                             query_time_ms: 0.0,
                             index_version: 1,
@@ -149,7 +148,7 @@ impl ChatSearchIndex {
     }
 
     /// Find match positions in content
-    fn find_match_positions(&self, terms: &[String], content: &str) -> Vec<MatchPosition> {
+    fn find_match_positions(terms: &[String], content: &str) -> Vec<MatchPosition> {
         let mut positions = Vec::new();
         let content_lower = content.to_lowercase();
 
@@ -251,7 +250,7 @@ impl ChatSearchIndex {
                         highlighted_content: None,
                         tags: Vec::new(),
                         context: Vec::new(),
-                        match_positions: self_clone.find_phrase_positions(&phrase, content),
+                        match_positions: Self::find_phrase_positions(&phrase, content),
                         metadata: Some(SearchResultMetadata {
                             query_time_ms: 0.0,
                             index_version: 1,
@@ -312,7 +311,7 @@ impl ChatSearchIndex {
     }
 
     /// Find exact phrase positions in content
-    fn find_phrase_positions(&self, phrase: &str, content: &str) -> Vec<MatchPosition> {
+    fn find_phrase_positions(phrase: &str, content: &str) -> Vec<MatchPosition> {
         let mut positions = Vec::new();
         let content_lower = content.to_lowercase();
         let phrase_lower = phrase.to_lowercase();
@@ -332,7 +331,7 @@ impl ChatSearchIndex {
     }
 
     /// Check if terms appear within proximity distance
-    fn check_proximity(&self, terms: &[String], tokens: &[String], distance: u32) -> bool {
+    fn check_proximity(terms: &[String], tokens: &[String], distance: u32) -> bool {
         let mut term_positions: std::collections::HashMap<String, Vec<usize>> =
             std::collections::HashMap::new();
 
@@ -384,7 +383,6 @@ impl ChatSearchIndex {
 
     /// Calculate proximity-based relevance score
     fn calculate_proximity_score(
-        &self,
         terms: &[String],
         tokens: &[String],
         distance: u32,

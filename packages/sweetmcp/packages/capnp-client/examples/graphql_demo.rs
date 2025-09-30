@@ -5,7 +5,6 @@
 //! and responses being shaped back to proper GraphQL format.
 
 use anyhow::Result;
-use reqwest;
 use serde_json::{json, Value};
 use tracing::{info, error};
 
@@ -73,7 +72,7 @@ async fn demo_graphql_time_query(client: &reqwest::Client, base_url: &str) -> Re
     // Send GraphQL request to SweetMCP server
     info!("  🌐 Sending GraphQL request to SweetMCP server...");
     let response = client
-        .post(&format!("{}/graphql", base_url))
+        .post(format!("{}/graphql", base_url))
         .header("Content-Type", "application/json")
         .json(&graphql_query)
         .send()
@@ -132,7 +131,7 @@ async fn demo_graphql_hash_query(client: &reqwest::Client, base_url: &str) -> Re
     // Send GraphQL request
     info!("  🌐 Sending GraphQL request to SweetMCP server...");
     let response = client
-        .post(&format!("{}/graphql", base_url))
+        .post(format!("{}/graphql", base_url))
         .header("Content-Type", "application/json")
         .json(&graphql_query)
         .send()
@@ -208,7 +207,7 @@ async fn demo_graphql_fragments(client: &reqwest::Client, base_url: &str) -> Res
     // Send GraphQL request
     info!("  🌐 Sending GraphQL request to SweetMCP server...");
     let response = client
-        .post(&format!("{}/graphql", base_url))
+        .post(format!("{}/graphql", base_url))
         .header("Content-Type", "application/json")
         .json(&graphql_query)
         .send()
@@ -238,28 +237,25 @@ async fn demo_graphql_fragments(client: &reqwest::Client, base_url: &str) -> Res
         }
         
         // Check for fragment fields
-        if let Some(time_op) = data.get("timeOp") {
-            if time_op.get("success").is_some() && time_op.get("timestamp").is_some() {
+        if let Some(time_op) = data.get("timeOp")
+            && time_op.get("success").is_some() && time_op.get("timestamp").is_some() {
                 info!("  ✅ ToolResult fragment fields present in timeOp");
             }
-        }
         
-        if let Some(hash_op) = data.get("hashOp") {
-            if hash_op.get("hash_result").is_some() && hash_op.get("algorithm_used").is_some() {
+        if let Some(hash_op) = data.get("hashOp")
+            && hash_op.get("hash_result").is_some() && hash_op.get("algorithm_used").is_some() {
                 info!("  ✅ HashInfo fragment fields present in hashOp");
             }
-        }
     } else if response_json.get("errors").is_some() {
         info!("  ⚠️  GraphQL returned errors (expected if server not running)");
         
         // Check if it's a type validation error (our implementation working)
         if let Some(errors) = response_json.get("errors").and_then(|e| e.as_array()) {
             for error in errors {
-                if let Some(message) = error.get("message").and_then(|m| m.as_str()) {
-                    if message.contains("type") || message.contains("fragment") {
+                if let Some(message) = error.get("message").and_then(|m| m.as_str())
+                    && (message.contains("type") || message.contains("fragment")) {
                         info!("  ✅ Type validation working (detected invalid fragment usage)");
                     }
-                }
             }
         }
     }

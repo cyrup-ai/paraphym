@@ -549,7 +549,7 @@ impl CommandExecutor {
                 } else if show {
                     "Current configuration: <config data>".to_string()
                 } else if let (Some(k), Some(v)) = (key.as_ref(), value.as_ref()) {
-                    format!("Configuration updated: {} = {}", k, v)
+                    format!("Configuration updated: {k} = {v}")
                 } else if let Some(k) = key {
                     format!("Configuration value for {k}: <value>")
                 } else {
@@ -678,7 +678,7 @@ impl CommandExecutor {
     }
 
     /// Get command name for metrics (zero-allocation) - planned feature
-    fn _get_command_name(&self, command: &ImmutableChatCommand) -> &'static str {
+    fn _get_command_name(command: &ImmutableChatCommand) -> &'static str {
         command.command_name()
     }
 
@@ -721,7 +721,7 @@ impl CommandExecutor {
                         sender,
                         CommandEvent::Output {
                             execution_id,
-                            content: format!("Command executed successfully"),
+                            content: "Command executed successfully".to_string(),
                             output_type: OutputType::Text,
                             timestamp_us: current_timestamp_us(),
                         }

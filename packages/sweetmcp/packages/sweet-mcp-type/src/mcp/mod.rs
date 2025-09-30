@@ -9,6 +9,7 @@
 #![allow(clippy::upper_case_acronyms)]
 
 use std::collections::HashMap;
+use std::str::FromStr;
 use simd_json::{value::owned::Value as JsonValue, StaticNode};
 use value_trait::prelude::*;
 
@@ -61,7 +62,7 @@ impl LogLevel {
         }
     }
     #[inline]
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "debug" => Some(LogLevel::Debug),
             "info" => Some(LogLevel::Info),
@@ -72,6 +73,32 @@ impl LogLevel {
             "alert" => Some(LogLevel::Alert),
             "emergency" => Some(LogLevel::Emergency),
             _ => None,
+        }
+    }
+    
+    /// Deprecated: Use LogLevel::parse() instead
+    #[deprecated(since = "0.1.0", note = "Use LogLevel::parse() instead")]
+    #[allow(clippy::should_implement_trait)]
+    #[inline]
+    pub fn from_str(s: &str) -> Option<Self> {
+        Self::parse(s)
+    }
+}
+
+impl FromStr for LogLevel {
+    type Err = ();
+    
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "debug" => Ok(LogLevel::Debug),
+            "info" => Ok(LogLevel::Info),
+            "notice" => Ok(LogLevel::Notice),
+            "warning" => Ok(LogLevel::Warning),
+            "error" => Ok(LogLevel::Error),
+            "critical" => Ok(LogLevel::Critical),
+            "alert" => Ok(LogLevel::Alert),
+            "emergency" => Ok(LogLevel::Emergency),
+            _ => Err(()),
         }
     }
 }
@@ -91,11 +118,31 @@ impl Role {
         }
     }
     #[inline]
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "user" => Some(Role::User),
             "assistant" => Some(Role::Assistant),
             _ => None,
+        }
+    }
+    
+    /// Deprecated: Use Role::parse() instead
+    #[deprecated(since = "0.1.0", note = "Use Role::parse() instead")]
+    #[allow(clippy::should_implement_trait)]
+    #[inline]
+    pub fn from_str(s: &str) -> Option<Self> {
+        Self::parse(s)
+    }
+}
+
+impl FromStr for Role {
+    type Err = ();
+    
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "user" => Ok(Role::User),
+            "assistant" => Ok(Role::Assistant),
+            _ => Err(()),
         }
     }
 }

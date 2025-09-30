@@ -176,12 +176,12 @@ impl SearchOptions {
     /// Validate the options and return normalized values
     pub fn validate(mut self) -> Result<Self> {
         // Clamp similarity threshold
-        if let Some(threshold) = self.min_similarity {
-            if threshold < 0.0 || threshold > 1.0 {
-                return Err(crate::memory::utils::error::Error::InvalidInput(
-                    "min_similarity must be between 0.0 and 1.0".to_string(),
-                ));
-            }
+        if let Some(threshold) = self.min_similarity
+            && !(0.0..=1.0).contains(&threshold)
+        {
+            return Err(crate::memory::utils::error::Error::InvalidInput(
+                "min_similarity must be between 0.0 and 1.0".to_string(),
+            ));
         }
 
         // Ensure reasonable limits
@@ -193,10 +193,10 @@ impl SearchOptions {
             }
         }
 
-        if let Some(candidate_limit) = self.candidate_limit {
-            if candidate_limit == 0 {
-                self.candidate_limit = Some(100);
-            }
+        if let Some(candidate_limit) = self.candidate_limit
+            && candidate_limit == 0
+        {
+            self.candidate_limit = Some(100);
         }
 
         Ok(self)
@@ -371,10 +371,10 @@ impl VectorSearch {
             .collect::<Vec<_>>();
 
         // Apply final limit if different from candidate limit
-        if let Some(final_limit) = options.limit {
-            if final_limit < search_results.len() {
-                search_results.truncate(final_limit);
-            }
+        if let Some(final_limit) = options.limit
+            && final_limit < search_results.len()
+        {
+            search_results.truncate(final_limit);
         }
 
         Ok(search_results)

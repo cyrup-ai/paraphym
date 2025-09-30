@@ -31,6 +31,12 @@ impl Context {
     }
 }
 
+impl Default for Context {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallToolRequest {
     pub method: String,
@@ -255,7 +261,7 @@ impl ExecutionBackend for SweetMcpPluginBackend {
 
             // Call the plugin (placeholder implementation)
             // TODO: Replace with actual Extism plugin call when dependencies are available
-            let response_str = format!(r#"{{"result": {{"text": "{{\\"success\\": true, \\"stdout\\": \\"Plugin execution placeholder\\", \\"stderr\\": \\"\\"}}"}}}}"#);
+            let response_str = r#"{"result": {"text": "{\"success\": true, \"stdout\": \"Plugin execution placeholder\", \"stderr\": \"\"}"}}"#.to_string();
             let tool_result: CallToolResult = match serde_json::from_str(&response_str) {
                 Ok(result) => result,
                 Err(e) => {

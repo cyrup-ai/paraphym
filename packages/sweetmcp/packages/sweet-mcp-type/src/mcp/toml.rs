@@ -71,7 +71,7 @@ impl Message {
                 Ok(JsonRpcError {
                     code: eo["code"]
                         .as_integer()
-                        .ok_or(McpError::BadField("error.code"))? as i64,
+                        .ok_or(McpError::BadField("error.code"))?,
                     message: eo["message"]
                         .as_str()
                         .ok_or(McpError::BadField("error.message"))?

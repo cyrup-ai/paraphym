@@ -10,7 +10,6 @@
 use anyhow::Result;
 use sweetmcp_capnp_client::{McpCapnProtoClient, McpResponse};
 use tracing::{info, warn, error};
-use tracing_subscriber;
 
 #[tokio::main]
 async fn main() -> Result<()> {

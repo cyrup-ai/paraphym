@@ -70,25 +70,25 @@ impl CompletionRequest {
         }
 
         // Validate max_tokens
-        if let Some(max_tokens) = self.max_tokens {
-            if max_tokens.get() > MAX_TOKENS {
-                return Err(ValidationError::InvalidRange {
-                    field: "max_tokens".into(),
-                    value: max_tokens.to_string(),
-                    expected: format!("less than or equal to {}", MAX_TOKENS),
-                });
-            }
+        if let Some(max_tokens) = self.max_tokens
+            && max_tokens.get() > MAX_TOKENS
+        {
+            return Err(ValidationError::InvalidRange {
+                field: "max_tokens".into(),
+                value: max_tokens.to_string(),
+                expected: format!("less than or equal to {}", MAX_TOKENS),
+            });
         }
 
         // Validate chunk_size
-        if let Some(chunk_size) = self.chunk_size {
-            if chunk_size == 0 || chunk_size > MAX_CHUNK_SIZE {
-                return Err(ValidationError::InvalidRange {
-                    field: "chunk_size".into(),
-                    value: chunk_size.to_string(),
-                    expected: format!("between 1 and {}", MAX_CHUNK_SIZE),
-                });
-            }
+        if let Some(chunk_size) = self.chunk_size
+            && (chunk_size == 0 || chunk_size > MAX_CHUNK_SIZE)
+        {
+            return Err(ValidationError::InvalidRange {
+                field: "chunk_size".into(),
+                value: chunk_size.to_string(),
+                expected: format!("between 1 and {}", MAX_CHUNK_SIZE),
+            });
         }
 
         Ok(())

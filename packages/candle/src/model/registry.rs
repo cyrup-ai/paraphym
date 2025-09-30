@@ -34,7 +34,7 @@ impl CandleModelHandle {
         let generic_model = GenericCandleModel::new(
             info.name().to_string(),
             info.provider().to_string(),
-            info.max_input_tokens.map(|t| t.get() as u32).unwrap_or(4096),
+            info.max_input_tokens.map(|t| t.get()).unwrap_or(4096),
             info.supports_streaming,
             info.supports_function_calling,
         );
@@ -310,14 +310,13 @@ impl ModelRegistry {
         if let Some(type_entries) = GLOBAL_REGISTRY.type_registry.get(type_name) {
             for entry in type_entries.iter() {
                 let (provider, name) = *entry;
-                if let Some(provider_models) = GLOBAL_REGISTRY.models.get(provider) {
-                    if let Some(handle) = provider_models.get(name) {
-                        if handle.as_any().downcast_ref::<M>().is_some() {
-                            result.push(RegisteredModel {
-                                handle: handle.clone(),
-                                _marker: PhantomData});
-                        }
-                    }
+                if let Some(provider_models) = GLOBAL_REGISTRY.models.get(provider)
+                    && let Some(handle) = provider_models.get(name)
+                    && handle.as_any().downcast_ref::<M>().is_some()
+                {
+                    result.push(RegisteredModel {
+                        handle: handle.clone(),
+                        _marker: PhantomData});
                 }
             }
         }
@@ -333,13 +332,11 @@ impl ModelRegistry {
     ///
     /// # Returns
     /// A result containing the model as the requested trait object
-    pub fn get_as<T: 'static>(
+    pub fn get_as<T: Send + Sync + Sized + 'static>(
         &self,
         provider: &'static str,
         name: &'static str,
     ) -> Result<Option<Arc<T>>>
-    where
-        T: Send + Sync + Sized,
     {
         let provider_models = match GLOBAL_REGISTRY.models.get(provider) {
             Some(provider) => provider,
@@ -374,13 +371,11 @@ impl ModelRegistry {
     ///
     /// # Returns
     /// A result containing the model as a boxed trait object
-    pub fn get_boxed<T: 'static + ?Sized>(
+    pub fn get_boxed<T: Send + Sync + ?Sized + 'static>(
         &self,
         provider: &'static str,
         name: &'static str,
     ) -> Result<Option<Box<T>>>
-    where
-        T: Send + Sync,
     {
         let provider_models = match GLOBAL_REGISTRY.models.get(provider) {
             Some(provider) => provider,
@@ -406,13 +401,11 @@ impl ModelRegistry {
     ///
     /// # Returns
     /// A result containing the model as the requested trait object
-    pub fn get_required_as<T: 'static>(
+    pub fn get_required_as<T: 'static + Send + Sync + Sized>(
         &self,
         provider: &'static str,
         name: &'static str,
     ) -> Result<Arc<T>>
-    where
-        T: Send + Sync + Sized,
     {
         self.get_as(provider, name)?
             .ok_or_else(|| ModelError::ModelNotFound {
@@ -428,13 +421,11 @@ impl ModelRegistry {
     ///
     /// # Returns
     /// A result containing the model as a boxed trait object
-    pub fn get_required_boxed<T: 'static>(
+    pub fn get_required_boxed<T: 'static + Send + Sync + Sized>(
         &self,
         provider: &'static str,
         name: &'static str,
     ) -> Result<Box<T>>
-    where
-        T: Send + Sync + Sized,
     {
         self.get_boxed(provider, name)?
             .ok_or_else(|| ModelError::ModelNotFound {

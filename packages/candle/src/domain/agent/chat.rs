@@ -203,8 +203,7 @@ impl CandleAgentRoleImpl {
         // Process CandleCompletionChunk stream with proper pattern matching
         if let Some(completion_chunk) = completion_stream.try_next() {
             match completion_chunk {
-                CandleCompletionChunk::Text(text) => Ok(text),
-                CandleCompletionChunk::Complete { text, .. } => Ok(text),
+                CandleCompletionChunk::Text(text) | CandleCompletionChunk::Complete { text, .. } => Ok(text),
                 CandleCompletionChunk::Error(error) => Err(ChatError::System(error)),
                 _ => Err(ChatError::System("Unexpected chunk type".to_string())),
             }
@@ -232,7 +231,7 @@ impl CandleAgentRoleImpl {
         let full_prompt = if context.is_empty() {
             message.to_string()
         } else {
-            format!("Context: {}\n\nUser: {}", context, message)
+            format!("Context: {context}\n\nUser: {message}")
         };
 
         // Create CandlePrompt and CandleCompletionParams
@@ -255,8 +254,7 @@ impl CandleAgentRoleImpl {
         // Process CandleCompletionChunk stream with proper pattern matching
         if let Some(completion_chunk) = completion_stream.try_next() {
             match completion_chunk {
-                CandleCompletionChunk::Text(text) => Ok(text),
-                CandleCompletionChunk::Complete { text, .. } => Ok(text),
+                CandleCompletionChunk::Text(text) | CandleCompletionChunk::Complete { text, .. } => Ok(text),
                 CandleCompletionChunk::Error(error) => Err(ChatError::System(error)),
                 _ => Err(ChatError::System("Unexpected chunk type".to_string())),
             }
@@ -294,29 +292,24 @@ impl CandleAgentRoleImpl {
 
             if let Some(context_injection) = context_stream.try_next() {
                 // Generate real AI response using Engine with TextGenerator
-                match self_clone.generate_ai_response(&message, &context_injection.injected_context)
-                {
-                    Ok(response) => {
-                        // Memorize the conversation turn with zero-allocation node creation
-                        let memorize_stream = self_clone.memorize_conversation(
-                            &message,
-                            &response,
-                            &memory_tool_clone,
-                        );
+                if let Ok(response) = self_clone.generate_ai_response(&message, &context_injection.injected_context) {
+                    // Memorize the conversation turn with zero-allocation node creation
+                    let memorize_stream = self_clone.memorize_conversation(
+                        &message,
+                        &response,
+                        &memory_tool_clone,
+                    );
 
-                        if let Some(memorized_nodes_chunk) = memorize_stream.try_next() {
-                            let result = MemoryEnhancedChatResponse {
-                                response,
-                                context_injection,
-                                memorized_nodes: memorized_nodes_chunk.items,
-                            };
-                            let _ = sender.send(result);
-                        }
-                    }
-                    Err(_) => {
-                        // Error in AI response generation - don't send anything
+                    if let Some(memorized_nodes_chunk) = memorize_stream.try_next() {
+                        let result = MemoryEnhancedChatResponse {
+                            response,
+                            context_injection,
+                            memorized_nodes: memorized_nodes_chunk.items,
+                        };
+                        let _ = sender.send(result);
                     }
                 }
+                // Else: Error in AI response generation - don't send anything
             }
         })
     }
@@ -332,6 +325,10 @@ impl CandleAgentRoleImpl {
     ///
     /// # Performance
     /// Zero allocation with lock-free memory queries and quantum routing
+    ///
+    /// # Panics
+    /// Panics if a retrieval result vector with length 1 doesn't contain exactly one element.
+    /// This should never happen in practice as the length check guarantees the element exists.
     pub fn inject_memory_context(
         &self,
         message: &str,
@@ -383,7 +380,7 @@ impl CandleAgentRoleImpl {
                                     format!("{:?}", memory_node.memory_type)
                                 ));
                                 metadata.insert("importance".to_string(), serde_json::Value::Number(
-                                    serde_json::Number::from_f64(memory_node.metadata.importance as f64)
+                                    serde_json::Number::from_f64(f64::from(memory_node.metadata.importance))
                                         .unwrap_or_else(|| serde_json::Number::from(0))
                                 ));
                                 metadata
@@ -415,13 +412,15 @@ impl CandleAgentRoleImpl {
                 ZeroOneOrMany::Many(retrieval_results)
             };
             
-            let _documents: ZeroOneOrMany<Document> = ZeroOneOrMany::None; // Reserved for future document context
-            let _chat_history: ZeroOneOrMany<crate::domain::chat::message::types::CandleMessage> = ZeroOneOrMany::None; // Reserved for future chat context
+            // Reserved for future: document context and chat history
+            // let _documents: ZeroOneOrMany<Document> = ZeroOneOrMany::None;
+            // let _chat_history: ZeroOneOrMany<crate::domain::chat::message::types::CandleMessage> = ZeroOneOrMany::None;
             
             let injected_context = formatter.format_memory_section(&memories_zero_one_many)
-                .unwrap_or_else(String::new);
+                .unwrap_or_default();
 
             let memory_nodes_used = relevant_memories.len();
+            #[allow(clippy::cast_precision_loss)]
             let avg_relevance_score = if memory_nodes_used > 0 {
                 total_relevance_score / (memory_nodes_used as f64)
             } else {
@@ -463,6 +462,7 @@ impl CandleAgentRoleImpl {
         let memory_len = memory_content.text.len();
 
         // Basic content length similarity (normalized)
+        #[allow(clippy::cast_precision_loss)]
         let length_similarity = 1.0
             - (((message_len as f64) - (memory_len as f64)).abs()
                 / ((message_len.max(memory_len) as f64) + 1.0));
@@ -473,6 +473,7 @@ impl CandleAgentRoleImpl {
         // Time decay factor based on last access (use updated_at as proxy)
         let time_factor = {
             let elapsed = Utc::now().signed_duration_since(memory_node.updated_at);
+            #[allow(clippy::cast_precision_loss)]
             let hours = elapsed.num_hours() as f64;
             // Decay over 24 hours, minimum 0.1
             (1.0 - (hours / 24.0)).max(0.1f64)
@@ -480,7 +481,7 @@ impl CandleAgentRoleImpl {
 
         // Combined relevance score (weighted average)
         let score =
-            (length_similarity * 0.3 + importance_factor as f64 * 0.5 + time_factor * 0.2).min(1.0);
+            (length_similarity * 0.3 + f64::from(importance_factor) * 0.5 + time_factor * 0.2).min(1.0);
 
         Ok(score)
     }
@@ -569,5 +570,5 @@ pub enum CandleChatError {
 
     /// Memory tool execution error
     #[error("Memory tool error: {0}")]
-    MemoryTool(#[from] MemoryToolError),
+    MemoryTool(#[from] Box<MemoryToolError>),
 }

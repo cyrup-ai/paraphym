@@ -195,7 +195,7 @@ impl CandleModelConfig {
         }
     }
 
-    /// Create configuration for OpenAI models
+    /// Create configuration for `OpenAI` models
     pub fn openai(model_name: impl Into<String>) -> Self {
         Self::new("openai", model_name)
     }
@@ -1182,7 +1182,7 @@ impl CandleConfigurationManager {
         })
     }
 
-    /// Synchronous implementation of save_to_file for streams-only architecture
+    /// Synchronous implementation of `save_to_file` for streams-only architecture
     fn save_to_file_sync(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let config = self.get_config();
         // Access persistence without async - this may need to be refactored for true sync access
@@ -1255,7 +1255,7 @@ impl CandleConfigurationManager {
         })
     }
 
-    /// Synchronous implementation of load_from_file for streams-only architecture
+    /// Synchronous implementation of `load_from_file` for streams-only architecture
     fn load_from_file_sync(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // For sync version, use defaults instead of async persistence access
         let format = "json"; // Default format
@@ -1331,7 +1331,7 @@ pub struct CandleConfigurationStatistics {
     pub auto_save_enabled: bool,
 }
 
-/// Streaming wrapper for CandleModelConfig that implements MessageChunk
+/// Streaming wrapper for `CandleModelConfig` that implements `MessageChunk`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CandleModelConfigChunk {
     /// The actual config data
@@ -1340,7 +1340,7 @@ pub struct CandleModelConfigChunk {
     pub error_message: Option<String>,
 }
 
-/// Serializable version of CandleModelConfig using String instead of String
+/// Serializable version of `CandleModelConfig` using `String` instead of `String`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CandleModelConfigData {
     /// Model provider (e.g., "openai", "anthropic", "mistral", "gemini")

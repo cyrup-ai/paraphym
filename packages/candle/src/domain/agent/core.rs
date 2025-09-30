@@ -34,7 +34,7 @@ pub enum AgentError {
     MemoryInit(#[from] MemoryError),
     /// Memory tool creation error
     #[error("Memory tool creation failed: {0}")]
-    MemoryTool(#[from] MemoryToolError),
+    MemoryTool(#[from] Box<MemoryToolError>),
     /// Configuration error
     #[error("Configuration error: {0}")]
     Config(String),

@@ -230,20 +230,20 @@ impl CandleModelInfo {
             ));
         }
 
-        if let Some(max_input) = self.max_input_tokens {
-            if max_input.get() == 0 {
-                return Err(CandleModelError::InvalidConfiguration(
-                    "max_input_tokens cannot be zero".into(),
-                ));
-            }
+        if let Some(max_input) = self.max_input_tokens
+            && max_input.get() == 0
+        {
+            return Err(CandleModelError::InvalidConfiguration(
+                "max_input_tokens cannot be zero".into(),
+            ));
         }
 
-        if let Some(max_output) = self.max_output_tokens {
-            if max_output.get() == 0 {
-                return Err(CandleModelError::InvalidConfiguration(
-                    "max_output_tokens cannot be zero".into(),
-                ));
-            }
+        if let Some(max_output) = self.max_output_tokens
+            && max_output.get() == 0
+        {
+            return Err(CandleModelError::InvalidConfiguration(
+                "max_output_tokens cannot be zero".into(),
+            ));
         }
 
         if self.supports_thinking && self.optimal_thinking_budget.is_none() {

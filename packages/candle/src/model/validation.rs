@@ -192,7 +192,7 @@ impl ValidationReport {
 
     /// Update the readiness score
     pub fn update_readiness_score(&mut self, score: f32) {
-        self.readiness_score = score.max(0.0).min(1.0);
+        self.readiness_score = score.clamp(0.0, 1.0);
         if self.readiness_score < 1.0 {
             self.is_production_ready = false;
         }

@@ -171,6 +171,7 @@ pub trait ProtocolClient: Send + Sync {
     ///
     /// # Returns
     /// Protocol-specific request structure
+    #[allow(clippy::wrong_self_convention)]
     fn from_mcp_request(&self, request: Request) -> Result<Self::Request, ClientError>;
 }
 

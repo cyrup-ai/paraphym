@@ -196,15 +196,14 @@ impl CandleModelRegistry {
         if let Some(type_entries) = GLOBAL_REGISTRY.type_registry.get(&type_id) {
             for entry in type_entries.iter() {
                 let (provider, name) = *entry;
-                if let Some(provider_models) = GLOBAL_REGISTRY.models.get(provider) {
-                    if let Some(handle) = provider_models.get(name) {
-                        if handle.as_any().downcast_ref::<M>().is_some() {
-                            result.push(RegisteredModel {
-                                handle: handle.clone(),
-                                _marker: PhantomData,
-                            });
-                        }
-                    }
+                if let Some(provider_models) = GLOBAL_REGISTRY.models.get(provider)
+                    && let Some(handle) = provider_models.get(name)
+                    && handle.as_any().downcast_ref::<M>().is_some()
+                {
+                    result.push(RegisteredModel {
+                        handle: handle.clone(),
+                        _marker: PhantomData,
+                    });
                 }
             }
         }

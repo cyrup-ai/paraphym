@@ -104,19 +104,18 @@ impl SchemaIndex {
 
             // Test each token in vocabulary for valid transitions
             for token_id in 0..self.vocab_size as u32 {
-                if let Some(token_bytes) = vocabulary.token_bytes(token_id) {
-                    if let Some(next_state) = self.compute_transition(dfa, current_state, token_bytes)? {
-                        let next_id = next_state.as_u32();
+                if let Some(token_bytes) = vocabulary.token_bytes(token_id)
+                    && let Some(next_state) = self.compute_transition(dfa, current_state, token_bytes)? {
+                    let next_id = next_state.as_u32();
 
-                        // Only add non-dead state transitions
-                        if !dfa.is_dead_state(next_state) {
-                            token_transitions.insert(token_id, next_id);
+                    // Only add non-dead state transitions
+                    if !dfa.is_dead_state(next_state) {
+                        token_transitions.insert(token_id, next_id);
 
-                            // Add to queue if not visited
-                            if !visited_states.contains(&next_state) {
-                                visited_states.insert(next_state);
-                                state_queue.push(next_state);
-                            }
+                        // Add to queue if not visited
+                        if !visited_states.contains(&next_state) {
+                            visited_states.insert(next_state);
+                            state_queue.push(next_state);
                         }
                     }
                 }

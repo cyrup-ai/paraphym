@@ -29,7 +29,7 @@ pub trait ResponseAdapter<T> {
     ///
     /// # Returns
     /// Protocol-specific response format
-    fn from_mcp_response(&self, response: Response) -> Result<T, ClientError>;
+    fn convert_from_mcp(&self, response: Response) -> Result<T, ClientError>;
 }
 
 /// Content extraction utilities for MCP responses
@@ -85,16 +85,13 @@ pub trait ContentExtractor {
 
 impl ContentExtractor for Response {
     fn extract_text(&self) -> Option<&str> {
-        if let Some(result) = &self.result {
-            if let Some(content_array) = result.get("content").and_then(|c| c.as_array()) {
-                for content_item in content_array {
-                    if let Some(content_type) = content_item.get("type").and_then(|t| t.as_str()) {
-                        if content_type == "text" {
-                            if let Some(text) = content_item.get("text").and_then(|t| t.as_str()) {
-                                return Some(text);
-                            }
-                        }
-                    }
+        if let Some(result) = &self.result
+            && let Some(content_array) = result.get("content").and_then(|c| c.as_array()) {
+            for content_item in content_array {
+                if let Some(content_type) = content_item.get("type").and_then(|t| t.as_str())
+                    && content_type == "text"
+                    && let Some(text) = content_item.get("text").and_then(|t| t.as_str()) {
+                    return Some(text);
                 }
             }
         }
@@ -104,16 +101,13 @@ impl ContentExtractor for Response {
     fn extract_all_text(&self) -> Vec<&str> {
         let mut texts = Vec::new();
         
-        if let Some(result) = &self.result {
-            if let Some(content_array) = result.get("content").and_then(|c| c.as_array()) {
-                for content_item in content_array {
-                    if let Some(content_type) = content_item.get("type").and_then(|t| t.as_str()) {
-                        if content_type == "text" {
-                            if let Some(text) = content_item.get("text").and_then(|t| t.as_str()) {
-                                texts.push(text);
-                            }
-                        }
-                    }
+        if let Some(result) = &self.result
+            && let Some(content_array) = result.get("content").and_then(|c| c.as_array()) {
+            for content_item in content_array {
+                if let Some(content_type) = content_item.get("type").and_then(|t| t.as_str())
+                    && content_type == "text"
+                    && let Some(text) = content_item.get("text").and_then(|t| t.as_str()) {
+                    texts.push(text);
                 }
             }
         }
@@ -122,16 +116,13 @@ impl ContentExtractor for Response {
     }
 
     fn extract_data(&self) -> Option<&str> {
-        if let Some(result) = &self.result {
-            if let Some(content_array) = result.get("content").and_then(|c| c.as_array()) {
-                for content_item in content_array {
-                    if let Some(content_type) = content_item.get("type").and_then(|t| t.as_str()) {
-                        if content_type == "image" || content_type == "audio" {
-                            if let Some(data) = content_item.get("data").and_then(|d| d.as_str()) {
-                                return Some(data);
-                            }
-                        }
-                    }
+        if let Some(result) = &self.result
+            && let Some(content_array) = result.get("content").and_then(|c| c.as_array()) {
+            for content_item in content_array {
+                if let Some(content_type) = content_item.get("type").and_then(|t| t.as_str())
+                    && (content_type == "image" || content_type == "audio")
+                    && let Some(data) = content_item.get("data").and_then(|d| d.as_str()) {
+                    return Some(data);
                 }
             }
         }
@@ -139,22 +130,20 @@ impl ContentExtractor for Response {
     }
 
     fn extract_by_mime_type(&self, mime_type: &str) -> Option<&str> {
-        if let Some(result) = &self.result {
-            if let Some(content_array) = result.get("content").and_then(|c| c.as_array()) {
-                for content_item in content_array {
-                    if let Some(item_mime) = content_item.get("mimeType").and_then(|m| m.as_str()) {
-                        if item_mime == mime_type {
-                            // Return text content for text MIME types
-                            if mime_type.starts_with("text/") {
-                                if let Some(text) = content_item.get("text").and_then(|t| t.as_str()) {
-                                    return Some(text);
-                                }
-                            } else {
-                                // Return data content for binary MIME types
-                                if let Some(data) = content_item.get("data").and_then(|d| d.as_str()) {
-                                    return Some(data);
-                                }
-                            }
+        if let Some(result) = &self.result
+            && let Some(content_array) = result.get("content").and_then(|c| c.as_array()) {
+            for content_item in content_array {
+                if let Some(item_mime) = content_item.get("mimeType").and_then(|m| m.as_str())
+                    && item_mime == mime_type {
+                    // Return text content for text MIME types
+                    if mime_type.starts_with("text/") {
+                        if let Some(text) = content_item.get("text").and_then(|t| t.as_str()) {
+                            return Some(text);
+                        }
+                    } else {
+                        // Return data content for binary MIME types
+                        if let Some(data) = content_item.get("data").and_then(|d| d.as_str()) {
+                            return Some(data);
                         }
                     }
                 }

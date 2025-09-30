@@ -1,84 +1,20 @@
 // use futures_util::StreamExt; // Temporarily unused
-use std::env;
+use std::num::NonZeroU64;
 
-use arrayvec::ArrayString;
 use log::{self, error};
 use rpc_router::HandlerResult;
-use smallvec::SmallVec;
 use tokio::sync::{mpsc, oneshot};
+
+// Candle inference imports
+use paraphym_candle::providers::kimi_k2::CandleKimiK2Provider;
+use paraphym_candle::domain::completion::{
+    CandleCompletionModel, CandlePrompt, CandleCompletionParams, CandleCompletionChunk,
+};
 
 // use fluent_ai::{FluentAi, Providers, Models}; // Temporarily disabled due to dependency issues
 use super::model::*;
 // use crate::auth::JwtAuth; // Auth module not available
 use crate::sampling::notifications::SamplingProgressNotification;
-
-/// Select the best LLM model using fluent-ai based on model preferences
-async fn select_llm_model(
-    preferences: &Option<McpModelPreferences>,
-) -> Result<(String, String), String> {
-    // Default priorities if not specified
-    let mut cost_priority = 0.5;
-    let mut speed_priority = 0.5;
-    let mut intelligence_priority = 0.5;
-
-    // Use ArrayString for zero-allocation string handling (up to 64 chars)
-    let mut model_hint: ArrayString<64> = ArrayString::new();
-
-    if let Some(prefs) = preferences {
-        cost_priority = prefs.cost_priority.unwrap_or(0.5);
-        speed_priority = prefs.speed_priority.unwrap_or(0.5);
-        intelligence_priority = prefs.intelligence_priority.unwrap_or(0.5);
-
-        // Get first hint if available
-        if let Some(hints) = &prefs.hints {
-            if let Some(first_hint) = hints.first() {
-                let hint_lowercase = first_hint.name.to_lowercase();
-                if let Err(_) = model_hint.try_push_str(&hint_lowercase) {
-                    // If hint is too long, just use the first 63 chars
-                    let truncated = &hint_lowercase[..63.min(hint_lowercase.len())];
-                    model_hint.clear();
-                    let _ = model_hint.try_push_str(truncated);
-                }
-            }
-        }
-    }
-
-    // Check environment for API keys
-    let has_anthropic = env::var("ANTHROPIC_API_KEY").is_ok();
-    let has_openai = env::var("OPENAI_API_KEY").is_ok();
-
-    // Model selection based on hints and priorities - using zero-allocation const strings
-    let (provider, model) = if model_hint.contains("claude") && has_anthropic {
-        // Claude models - prioritize based on needs
-        if intelligence_priority > 0.7 {
-            ("claude", "claude-3-opus-20240229")
-        } else if speed_priority > 0.7 {
-            ("claude", "claude-3-haiku-20240307")
-        } else {
-            ("claude", "claude-3-sonnet-20240229")
-        }
-    } else if (model_hint.contains("gpt") || model_hint.contains("openai")) && has_openai {
-        // OpenAI models
-        if intelligence_priority > 0.7 {
-            ("openai", "gpt-4-turbo")
-        } else if cost_priority > 0.7 {
-            ("openai", "gpt-3.5-turbo")
-        } else {
-            ("openai", "gpt-4")
-        }
-    } else if has_anthropic {
-        // Default to Claude Sonnet if Anthropic is available
-        ("claude", "claude-3-sonnet-20240229")
-    } else if has_openai {
-        // Default to GPT-4 if OpenAI is available
-        ("openai", "gpt-4")
-    } else {
-        // Fallback to a simple model that might work locally
-        ("openai", "gpt-3.5-turbo")
-    };
-
-    Ok((provider.to_string(), model.to_string()))
-}
 
 /// Handler for the sampling/createMessage method (returns AsyncSamplingResult).
 pub fn sampling_create_message_pending(request: CreateMessageRequest) -> AsyncSamplingResult {
@@ -89,7 +25,7 @@ pub fn sampling_create_message_pending(request: CreateMessageRequest) -> AsyncSa
     tokio::spawn(async move {
         log::info!("Received sampling/createMessage request: {:?}", request);
 
-        // Mock implementation: Replace with real LLM calls via MCP client requests.
+        // Stub implementation: Replace with real LLM calls via MCP client requests.
 
         // Extract the last user message for demonstration
         let last_message = request
@@ -122,34 +58,88 @@ pub fn sampling_create_message_pending(request: CreateMessageRequest) -> AsyncSa
                     report_sampling_progress(&tx_progress, meta.progress_token.clone(), 0, 150);
                 }
 
-                // Use fluent-ai to generate actual response
-                let (provider, model) = match select_llm_model(&request.model_preferences).await {
-                    Ok((provider, model)) => (provider, model),
+                // Initialize CandleKimiK2Provider for local inference
+                let provider = match CandleKimiK2Provider::default_for_builder() {
+                    Ok(p) => p,
                     Err(e) => {
-                        error!("Failed to select LLM model: {}", e);
+                        error!("Failed to initialize CandleKimiK2Provider: {}", e);
                         return {
                             let _ = tx_result.send(Err(rpc_router::HandlerError::new(
-                                "Failed to select LLM model",
+                                "Failed to initialize local model provider",
                             )));
                             ()
                         };
                     }
                 };
 
-                // For now, create a simple response since the full API isn't available yet
-                // TODO: Replace with actual fluent-ai completion when API is ready
+                // Build prompt from system prompt + messages
+                let mut full_prompt = String::new();
+                if let Some(system_prompt) = &request.system_prompt {
+                    full_prompt.push_str(system_prompt);
+                    full_prompt.push_str("\n\n");
+                }
 
-                // Use SmallVec for zero-allocation response building for typical response sizes
-                let mut response_parts: SmallVec<[&str; 8]> = SmallVec::new();
-                response_parts.push("Echo (fluent-ai ");
-                response_parts.push(&provider);
-                response_parts.push(":");
-                response_parts.push(&model);
-                response_parts.push("): ");
-                response_parts.push(prompt_text);
+                // Add all messages to context
+                for msg in &request.messages {
+                    if let McpMessageContent { text: Some(text), .. } = &msg.content {
+                        full_prompt.push_str(&format!("{}: {}\n", msg.role, text));
+                    }
+                }
 
-                let response_text = response_parts.join("");
-                let model_name = model.clone();
+                let prompt = CandlePrompt::new(full_prompt);
+
+                // Configure completion parameters from request
+                let temperature = request.temperature.unwrap_or(0.7);
+                let max_tokens = request.max_tokens.unwrap_or(2048);
+                let params = CandleCompletionParams {
+                    temperature,
+                    max_tokens: NonZeroU64::new(max_tokens as u64),
+                    ..Default::default()
+                };
+
+                // Perform inference with streaming collection
+                let completion_stream = provider.prompt(prompt, &params);
+                let completion_results: Vec<CandleCompletionChunk> = completion_stream.collect();
+
+                // Accumulate response text and extract usage
+                let mut response_text = String::new();
+                let mut actual_usage: Option<CompletionUsage> = None;
+                let mut stop_reason = "endTurn".to_string();
+
+                for chunk in completion_results {
+                    match chunk {
+                        CandleCompletionChunk::Text(text) => {
+                            response_text.push_str(&text);
+                        }
+                        CandleCompletionChunk::Complete { text, finish_reason, usage } => {
+                            if let Some(text) = text {
+                                response_text.push_str(&text);
+                            }
+                            if let Some(reason) = finish_reason {
+                                stop_reason = reason;
+                            }
+                            if let Some(u) = usage {
+                                actual_usage = Some(CompletionUsage {
+                                    prompt_tokens: u.prompt_tokens,
+                                    completion_tokens: u.completion_tokens,
+                                    total_tokens: u.total_tokens,
+                                });
+                            }
+                        }
+                        CandleCompletionChunk::Error(error) => {
+                            error!("Inference error: {}", error);
+                            return {
+                                let _ = tx_result.send(Err(rpc_router::HandlerError::new(
+                                    format!("Inference failed: {}", error),
+                                )));
+                                ()
+                            };
+                        }
+                        _ => {} // Ignore other chunk types
+                    }
+                }
+
+                let model_name = "kimi-k2-instruct-q4_0".to_string();
 
                 // Create the result
                 let result = CreateMessageResult {
@@ -161,12 +151,8 @@ pub fn sampling_create_message_pending(request: CreateMessageRequest) -> AsyncSa
                         mime_type: None,
                     },
                     model: model_name,
-                    stop_reason: Some("endTurn".to_string()),
-                    usage: Some(CompletionUsage {
-                        completion_tokens: 150, /* Estimate - could be improved with actual token counting */
-                        prompt_tokens: prompt_text.len() as u32 / 4, // Rough estimate
-                        total_tokens: 150 + (prompt_text.len() as u32 / 4),
-                    }),
+                    stop_reason: Some(stop_reason),
+                    usage: actual_usage,
                 };
 
                 log::info!("Returning sampling result: {:?}", result);
@@ -190,28 +176,6 @@ pub fn sampling_create_message_pending(request: CreateMessageRequest) -> AsyncSa
                     }
                 };
                 let _ = tx_result.send(Ok(usage));
-
-                // Commenting out the previous incorrect logic
-                /*
-                match serde_json::from_str::<CreateMessageResult>(&value) {
-                    Ok(parsed_result) => {
-                        // Simulate work and potential usage calculation
-                        tokio::time::sleep(Duration::from_millis(200)).await;
-                        let usage = CompletionUsage {
-                            prompt_tokens: 50,  // Example value
-                            completion_tokens: 150, // Example value
-                            total_tokens: 200, // Example value
-                        };
-                        // Send CompletionUsage, not CreateMessageResult
-                        let _ = tx_result.send(Ok(usage));
-                    }
-                    Err(e) => {
-                        error!("Failed to parse sampling result: {}", e);
-                        // Ensure error type matches receiver expectation if needed
-                        let _ = tx_result.send(Err(e.into_handler_error()));
-                    }
-                }
-                */
             }
             Err(e) => {
                 error!("Sampling message creation failed: {}", e);
@@ -229,14 +193,106 @@ pub fn sampling_create_message(request: CreateMessageRequest) -> AsyncSamplingRe
     sampling_create_message_pending(request)
 }
 
-/// Create a streaming sampling result (for future use with streaming LLMs)
-pub fn sampling_create_message_stream(_request: CreateMessageRequest) -> SamplingStream {
+/// Create a streaming sampling result with real-time token generation
+pub fn sampling_create_message_stream(request: CreateMessageRequest) -> SamplingStream {
     let (tx_stream, rx_stream) = mpsc::channel::<HandlerResult<CreateMessageResult>>(16);
 
-    // In the future, this would stream tokens as they're generated
     tokio::spawn(async move {
-        // Placeholder - would integrate with streaming LLM APIs
-        drop(tx_stream);
+        // Initialize CandleKimiK2Provider
+        let provider = match CandleKimiK2Provider::default_for_builder() {
+            Ok(p) => p,
+            Err(e) => {
+                error!("Failed to initialize CandleKimiK2Provider for streaming: {}", e);
+                let _ = tx_stream.send(Err(rpc_router::HandlerError::new(
+                    "Failed to initialize local model provider",
+                ))).await;
+                return;
+            }
+        };
+
+        // Build prompt from system prompt + messages
+        let mut full_prompt = String::new();
+        if let Some(system_prompt) = &request.system_prompt {
+            full_prompt.push_str(system_prompt);
+            full_prompt.push_str("\n\n");
+        }
+
+        for msg in &request.messages {
+            if let McpMessageContent { text: Some(text), .. } = &msg.content {
+                full_prompt.push_str(&format!("{}: {}\n", msg.role, text));
+            }
+        }
+
+        let prompt = CandlePrompt::new(full_prompt);
+
+        // Configure completion parameters
+        let temperature = request.temperature.unwrap_or(0.7);
+        let max_tokens = request.max_tokens.unwrap_or(2048);
+        let params = CandleCompletionParams {
+            temperature,
+            max_tokens: NonZeroU64::new(max_tokens as u64),
+            ..Default::default()
+        };
+
+        // Stream tokens as they're generated
+        let completion_stream = provider.prompt(prompt, &params);
+        let mut accumulated_text = String::new();
+
+        for chunk in completion_stream {
+            match chunk {
+                CandleCompletionChunk::Text(text) => {
+                    accumulated_text.push_str(&text);
+                    // Send incremental result
+                    let partial_result = CreateMessageResult {
+                        role: "assistant".to_string(),
+                        content: McpMessageContent {
+                            type_: "text".to_string(),
+                            text: Some(accumulated_text.clone()),
+                            data: None,
+                            mime_type: None,
+                        },
+                        model: "kimi-k2-instruct-q4_0".to_string(),
+                        stop_reason: None, // Still streaming
+                        usage: None, // Usage only available at end
+                    };
+                    if tx_stream.send(Ok(partial_result)).await.is_err() {
+                        break; // Receiver closed
+                    }
+                }
+                CandleCompletionChunk::Complete { text, finish_reason, usage } => {
+                    if let Some(text) = text {
+                        accumulated_text.push_str(&text);
+                    }
+                    // Send final result
+                    let final_result = CreateMessageResult {
+                        role: "assistant".to_string(),
+                        content: McpMessageContent {
+                            type_: "text".to_string(),
+                            text: Some(accumulated_text),
+                            data: None,
+                            mime_type: None,
+                        },
+                        model: "kimi-k2-instruct-q4_0".to_string(),
+                        stop_reason: finish_reason,
+                        usage: usage.map(|u| CompletionUsage {
+                            prompt_tokens: u.prompt_tokens,
+                            completion_tokens: u.completion_tokens,
+                            total_tokens: u.total_tokens,
+                        }),
+                    };
+                    let _ = tx_stream.send(Ok(final_result)).await;
+                    break;
+                }
+                CandleCompletionChunk::Error(error) => {
+                    error!("Streaming inference error: {}", error);
+                    let _ = tx_stream.send(Err(rpc_router::HandlerError::new(
+                        format!("Streaming inference failed: {}", error),
+                    ))).await;
+                    break;
+                }
+                _ => {} // Ignore other chunk types
+            }
+        }
     });
 
     SamplingStream::new(rx_stream)

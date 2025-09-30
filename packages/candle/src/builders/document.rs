@@ -117,6 +117,7 @@ struct DocumentBuilderImpl<
 
 impl DocumentBuilderImpl {
     /// Create a new document builder with optimal defaults
+    #[allow(clippy::new_ret_no_self)]
     pub fn new(data: DocumentBuilderData) -> impl DocumentBuilder {
         DocumentBuilderImpl::<fn(String), fn(DocumentChunk) -> DocumentChunk> {
             data,
@@ -420,8 +421,8 @@ where
                         for entry in paths.filter_map(Result::ok) {
                             let doc_builder = DocumentBuilderImpl {
                                 data: DocumentBuilderData::File(entry),
-                                format: self.format.clone(),
-                                media_type: self.media_type.clone(),
+                                format: self.format,
+                                media_type: self.media_type,
                                 additional_props: self.additional_props.clone(),
                                 encoding: self.encoding.clone(),
                                 max_size: self.max_size,
@@ -541,7 +542,7 @@ where
         ystream::AsyncStream::with_channel(move |sender| {
             let content = match builder.data {
                 DocumentBuilderData::File(ref path) => {
-                    let file_stream = Self::load_file_content(&path, &builder);
+                    let file_stream = Self::load_file_content(path, &builder);
                     if let Some(content_result) = file_stream.try_next() {
                         content_result.0
                     } else {
@@ -550,7 +551,7 @@ where
                     }
                 }
                 DocumentBuilderData::Url(ref url) => {
-                    let url_stream = Self::load_url_content(&url, &builder);
+                    let url_stream = Self::load_url_content(url, &builder);
                     if let Some(content_result) = url_stream.try_next() {
                         content_result.0
                     } else {
@@ -559,7 +560,7 @@ where
                     }
                 }
                 DocumentBuilderData::Github { ref repo, ref path, ref branch } => {
-                    let github_stream = Self::load_github_content(&repo, &path, branch.as_deref(), &builder);
+                    let github_stream = Self::load_github_content(repo, path, branch.as_deref(), &builder);
                     if let Some(content_result) = github_stream.try_next() {
                         content_result.0
                     } else {
@@ -639,8 +640,8 @@ where
             for path in paths {
                 let doc_builder = DocumentBuilderImpl {
                     data: DocumentBuilderData::File(path),
-                    format: builder.format.clone(),
-                    media_type: builder.media_type.clone(),
+                    format: builder.format,
+                    media_type: builder.media_type,
                     additional_props: builder.additional_props.clone(),
                     encoding: builder.encoding.clone(),
                     max_size: builder.max_size,
@@ -771,10 +772,9 @@ where
                 let content = response.0;
                 
                 // Check size if max_size is set
-                if let Some(max_size) = builder.max_size {
-                    if content.len() > max_size {
-                        return; // Skip sending - content too large
-                    }
+                if let Some(max_size) = builder.max_size
+                    && content.len() > max_size {
+                    return; // Skip sending - content too large
                 }
 
                 let _ = sender.send(CandleStringChunk(content));

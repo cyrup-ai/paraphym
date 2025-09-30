@@ -103,9 +103,9 @@ impl ConstrainedLogitsProcessor {
         let mut masked_count = 0;
         
         // Check JSON constraints first
-        if let Some(ref constraint) = context.json_constraint {
-            if let Some(ref state) = context.json_constraint_state {
-                // Validate each token against the constraint
+        if let Some(ref constraint) = context.json_constraint
+            && let Some(ref state) = context.json_constraint_state {
+            // Validate each token against the constraint
                 for (token_id, logit) in logits.iter_mut().enumerate() {
                     // Skip tokens already masked by previous processing
                     if *logit == f32::NEG_INFINITY {
@@ -127,12 +127,11 @@ impl ConstrainedLogitsProcessor {
                         }
                     }
                 }
-            }
         }
 
         // Check schema constraints
-        if let Some(ref constraint) = context.schema_constraint {
-            if let Some(ref state) = context.schema_constraint_state {
+        if let Some(ref constraint) = context.schema_constraint
+            && let Some(ref state) = context.schema_constraint_state {
                 // Validate each token against the schema constraint
                 for (token_id, logit) in logits.iter_mut().enumerate() {
                     // Skip tokens already masked by previous processing
@@ -155,7 +154,6 @@ impl ConstrainedLogitsProcessor {
                         }
                     }
                 }
-            }
         }
         
         Ok(masked_count)
@@ -217,37 +215,36 @@ impl LogitsProcessor for ConstrainedLogitsProcessor {
             .map_err(|e| LogitsError::NumericalError(e.to_string()))?;
         
         // Then apply constraint masking if enabled and constraints are present
-        if self.constraints_enabled {
-            if context.json_constraint.is_some() ||
+        if self.constraints_enabled
+            && (context.json_constraint.is_some() ||
                context.json_constraint_state.is_some() ||
                context.schema_constraint.is_some() ||
-               context.schema_constraint_state.is_some() {
+               context.schema_constraint_state.is_some()) {
+            
+            // Apply constraint masking
+            let masked_count = self.apply_constraint_masking(logits, context)?;
+            
+            // Store for statistics
+            self.last_tokens_masked = masked_count;
+            
+            // Log constraint application for debugging
+            if masked_count > 0 {
+                tracing::debug!(
+                    "Constraint masking applied: {} tokens masked out of {} total",
+                    masked_count, 
+                    logits.len()
+                );
+            }
+            
+            // Verify we haven't masked all tokens (would cause sampling failure)
+            let valid_tokens = logits.iter()
+                .filter(|&&logit| logit > f32::NEG_INFINITY)
+                .count();
                 
-                // Apply constraint masking
-                let masked_count = self.apply_constraint_masking(logits, context)?;
-                
-                // Store for statistics
-                self.last_tokens_masked = masked_count;
-                
-                // Log constraint application for debugging
-                if masked_count > 0 {
-                    tracing::debug!(
-                        "Constraint masking applied: {} tokens masked out of {} total",
-                        masked_count, 
-                        logits.len()
-                    );
-                }
-                
-                // Verify we haven't masked all tokens (would cause sampling failure)
-                let valid_tokens = logits.iter()
-                    .filter(|&&logit| logit > f32::NEG_INFINITY)
-                    .count();
-                    
-                if valid_tokens == 0 {
-                    return Err(LogitsError::SamplingError(
-                        "All tokens masked by constraints - cannot sample".to_string()
-                    ));
-                }
+            if valid_tokens == 0 {
+                return Err(LogitsError::SamplingError(
+                    "All tokens masked by constraints - cannot sample".to_string()
+                ));
             }
         }
         

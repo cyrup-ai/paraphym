@@ -147,7 +147,7 @@ impl JsonClient {
         // Send HTTP request
         let response = self
             .http_client
-            .post(&format!("{}/mcp", self.base_url))
+            .post(format!("{}/mcp", self.base_url))
             .header("Content-Type", "application/json")
             .body(request_body)
             .timeout(std::time::Duration::from_millis(self.default_timeout_ms))
@@ -229,25 +229,24 @@ impl McpClient for JsonClient {
             let response = self.send_request("tools/list", JsonValue::from(HashMap::<String, JsonValue>::new()), None).await?;
             
             // Extract tools from response
-            if let Some(result) = response.result {
-                if let Some(tools_array) = result.get("tools").and_then(|t| t.as_array()) {
-                    let mut tools = Vec::new();
-                    for tool_value in tools_array {
-                        if let (Some(name), Some(input_schema)) = (
-                            tool_value.get("name").and_then(|n| n.as_str()),
-                            tool_value.get("inputSchema")
-                        ) {
-                            tools.push(ToolInfo {
-                                name: name.to_string(),
-                                description: tool_value.get("description")
-                                    .and_then(|d| d.as_str())
-                                    .map(|s| s.to_string()),
-                                input_schema: input_schema.clone(),
-                            });
-                        }
+            if let Some(result) = response.result
+                && let Some(tools_array) = result.get("tools").and_then(|t| t.as_array()) {
+                let mut tools = Vec::new();
+                for tool_value in tools_array {
+                    if let (Some(name), Some(input_schema)) = (
+                        tool_value.get("name").and_then(|n| n.as_str()),
+                        tool_value.get("inputSchema")
+                    ) {
+                        tools.push(ToolInfo {
+                            name: name.to_string(),
+                            description: tool_value.get("description")
+                                .and_then(|d| d.as_str())
+                                .map(|s| s.to_string()),
+                            input_schema: input_schema.clone(),
+                        });
                     }
-                    return Ok(tools);
                 }
+                return Ok(tools);
             }
             
             Err(ClientError::response_parse(

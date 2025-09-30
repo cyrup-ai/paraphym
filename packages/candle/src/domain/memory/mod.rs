@@ -78,7 +78,7 @@ pub use primitives::*;
 pub use primitives::{MemoryContent, MemoryTypeEnum};
 pub use tool::{MemoryOperation, MemoryResult, MemoryTool, MemoryToolError, MemoryToolResult};
 // Re-export trait types for trait-backed architecture
-pub use traits::{CandleMemory, CandleMemoryStats, MockCandleMemory};
+pub use traits::{CandleMemory, CandleMemoryStats};
 
 // BoxFuture replaced with AsyncStream - use .collect() for Future-like behavior
 
