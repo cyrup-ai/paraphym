@@ -12,6 +12,13 @@ use crate::core::DomainInitError;
 ///
 /// Returns a properly configured memory manager service (not streamed)
 /// Following the universal pattern: managers are services, not data to be streamed
+///
+/// # Errors
+///
+/// Returns `DomainInitError` if:
+/// - Database connection cannot be established
+/// - Database initialization fails
+/// - Memory schema initialization fails
 pub async fn initialize_memory_service() -> Result<SurrealDBMemoryManager, DomainInitError> {
     let config = get_default_memory_config();
     initialize_memory_service_with_config(config).await
@@ -24,6 +31,13 @@ pub async fn initialize_memory_service() -> Result<SurrealDBMemoryManager, Domai
 ///
 /// # Returns
 /// Properly initialized SurrealDBMemoryManager ready for use
+///
+/// # Errors
+///
+/// Returns `DomainInitError` if:
+/// - Database connection to SurrealDB fails
+/// - Namespace or database selection fails
+/// - Memory schema and index initialization fails
 ///
 /// # Performance
 /// Production-quality SurrealDB connection with cognitive memory features
@@ -96,6 +110,10 @@ pub fn pool_size() -> usize {
 /// # Arguments
 /// * `pool_size` - Number of managers to pre-allocate
 /// * `config` - Configuration for each manager
+///
+/// # Errors
+///
+/// Returns `DomainInitError` if any manager in the pool fails to initialize
 ///
 /// # Performance
 /// Async initialization with proper error handling

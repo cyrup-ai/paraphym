@@ -232,14 +232,14 @@ impl ParameterType {
             return None;
         }
 
-        let (num_str, unit) = if value.ends_with("ms") {
-            (&value[..value.len() - 2], "ms")
+        let (num_str, unit) = if let Some(stripped) = value.strip_suffix("ms") {
+            (stripped, "ms")
         } else if let Some(last_char) = value.chars().last() {
             match last_char {
-                's' => (&value[..value.len() - 1], "s"),
-                'm' => (&value[..value.len() - 1], "m"),
-                'h' => (&value[..value.len() - 1], "h"),
-                'd' => (&value[..value.len() - 1], "d"),
+                's' => (value.strip_suffix('s').unwrap_or(value), "s"),
+                'm' => (value.strip_suffix('m').unwrap_or(value), "m"),
+                'h' => (value.strip_suffix('h').unwrap_or(value), "h"),
+                'd' => (value.strip_suffix('d').unwrap_or(value), "d"),
                 _ => (value, "s"), // default to seconds
             }
         } else {
@@ -264,16 +264,16 @@ impl ParameterType {
             return None;
         }
 
-        let (num_str, multiplier) = if value.ends_with("KB") {
-            (&value[..value.len() - 2], 1024)
-        } else if value.ends_with("MB") {
-            (&value[..value.len() - 2], 1024 * 1024)
-        } else if value.ends_with("GB") {
-            (&value[..value.len() - 2], 1024 * 1024 * 1024)
-        } else if value.ends_with("TB") {
-            (&value[..value.len() - 2], 1024_u64.pow(4))
-        } else if value.ends_with('B') {
-            (&value[..value.len() - 1], 1)
+        let (num_str, multiplier) = if let Some(stripped) = value.strip_suffix("KB") {
+            (stripped, 1024)
+        } else if let Some(stripped) = value.strip_suffix("MB") {
+            (stripped, 1024 * 1024)
+        } else if let Some(stripped) = value.strip_suffix("GB") {
+            (stripped, 1024 * 1024 * 1024)
+        } else if let Some(stripped) = value.strip_suffix("TB") {
+            (stripped, 1024_u64.pow(4))
+        } else if let Some(stripped) = value.strip_suffix('B') {
+            (stripped, 1)
         } else {
             (value, 1) // assume bytes
         };

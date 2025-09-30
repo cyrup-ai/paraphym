@@ -63,6 +63,10 @@ impl CandleCompletionParams {
     }
 
     /// Set the temperature
+    ///
+    /// # Errors
+    ///
+    /// Returns `ValidationError` if temperature is outside valid range
     pub fn with_temperature(mut self, temperature: f64) -> ValidationResult<Self> {
         if !TEMPERATURE_RANGE.contains(&temperature) {
             return Err(ValidationError::InvalidRange {

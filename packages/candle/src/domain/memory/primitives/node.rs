@@ -369,6 +369,10 @@ impl MemoryNode {
     }
 
     /// Set embedding with SIMD alignment
+    ///
+    /// # Errors
+    ///
+    /// Returns `MemoryError` if embedding vector is empty
     pub fn set_embedding(&mut self, embedding: Vec<f32>) -> MemoryResult<()> {
         if embedding.is_empty() {
             return Err(MemoryError::invalid_content("Embedding cannot be empty"));
@@ -380,6 +384,10 @@ impl MemoryNode {
     }
 
     /// Set importance with validation
+    ///
+    /// # Errors
+    ///
+    /// Returns `MemoryError` if importance value is not between 0.0 and 1.0
     pub fn set_importance(&mut self, importance: f32) -> MemoryResult<()> {
         if !(0.0..=1.0).contains(&importance) {
             return Err(MemoryError::invalid_content(
@@ -429,6 +437,10 @@ impl MemoryNode {
     }
 
     /// Add relationship with lock-free skip-list
+    ///
+    /// # Errors
+    ///
+    /// Returns `MemoryError` if attempting to create a self-relationship
     pub fn add_relationship(
         &self,
         target_id: Uuid,

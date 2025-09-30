@@ -120,10 +120,8 @@ impl LocalEngine {
                     match provider_result {
                         Ok(provider) => {
                             // Create completion parameters with safe non-zero conversions
-                            let max_tokens = max_tokens_param.and_then(|t| std::num::NonZeroU64::new(t as u64));
-                            let n = if let Some(val) = std::num::NonZeroU8::new(1) {
-                                val
-                            } else {
+                            let max_tokens = max_tokens_param.and_then(|t| std::num::NonZeroU64::new(u64::from(t)));
+                            let Some(n) = std::num::NonZeroU8::new(1) else {
                                 // This should never happen for value 1, but handle gracefully
                                 let error_response = CandleCompletionResponse {
                                     text: "Internal error: failed to create NonZeroU8 value".into(),
@@ -251,10 +249,8 @@ impl LocalEngine {
                     match provider_result {
                         Ok(provider) => {
                             // Create completion parameters with safe non-zero conversions
-                            let max_tokens = max_tokens_param.and_then(|t| std::num::NonZeroU64::new(t as u64));
-                            let n = if let Some(val) = std::num::NonZeroU8::new(1) {
-                                val
-                            } else {
+                            let max_tokens = max_tokens_param.and_then(|t| std::num::NonZeroU64::new(u64::from(t)));
+                            let Some(n) = std::num::NonZeroU8::new(1) else {
                                 // This should never happen for value 1, but handle gracefully
                                 let error_response = CandleCompletionResponse {
                                     text: "Internal error: failed to create NonZeroU8 value".into(),

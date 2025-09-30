@@ -69,6 +69,10 @@ pub type CandleResult<T> = std::result::Result<T, CandleModelError>;
 /// Extension trait for converting Option to `ModelError`
 pub trait OptionExt<T> {
     /// Convert an Option to a Result with a `CandleModelError::ModelNotFound`
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleModelError::ModelNotFound` if the Option is None
     fn or_model_not_found<P, N>(self, provider: P, name: N) -> CandleResult<T>
     where
         P: Into<Cow<'static, str>>,
@@ -91,11 +95,19 @@ impl<T> OptionExt<T> for Option<T> {
 /// Extension trait for converting Result to `ModelError`
 pub trait ResultExt<T, E> {
     /// Map an error to a `CandleModelError::InvalidConfiguration`
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleModelError::InvalidConfiguration` if the Result is Err
     fn invalid_config<M>(self, msg: M) -> CandleResult<T>
     where
         M: Into<Cow<'static, str>>;
 
     /// Map an error to a `CandleModelError::OperationNotSupported`
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleModelError::OperationNotSupported` if the Result is Err
     fn not_supported<M>(self, msg: M) -> CandleResult<T>
     where
         M: Into<Cow<'static, str>>;

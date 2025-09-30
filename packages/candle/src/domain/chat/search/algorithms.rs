@@ -191,7 +191,7 @@ impl ChatSearchIndex {
             }
 
             // Return all documents that don't contain any of the terms
-            for entry in self_clone.document_store.iter() {
+            for entry in &self_clone.document_store {
                 let doc_id = entry.key().clone();
                 if !excluded_docs.contains(&doc_id) {
                     let result = SearchResult {
@@ -236,7 +236,7 @@ impl ChatSearchIndex {
                 .join(" ");
 
             // Search through all documents for exact phrase match
-            for entry in self_clone.document_store.iter() {
+            for entry in &self_clone.document_store {
                 let message = entry.value();
                 let content = &message.message.content;
 
@@ -277,7 +277,7 @@ impl ChatSearchIndex {
                 return;
             }
 
-            for entry in self_clone.document_store.iter() {
+            for entry in &self_clone.document_store {
                 let message = entry.value();
                 let content = &message.message.content;
                 let tokens = self_clone.tokenize_with_simd(content);

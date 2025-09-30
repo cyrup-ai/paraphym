@@ -41,11 +41,11 @@ impl SearchExporter {
         };
 
         // Clone self to avoid borrowing issues
-        let self_clone = self.clone();
+        let _self_clone = self.clone();
 
         AsyncStream::with_channel(move |sender| {
             if let ExportFormat::Json = export_options.format {
-                if let Ok(json) = self_clone.export_json_sync(&limited_results, &export_options)
+                if let Ok(json) = SearchExporter::export_json_sync(&limited_results, &export_options)
                     && let Ok(value) = serde_json::from_str(&json) {
                         let _ = sender.send(CandleJsonChunk(value));
                     }
@@ -59,7 +59,6 @@ impl SearchExporter {
 
     /// Export to JSON format
     fn export_json_sync(
-        &self,
         results: &[SearchResult],
         _options: &ExportOptions,
     ) -> Result<String, SearchError> {

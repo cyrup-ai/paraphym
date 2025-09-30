@@ -392,7 +392,7 @@ impl ResourceUsage {
         if total == 0 {
             0.0
         } else {
-            (self.cache_hits as f64 / total as f64) * 100.0
+            (f64::from(self.cache_hits) / f64::from(total)) * 100.0
         }
     }
 
@@ -405,7 +405,7 @@ impl ResourceUsage {
         } else {
             let operations = self.network_requests + self.disk_operations;
             let memory_mb = self.peak_memory_bytes as f64 / (1024.0 * 1024.0);
-            operations as f64 / memory_mb
+            f64::from(operations) / memory_mb
         }
     }
 
@@ -461,7 +461,7 @@ impl PerformanceMetrics {
         self.total_memory_bytes
             .fetch_add(usage.peak_memory_bytes, Ordering::Relaxed);
         self.total_errors
-            .fetch_add(usage.error_count as u64, Ordering::Relaxed);
+            .fetch_add(u64::from(usage.error_count), Ordering::Relaxed);
 
         // Update fastest execution
         let mut current_fastest = self.fastest_execution_us.load(Ordering::Relaxed);

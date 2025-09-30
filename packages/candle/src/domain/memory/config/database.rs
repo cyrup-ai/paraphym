@@ -354,6 +354,10 @@ impl Default for DatabaseHealthStatus {
 
 impl DatabaseConfig {
     /// Create new database configuration with validation
+    ///
+    /// # Errors
+    ///
+    /// Returns `MemoryError` if connection string validation fails
     pub fn new(
         db_type: DatabaseType,
         connection_string: impl Into<String>,

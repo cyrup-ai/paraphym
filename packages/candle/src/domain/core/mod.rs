@@ -122,6 +122,12 @@ impl CircuitBreaker {
 }
 
 /// Execute operation with circuit breaker protection
+///
+/// # Errors
+///
+/// Returns `DomainInitError` if:
+/// - Circuit breaker is open
+/// - Operation execution fails
 pub async fn execute_with_circuit_breaker<F, T, E, Fut>(
     operation: F,
 ) -> std::result::Result<T, DomainInitError>

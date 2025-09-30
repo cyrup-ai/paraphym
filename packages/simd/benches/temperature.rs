@@ -1,6 +1,5 @@
 //! Temperature scaling benchmarks
 
-#![cfg(feature = "bench")]
 #![allow(clippy::useless_vec)]
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};

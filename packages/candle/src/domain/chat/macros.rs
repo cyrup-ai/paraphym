@@ -709,7 +709,7 @@ impl MacroSystem {
                     ctx.loop_stack.push(loop_context);
 
                     for _ in 0..*iterations {
-                        for action in actions.iter() {
+                        for action in actions {
                             match execute_action_sync(action, &mut ctx) {
                                 Ok(ActionExecutionResult::Error(error)) => {
                                     ctx.loop_stack.pop();
@@ -742,7 +742,7 @@ impl MacroSystem {
     }
 
     /// Resolve variables in a string - planned feature
-    fn _resolve_variables(&self, content: &str, variables: &HashMap<String, String>) -> String {
+    fn _resolve_variables(content: &str, variables: &HashMap<String, String>) -> String {
         let mut result = content.to_string();
 
         for (key, value) in variables {
@@ -763,8 +763,8 @@ impl MacroSystem {
         if condition.contains("==") {
             let parts: Vec<&str> = condition.split("==").collect();
             if parts.len() == 2 {
-                let left = self._resolve_variables(parts[0].trim(), variables);
-                let right = self._resolve_variables(parts[1].trim(), variables);
+                let left = Self::_resolve_variables(parts[0].trim(), variables);
+                let right = Self::_resolve_variables(parts[1].trim(), variables);
                 return left == right;
             }
         }
@@ -1248,7 +1248,7 @@ impl MacroProcessor {
 
         // Additional validation - recursion depth, etc.
         let mut depth = 0;
-        for action in macro_def.actions.iter() {
+        for action in &macro_def.actions {
             if let MacroAction::Loop { actions: _, .. } = action {
                 depth += 1;
                 if depth > self.config.max_recursion_depth {
@@ -1317,6 +1317,10 @@ impl MacroProcessor {
     }
 
     /// Clear all global variables
+    ///
+    /// # Errors
+    ///
+    /// Returns `MacroSystemError` if lock acquisition fails
     pub fn clear_global_variables(&self) -> Result<(), MacroSystemError> {
         match self.variables.write() {
             Ok(mut vars) => {
@@ -1376,7 +1380,7 @@ fn execute_action_sync(
             };
 
             // Execute conditional actions synchronously
-            for action in actions_to_execute.iter() {
+            for action in actions_to_execute {
                 if let Err(e) = execute_action_sync(action, context) {
                     return Err(e);
                 }
@@ -1399,7 +1403,7 @@ fn execute_action_sync(
             context.loop_stack.push(loop_context);
 
             for _ in 0..*iterations {
-                for action in actions.iter() {
+                for action in actions {
                     if let Err(e) = execute_action_sync(action, context) {
                         context.loop_stack.pop();
                         return Err(e);

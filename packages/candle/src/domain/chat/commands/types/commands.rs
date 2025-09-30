@@ -602,7 +602,7 @@ impl ImmutableChatCommand {
                 if !source.starts_with("http://")
                     && !source.starts_with("https://")
                     && !source.starts_with("file://")
-                    && !source.starts_with("/")
+                    && !source.starts_with('/')
                     && !source.starts_with("./")
                     && !source.starts_with("../")
                 {

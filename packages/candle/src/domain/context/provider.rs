@@ -411,6 +411,10 @@ pub trait CandleImmutableEmbeddingModel: Send + Sync + 'static {
     fn model_info(&self) -> CandleEmbeddingModelInfo;
 
     /// Validate input text
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleValidationError` if input text fails validation
     fn validate_input(&self, text: &str) -> Result<(), CandleValidationError>;
 }
 

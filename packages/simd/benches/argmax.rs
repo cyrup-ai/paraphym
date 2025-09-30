@@ -1,6 +1,5 @@
 //! Argmax benchmarks with various data distributions
 
-#![cfg(feature = "bench")]
 #![allow(clippy::redundant_pattern_matching)]
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};

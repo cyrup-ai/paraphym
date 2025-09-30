@@ -150,14 +150,12 @@ impl CandleModelRegistry {
         provider: &str,
         name: &str,
     ) -> CandleResult<Option<RegisteredModel<M>>> {
-        let provider_models = match GLOBAL_REGISTRY.models.get(provider) {
-            Some(provider) => provider,
-            None => return Ok(None),
+        let Some(provider_models) = GLOBAL_REGISTRY.models.get(provider) else {
+            return Ok(None);
         };
 
-        let handle = match provider_models.get(name) {
-            Some(handle) => handle,
-            None => return Ok(None),
+        let Some(handle) = provider_models.get(name) else {
+            return Ok(None);
         };
 
         // Verify the model type
@@ -243,14 +241,12 @@ impl CandleModelRegistry {
     where
         T: Send + Sync + Sized + 'static,
     {
-        let provider_models = match GLOBAL_REGISTRY.models.get(provider) {
-            Some(provider) => provider,
-            None => return Ok(None),
+        let Some(provider_models) = GLOBAL_REGISTRY.models.get(provider) else {
+            return Ok(None);
         };
 
-        let handle = match provider_models.get(name) {
-            Some(handle) => handle,
-            None => return Ok(None),
+        let Some(handle) = provider_models.get(name) else {
+            return Ok(None);
         };
 
         // Attempt to downcast the handle to the requested type
@@ -290,14 +286,12 @@ impl CandleModelRegistry {
     where
         T: Send + Sync + 'static + ?Sized,
     {
-        let provider_models = match GLOBAL_REGISTRY.models.get(provider) {
-            Some(provider) => provider,
-            None => return Ok(None),
+        let Some(provider_models) = GLOBAL_REGISTRY.models.get(provider) else {
+            return Ok(None);
         };
 
-        let _handle = match provider_models.get(name) {
-            Some(handle) => handle,
-            None => return Ok(None),
+        let Some(_handle) = provider_models.get(name) else {
+            return Ok(None);
         };
 
         // Attempt to convert the handle to a boxed trait object

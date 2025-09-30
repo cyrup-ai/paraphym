@@ -347,8 +347,8 @@ pub async fn auth_middleware(mut request: Request<Body>, next: Next) -> impl Int
 /// Validate JWT token and extract user context
 async fn validate_jwt_token(auth_header: &str) -> Result<UserContext, AuthError> {
     // Extract token from "Bearer <token>" format
-    let token = if auth_header.starts_with("Bearer ") {
-        &auth_header[7..]
+    let token = if let Some(stripped) = auth_header.strip_prefix("Bearer ") {
+        stripped
     } else {
         return Err(AuthError::InvalidToken);
     };

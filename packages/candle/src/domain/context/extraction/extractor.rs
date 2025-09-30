@@ -86,6 +86,13 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static 
 
 impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + MessageChunk + 'static> ExtractorImpl<T> {
     /// Execute extraction with agent (planned feature)
+    ///
+    /// # Errors
+    ///
+    /// Returns `ExtractionError` if:
+    /// - Model execution fails
+    /// - Response parsing fails
+    /// - Deserialization fails
     pub async fn execute_extraction(
         agent: Agent,
         completion_request: CompletionRequest,
@@ -156,6 +163,12 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + MessageC
     }
 
     /// Parse JSON response (planned feature)
+    ///
+    /// # Errors
+    ///
+    /// Returns `ExtractionError` if:
+    /// - Response is not valid JSON
+    /// - JSON cannot be deserialized into type T
     pub fn parse_json_response(response: &str) -> ExtractionResult<T> {
         // First try to parse the whole response as JSON
         if let Ok(parsed) = serde_json::from_str::<T>(response) {

@@ -44,6 +44,10 @@ pub struct LLMConfig {
 
 impl LLMConfig {
     /// Create new LLM configuration
+    ///
+    /// # Errors
+    ///
+    /// Returns `LLMConfigError` if model name is empty
     pub fn new(provider: LLMProvider, model: impl Into<String>) -> Result<Self, LLMConfigError> {
         let model = model.into();
 
@@ -116,6 +120,14 @@ impl LLMConfig {
     }
 
     /// Validate configuration
+    ///
+    /// # Errors
+    ///
+    /// Returns `LLMConfigError` if:
+    /// - Model name is empty
+    /// - max_tokens is 0
+    /// - Temperature is not between 0.0 and 2.0
+    /// - Timeout is 0
     pub fn validate(&self) -> Result<(), LLMConfigError> {
         if self.model.is_empty() {
             return Err(LLMConfigError::InvalidModel(

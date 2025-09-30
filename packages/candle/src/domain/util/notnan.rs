@@ -12,6 +12,10 @@ pub struct NotNan<T>(T);
 
 impl NotNan<f32> {
     /// Create a new `NotNan` from an f32, returning an error if the value is NaN
+    ///
+    /// # Errors
+    ///
+    /// Returns `NotNanError` if the value is NaN
     #[inline]
     pub fn new(val: f32) -> Result<Self, NotNanError> {
         if val.is_nan() {

@@ -710,6 +710,12 @@ use super::shared::EmbeddingConfig;
 
 impl VectorStoreConfig {
     /// Create new vector store configuration with validation
+    ///
+    /// # Errors
+    ///
+    /// Returns `MemoryError` if:
+    /// - dimension is 0 or exceeds 65536
+    /// - dimension doesn't match embedding_config dimension
     pub fn new(
         store_type: VectorStoreType,
         embedding_config: EmbeddingConfig,
@@ -811,6 +817,12 @@ impl VectorStoreConfig {
     }
 
     /// Validate configuration consistency
+    ///
+    /// # Errors
+    ///
+    /// Returns `MemoryError` if:
+    /// - SIMD is enabled for a distance metric that doesn't support it
+    /// - Index type is incompatible with store type
     pub fn validate(&self) -> MemoryResult<()> {
         // Check SIMD compatibility
         if self.simd_config.enable_distance_simd && !self.distance_metric.supports_simd() {

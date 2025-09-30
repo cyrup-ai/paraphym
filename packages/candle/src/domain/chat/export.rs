@@ -331,9 +331,9 @@ impl ChatExporter {
                 let _ = write!(output, "{elapsed_secs},");
             }
 
-            // Escape CSV content
+            // Escape CSV content - use char literal for pattern
             let content_str = &message.content;
-            let escaped_content = content_str.replace("\"", "\"\"");
+            let escaped_content = content_str.replace('"', "\"\"");
             let _ = writeln!(output, "\"{:?}\",\"{escaped_content}\"", message.role);
         }
 

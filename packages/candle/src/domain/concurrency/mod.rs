@@ -146,6 +146,10 @@ impl<T> OneshotChannel<T> {
 
 impl<T: Send + 'static + MessageChunk + Default> OneshotChannel<T> {
     /// Send a value through the channel
+    ///
+    /// # Errors
+    ///
+    /// Returns the value if the receiver has been dropped or sending fails
     pub fn send(mut self, value: T) -> Result<(), T> {
         if let Some(sender) = self.sender.take() {
             sender.send(value).map_err(crossbeam_channel::SendError::into_inner)

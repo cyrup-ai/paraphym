@@ -153,6 +153,13 @@ impl RetryConfig {
     }
 
     /// Validate the retry configuration
+    ///
+    /// # Errors
+    ///
+    /// Returns error string if:
+    /// - max_retries exceeds 100
+    /// - initial_delay is greater than max_delay
+    /// - backoff_multiplier is non-positive or exceeds 10.0
     pub fn validate(&self) -> Result<(), String> {
         if self.max_retries > 100 {
             return Err("Maximum retries cannot exceed 100".to_string());
@@ -339,6 +346,13 @@ impl EmbeddingConfig {
     }
 
     /// Validate the embedding configuration
+    ///
+    /// # Errors
+    ///
+    /// Returns error string if:
+    /// - dimension is 0 or exceeds 10,000
+    /// - cache_size is 0 when caching is enabled
+    /// - model_name is empty
     pub fn validate(&self) -> Result<(), String> {
         if self.dimension == 0 {
             return Err("Embedding dimension must be greater than 0".to_string());

@@ -1,6 +1,5 @@
 //! Softmax benchmarks with various value ranges
 
-#![cfg(feature = "bench")]
 #![allow(clippy::redundant_pattern_matching)]
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};

@@ -329,7 +329,7 @@ impl StreamSubscriber {
     pub fn record_delivery(&self, message: &LiveUpdateMessage) {
         self.messages_received.fetch_add(1, Ordering::AcqRel);
         self.bytes_received
-            .fetch_add(message.size_bytes as u64, Ordering::AcqRel);
+            .fetch_add(u64::from(message.size_bytes), Ordering::AcqRel);
         self.last_message_at
             .store(message.timestamp_nanos, Ordering::Release);
     }
@@ -430,7 +430,7 @@ impl LiveMessageStreamer {
             // Add message to queue
             message_queue.push(message.clone());
             counter.fetch_add(1, Ordering::AcqRel);
-            bytes_processed.fetch_add(message.size_bytes as u64, Ordering::AcqRel);
+            bytes_processed.fetch_add(u64::from(message.size_bytes), Ordering::AcqRel);
 
             // Broadcast real-time event
             let _ = event_broadcaster.send(message.to_real_time_event());
@@ -539,7 +539,7 @@ impl LiveMessageStreamer {
                             if subscriber.should_receive(&message) {
                                 subscriber.record_delivery(&message);
                                 delivered_count += 1;
-                                total_bytes += message.size_bytes as u64;
+                                total_bytes += u64::from(message.size_bytes);
                             }
                         }
 

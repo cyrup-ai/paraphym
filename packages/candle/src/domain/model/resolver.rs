@@ -298,6 +298,10 @@ impl ModelResolver {
     }
 
     /// Resolve a model by name and optional provider using a specific registry
+    ///
+    /// # Errors
+    ///
+    /// Returns error if no matching model is found in the registry
     pub fn resolve_with_registry<'a, M: Model + 'static>(
         &'a self,
         registry: &'a ModelRegistry,

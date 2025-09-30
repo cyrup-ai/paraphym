@@ -449,6 +449,10 @@ pub struct AlignedCoherenceFingerprint {
 
 impl AlignedCoherenceFingerprint {
     /// Create new coherence fingerprint
+    ///
+    /// # Errors
+    ///
+    /// Returns `CognitiveError` if amplitudes and phases vectors have different dimensions
     #[inline]
     pub fn new(amplitudes: Vec<f32>, phases: Vec<f32>) -> Result<Self, CognitiveError> {
         if amplitudes.len() != phases.len() {
@@ -472,6 +476,10 @@ impl AlignedCoherenceFingerprint {
     }
 
     /// Apply quantum gate operation with vectorized processing
+    ///
+    /// # Errors
+    ///
+    /// Returns `CognitiveError` if gate matrix dimensions don't match fingerprint dimension
     #[inline]
     pub fn apply_gate(&mut self, gate_matrix: &[f32]) -> Result<(), CognitiveError> {
         if gate_matrix.len() != self.dimension * self.dimension {
@@ -555,6 +563,10 @@ impl QuantumSignature {
     }
 
     /// Create quantum signature with custom coherence fingerprint
+    ///
+    /// # Errors
+    ///
+    /// Returns `CognitiveError` if amplitudes and phases vectors have different dimensions
     #[inline]
     pub fn with_coherence(amplitudes: Vec<f32>, phases: Vec<f32>) -> Result<Self, CognitiveError> {
         let coherence_fingerprint = AlignedCoherenceFingerprint::new(amplitudes, phases)?;
@@ -611,6 +623,10 @@ impl QuantumSignature {
     }
 
     /// Apply quantum gate operation to coherence fingerprint
+    ///
+    /// # Errors
+    ///
+    /// Returns `CognitiveError` if gate matrix dimensions don't match coherence fingerprint dimension
     #[inline]
     pub fn apply_quantum_gate(&mut self, gate_matrix: &[f32]) -> Result<(), CognitiveError> {
         self.coherence_fingerprint.apply_gate(gate_matrix)
@@ -715,7 +731,7 @@ impl AtomicF32 {
     #[inline]
     pub fn new(value: f32) -> Self {
         Self {
-            inner: AtomicU64::new(value.to_bits() as u64),
+            inner: AtomicU64::new(u64::from(value.to_bits())),
         }
     }
 
@@ -728,7 +744,7 @@ impl AtomicF32 {
     /// Store value atomically
     #[inline]
     pub fn store(&self, value: f32, ordering: Ordering) {
-        self.inner.store(value.to_bits() as u64, ordering);
+        self.inner.store(u64::from(value.to_bits()), ordering);
     }
 }
 
@@ -1090,6 +1106,10 @@ impl CognitiveState {
     }
 
     /// Create cognitive state with custom quantum coherence
+    ///
+    /// # Errors
+    ///
+    /// Returns `CognitiveError` if amplitudes and phases vectors have different dimensions
     #[inline]
     pub fn with_quantum_coherence(
         amplitudes: Vec<f32>,
@@ -1305,6 +1325,10 @@ impl CognitiveMemory {
     }
 
     /// Store a cognitive pattern
+    ///
+    /// # Errors
+    ///
+    /// Returns `CognitiveError` if pattern storage capacity is exceeded
     pub fn store_pattern(&self, pattern: CognitivePattern) -> CognitiveResult<()> {
         if self.pattern_storage.len() >= self.config.max_patterns {
             return Err(CognitiveError::MemoryCapacityExceeded(format!(
@@ -1345,6 +1369,10 @@ impl CognitiveProcessor {
     }
 
     /// Process cognitive input and return decision
+    ///
+    /// # Errors
+    ///
+    /// Returns `CognitiveError` if pattern matching or decision making fails
     pub fn process(&self, input: &[f32]) -> CognitiveResult<Decision> {
         // Set processing state
         self.state.is_processing.store(true, Ordering::Relaxed);
@@ -1473,6 +1501,10 @@ impl PatternMatcher {
     }
 
     /// Match input against patterns
+    ///
+    /// # Errors
+    ///
+    /// Returns `CognitiveError` if pattern strength is below threshold
     pub fn match_pattern(&self, input: &[f32]) -> CognitiveResult<f32> {
         // Simple pattern matching logic - in production this would be more sophisticated
         let pattern_strength = input.iter().map(|x| x.abs()).sum::<f32>() / input.len() as f32;
@@ -1519,6 +1551,10 @@ impl DecisionEngine {
     }
 
     /// Make a decision based on pattern match strength
+    ///
+    /// # Errors
+    ///
+    /// Currently infallible - returns Ok with decision based on pattern strength
     pub fn make_decision(&self, pattern_strength: f32) -> CognitiveResult<Decision> {
         let decision = Decision {
             id: Uuid::new_v4(),

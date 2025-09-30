@@ -115,7 +115,7 @@ impl EmbeddingConfig {
     ///     .with_validated_dimension(512, "bert"); // Error: BERT only supports 384D
     /// ```
     pub fn with_validated_dimension(mut self, dimensions: usize, model_name: &str) -> crate::memory::utils::error::Result<Self> {
-        self.validate_dimension_for_model(dimensions, model_name)?;
+        Self::validate_dimension_for_model(dimensions, model_name)?;
         self.dimensions = Some(dimensions);
         Ok(self)
     }
@@ -124,7 +124,7 @@ impl EmbeddingConfig {
     ///
     /// Internal validation method that checks if the requested dimension is supported
     /// by the specified model using the same logic as the factory validation.
-    fn validate_dimension_for_model(&self, dimension: usize, model_name: &str) -> crate::memory::utils::error::Result<()> {
+    fn validate_dimension_for_model(dimension: usize, model_name: &str) -> crate::memory::utils::error::Result<()> {
         use crate::memory::utils::error::Error as MemoryError;
         
         let normalized_name = Self::normalize_model_name(model_name);
@@ -247,6 +247,10 @@ impl EmbeddingConfig {
     }
 
     /// Validate this configuration against embedding model constraints
+    ///
+    /// # Errors
+    ///
+    /// Returns error if configuration is invalid for the embedding model
     pub fn validate(&self) -> Result<()> {
         // Import factory validation here to avoid circular dependency
         use crate::memory::vector::embedding_factory::EmbeddingModelFactory;
@@ -254,10 +258,14 @@ impl EmbeddingConfig {
     }
 
     /// Validate that the dimensions are supported by the configured model
+    ///
+    /// # Errors
+    ///
+    /// Returns error if dimensions are not supported by the configured model
     pub fn validate_dimensions(&self) -> Result<()> {
         if let Some(dims) = self.dimensions {
             let model_name = self.model.as_deref().unwrap_or("bert");
-            self.validate_dimension_for_model(dims, model_name)
+            Self::validate_dimension_for_model(dims, model_name)
         } else {
             Ok(())
         }
@@ -266,7 +274,7 @@ impl EmbeddingConfig {
     /// Check if a specific dimension is supported by the configured model
     pub fn is_dimension_supported(&self, dimension: usize) -> bool {
         let model_name = self.model.as_deref().unwrap_or("bert");
-        self.validate_dimension_for_model(dimension, model_name).is_ok()
+        Self::validate_dimension_for_model(dimension, model_name).is_ok()
     }
 
     /// Get all supported dimensions for the configured model

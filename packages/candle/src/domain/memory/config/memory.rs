@@ -270,6 +270,14 @@ impl MemoryConfig {
     }
 
     /// Validate the memory configuration
+    ///
+    /// # Errors
+    ///
+    /// Returns error string if:
+    /// - max_concurrent_operations is 0
+    /// - cache_size is 0
+    /// - max_active_memories is 0
+    /// - importance_threshold is not between 0.0 and 1.0
     pub fn validate(&self) -> Result<(), String> {
         if self.performance.max_concurrent_operations == 0 {
             return Err("max_concurrent_operations must be greater than 0".to_string());

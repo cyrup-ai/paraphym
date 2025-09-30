@@ -39,7 +39,7 @@ impl QueryProcessor {
             .collect();
 
         let expanded_terms = if options.enable_query_expansion {
-            self.expand_terms_sync(&terms, &options.expansion_dictionary)
+            Self::expand_terms_sync(&terms, &options.expansion_dictionary)
         } else {
             Vec::new()
         };
@@ -65,7 +65,6 @@ impl QueryProcessor {
 
     /// Expand query terms using synonyms
     fn expand_terms_sync(
-        &self,
         terms: &[String],
         dictionary: &HashMap<String, Vec<String>>,
     ) -> Vec<String> {

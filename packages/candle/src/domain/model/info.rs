@@ -217,6 +217,12 @@ impl CandleModelInfo {
     }
 
     /// Validate the model configuration
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleModelError::InvalidConfiguration` if:
+    /// - provider_name or name is empty
+    /// - max_input_tokens or max_output_tokens is 0
     pub fn validate(&self) -> CandleResult<()> {
         if self.provider_name.is_empty() {
             return Err(CandleModelError::InvalidConfiguration(
@@ -281,6 +287,12 @@ impl CandleProviderModels {
     }
 
     /// Add a model to the collection
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// - Model provider doesn't match collection provider
+    /// - Model with same name already exists in collection
     pub fn add_model(&mut self, model: CandleModelInfo) -> CandleResult<()> {
         if model.provider_name != self.provider_name {
             return Err(CandleModelError::InvalidConfiguration(
