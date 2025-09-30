@@ -41,6 +41,9 @@ pub enum AgentError {
     /// Agent initialization error
     #[error("Agent initialization failed: {0}")]
     InitializationError(String),
+    /// Completion provider not initialized
+    #[error("Completion provider not initialized - use .completion_provider() in builder")]
+    ProviderNotInitialized,
 }
 
 /// Agent data structure with automatic memory tool injection

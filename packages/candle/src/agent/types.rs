@@ -7,10 +7,7 @@ use crate::domain::chat::message::types::CandleMessageRole as MessageRole;
 use crate::context::Context;
 use sweet_mcp_type::ToolInfo;
 
-/// Placeholder for Stdio type
-pub struct Stdio;
-
-/// Agent type placeholder for agent role
+/// Agent helper type for conversation turn callbacks (deprecated - use domain::agent::role::CandleAgentRoleAgent)
 pub struct AgentRoleAgent;
 
 /// Agent conversation type

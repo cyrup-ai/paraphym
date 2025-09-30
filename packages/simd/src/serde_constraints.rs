@@ -69,7 +69,7 @@ where
     let regex_pattern = regex_from_schema::<T>()
         .context("Failed to generate regex from type")?;
 
-    SchemaConstraint::new(&regex_pattern, vocabulary)
+    SchemaConstraint::new(&regex_pattern, vocabulary, false)
         .context("Failed to create schema constraint from type")
 }
 
@@ -112,7 +112,7 @@ pub fn constraint_for_schema(
     let regex_pattern = regex_from_value(&schema, None, None)
         .context("Failed to generate regex from schema")?;
 
-    SchemaConstraint::new(&regex_pattern, vocabulary)
+    SchemaConstraint::new(&regex_pattern, vocabulary, false)
         .context("Failed to create schema constraint from JSON")
 }
 
@@ -244,11 +244,8 @@ impl<'a> ConstraintBuilder<'a> {
         let regex_pattern = regex_from_value(&schema, None, Some(max_recursion))
             .context("Failed to generate regex from schema")?;
 
-        let constraint = SchemaConstraint::new(&regex_pattern, vocabulary)
+        let constraint = SchemaConstraint::new(&regex_pattern, vocabulary, self.allow_partial)
             .context("Failed to build schema constraint")?;
-
-        // Note: allow_partial configuration would require schema constraint API extensions
-        // For now, we apply it to the regex generation depth as a reasonable approximation
 
         Ok(constraint)
     }
@@ -337,8 +334,7 @@ mod tests {
         age: u32,
     }
 
-    // Note: These tests would need a real tokenizer to run
-    // For now they just verify the API compiles correctly
+    // Tests using mock vocabulary to verify actual constraint behavior
 
     #[test]
     fn test_builder_api() {
@@ -373,7 +369,8 @@ mod tests {
         // Test constraint for TestStruct type
         let constraint_result = SchemaConstraint::new(
             &regex_from_schema::<TestStruct>().expect("Should generate regex from TestStruct"),
-            vocabulary.clone()
+            vocabulary.clone(),
+            false
         );
         
         // Verify constraint was created successfully - if it fails, print the error to understand the issue
@@ -397,8 +394,70 @@ mod tests {
         
         // Test constraint for predefined boolean type
         let boolean_regex = r"(true|false)";
-        let boolean_constraint = SchemaConstraint::new(boolean_regex, vocabulary.clone());
+        let boolean_constraint = SchemaConstraint::new(boolean_regex, vocabulary.clone(), false);
         assert!(boolean_constraint.is_ok(), "Should create boolean constraint");
+        
+        // Test actual boolean constraint behavior
+        let boolean_constraint = boolean_constraint.unwrap();
+        let bool_state = boolean_constraint.new_state();
+
+        // Token indices from create_test_vocabulary():
+        // 2 = "true", 3 = "false", 0 = "hello", 4 = "null"
+        assert!(
+            boolean_constraint.try_next(&bool_state, 2).unwrap(),
+            "Boolean constraint should allow 'true' token (index 2)"
+        );
+        assert!(
+            boolean_constraint.try_next(&bool_state, 3).unwrap(),
+            "Boolean constraint should allow 'false' token (index 3)"
+        );
+        assert!(
+            !boolean_constraint.try_next(&bool_state, 0).unwrap(),
+            "Boolean constraint should reject 'hello' token (index 0)"
+        );
+        assert!(
+            !boolean_constraint.try_next(&bool_state, 4).unwrap(),
+            "Boolean constraint should reject 'null' token (index 4)"
+        );
+
+        // Test state progression with update()
+        let mut progressing_state = boolean_constraint.new_state();
+        assert_eq!(progressing_state.tokens_processed(), 0);
+
+        // Update with "true" token (index 2)
+        let update_result = boolean_constraint.update(&mut progressing_state, 2);
+        assert!(
+            update_result.is_ok() && update_result.unwrap(),
+            "Should successfully update state with 'true' token"
+        );
+        assert_eq!(
+            progressing_state.tokens_processed(), 1,
+            "Should have processed 1 token"
+        );
+        
+        // Note: Boolean constraints do not set is_complete() after matching a single token
+        // as the DFA may accept further input. This is expected behavior - the constraint
+        // validates tokens but doesn't mark the state as complete until reaching an explicit
+        // end state in the DFA, which doesn't occur for simple boolean patterns like (true|false).
+
+        // Test get_allowed_tokens() 
+        let fresh_state = boolean_constraint.new_state();
+        let allowed = boolean_constraint.get_allowed_tokens(&fresh_state);
+        assert!(allowed.is_some(), "Should return allowed tokens map");
+
+        let tokens_map = allowed.unwrap();
+        assert!(
+            tokens_map.contains_key(&2),
+            "Allowed tokens should include 'true' (index 2)"
+        );
+        assert!(
+            tokens_map.contains_key(&3),
+            "Allowed tokens should include 'false' (index 3)"
+        );
+        assert!(
+            !tokens_map.contains_key(&0),
+            "Allowed tokens should NOT include 'hello' (index 0)"
+        );
         
         // Test constraint builder functionality - since ConstraintBuilder needs a tokenizer,
         // we test the SchemaConstraint creation directly which is the core functionality
@@ -423,7 +482,7 @@ mod tests {
         assert!(regex_pattern.contains("name"), "Regex should include 'name' property");
         
         // Test constraint creation with the generated regex
-        let final_constraint = SchemaConstraint::new(&regex_pattern, vocabulary);
+        let final_constraint = SchemaConstraint::new(&regex_pattern, vocabulary, false);
         if let Err(ref e) = final_constraint {
             println!("Failed to create constraint: {}", e);
             println!("Regex pattern was: {}", regex_pattern);

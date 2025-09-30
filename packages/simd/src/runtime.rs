@@ -21,13 +21,15 @@ pub enum CpuFeatures {
 
 impl CpuFeatures {
     /// Check if this feature level supports SIMD operations
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub const fn has_simd(self) -> bool {
         matches!(self, Self::Neon | Self::Sse41 | Self::Avx2 | Self::Avx512)
     }
 
     /// Get SIMD vector width in f32 elements
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub const fn vector_width(self) -> usize {
         match self {
             Self::Scalar => 1,
@@ -38,7 +40,8 @@ impl CpuFeatures {
     }
 
     /// Get optimal chunk size for processing
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub const fn chunk_size(self) -> usize {
         match self {
             Self::Scalar => 1,
@@ -313,14 +316,16 @@ impl ArgmaxDispatch {
 }
 
 /// Check if SIMD operations are available and beneficial for given size
-#[inline(always)]
+#[inline]
+#[must_use]
 pub fn should_use_simd(size: usize) -> bool {
     let features = get_cpu_features();
     features.has_simd() && size >= features.vector_width() * 2
 }
 
 /// Get optimal chunk size for bulk operations
-#[inline(always)]
+#[inline]
+#[must_use]
 pub fn get_optimal_chunk_size() -> usize {
     get_cpu_features().chunk_size()
 }

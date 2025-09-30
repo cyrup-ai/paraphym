@@ -83,11 +83,13 @@ impl CandleEnhancedHistoryManager {
         &self,
         query: &CandleSearchQuery,
     ) -> AsyncStream<CandleSearchResult> {
-        // TODO: Implement full search functionality in Phase 2.3
-        // For now, return empty stream until domain ChatSearchIndex has search methods
-        let _ = query; // Parameter acknowledged but not yet implemented
-        AsyncStream::with_channel(move |_sender| {
-            // Placeholder - will be implemented with enhanced search features
-        })
+        let search_index = Arc::clone(&self.search_index);
+        let query_clone = query.clone();
+        
+        // Create ChatSearcher with the index
+        let searcher = super::ChatSearcher::new(search_index);
+        
+        // Delegate to ChatSearcher which has full implementation
+        searcher.search_stream(query_clone)
     }
 }

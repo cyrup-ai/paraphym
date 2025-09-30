@@ -25,7 +25,8 @@ impl ScalarSimilarity {
     }
 
     /// Compute the dot product and squared norms for two vectors
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub fn dot_and_norms(a: &[f32], b: &[f32]) -> (f32, f32, f32) {
         let mut dot = 0.0f32;
         let mut norm_a = 0.0f32;

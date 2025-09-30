@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::hash::Hash;
+use std::sync::LazyLock;
 
 // Removed unused import: std::sync::Arc
 use ahash::RandomState;
@@ -19,6 +20,15 @@ use crate::domain::model::registry::CandleModelRegistry as ModelRegistry;
 use crate::domain::model::registry::RegisteredModel;
 // Removed unused import: strsim::jaro_winkler
 use crate::domain::model::traits::CandleModel as Model;
+
+/// Cached environment variable for default provider
+/// Using LazyLock prevents memory leaks while maintaining &'static str return type
+static ENV_DEFAULT_PROVIDER: LazyLock<Option<&'static str>> = LazyLock::new(|| {
+    std::env::var("CANDLE_DEFAULT_PROVIDER")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(|s| Box::leak(s.into_boxed_str()) as &'static str)
+});
 
 /// A pattern that can be used to match model names
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -218,6 +228,8 @@ pub struct ModelResolver {
     registry: ModelRegistry,
     rules: Vec<ModelResolutionRule>,
     aliases: HashMap<String, (String, String), RandomState>,
+    feature_flags: HashMap<String, bool, RandomState>,
+    default_provider: Option<&'static str>,
 }
 
 impl Default for ModelResolver {
@@ -233,6 +245,8 @@ impl ModelResolver {
             registry: ModelRegistry::new(),
             rules: Vec::new(),
             aliases: HashMap::with_hasher(RandomState::new()),
+            feature_flags: HashMap::with_hasher(RandomState::new()),
+            default_provider: None,
         }
     }
 
@@ -259,6 +273,21 @@ impl ModelResolver {
     ) {
         self.aliases
             .insert(alias.into(), (provider.into(), model.into()));
+    }
+
+    /// Set the default provider for model resolution
+    /// 
+    /// This provider will be used when no provider is explicitly specified
+    /// and the CANDLE_DEFAULT_PROVIDER environment variable is not set.
+    /// 
+    /// # Example
+    /// ```rust
+    /// let mut resolver = ModelResolver::new();
+    /// resolver.with_default_provider("candle-kimi");
+    /// ```
+    pub fn with_default_provider(&mut self, provider: &'static str) -> &mut Self {
+        self.default_provider = Some(provider);
+        self
     }
 
     /// Resolve a model by name and optional provider
@@ -338,13 +367,13 @@ impl ModelResolver {
         // Apply resolution rules
         for rule in &self.rules {
             if rule.pattern.matches(model_name) {
-                if let Some(condition) = &rule.condition
-                    && !Self::check_condition(condition)
-                {
-                    continue;
-                }
-
                 if let Ok(Some(model)) = registry.get::<M>(&rule.provider, &rule.target) {
+                    if let Some(condition) = &rule.condition
+                        && !self.check_condition(condition, model.info())
+                    {
+                        continue;
+                    }
+
                     return Ok(ModelResolution::new(
                         rule.provider.clone(),
                         rule.target.clone(),
@@ -397,24 +426,98 @@ impl ModelResolver {
         })
     }
 
-    /// Get the default provider (if any)
-    pub fn get_default_provider(&self) -> Option<&'static str> {
-        // In a real implementation, this would check configuration
-        // For now, we'll just return the first provider we find
-        None
+    /// Get the provider with the most registered models
+    /// 
+    /// This is used as a fallback when no explicit default is configured.
+    /// Returns None if no providers are registered.
+    fn get_most_used_provider(&self) -> Option<&'static str> {
+        let provider_counts = self.registry.count_models_by_provider();
+        
+        provider_counts
+            .into_iter()
+            .max_by_key(|(_, count)| *count)
+            .map(|(provider, _)| provider)
     }
 
-    /// Check if a condition is met
-    fn check_condition(condition: &RuleCondition) -> bool {
+    /// Get the default provider using priority-based selection
+    /// 
+    /// Priority order:
+    /// 1. Environment variable `CANDLE_DEFAULT_PROVIDER` (highest)
+    /// 2. Explicitly configured provider via `with_default_provider()`
+    /// 3. Provider with most registered models (fallback)
+    /// 4. None if no providers available
+    /// 
+    /// # Returns
+    /// 
+    /// The default provider name if one can be determined, or None
+    pub fn get_default_provider(&self) -> Option<&'static str> {
+        // Priority 1: Environment variable (highest priority)
+        if let Some(provider) = *ENV_DEFAULT_PROVIDER {
+            return Some(provider);
+        }
+        
+        // Priority 2: Explicit configuration
+        if let Some(provider) = self.default_provider {
+            return Some(provider);
+        }
+        
+        // Priority 3: Most-used provider (fallback)
+        self.get_most_used_provider()
+    }
+
+    /// Enable a feature flag
+    pub fn enable_feature(&mut self, name: impl Into<String>) {
+        self.feature_flags.insert(name.into(), true);
+    }
+    
+    /// Disable a feature flag
+    pub fn disable_feature(&mut self, name: impl Into<String>) {
+        self.feature_flags.insert(name.into(), false);
+    }
+    
+    /// Check if a feature flag is enabled
+    pub fn is_feature_enabled(&self, name: &str) -> bool {
+        self.feature_flags.get(name).copied().unwrap_or(false)
+    }
+
+    /// Check if a rule condition is satisfied
+    fn check_condition(&self, condition: &RuleCondition, model_info: &ModelInfo) -> bool {
         match condition {
-            // TODO: Implement proper capability and feature checking
-            RuleCondition::HasCapability { capability: _ }
-            | RuleCondition::HasFeature { feature: _ }
-            | RuleCondition::FeatureEnabled { name: _ } => {
-                // In a real implementation, check if the model has the capability/feature
-                false
+            RuleCondition::HasCapability { capability } => {
+                // Parse capability string and check if model has it
+                use crate::domain::model::capabilities::CandleCapability;
+                
+                if let Some(cap) = CandleCapability::from_string(capability) {
+                    let capabilities = model_info.to_capabilities();
+                    capabilities.has_capability(cap)
+                } else {
+                    // Unknown capability string - treat as not supported
+                    false
+                }
             }
-            RuleCondition::EnvVarSet { name } => std::env::var(name).is_ok(),
+            
+            RuleCondition::HasFeature { feature } => {
+                // For now, treat HasFeature the same as HasCapability
+                // In the future, this could check a separate features list
+                use crate::domain::model::capabilities::CandleCapability;
+                
+                if let Some(cap) = CandleCapability::from_string(feature) {
+                    let capabilities = model_info.to_capabilities();
+                    capabilities.has_capability(cap)
+                } else {
+                    false
+                }
+            }
+            
+            RuleCondition::FeatureEnabled { name } => {
+                // Check global feature flags
+                self.is_feature_enabled(name)
+            }
+            
+            RuleCondition::EnvVarSet { name } => {
+                // Check environment variable
+                std::env::var(name).is_ok()
+            }
         }
     }
 
@@ -456,6 +559,8 @@ impl ModelResolver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::num::NonZeroU32;
+    use crate::domain::model::{CandleModel, CandleModelInfo};
 
     #[test]
     fn test_pattern_matching() {
@@ -478,6 +583,253 @@ mod tests {
         assert!(!regex.matches("qwen3-coder"));
     }
 
-    // Tests temporarily removed due to TestModel deletion
-    // TODO: Implement proper tests with actual model types
+    // Test model infrastructure
+    #[derive(Debug, Clone)]
+    struct TestModel {
+        info: &'static CandleModelInfo,
+    }
+
+    impl CandleModel for TestModel {
+        fn info(&self) -> &'static CandleModelInfo {
+            self.info
+        }
+    }
+
+    static TEST_MODEL_A_INFO: CandleModelInfo = CandleModelInfo {
+        provider_name: "test-provider",
+        name: "test-model-a",
+        max_input_tokens: NonZeroU32::new(4096),
+        max_output_tokens: NonZeroU32::new(2048),
+        input_price: None,
+        output_price: None,
+        supports_vision: false,
+        supports_function_calling: false,
+        supports_streaming: true,
+        supports_embeddings: false,
+        requires_max_tokens: false,
+        supports_thinking: false,
+        optimal_thinking_budget: None,
+        system_prompt_prefix: None,
+        real_name: None,
+        model_type: None,
+        model_id: "test-a",
+        hf_repo_url: "test/model-a",
+        quantization: "Q4_0",
+        patch: None,
+    };
+
+    static TEST_MODEL_B_INFO: CandleModelInfo = CandleModelInfo {
+        provider_name: "test-provider",
+        name: "test-model-b",
+        max_input_tokens: NonZeroU32::new(8192),
+        max_output_tokens: NonZeroU32::new(4096),
+        input_price: None,
+        output_price: None,
+        supports_vision: false,
+        supports_function_calling: true,
+        supports_streaming: true,
+        supports_embeddings: false,
+        requires_max_tokens: false,
+        supports_thinking: false,
+        optimal_thinking_budget: None,
+        system_prompt_prefix: None,
+        real_name: None,
+        model_type: None,
+        model_id: "test-b",
+        hf_repo_url: "test/model-b",
+        quantization: "Q5_0",
+        patch: None,
+    };
+
+    fn create_test_model_a() -> TestModel {
+        TestModel {
+            info: &TEST_MODEL_A_INFO,
+        }
+    }
+
+    fn create_test_model_b() -> TestModel {
+        TestModel {
+            info: &TEST_MODEL_B_INFO,
+        }
+    }
+
+    #[test]
+    fn test_exact_model_match() {
+        let resolver = ModelResolver::new();
+        let registry = ModelRegistry::new();
+
+        // Register test model (or get if already registered)
+        let model = create_test_model_a();
+        let _registered = registry.register("test-provider", model).ok();
+
+        // Test exact match with provider
+        let resolution = resolver
+            .resolve_with_registry::<TestModel>(&registry, "test-model-a", Some("test-provider"))
+            .unwrap();
+
+        assert_eq!(resolution.provider, "test-provider");
+        assert_eq!(resolution.model, "test-model-a");
+        assert_eq!(resolution.score, 1.0);
+        assert!(resolution.info.is_some());
+        assert!(resolution.rule.is_none());
+    }
+
+    #[test]
+    fn test_alias_resolution() {
+        let mut resolver = ModelResolver::new();
+        let registry = ModelRegistry::new();
+
+        // Register model (or get if already registered)
+        let model = create_test_model_a();
+        let _registered = registry.register("test-provider", model).ok();
+
+        // Add alias
+        resolver.add_alias("test-a-alias", "test-provider", "test-model-a");
+
+        // Test alias lookup
+        let resolution = resolver
+            .resolve_with_registry::<TestModel>(&registry, "test-a-alias", None)
+            .unwrap();
+
+        assert_eq!(resolution.provider, "test-provider");
+        assert_eq!(resolution.model, "test-model-a");
+        assert_eq!(resolution.score, 0.8);
+    }
+
+    #[test]
+    fn test_rule_priority_ordering() {
+        let mut resolver = ModelResolver::new();
+
+        let rule1 = ModelResolutionRule {
+            pattern: ModelPattern::Exact("test-pattern".to_string()),
+            provider: "provider-a".to_string(),
+            target: "model-a".to_string(),
+            priority: 5,
+            condition: None,
+        };
+
+        let rule2 = ModelResolutionRule {
+            pattern: ModelPattern::Exact("test-pattern".to_string()),
+            provider: "provider-b".to_string(),
+            target: "model-b".to_string(),
+            priority: 10,
+            condition: None,
+        };
+
+        let rule3 = ModelResolutionRule {
+            pattern: ModelPattern::Exact("test-pattern".to_string()),
+            provider: "provider-c".to_string(),
+            target: "model-c".to_string(),
+            priority: 1,
+            condition: None,
+        };
+
+        resolver.add_rules(vec![rule1, rule2, rule3]);
+
+        // Verify rules are sorted by priority (highest first)
+        assert_eq!(resolver.rules[0].priority, 10);
+        assert_eq!(resolver.rules[0].provider, "provider-b");
+        assert_eq!(resolver.rules[1].priority, 5);
+        assert_eq!(resolver.rules[1].provider, "provider-a");
+        assert_eq!(resolver.rules[2].priority, 1);
+        assert_eq!(resolver.rules[2].provider, "provider-c");
+    }
+
+    #[test]
+    fn test_fuzzy_matching() {
+        let resolver = ModelResolver::new();
+        let registry = ModelRegistry::new();
+
+        // Register models (or get if already registered)
+        let model_a = create_test_model_a();
+        let model_b = create_test_model_b();
+        let _registered_a = registry.register("test-provider", model_a).ok();
+        let _registered_b = registry.register("test-provider", model_b).ok();
+
+        // Test fuzzy match (typo in model name)
+        let resolution = resolver
+            .resolve_with_registry::<TestModel>(&registry, "test-model-", Some("test-provider"))
+            .unwrap();
+
+        // Should match test-model-a or test-model-b with high similarity
+        assert!(resolution.score > 0.7);
+        assert!(resolution.model.starts_with("test-model-"));
+    }
+
+    #[test]
+    fn test_feature_flags() {
+        let mut resolver = ModelResolver::new();
+
+        // Test initial state
+        assert!(!resolver.is_feature_enabled("test-feature"));
+
+        // Enable feature
+        resolver.enable_feature("test-feature");
+        assert!(resolver.is_feature_enabled("test-feature"));
+
+        // Disable feature
+        resolver.disable_feature("test-feature");
+        assert!(!resolver.is_feature_enabled("test-feature"));
+
+        // Test multiple features
+        resolver.enable_feature("feature-1");
+        resolver.enable_feature("feature-2");
+        assert!(resolver.is_feature_enabled("feature-1"));
+        assert!(resolver.is_feature_enabled("feature-2"));
+        assert!(!resolver.is_feature_enabled("feature-3"));
+    }
+
+    #[test]
+    fn test_env_var_condition() {
+        // Test EnvVarSet condition evaluation
+        // Note: This test uses a likely-unset env var to test the false case
+        // and PATH (which should always exist) for the true case
+        let resolver = ModelResolver::new();
+        let test_info = &TEST_MODEL_A_INFO;
+
+        // Test with unlikely env var (should not be set)
+        let unset_condition = RuleCondition::EnvVarSet {
+            name: "PARAPHYM_TEST_NONEXISTENT_VAR_XYZ123".to_string(),
+        };
+        assert!(!resolver.check_condition(&unset_condition, test_info));
+
+        // Test with PATH which should exist
+        let set_condition = RuleCondition::EnvVarSet {
+            name: "PATH".to_string(),
+        };
+        assert!(resolver.check_condition(&set_condition, test_info));
+    }
+
+    #[test]
+    fn test_rule_with_condition() {
+        let mut resolver = ModelResolver::new();
+        let registry = ModelRegistry::new();
+
+        // Register model (or get if already registered)
+        let model = create_test_model_a();
+        let _registered = registry.register("test-provider", model).ok();
+
+        // Add rule with environment variable condition that is likely set (PATH)
+        // This tests that rules with conditions work when condition is met
+        let rule = ModelResolutionRule {
+            pattern: ModelPattern::Pattern("test-*".to_string()),
+            provider: "test-provider".to_string(),
+            target: "test-model-a".to_string(),
+            priority: 10,
+            condition: Some(RuleCondition::EnvVarSet {
+                name: "PATH".to_string(),
+            }),
+        };
+
+        resolver.add_rule(rule);
+
+        // With PATH set (should always be set), rule should match
+        let resolution = resolver
+            .resolve_with_registry::<TestModel>(&registry, "test-pattern", None)
+            .unwrap();
+
+        assert_eq!(resolution.provider, "test-provider");
+        assert_eq!(resolution.model, "test-model-a");
+        assert_eq!(resolution.score, 0.7); // Rule-based resolution score
+    }
 }

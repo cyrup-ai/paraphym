@@ -9,9 +9,13 @@
 
 use std::collections::HashMap;
 use std::marker::PhantomData;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime};
+
+// Git operations
+use git2::build::{CheckoutBuilder, RepoBuilder};
+use git2::{Cred, FetchOptions, RemoteCallbacks, Repository};
 
 // Domain imports
 use cyrup_sugars::prelude::MessageChunk;
@@ -1046,11 +1050,83 @@ impl CandleContext<CandleGithub> {
     /// Load documents asynchronously with streaming - returns unwrapped values
     #[inline]
     pub fn load(self) -> AsyncStream<Document> {
-        AsyncStream::with_channel(move |_sender| {
+        // Helper function to clone or update a git repository
+        fn get_or_clone_repo(
+            repo_url: &str,
+            branch: &str,
+            auth_token: &Option<String>,
+            cache_dir: &Path,
+        ) -> Result<PathBuf, git2::Error> {
+            // Generate cache path from repo URL
+            let repo_name = repo_url
+                .trim_end_matches(".git")
+                .split('/')
+                .last()
+                .unwrap_or("repo");
+            let repo_path = cache_dir.join(repo_name);
+
+            if repo_path.exists() {
+                // Repository exists - try to update it
+                let repo = Repository::open(&repo_path)?;
+                let mut remote = repo.find_remote("origin")?;
+
+                // Setup authentication
+                let mut callbacks = RemoteCallbacks::new();
+                if let Some(token) = auth_token {
+                    let token = token.clone();
+                    callbacks.credentials(move |_url, _username, _allowed| {
+                        Cred::userpass_plaintext("git", &token)
+                    });
+                }
+
+                let mut fo = FetchOptions::new();
+                fo.remote_callbacks(callbacks);
+                remote.fetch(&[branch], Some(&mut fo), None)?;
+
+                // Fast-forward to latest
+                let fetch_head = repo.find_reference("FETCH_HEAD")?;
+                let fetch_commit = repo.reference_to_annotated_commit(&fetch_head)?;
+                let analysis = repo.merge_analysis(&[&fetch_commit])?;
+
+                if analysis.0.is_fast_forward() {
+                    let refname = format!("refs/heads/{}", branch);
+                    if let Ok(mut r) = repo.find_reference(&refname) {
+                        r.set_target(fetch_commit.id(), "Fast-forward")?;
+                        repo.set_head(&refname)?;
+                        repo.checkout_head(Some(CheckoutBuilder::default().force()))?;
+                    }
+                }
+
+                Ok(repo_path)
+            } else {
+                // Clone fresh repository
+                std::fs::create_dir_all(cache_dir).ok();
+
+                let mut callbacks = RemoteCallbacks::new();
+                if let Some(token) = auth_token {
+                    let token = token.clone();
+                    callbacks.credentials(move |_url, _username, _allowed| {
+                        Cred::userpass_plaintext("git", &token)
+                    });
+                }
+
+                let mut fo = FetchOptions::new();
+                fo.remote_callbacks(callbacks);
+
+                let mut builder = RepoBuilder::new();
+                builder.fetch_options(fo);
+                builder.branch(branch);
+                builder.clone(repo_url, &repo_path)?;
+
+                Ok(repo_path)
+            }
+        }
+
+        AsyncStream::with_channel(move |sender| {
             spawn_task(move || {
                 match self.source {
                     CandleContextSourceType::Github(github_context) => {
-                        // GitHub repository file loading implementation
+                        // Validate repository URL
                         if github_context.repository_url.is_empty() {
                             ystream::handle_error!(
                                 CandleContextError::ContextNotFound(
@@ -1060,18 +1136,101 @@ impl CandleContext<CandleGithub> {
                             );
                         }
 
-                        // For now, return a meaningful error indicating GitHub integration needs external dependencies
-                        // This is production-ready error handling rather than a placeholder
-                        ystream::handle_error!(
-                            CandleContextError::ContextNotFound(format!(
-                                "GitHub repository loading for '{}' requires git2 or GitHub API integration. \
-                        Pattern: '{}', Branch: '{}'", 
-                                github_context.repository_url,
-                                github_context.pattern,
-                                github_context.branch
-                            )),
-                            "GitHub provider requires external dependencies"
-                        );
+                        // Determine cache directory (use standard location)
+                        let cache_dir = std::env::var("HOME")
+                            .or_else(|_| std::env::var("USERPROFILE"))
+                            .map(|home| std::path::PathBuf::from(home).join(".cache/paraphym/github"))
+                            .unwrap_or_else(|_| std::path::PathBuf::from("/tmp/paraphym/github"));
+
+                        // Clone or update repository
+                        match get_or_clone_repo(
+                            &github_context.repository_url,
+                            &github_context.branch,
+                            &github_context.auth_token,
+                            &cache_dir,
+                        ) {
+                            Ok(repo_path) => {
+                                // Build glob pattern for files in repository
+                                let glob_pattern = format!(
+                                    "{}/{}",
+                                    repo_path.display(),
+                                    github_context.pattern
+                                );
+
+                                // Match files using glob pattern
+                                match glob::glob(&glob_pattern) {
+                                    Ok(paths) => {
+                                        for entry in paths.flatten() {
+                                            // Read file content
+                                            if let Ok(content) = std::fs::read_to_string(&entry) {
+                                                // Create Document with GitHub metadata
+                                                let relative_path = entry
+                                                    .strip_prefix(&repo_path)
+                                                    .unwrap_or(&entry)
+                                                    .to_string_lossy()
+                                                    .to_string();
+
+                                                let document = Document {
+                                                    data: content,
+                                                    format: Some(
+                                                        crate::domain::context::CandleContentFormat::Text,
+                                                    ),
+                                                    media_type: Some(
+                                                        crate::domain::context::CandleDocumentMediaType::TXT,
+                                                    ),
+                                                    additional_props: {
+                                                        let mut props = HashMap::new();
+                                                        props.insert(
+                                                            "id".to_string(),
+                                                            serde_json::Value::String(
+                                                                Uuid::new_v4().to_string(),
+                                                            ),
+                                                        );
+                                                        props.insert(
+                                                            "path".to_string(),
+                                                            serde_json::Value::String(relative_path),
+                                                        );
+                                                        props.insert(
+                                                            "repository".to_string(),
+                                                            serde_json::Value::String(
+                                                                github_context.repository_url.clone(),
+                                                            ),
+                                                        );
+                                                        props.insert(
+                                                            "branch".to_string(),
+                                                            serde_json::Value::String(
+                                                                github_context.branch.clone(),
+                                                            ),
+                                                        );
+                                                        props
+                                                    },
+                                                };
+
+                                                let _ = sender.send(document);
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        ystream::handle_error!(
+                                            CandleContextError::PatternError(format!(
+                                                "Glob pattern error for '{}': {}",
+                                                github_context.pattern, e
+                                            )),
+                                            "Glob pattern expansion failed"
+                                        );
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                ystream::handle_error!(
+                                    CandleContextError::ProviderUnavailable(format!(
+                                        "Failed to clone/update repository '{}': {}",
+                                        github_context.repository_url, e
+                                    )),
+                                    "GitHub repository access failed"
+                                );
+                            }
+                        }
                     }
                     _ => {
                         ystream::handle_error!(

@@ -55,10 +55,9 @@ impl CandleAdditionalParams {
     }
 }
 
-/// Placeholder for Stdio type
-pub struct Stdio;
-
-/// Agent type placeholder for agent role
+/// Agent helper type for conversation turn callbacks.
+/// Note: This is defined here for legacy compatibility. 
+/// See `CandleAgentRoleAgent` in `domain/agent/role` for the active implementation.
 pub struct AgentRoleAgent;
 
 /// Main agent type for the Candle framework

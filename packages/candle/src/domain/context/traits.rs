@@ -385,7 +385,7 @@ impl CandleContext for CandleFileContext {
     fn get_capabilities(&self) -> AsyncStream<CandleContextCapabilities> {
         AsyncStream::with_channel(move |sender| {
             let capabilities = CandleContextCapabilities {
-                flags: ContextCapabilityFlags::REFRESH | ContextCapabilityFlags::STREAMING,
+                flags: ContextCapabilityFlags::REALTIME_UPDATES | ContextCapabilityFlags::REFRESH | ContextCapabilityFlags::STREAMING,
                 max_content_size: Some(100 * 1024 * 1024), // 100MB
                 supported_content_types: vec![
                     CandleContextType::Text,

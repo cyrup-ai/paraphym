@@ -10,7 +10,7 @@ pub mod types;
 // Re-export commonly used types with explicit imports to avoid conflicts
 pub use role::McpServerConfig as CandleMcpServer;
 pub use role::{
-    CandleAgentConversation, CandleAgentConversationMessage, CandleAgentRoleAgent, CandleStdio,
+    CandleAgentConversation, CandleAgentConversationMessage, CandleAgentRoleAgent,
 };
 pub use role::{CandleAgentRole, CandleAgentRoleImpl, McpServerConfig};
 pub use types::{AgentConfig, CandleAdditionalParams, CandleAgent};

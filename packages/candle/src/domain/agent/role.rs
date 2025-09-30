@@ -8,6 +8,7 @@ use crate::builders::document::DocumentBuilder;
 use serde_json::Value;
 
 
+use crate::domain::agent::core::AgentError;
 use crate::domain::chat::CandleMessageRole;
 use crate::domain::completion::traits::CandleCompletionModel;
 use crate::providers::{CandleKimiK2Provider, CandleQwen3CoderProvider};
@@ -241,19 +242,28 @@ impl CandleAgentRoleImpl {
         self
     }
 
-    /// Get completion provider - guaranteed to exist by builder
+    /// Get completion provider with explicit error handling
     ///
     /// # Returns
-    /// Reference to completion provider (never None after builder initialization)
+    /// Result containing reference to completion provider, or ProviderNotInitialized error
     ///
-    /// # Panics
-    /// Panics if completion provider is None. This should never happen in practice
-    /// as the builder pattern guarantees provider initialization before use.
+    /// # Errors
+    /// Returns `AgentError::ProviderNotInitialized` if:
+    /// - Builder was bypassed (direct struct construction)
+    /// - Deserialization created invalid state
+    /// - Provider initialization failed silently
+    ///
+    /// # Example
+    /// ```ignore
+    /// let provider = agent.get_completion_provider()
+    ///     .map_err(|e| ChatError::System(e.to_string()))?;
+    /// ```
     #[inline]
-    pub fn get_completion_provider(&self) -> &CandleCompletionProviderType {
-        self.completion_provider.as_ref()
-            .expect("Provider guaranteed by builder - this should never panic")
+    pub fn get_completion_provider(&self) -> Result<&CandleCompletionProviderType, AgentError> {
+        Ok(self.completion_provider
             .as_ref()
+            .ok_or(AgentError::ProviderNotInitialized)?
+            .as_ref())
     }
 
     /// Add context from file path
@@ -480,10 +490,23 @@ impl CandleAgentRoleImpl {
 
 }
 
-/// Placeholder for Stdio type
-pub struct CandleStdio;
-
-/// Agent type placeholder for agent role
+/// Agent helper type provided to `on_conversation_turn` callbacks.
+/// 
+/// This type provides the `chat()` method for controlling conversation flow:
+/// - `agent.chat(CandleChatLoop::Break)` - Exit the conversation loop
+/// - `agent.chat(CandleChatLoop::UserPrompt(msg))` - Send a message
+/// - `agent.chat(CandleChatLoop::Reprompt(msg))` - Re-prompt with a message
+/// 
+/// # Example
+/// ```ignore
+/// .on_conversation_turn(|conversation, agent| {
+///     if should_exit {
+///         agent.chat(CandleChatLoop::Break)
+///     } else {
+///         agent.chat(CandleChatLoop::UserPrompt("Continue...".to_string()))
+///     }
+/// })
+/// ```
 pub struct CandleAgentRoleAgent;
 
 /// Agent conversation type

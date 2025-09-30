@@ -197,10 +197,7 @@ impl AgentRoleImpl {
     }
 }
 
-/// Placeholder for Stdio type
-pub struct Stdio;
-
-/// Agent type placeholder for agent role
+/// Agent helper type for conversation turn callbacks (deprecated - use domain::agent::role::CandleAgentRoleAgent)
 pub struct AgentRoleAgent;
 
 /// Agent conversation type

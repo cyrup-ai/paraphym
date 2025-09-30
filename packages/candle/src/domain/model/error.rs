@@ -33,6 +33,12 @@ pub enum CandleModelError {
 
     /// Internal error (should be used sparingly)
     Internal(Cow<'static, str>),
+
+    /// Type mismatch when accessing registered model
+    TypeMismatch {
+        expected: &'static str,
+        found: &'static str,
+    },
 }
 
 impl fmt::Display for CandleModelError {
@@ -51,6 +57,9 @@ impl fmt::Display for CandleModelError {
             }
             Self::InvalidInput(msg) => write!(f, "Invalid input: {msg}"),
             Self::Internal(msg) => write!(f, "Internal error: {msg}"),
+            Self::TypeMismatch { expected, found } => {
+                write!(f, "Type mismatch: expected {}, found {}", expected, found)
+            }
         }
     }
 }

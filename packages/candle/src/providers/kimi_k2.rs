@@ -6,6 +6,7 @@
 
 use std::num::NonZeroU32;
 use std::path::Path;
+use std::sync::Arc;
 
 use candle_core::quantized::gguf_file;
 use candle_core::DType;
@@ -16,6 +17,8 @@ use paraphym_simd::get_cpu_features;
 use progresshub::{ProgressHub, types::ZeroOneOrMany as ProgressHubZeroOneOrMany};
 
 use serde::{Deserialize, Serialize};
+
+use crate::core::{Engine, EngineConfig};
 
 use crate::builders::agent_role::CandleCompletionProvider as BuilderCandleCompletionProvider;
 use crate::domain::model::{info::CandleModelInfo, traits::CandleModel};
@@ -37,6 +40,8 @@ pub struct CandleKimiK2Provider {
     config: CandleKimiK2Config,
     /// Model configuration for inference
     model_config: LlamaConfig,
+    /// Engine for orchestration and stream conversion
+    engine: Arc<Engine>,
 }
 
 
@@ -204,11 +209,20 @@ impl CandleKimiK2Provider {
             tie_word_embeddings: Some(false),
         };
 
+        // Create engine configuration
+        let engine_config = EngineConfig::new("kimi-k2", "candle-kimi")
+            .with_streaming()
+            .with_max_tokens(config.max_context)
+            .with_temperature(config.temperature as f32);
+        
+        let engine = Arc::new(Engine::new(engine_config)?);
+
         Ok(Self {
             model_path: model_path.clone(),
             gguf_file_path: model_path, // For sync method, assume model_path is the GGUF file
             config,
             model_config,
+            engine,
         })
     }
 
@@ -312,11 +326,20 @@ impl CandleKimiK2Provider {
         log::debug!("Extracted GGUF metadata for Kimi K2: hidden_size={}, layers={}, heads={}, rope_theta={}", 
                    hidden_size, num_hidden_layers, num_attention_heads, rope_theta);
 
+        // Create engine configuration
+        let engine_config = EngineConfig::new("kimi-k2", "candle-kimi")
+            .with_streaming()
+            .with_max_tokens(config.max_context)
+            .with_temperature(config.temperature as f32);
+        
+        let engine = Arc::new(Engine::new(engine_config)?);
+
         Ok(Self {
             model_path: model_cache_dir,
             gguf_file_path,
             config,
             model_config,
+            engine,
         })
     }
 
@@ -504,9 +527,14 @@ impl CandleCompletionModel for CandleKimiK2Provider {
             };
 
             // Generate text using TextGenerator
+            // Convert u64 to u32, capping at u32::MAX if necessary
+            let max_tokens_u32 = _max_tokens.try_into().unwrap_or_else(|_| {
+                log::warn!("max_tokens value {} exceeds u32::MAX, capping at {}", _max_tokens, u32::MAX);
+                u32::MAX
+            });
             let text_stream = text_generator.generate(
                 _prompt_text,
-                _max_tokens.try_into().unwrap(),
+                max_tokens_u32,
                 special_tokens,
             );
 
@@ -602,11 +630,23 @@ impl Default for CandleKimiK2Provider {
             tie_word_embeddings: Some(false),
         };
         
+        // Create default engine configuration
+        let engine_config = EngineConfig::new("kimi-k2", "candle-kimi")
+            .with_streaming()
+            .with_max_tokens(config.max_context)
+            .with_temperature(config.temperature as f32);
+        
+        let engine = Arc::new(
+            Engine::new(engine_config)
+                .expect("Engine configuration is valid and should never fail")
+        );
+        
         Self {
             model_path: String::new(),
             gguf_file_path: String::new(),
             config,
             model_config,
+            engine,
         }
     }
 }

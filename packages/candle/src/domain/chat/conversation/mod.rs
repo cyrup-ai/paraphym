@@ -214,12 +214,13 @@ impl CandleStreamingConversation {
     /// Create Candle conversation with event streaming
     #[inline]
     pub fn with_streaming() -> (Self, AsyncStream<CandleConversationEvent>) {
-        // Create a placeholder stream - real events will be sent through separate mechanism
-        let stream = AsyncStream::with_channel(|_sender| {
-            // Stream is created but not used directly
-        });
-        let mut conversation = Self::new();
-        conversation.event_sender = None; // Will be set up separately if needed
+        let (sender, stream) = AsyncStream::channel();
+        
+        let conversation = Self {
+            event_sender: Some(sender),
+            ..Self::new()
+        };
+        
         (conversation, stream)
     }
 

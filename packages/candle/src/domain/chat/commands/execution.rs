@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use crossbeam_utils::CachePadded;
+use mime_guess::from_ext;
 use ystream::AsyncStream;
 
 use super::parsing::CommandParser;
@@ -368,9 +369,6 @@ impl CommandExecutor {
     }
 
     /// Execute clear command (streaming-only, zero-allocation)
-    ///
-    /// # Panics
-    /// May panic if system time is before `UNIX_EPOCH` (January 1, 1970)
     pub fn execute_clear_streaming(
         &self,
         execution_id: u64,
@@ -417,7 +415,7 @@ impl CommandExecutor {
                             message: "Clear operation completed".to_string(),
                             timestamp: std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap()
+                                .unwrap_or_else(|_| std::time::Duration::from_secs(0))
                                 .as_secs()
                         }
                     );
@@ -447,9 +445,6 @@ impl CommandExecutor {
     }
 
     /// Execute export command (streaming-only, zero-allocation)
-    ///
-    /// # Panics
-    /// May panic if system time is before `UNIX_EPOCH` (January 1, 1970)
     pub fn execute_export_streaming(
         &self,
         execution_id: u64,
@@ -490,7 +485,7 @@ impl CommandExecutor {
                             message: format!("Exporting... {progress}%"),
                             timestamp: std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap()
+                                .unwrap_or_else(|_| std::time::Duration::from_secs(0))
                                 .as_secs()
                         }
                     );
@@ -514,12 +509,9 @@ impl CommandExecutor {
                 let result = CommandExecutionResult::File {
                     path: output_str,
                     size_bytes: 1024, // Placeholder size
-                    mime_type: match format.as_str() {
-                        "json" => "application/json".to_string(),
-                        "csv" => "text/csv".to_string(),
-                        "md" => "text/markdown".to_string(),
-                        _ => "text/plain".to_string(),
-                    },
+                    mime_type: from_ext(&format)
+                        .first_or_text_plain()
+                        .to_string(),
                 };
                 #[allow(clippy::cast_possible_truncation)]
                 let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
@@ -601,9 +593,6 @@ impl CommandExecutor {
     }
 
     /// Execute search command (streaming-only, zero-allocation)
-    ///
-    /// # Panics
-    /// May panic if system time is before `UNIX_EPOCH` (January 1, 1970)
     pub fn execute_search_streaming(
         &self,
         execution_id: u64,
@@ -644,7 +633,7 @@ impl CommandExecutor {
                             message: format!("Searching... {progress}%"),
                             timestamp: std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap()
+                                .unwrap_or_else(|_| std::time::Duration::from_secs(0))
                                 .as_secs()
                         }
                     );

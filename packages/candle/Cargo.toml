@@ -32,8 +32,14 @@ async-channel = { version = "2.5.0" }
 # Error handling (from memory package)
 anyhow = { version = "1.0.100" }
 
+# File watching for realtime context updates
+notify = "6.0"
+
 # Memory utilities (from memory package)
 memchr = { version = "2.7.6" }
+
+# MIME type detection
+mime_guess = "2.0"
 
 # Cognitive system dependencies (from memory package)
 ndarray = { version = "0.16.1" }
@@ -46,6 +52,9 @@ sha2 = { version = "0.11.0-rc.2" }
 
 # File system (from memory package)
 walkdir = { version = "2.5.0" }
+
+# Git operations
+git2 = { version = "0.19", default-features = false, features = ["https", "ssh"] }
 
 # Complex numbers (from memory package)
 num-complex = { version = "0.4.6" }
@@ -149,6 +158,8 @@ dashmap = "6.1.0"
 strsim = "0.11.1"
 lz4 = "1.28.1"
 
+# LRU cache for operation history tracking
+moka = { version = "0.12", features = ["sync"] }
 
 # Additional dependencies for memory migration
 fastrand = "2.3.0"

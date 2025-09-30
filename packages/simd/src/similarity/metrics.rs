@@ -18,13 +18,13 @@ pub struct SimilarityMetrics {
 
 impl SimilarityMetrics {
     /// Increment the calculation counter (relaxed ordering)
-    #[inline(always)]
+    #[inline]
     pub fn increment_calculations(&self) {
         self.total_calculations.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Add to the elements processed counter (relaxed ordering)
-    #[inline(always)]
+    #[inline]
     pub fn add_elements(&self, count: u64) {
         self.total_elements_processed
             .fetch_add(count, Ordering::Relaxed);

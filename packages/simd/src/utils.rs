@@ -1,7 +1,8 @@
 //! Utility functions for SIMD-accelerated operations
 
 /// Check if SIMD operations are available on the current platform
-#[inline(always)]
+#[inline]
+#[must_use]
 pub fn simd_available() -> bool {
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
@@ -21,7 +22,8 @@ pub fn simd_available() -> bool {
 }
 
 /// Align a pointer to the specified alignment
-#[inline(always)]
+#[inline]
+#[must_use]
 pub fn align_ptr<T>(ptr: *const T, align: usize) -> *const T {
     let addr = ptr as usize;
     let aligned = (addr + align - 1) & !(align - 1);
@@ -29,7 +31,8 @@ pub fn align_ptr<T>(ptr: *const T, align: usize) -> *const T {
 }
 
 /// Align a mutable pointer to the specified alignment
-#[inline(always)]
+#[inline]
+#[must_use]
 pub fn align_ptr_mut<T>(ptr: *mut T, align: usize) -> *mut T {
     let addr = ptr as usize;
     let aligned = (addr + align - 1) & !(align - 1);

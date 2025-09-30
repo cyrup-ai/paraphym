@@ -2,8 +2,8 @@
 
 use crate::error::{SimdError, SimdResult};
 // Use a simple feature detection for SIMD availability
-#[inline(always)]
-fn simd_available() -> bool {
+#[inline]
+const fn simd_available() -> bool {
     cfg!(target_feature = "avx2") || cfg!(target_feature = "neon")
 }
 

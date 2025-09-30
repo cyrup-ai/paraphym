@@ -239,7 +239,7 @@ impl Loader<PathBuf> for LoaderImpl<PathBuf> {
     where
         F: Fn(&PathBuf) -> bool + Send + Sync + 'static,
     {
-        self.filter_fn = Some(Box::new(filter));
+        self.filter_fn = Some(std::sync::Arc::new(filter));
         self
     }
 }

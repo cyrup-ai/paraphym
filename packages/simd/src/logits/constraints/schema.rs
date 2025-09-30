@@ -213,7 +213,7 @@ impl SchemaConstraintBuilder {
             self.max_recursion_depth,
         ).context("Failed to convert schema to regex")?;
 
-        SchemaConstraint::new(&regex_pattern, self.vocabulary.clone())
+        SchemaConstraint::new(&regex_pattern, self.vocabulary.clone(), false)
             .context("Failed to create schema constraint")
     }
 
@@ -225,7 +225,7 @@ impl SchemaConstraintBuilder {
 
     /// Build constraint directly from regex pattern
     pub fn from_regex(&self, pattern: &str) -> AnyResult<SchemaConstraint> {
-        SchemaConstraint::new(pattern, self.vocabulary.clone())
+        SchemaConstraint::new(pattern, self.vocabulary.clone(), false)
             .context("Failed to create regex constraint")
     }
 

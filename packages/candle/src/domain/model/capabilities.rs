@@ -51,6 +51,36 @@ pub enum CandleCapability {
     Pruning,
 }
 
+impl CandleCapability {
+    /// Parse a capability string (case-insensitive, supports snake_case and kebab-case)
+    pub fn from_string(s: &str) -> Option<Self> {
+        let normalized = s.to_lowercase().replace('-', "_");
+        match normalized.as_str() {
+            "vision" => Some(Self::Vision),
+            "function_calling" => Some(Self::FunctionCalling),
+            "streaming" => Some(Self::Streaming),
+            "fine_tuning" => Some(Self::FineTuning),
+            "batch_processing" => Some(Self::BatchProcessing),
+            "realtime" => Some(Self::Realtime),
+            "multimodal" => Some(Self::Multimodal),
+            "thinking" => Some(Self::Thinking),
+            "embedding" => Some(Self::Embedding),
+            "code_completion" => Some(Self::CodeCompletion),
+            "chat" => Some(Self::Chat),
+            "instruction_following" => Some(Self::InstructionFollowing),
+            "few_shot_learning" => Some(Self::FewShotLearning),
+            "zero_shot_learning" => Some(Self::ZeroShotLearning),
+            "long_context" => Some(Self::LongContext),
+            "low_latency" => Some(Self::LowLatency),
+            "high_throughput" => Some(Self::HighThroughput),
+            "quantization" => Some(Self::Quantization),
+            "distillation" => Some(Self::Distillation),
+            "pruning" => Some(Self::Pruning),
+            _ => None,
+        }
+    }
+}
+
 bitflags::bitflags! {
     /// Model capability flags using bitflags for zero-allocation capability checks
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

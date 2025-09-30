@@ -321,7 +321,8 @@ impl SchemaVocabulary {
     }
 
     /// Get byte representation of a token
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub fn token_bytes(&self, token_id: TokenId) -> Option<&[u8]> {
         self.token_to_bytes
             .get(token_id as usize)
@@ -329,20 +330,23 @@ impl SchemaVocabulary {
     }
 
     /// Get vocabulary size
-    #[inline(always)]
-    pub fn vocab_size(&self) -> usize {
+    #[inline]
+    #[must_use]
+    pub const fn vocab_size(&self) -> usize {
         self.vocab_size
     }
 
     /// Get EOS token ID
-    #[inline(always)]
-    pub fn eos_token_id(&self) -> TokenId {
+    #[inline]
+    #[must_use]
+    pub const fn eos_token_id(&self) -> TokenId {
         self.eos_token_id
     }
 
     /// Check if a token ID is valid
-    #[inline(always)]
-    pub fn is_valid_token(&self, token_id: TokenId) -> bool {
+    #[inline]
+    #[must_use]
+    pub const fn is_valid_token(&self, token_id: TokenId) -> bool {
         (token_id as usize) < self.vocab_size
     }
 }
@@ -363,8 +367,9 @@ pub struct SchemaConstraintState {
 
 impl SchemaConstraintState {
     /// Create new state at the initial DFA state
-    #[inline(always)]
-    pub fn new(initial_state: StateId) -> Self {
+    #[inline]
+    #[must_use]
+    pub const fn new(initial_state: StateId) -> Self {
         Self {
             current_state: initial_state,
             is_complete: false,
@@ -373,25 +378,28 @@ impl SchemaConstraintState {
     }
 
     /// Get the current DFA state
-    #[inline(always)]
-    pub fn current_state(&self) -> StateId {
+    #[inline]
+    #[must_use]
+    pub const fn current_state(&self) -> StateId {
         self.current_state
     }
 
     /// Check if we've reached a complete/final state
-    #[inline(always)]
-    pub fn is_complete(&self) -> bool {
+    #[inline]
+    #[must_use]
+    pub const fn is_complete(&self) -> bool {
         self.is_complete
     }
 
     /// Get number of tokens processed
-    #[inline(always)]
-    pub fn tokens_processed(&self) -> usize {
+    #[inline]
+    #[must_use]
+    pub const fn tokens_processed(&self) -> usize {
         self.tokens_processed
     }
 
     /// Update state after processing a token
-    #[inline(always)]
+    #[inline]
     pub fn update_state(&mut self, new_state: StateId, is_final: bool) {
         self.current_state = new_state;
         self.is_complete = is_final;
@@ -399,7 +407,7 @@ impl SchemaConstraintState {
     }
 
     /// Reset state to initial values
-    #[inline(always)]
+    #[inline]
     pub fn reset(&mut self, initial_state: StateId) {
         self.current_state = initial_state;
         self.is_complete = false;
@@ -419,6 +427,8 @@ pub struct SchemaConstraint {
     vocabulary: Arc<SchemaVocabulary>,
     /// Optional name for debugging
     name: Option<String>,
+    /// Whether to allow partial/incomplete schema generation
+    allow_partial: bool,
 }
 
 impl SchemaConstraint {
@@ -426,44 +436,52 @@ impl SchemaConstraint {
     pub fn new(
         regex_pattern: &str,
         vocabulary: Arc<SchemaVocabulary>,
+        allow_partial: bool,
     ) -> AnyResult<Self> {
         let index = Arc::new(SchemaIndex::new(regex_pattern, &vocabulary)?);
         Ok(Self {
             index,
             vocabulary,
             name: None,
+            allow_partial,
         })
     }
 
     /// Create schema constraint with a name for debugging
+    #[must_use]
     pub fn with_name(mut self, name: String) -> Self {
         self.name = Some(name);
         self
     }
 
     /// Get allowed tokens for current state (zero-allocation)
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub fn get_allowed_tokens(&self, state: &SchemaConstraintState) -> Option<&HashMap<TokenId, StateId>> {
         self.index.allowed_tokens(state.current_state())
     }
 
     /// Check if a specific token is allowed in current state
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub fn is_token_allowed(&self, state: &SchemaConstraintState, token_id: TokenId) -> bool {
         self.index.next_state(state.current_state(), token_id).is_some()
     }
 
     /// Get vocabulary reference
+    #[must_use]
     pub fn vocabulary(&self) -> &SchemaVocabulary {
         &self.vocabulary
     }
 
     /// Get index statistics
+    #[must_use]
     pub fn index_stats(&self) -> IndexStats {
         self.index.stats()
     }
 
     /// Get constraint name (if set)
+    #[must_use]
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
     }
@@ -472,12 +490,12 @@ impl SchemaConstraint {
 impl GenerationConstraint for SchemaConstraint {
     type State = SchemaConstraintState;
 
-    #[inline(always)]
+    #[inline]
     fn new_state(&self) -> Self::State {
         SchemaConstraintState::new(self.index.initial_state())
     }
 
-    #[inline(always)]
+    #[inline]
     fn update(&self, state: &mut Self::State, token: u32) -> AnyResult<bool> {
         if let Some(next_state) = self.index.next_state(state.current_state(), token) {
             let is_final = self.index.is_final_state(next_state);
@@ -488,14 +506,33 @@ impl GenerationConstraint for SchemaConstraint {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     fn try_next(&self, state: &Self::State, token: u32) -> AnyResult<bool> {
-        Ok(self.index.next_state(state.current_state(), token).is_some())
+        let current_state = state.current_state();
+        let eos_token_id = self.vocabulary.eos_token_id();
+        
+        // Special handling for EOS token based on allow_partial mode
+        if token == eos_token_id {
+            if self.allow_partial {
+                // Partial mode: Allow EOS in any non-dead state
+                // User accepts incomplete schema
+                Ok(!self.index.is_dead_state(current_state))
+            } else {
+                // Strict mode: Only allow EOS in final states
+                // Schema must be complete
+                Ok(self.index.is_final_state(current_state))
+            }
+        } else {
+            // Regular token: check for valid DFA transition
+            Ok(self.index.next_state(current_state, token).is_some())
+        }
     }
 
-    #[inline(always)]
+    #[inline]
     fn is_done(&self, state: &Self::State) -> bool {
-        self.index.is_final_state(state.current_state())
+        // Allow completion at any state if partial matching enabled,
+        // otherwise only at final states
+        self.allow_partial || self.index.is_final_state(state.current_state())
     }
 
     fn get_deterministic_sequence(&self, state: &Self::State) -> AnyResult<Vec<u32>> {
@@ -543,7 +580,7 @@ pub mod utils {
         vocabulary: Arc<SchemaVocabulary>,
     ) -> AnyResult<SchemaConstraint> {
         let regex = format!(r#""{pattern}""#);
-        SchemaConstraint::new(&regex, vocabulary)
+        SchemaConstraint::new(&regex, vocabulary, false)
     }
 
     /// Create an enum constraint from string values
@@ -560,7 +597,7 @@ pub mod utils {
             .collect();
 
         let regex = escaped_values.join("|");
-        SchemaConstraint::new(&regex, vocabulary)
+        SchemaConstraint::new(&regex, vocabulary, false)
     }
 
     /// Create a numeric range constraint
@@ -582,17 +619,17 @@ pub mod utils {
             _ => r"-?(0|[1-9][0-9]*)".to_string(),
         };
 
-        SchemaConstraint::new(&regex, vocabulary)
+        SchemaConstraint::new(&regex, vocabulary, false)
     }
 
     /// Create a boolean constraint
     pub fn boolean_constraint(vocabulary: Arc<SchemaVocabulary>) -> AnyResult<SchemaConstraint> {
-        SchemaConstraint::new("(true|false)", vocabulary)
+        SchemaConstraint::new("(true|false)", vocabulary, false)
     }
 
     /// Create a null constraint
     pub fn null_constraint(vocabulary: Arc<SchemaVocabulary>) -> AnyResult<SchemaConstraint> {
-        SchemaConstraint::new("null", vocabulary)
+        SchemaConstraint::new("null", vocabulary, false)
     }
 }
 

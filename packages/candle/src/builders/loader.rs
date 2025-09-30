@@ -131,12 +131,13 @@ impl LoaderImpl<PathBuf> {
     }
 }
 
-impl<T, F1, F2, F3> LoaderBuilder<T> for LoaderBuilderImpl<T, F1, F2, F3>
+impl<T, F1, F2, F3, F4> LoaderBuilder<T> for LoaderBuilderImpl<T, F1, F2, F3, F4>
 where
     T: Send + Sync + fmt::Debug + Clone + 'static,
     F1: Fn(String) + Send + Sync + 'static,
     F2: FnOnce(ZeroOneOrMany<T>) -> ZeroOneOrMany<T> + Send + 'static,
     F3: FnMut(ZeroOneOrMany<T>) -> ZeroOneOrMany<T> + Send + 'static,
+    F4: Fn(&T) -> bool + Send + Sync + 'static,
 {
     /// Set recursive loading - EXACT syntax: .recursive(true)
     fn recursive(mut self, recursive: bool) -> impl LoaderBuilder<T> {
@@ -169,6 +170,7 @@ where
         LoaderBuilderImpl {
             pattern: self.pattern,
             recursive: self.recursive,
+            filter: None,
             error_handler: None,
             result_handler: None,
             chunk_handler: None,

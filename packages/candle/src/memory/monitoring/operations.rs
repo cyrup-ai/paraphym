@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use moka::sync::Cache;
 /// High-performance lock-free counter for monitoring operations
 #[derive(Debug, Default)]
 pub struct RelaxedCounter {
@@ -234,8 +235,8 @@ pub struct OperationTracker {
     /// Active operations (lock-free SkipMap for concurrent access)
     active: SkipMap<String, Operation>,
 
-    /// Completed operations (lock-free circular buffer for history)
-    completed: SkipMap<String, Operation>,
+    /// Completed operations (lock-free LRU cache for history)
+    completed: Cache<String, Operation>,
 
     /// Atomic counters for blazing-fast metrics
     metrics: OperationTrackerMetrics,
@@ -250,7 +251,7 @@ impl OperationTracker {
     pub fn new(max_history: usize) -> Self {
         Self {
             active: SkipMap::new(),
-            completed: SkipMap::new(),
+            completed: Cache::new(max_history as u64),
             metrics: OperationTrackerMetrics::new(),
             max_history,
         }
@@ -329,23 +330,13 @@ impl OperationTracker {
                 .unwrap_or(0),
             operation.id
         );
+        
+        // Moka automatically evicts LRU entry if at capacity
         self.completed.insert(history_key, operation);
-
-        let current_count = self.metrics.history_count.fetch_add(1, Ordering::Relaxed);
-
-        // Simple eviction strategy: remove oldest entries if over limit
-        if current_count >= self.max_history {
-            // Remove oldest entries (simplified eviction - production would use more sophisticated LRU)
-            let entries_to_remove = current_count - self.max_history + 100; // Remove in batches
-
-            for (index, entry) in self.completed.iter().enumerate() {
-                if index >= entries_to_remove {
-                    break;
-                }
-                self.completed.remove(entry.key());
-                self.metrics.history_count.fetch_sub(1, Ordering::Relaxed);
-            }
-        }
+        
+        // Update metrics to reflect actual cache size
+        let current_size = self.completed.entry_count();
+        self.metrics.history_count.store(current_size as usize, Ordering::Relaxed);
     }
 
     /// Get active operations with zero allocation where possible
@@ -369,9 +360,10 @@ impl OperationTracker {
     pub fn operation_history(&self) -> SmallVec<Operation, 32> {
         let mut operations = SmallVec::new();
 
-        for entry in self.completed.iter() {
+        // Moka's iter() returns (K, V) tuples
+        for (_key, value) in self.completed.iter() {
             if operations.len() < operations.capacity() {
-                operations.push(entry.value().clone());
+                operations.push(value);
             } else {
                 break; // SmallVec is full, prevent heap allocation
             }
@@ -407,7 +399,7 @@ impl OperationTracker {
     /// Clear all completed operations with atomic operations
     #[inline]
     pub fn clear_history(&self) {
-        self.completed.clear();
+        self.completed.invalidate_all();
         self.metrics.history_count.store(0, Ordering::Relaxed);
     }
 }

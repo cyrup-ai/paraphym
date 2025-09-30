@@ -173,7 +173,8 @@ impl CandleAgentRoleImpl {
         chat_history: &ZeroOneOrMany<crate::domain::chat::message::types::CandleMessage>,
     ) -> Result<String, ChatError> {
         // Get configured provider from agent role
-        let provider = self.get_completion_provider();
+        let provider = self.get_completion_provider()
+            .map_err(|e| ChatError::System(format!("Provider error: {}", e)))?;
 
         // Use PromptFormatter for proper memory vs context sectioning
         let formatter = PromptFormatter::new()
@@ -225,7 +226,8 @@ impl CandleAgentRoleImpl {
     /// Uses Provider with Engine orchestration for real model inference
     fn generate_ai_response(&self, message: &str, context: &str) -> Result<String, ChatError> {
         // Get configured provider from agent role
-        let provider = self.get_completion_provider();
+        let provider = self.get_completion_provider()
+            .map_err(|e| ChatError::System(format!("Provider error: {}", e)))?;
 
         // Create prompt with context
         let full_prompt = if context.is_empty() {
@@ -403,14 +405,7 @@ impl CandleAgentRoleImpl {
                 .with_max_memory_length(Some(2000))
                 .with_headers(true);
             
-            let memories_zero_one_many = if retrieval_results.is_empty() {
-                ZeroOneOrMany::None
-            } else if retrieval_results.len() == 1 {
-                ZeroOneOrMany::One(retrieval_results.into_iter().next()
-                    .expect("Vector with length 1 should have exactly one element"))
-            } else {
-                ZeroOneOrMany::Many(retrieval_results)
-            };
+            let memories_zero_one_many = ZeroOneOrMany::from(retrieval_results);
             
             // Reserved for future: document context and chat history
             // let _documents: ZeroOneOrMany<Document> = ZeroOneOrMany::None;

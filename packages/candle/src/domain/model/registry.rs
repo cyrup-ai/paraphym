@@ -18,6 +18,7 @@ use crate::domain::model::CandleModelInfo;
 struct CandleModelHandle {
     model: Box<dyn Any + Send + Sync>,
     info: &'static CandleModelInfo,
+    type_name: &'static str,
 }
 
 impl CandleModelHandle {
@@ -26,6 +27,7 @@ impl CandleModelHandle {
         Self {
             model: Box::new(model),
             info,
+            type_name: std::any::type_name::<M>(),
         }
     }
 
@@ -39,6 +41,10 @@ impl CandleModelHandle {
 
     fn info(&self) -> &'static CandleModelInfo {
         self.info
+    }
+
+    fn type_name(&self) -> &'static str {
+        self.type_name
     }
 }
 
@@ -131,6 +137,22 @@ impl CandleModelRegistry {
             handle,
             _marker: PhantomData,
         })
+    }
+
+    /// Count the number of registered models per provider
+    /// 
+    /// Returns a vector of (provider_name, model_count) tuples.
+    /// Used by ModelResolver for usage-based default provider selection.
+    /// 
+    /// # Returns
+    /// 
+    /// A vector where each element is a tuple of (provider name, number of models)
+    pub fn count_models_by_provider(&self) -> Vec<(&'static str, usize)> {
+        GLOBAL_REGISTRY
+            .models
+            .iter()
+            .map(|entry| (*entry.key(), entry.value().len()))
+            .collect()
     }
 
     /// Get a model by provider and name
@@ -374,13 +396,38 @@ impl<M: CandleModel + 'static> Clone for RegisteredModel<M> {
     }
 }
 
+impl<M: CandleModel + 'static> RegisteredModel<M> {
+    /// Try to get a reference to the model, returning an error on type mismatch
+    ///
+    /// This is a fallible alternative to using Deref or AsRef, which panic on type mismatch.
+    /// Use this when you want to handle type mismatches gracefully.
+    ///
+    /// # Errors
+    ///
+    /// Returns `CandleModelError::TypeMismatch` if the stored model is not of type M
+    pub fn try_get(&self) -> CandleResult<&M> {
+        self.handle
+            .as_model::<M>()
+            .ok_or_else(|| CandleModelError::TypeMismatch {
+                expected: std::any::type_name::<M>(),
+                found: self.handle.type_name(),
+            })
+    }
+}
+
 impl<M: CandleModel + 'static> std::ops::Deref for RegisteredModel<M> {
     type Target = M;
 
     fn deref(&self) -> &Self::Target {
         self.handle
             .as_model()
-            .expect("type mismatch in RegisteredModel")
+            .unwrap_or_else(|| {
+                panic!(
+                    "Type mismatch in RegisteredModel::deref - expected {}, found {}",
+                    std::any::type_name::<M>(),
+                    self.handle.type_name()
+                )
+            })
     }
 }
 
@@ -388,7 +435,13 @@ impl<M: CandleModel + 'static> AsRef<M> for RegisteredModel<M> {
     fn as_ref(&self) -> &M {
         self.handle
             .as_model()
-            .expect("type mismatch in RegisteredModel")
+            .unwrap_or_else(|| {
+                panic!(
+                    "Type mismatch in RegisteredModel::as_ref - expected {}, found {}",
+                    std::any::type_name::<M>(),
+                    self.handle.type_name()
+                )
+            })
     }
 }
 

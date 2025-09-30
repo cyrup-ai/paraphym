@@ -164,21 +164,23 @@ impl SweetMcpRouter {
         let tool_name = tool_name.to_string();
         let router = self.clone_for_async();
 
-        // BLOCKING CODE APPROVED BY DAVID ON 2025-01-29: Using shared_runtime().block_on() for async operations within ystream closure
+        // Spawn async work without blocking - sender is moved into spawned task
         AsyncStream::with_channel(move |sender| {
-            match crate::runtime::shared_runtime().block_on(router.call_tool(&tool_name, args)) {
-                Ok(result) => {
-                    ystream::emit!(sender, CandleJsonChunk(result));
+            crate::runtime::shared_runtime().spawn(async move {
+                match router.call_tool(&tool_name, args).await {
+                    Ok(result) => {
+                        ystream::emit!(sender, CandleJsonChunk(result));
+                    }
+                    Err(e) => {
+                        let error_value = Value::Object(
+                            [("error".to_string(), Value::String(e.to_string()))]
+                            .into_iter()
+                            .collect::<serde_json::Map<_, _>>()
+                        );
+                        ystream::emit!(sender, CandleJsonChunk(error_value));
+                    }
                 }
-                Err(e) => {
-                    let error_value = Value::Object(
-                        [("error".to_string(), Value::String(e.to_string()))]
-                        .into_iter()
-                        .collect::<serde_json::Map<_, _>>()
-                    );
-                    ystream::emit!(sender, CandleJsonChunk(error_value));
-                }
-            }
+            });
         })
     }
 

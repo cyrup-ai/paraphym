@@ -15,6 +15,7 @@ pub mod document;
 pub mod extraction;
 pub mod loader;
 pub mod provider;
+pub mod realtime;
 /// Context trait definitions for trait-backed architecture
 pub mod traits;
 
@@ -24,6 +25,7 @@ pub use document::*;
 pub use extraction::*;
 pub use loader::*;
 pub use provider::*;
+pub use realtime::*;
 // Re-export trait types for trait-backed architecture
 pub use traits::{
     CandleContext, CandleContextCapabilities, CandleContextChunk, CandleContextMetadata,

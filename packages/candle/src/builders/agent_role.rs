@@ -108,7 +108,8 @@ impl CandleMessage {
     }
 }
 
-/// Agent role agent
+/// Agent helper type for conversation control in `on_conversation_turn` callbacks.
+/// See `impl` block below for available methods.
 pub struct CandleAgentRoleAgent;
 
 impl CandleAgentRoleAgent {
@@ -457,22 +458,78 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
 
     /// Convert to agent - EXACT syntax: .into_agent()
     fn into_agent(self) -> impl CandleAgentBuilder {
-        // Always provide default provider if none set
-        let default_provider = CandleCompletionProviderType::KimiK2(
-            CandleKimiK2Provider::default_for_builder()
-                .unwrap_or_else(|e| {
-                    log::warn!("Failed to create default KimiK2 provider: {}. Using minimal fallback.", e);
-                    // Create absolute minimal fallback if default_for_builder fails
-                    CandleKimiK2Provider::with_config_sync(
-                        "./models/kimi-k2".to_string(),
-                        CandleKimiK2Config::default()
-                    ).expect("Critical: Could not create fallback provider")
-                })
-        );
+        // Always provide default provider - try multiple paths with graceful fallback
+        let default_provider = CandleKimiK2Provider::default_for_builder()
+            .or_else(|e| {
+                log::warn!("Failed to create default KimiK2 provider with ProgressHub: {}. Trying local path.", e);
+                CandleKimiK2Provider::with_config_sync(
+                    "./models/kimi-k2".to_string(),
+                    CandleKimiK2Config::default()
+                )
+            })
+            .or_else(|e| {
+                log::warn!("Failed to create provider with ./models path: {}. Trying cache directory.", e);
+                let cache_path = match std::env::var("HOME") {
+                    Ok(home) => format!("{}/.cache/candle/models/kimi-k2", home),
+                    Err(_) => "./.cache/candle/models/kimi-k2".to_string(),
+                };
+                CandleKimiK2Provider::with_config_sync(cache_path, CandleKimiK2Config::default())
+            })
+            .or_else(|e| {
+                log::warn!("Failed with cache directory: {}. Trying temp directory.", e);
+                CandleKimiK2Provider::with_config_sync(
+                    "/tmp/candle-models/kimi-k2".to_string(),
+                    CandleKimiK2Config::default()
+                )
+            })
+            .or_else(|e| {
+                // Final fallback: Create provider with minimal default path
+                // This provider will exist but may error when actually used if model file is missing
+                // This is preferable to failing at builder initialization time
+                log::error!(
+                    "All provider initialization attempts failed: {}. \
+                     Creating provider with minimal fallback configuration. \
+                     Model operations will fail until valid model files are provided.",
+                    e
+                );
+                // with_config_sync only creates a struct and virtually never fails
+                // The Result type is only for API consistency with other provider creation methods
+                CandleKimiK2Provider::with_config_sync(
+                    "./models/kimi-k2-fallback".to_string(),
+                    CandleKimiK2Config::default()
+                )
+            })
+            .or_else(|_| {
+                // If with_config_sync fails, try the simplest possible path
+                CandleKimiK2Provider::with_config_sync(
+                    ".".to_string(),
+                    CandleKimiK2Config::default()
+                )
+            })
+            .or_else(|_| {
+                // Try empty string as absolute last resort
+                CandleKimiK2Provider::with_config_sync(
+                    String::new(),
+                    CandleKimiK2Config::default()
+                )
+            })
+            .unwrap_or_else(|final_error| {
+                // This is an acceptable panic because:
+                // 1. We've tried 6 different fallback paths
+                // 2. with_config_sync only allocates a struct (should never fail)
+                // 3. Failure indicates OOM or memory corruption
+                // 4. panic! allows the application to catch it with panic hooks
+                panic!(
+                    "Fatal: Unable to initialize KimiK2Provider after 6 fallback attempts. \
+                     System cannot allocate memory for provider struct. \
+                     This indicates OOM or memory corruption. Error: {}",
+                    final_error
+                );
+            });
         
         CandleAgentBuilderImpl {
             name: self.name,
-            provider: default_provider,
+            provider: CandleCompletionProviderType::KimiK2(default_provider),
             temperature: self.temperature,
             max_tokens: self.max_tokens,
             system_prompt: self.system_prompt,

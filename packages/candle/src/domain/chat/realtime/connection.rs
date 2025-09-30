@@ -8,9 +8,10 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use ahash::RandomState;
 use arc_swap::ArcSwap;
 use crossbeam_channel::{unbounded, Receiver, Sender};
-use crossbeam_skiplist::SkipMap;
+use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -176,8 +177,8 @@ pub struct ConnectionStatistics {
 /// Connection manager with heartbeat and health monitoring
 #[derive(Debug)]
 pub struct ConnectionManager {
-    /// Active connections
-    connections: SkipMap<String, Arc<ConnectionState>>,
+    /// Active connections with concurrent access
+    connections: Arc<DashMap<String, Arc<ConnectionState>, RandomState>>,
     /// Heartbeat timeout in seconds
     heartbeat_timeout: u64,
     /// Health check interval in seconds
@@ -191,11 +192,11 @@ pub struct ConnectionManager {
     /// Total connections handled
     total_connections: AtomicUsize,
     /// Active connections count
-    active_connections: AtomicUsize,
+    active_connections: Arc<AtomicUsize>,
     /// Failed health checks
-    failed_health_checks: AtomicUsize,
+    failed_health_checks: Arc<AtomicUsize>,
     /// Successful reconnections
-    successful_reconnections: AtomicUsize,
+    successful_reconnections: Arc<AtomicUsize>,
 }
 
 impl ConnectionManager {
@@ -204,16 +205,16 @@ impl ConnectionManager {
         let (event_sender, event_receiver) = unbounded();
 
         Self {
-            connections: SkipMap::new(),
+            connections: Arc::new(DashMap::with_hasher(RandomState::default())),
             heartbeat_timeout,
             health_check_interval,
             event_sender,
             event_receiver,
             health_check_running: Arc::new(AtomicBool::new(false)),
             total_connections: AtomicUsize::new(0),
-            active_connections: AtomicUsize::new(0),
-            failed_health_checks: AtomicUsize::new(0),
-            successful_reconnections: AtomicUsize::new(0),
+            active_connections: Arc::new(AtomicUsize::new(0)),
+            failed_health_checks: Arc::new(AtomicUsize::new(0)),
+            successful_reconnections: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -251,8 +252,7 @@ impl ConnectionManager {
     ///
     /// Returns error string if connection with the given ID does not exist
     pub fn remove_connection(&self, connection_id: &String) -> Result<(), String> {
-        if let Some(entry) = self.connections.remove(connection_id) {
-            let connection = entry.value();
+        if let Some((_key, connection)) = self.connections.remove(connection_id) {
             connection.close();
             self.active_connections.fetch_sub(1, Ordering::AcqRel);
 
@@ -289,21 +289,85 @@ impl ConnectionManager {
         }
 
         self.health_check_running.store(true, Ordering::Release);
+        
         let running = self.health_check_running.clone();
-        // Reserved for future health check implementation:
-        // let event_sender = self.event_sender.clone();
-        // let heartbeat_timeout = self.heartbeat_timeout;
+        let connections = Arc::clone(&self.connections);
+        let heartbeat_timeout = self.heartbeat_timeout;
+        let event_sender = self.event_sender.clone();
+        let failed_checks = Arc::clone(&self.failed_health_checks);
+        let active_connections_counter = Arc::clone(&self.active_connections);
 
-        // Since SkipMap doesn't support clone, we'll implement the health check differently
-        // For now, mark the health check as started but implement a simpler approach
         std::thread::spawn(move || {
+            tracing::info!("Health check thread started (interval: 1s, timeout: {}s)", heartbeat_timeout);
+            
             while running.load(Ordering::Acquire) {
-                // Health check implementation simplified due to SkipMap clone limitations
-                // In production, this would need a different architecture for sharing connection state
-
-                // Sleep for the health check interval
+                // Step 1: Identify stale connections
+                let stale_connections: Vec<(String, String, usize)> = connections
+                    .iter()
+                    .filter_map(|entry| {
+                        let conn_id = entry.key().clone();
+                        let conn = entry.value();
+                        
+                        if !conn.is_connection_healthy(heartbeat_timeout) {
+                            let user_id = conn.user_id.clone();
+                            let attempts = conn.reconnection_attempts.load(Ordering::Acquire);
+                            Some((conn_id, user_id, attempts))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                
+                // Step 2: Handle each stale connection
+                for (conn_id, user_id, attempts) in stale_connections {
+                    if let Some(conn_entry) = connections.get(&conn_id) {
+                        let conn = conn_entry.value();
+                        
+                        if attempts < 3 {
+                            // Attempt reconnection
+                            conn.increment_reconnection_attempts();
+                            conn.set_status(ConnectionStatus::Reconnecting);
+                            
+                            tracing::warn!(
+                                "Connection {} (user: {}) unhealthy, reconnect attempt {}/3",
+                                conn_id, user_id, attempts + 1
+                            );
+                            
+                            // Send reconnection event
+                            let _ = event_sender.send(RealTimeEvent::connection_status_changed(
+                                user_id.clone(),
+                                ConnectionStatus::Reconnecting,
+                            ));
+                            
+                        } else {
+                            // Max reconnection attempts exceeded - remove connection
+                            tracing::error!(
+                                "Connection {} (user: {}) failed after 3 reconnection attempts, removing",
+                                conn_id, user_id
+                            );
+                            
+                            conn.set_status(ConnectionStatus::Failed);
+                            
+                            // Send failure event
+                            let _ = event_sender.send(RealTimeEvent::connection_status_changed(
+                                user_id.clone(),
+                                ConnectionStatus::Failed,
+                            ));
+                            
+                            // Remove from connections and update counters
+                            if connections.remove(&conn_id).is_some() {
+                                failed_checks.fetch_add(1, Ordering::AcqRel);
+                                active_connections_counter.fetch_sub(1, Ordering::AcqRel);
+                            }
+                        }
+                    }
+                }
+                
+                // Sleep for check interval
                 std::thread::sleep(Duration::from_secs(1));
             }
+            
+            tracing::info!("Health check thread stopped");
         });
 
         true

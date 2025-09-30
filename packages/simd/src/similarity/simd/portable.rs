@@ -27,7 +27,7 @@ impl PortableSimdSimilarity {
     }
 
     /// Process chunks of vectors using SIMD
-    #[inline(always)]
+    #[inline]
     fn process_chunks<const N: usize>(a: &[f32], b: &[f32]) -> (f32, f32, f32) {
         let chunks = a.chunks_exact(N);
         let remainder = chunks.remainder();
