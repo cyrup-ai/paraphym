@@ -23,7 +23,7 @@
 /// - Tuple flattening eliminates type complexity
 /// - Template specialization for concrete operation types
 ///
-/// Public macro for ergonomic N-way parallel execution
+/// # Public macro for ergonomic N-way parallel execution
 ///
 /// Creates a ParallelN combinator that executes all provided operations
 /// concurrently with true N-way parallelism. Results stream in completion

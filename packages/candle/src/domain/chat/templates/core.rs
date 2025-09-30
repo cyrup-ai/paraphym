@@ -154,30 +154,30 @@ pub struct TemplateVariable {
     pub max_value: Option<f64>,
 }
 
-/// Template permissions
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TemplatePermissions {
-    /// Whether the template can be read by users
-    pub read: bool,
-    /// Whether the template can be modified by users
-    pub write: bool,
-    /// Whether the template can be executed/rendered by users
-    pub execute: bool,
-    /// Whether the template can be shared with other users
-    pub share: bool,
-    /// Whether the template can be deleted by users
-    pub delete: bool,
+bitflags::bitflags! {
+    /// Template permissions using bitflags for zero-allocation checks
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(transparent)]
+    pub struct TemplatePermissions: u8 {
+        /// Template can be read by users
+        const READ = 1 << 0;
+        /// Template can be modified by users
+        const WRITE = 1 << 1;
+        /// Template can be executed/rendered by users
+        const EXECUTE = 1 << 2;
+        /// Template can be shared with other users
+        const SHARE = 1 << 3;
+        /// Template can be deleted by users
+        const DELETE = 1 << 4;
+        /// All permissions enabled
+        const ALL = Self::READ.bits() | Self::WRITE.bits() | Self::EXECUTE.bits() | Self::SHARE.bits() | Self::DELETE.bits();
+    }
 }
 
 impl Default for TemplatePermissions {
+    #[inline]
     fn default() -> Self {
-        Self {
-            read: true,
-            write: true,
-            execute: true,
-            share: true,
-            delete: true,
-        }
+        Self::ALL
     }
 }
 
@@ -382,11 +382,10 @@ impl CompiledTemplate {
     ///
     /// Returns `TemplateError` if template rendering fails or variables are missing
     pub fn render(&self, context: &TemplateContext) -> TemplateResult<String> {
-        self.render_ast(&self.ast, context)
+        Self::render_ast(&self.ast, context)
     }
 
-    #[allow(clippy::only_used_in_recursion)]
-    fn render_ast(&self, ast: &TemplateAst, context: &TemplateContext) -> TemplateResult<String> {
+    fn render_ast(ast: &TemplateAst, context: &TemplateContext) -> TemplateResult<String> {
         match ast {
             TemplateAst::Text(text) => Ok(text.clone()),
             TemplateAst::Variable(name) => {
@@ -408,7 +407,7 @@ impl CompiledTemplate {
             TemplateAst::Block(nodes) => {
                 let mut result = String::new();
                 for node in nodes.iter() {
-                    let rendered = self.render_ast(node, context)?;
+                    let rendered = Self::render_ast(node, context)?;
                     result.push_str(&rendered);
                 }
                 Ok(result)
@@ -418,15 +417,15 @@ impl CompiledTemplate {
                 if_true,
                 if_false,
             } => {
-                let cond_result = self.render_ast(condition, context)?;
+                let cond_result = Self::render_ast(condition, context)?;
                 let is_truthy = !cond_result.is_empty()
                     && cond_result.as_str() != "false"
                     && cond_result.as_str() != "0";
 
                 if is_truthy {
-                    self.render_ast(if_true, context)
+                    Self::render_ast(if_true, context)
                 } else if let Some(if_false_ast) = if_false {
-                    self.render_ast(if_false_ast, context)
+                    Self::render_ast(if_false_ast, context)
                 } else {
                     Ok(String::new())
                 }

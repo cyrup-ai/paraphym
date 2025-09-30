@@ -72,156 +72,215 @@ impl ParameterType {
     pub fn validate(&self, value: &str) -> ValidationResult {
         match self {
             Self::String => Ok(()),
-            Self::Integer => {
-                i64::from_str(value).map_err(|_| {
-                    CandleCommandError::validation_failed(format!("Invalid integer: {value}"))
-                })?;
-                Ok(())
-            }
-            Self::Float => {
-                f64::from_str(value).map_err(|_| {
-                    CandleCommandError::validation_failed(format!("Invalid float: {value}"))
-                })?;
-                Ok(())
-            }
-            Self::Boolean => match value.to_lowercase().as_str() {
-                "true" | "false" | "1" | "0" | "yes" | "no" | "on" | "off" => Ok(()),
-                _ => Err(CandleCommandError::validation_failed(format!(
-                    "Invalid boolean: {value}"
-                ))),
-            },
-            Self::StringArray => {
-                // Basic validation - check if it's valid JSON array
-                if value.starts_with('[') && value.ends_with(']') {
-                    Ok(())
-                } else {
-                    Err(CandleCommandError::validation_failed(
-                        "String array must be JSON array format".to_string(),
-                    ))
-                }
-            }
-            Self::FilePath | Self::Path => {
-                if value.is_empty() {
-                    Err(CandleCommandError::validation_failed(
-                        "Path cannot be empty".to_string(),
-                    ))
-                } else {
-                    Ok(())
-                }
-            }
-            Self::Url => {
-                if value.starts_with("http://")
-                    || value.starts_with("https://")
-                    || value.starts_with("ftp://")
-                    || value.starts_with("file://")
-                {
-                    Ok(())
-                } else {
-                    Err(CandleCommandError::validation_failed(format!(
-                        "Invalid URL format: {value}"
-                    )))
-                }
-            }
-            Self::Json => {
-                serde_json::from_str::<serde_json::Value>(value).map_err(|_| {
-                    CandleCommandError::validation_failed(format!("Invalid JSON: {value}"))
-                })?;
-                Ok(())
-            }
-            Self::Enum { values } => {
-                if values.contains(&value.to_string()) {
-                    Ok(())
-                } else {
-                    Err(CandleCommandError::validation_failed(format!(
-                        "Invalid enum value: {value}. Allowed: {values:?}"
-                    )))
-                }
-            }
-            Self::Duration => {
-                // Parse duration like "5s", "10m", "1h", "2d"
-                if Self::parse_duration(value).is_some() {
-                    Ok(())
-                } else {
-                    Err(CandleCommandError::validation_failed(format!(
-                        "Invalid duration format: {value}"
-                    )))
-                }
-            }
-            Self::Size => {
-                // Parse size like "100", "1KB", "2MB", "1GB"
-                if Self::parse_size(value).is_some() {
-                    Ok(())
-                } else {
-                    Err(CandleCommandError::validation_failed(format!(
-                        "Invalid size format: {value}"
-                    )))
-                }
-            }
-            Self::Regex => {
-                regex::Regex::new(value).map_err(|_| {
-                    CandleCommandError::validation_failed(format!(
-                        "Invalid regex pattern: {value}"
-                    ))
-                })?;
-                Ok(())
-            }
-            Self::Email => {
-                if value.contains('@') && value.contains('.') {
-                    Ok(())
-                } else {
-                    Err(CandleCommandError::validation_failed(format!(
-                        "Invalid email format: {value}"
-                    )))
-                }
-            }
-            Self::IpAddress => {
-                if value.parse::<std::net::IpAddr>().is_ok() {
-                    Ok(())
-                } else {
-                    Err(CandleCommandError::validation_failed(format!(
-                        "Invalid IP address: {value}"
-                    )))
-                }
-            }
-            Self::Uuid => {
-                if value.len() == 36 && value.chars().filter(|&c| c == '-').count() == 4 {
-                    Ok(())
-                } else {
-                    Err(CandleCommandError::validation_failed(format!(
-                        "Invalid UUID format: {value}"
-                    )))
-                }
-            }
-            Self::Date => {
-                // Basic date validation - check format YYYY-MM-DD
-                if value.len() == 10 && value.chars().filter(|&c| c == '-').count() == 2 {
-                    Ok(())
-                } else {
-                    Err(CandleCommandError::validation_failed(format!(
-                        "Invalid date format (expected YYYY-MM-DD): {value}"
-                    )))
-                }
-            }
-            Self::Time => {
-                // Basic time validation - check format HH:MM:SS
-                if value.len() >= 5 && value.chars().filter(|&c| c == ':').count() >= 1 {
-                    Ok(())
-                } else {
-                    Err(CandleCommandError::validation_failed(format!(
-                        "Invalid time format (expected HH:MM:SS): {value}"
-                    )))
-                }
-            }
-            Self::DateTime => {
-                // Basic datetime validation - look for T separator
-                if value.contains('T') || value.len() >= 19 {
-                    Ok(())
-                } else {
-                    Err(CandleCommandError::validation_failed(format!(
-                        "Invalid datetime format (expected ISO 8601): {value}"
-                    )))
-                }
-            }
+            Self::Integer => Self::validate_integer(value),
+            Self::Float => Self::validate_float(value),
+            Self::Boolean => Self::validate_boolean(value),
+            Self::StringArray => Self::validate_string_array(value),
+            Self::FilePath | Self::Path => Self::validate_path(value),
+            Self::Url => Self::validate_url(value),
+            Self::Json => Self::validate_json(value),
+            Self::Enum { values } => Self::validate_enum(value, values),
+            Self::Duration => Self::validate_duration_format(value),
+            Self::Size => Self::validate_size_format(value),
+            Self::Regex => Self::validate_regex(value),
+            Self::Email => Self::validate_email(value),
+            Self::IpAddress => Self::validate_ip_address(value),
+            Self::Uuid => Self::validate_uuid(value),
+            Self::Date => Self::validate_date(value),
+            Self::Time => Self::validate_time(value),
+            Self::DateTime => Self::validate_datetime(value),
+        }
+    }
+
+    /// Validate integer value - zero allocation where possible
+    #[inline]
+    fn validate_integer(value: &str) -> ValidationResult {
+        i64::from_str(value)
+            .map_err(|_| CandleCommandError::validation_failed(format!("Invalid integer: {value}")))?;
+        Ok(())
+    }
+
+    /// Validate float value - zero allocation where possible
+    #[inline]
+    fn validate_float(value: &str) -> ValidationResult {
+        f64::from_str(value)
+            .map_err(|_| CandleCommandError::validation_failed(format!("Invalid float: {value}")))?;
+        Ok(())
+    }
+
+    /// Validate boolean value - accepts multiple formats
+    #[inline]
+    fn validate_boolean(value: &str) -> ValidationResult {
+        match value.to_lowercase().as_str() {
+            "true" | "false" | "1" | "0" | "yes" | "no" | "on" | "off" => Ok(()),
+            _ => Err(CandleCommandError::validation_failed(format!(
+                "Invalid boolean: {value}"
+            ))),
+        }
+    }
+
+    /// Validate string array in JSON format
+    #[inline]
+    fn validate_string_array(value: &str) -> ValidationResult {
+        if value.starts_with('[') && value.ends_with(']') {
+            Ok(())
+        } else {
+            Err(CandleCommandError::validation_failed(
+                "String array must be JSON array format".to_string(),
+            ))
+        }
+    }
+
+    /// Validate file path or directory path - checks non-empty
+    #[inline]
+    fn validate_path(value: &str) -> ValidationResult {
+        if value.is_empty() {
+            Err(CandleCommandError::validation_failed(
+                "Path cannot be empty".to_string(),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Validate URL format - checks for valid protocol prefix
+    #[inline]
+    fn validate_url(value: &str) -> ValidationResult {
+        if value.starts_with("http://")
+            || value.starts_with("https://")
+            || value.starts_with("ftp://")
+            || value.starts_with("file://")
+        {
+            Ok(())
+        } else {
+            Err(CandleCommandError::validation_failed(format!(
+                "Invalid URL format: {value}"
+            )))
+        }
+    }
+
+    /// Validate JSON value - parses to ensure validity
+    #[inline]
+    fn validate_json(value: &str) -> ValidationResult {
+        serde_json::from_str::<serde_json::Value>(value)
+            .map_err(|_| CandleCommandError::validation_failed(format!("Invalid JSON: {value}")))?;
+        Ok(())
+    }
+
+    /// Validate enum value against allowed values
+    #[inline]
+    fn validate_enum(value: &str, allowed_values: &[String]) -> ValidationResult {
+        if allowed_values.contains(&value.to_string()) {
+            Ok(())
+        } else {
+            Err(CandleCommandError::validation_failed(format!(
+                "Invalid enum value: {value}. Allowed: {allowed_values:?}"
+            )))
+        }
+    }
+
+    /// Validate duration format (e.g., "5s", "10m", "1h", "2d")
+    #[inline]
+    fn validate_duration_format(value: &str) -> ValidationResult {
+        if Self::parse_duration(value).is_some() {
+            Ok(())
+        } else {
+            Err(CandleCommandError::validation_failed(format!(
+                "Invalid duration format: {value}"
+            )))
+        }
+    }
+
+    /// Validate size format (e.g., "100", "1KB", "2MB", "1GB")
+    #[inline]
+    fn validate_size_format(value: &str) -> ValidationResult {
+        if Self::parse_size(value).is_some() {
+            Ok(())
+        } else {
+            Err(CandleCommandError::validation_failed(format!(
+                "Invalid size format: {value}"
+            )))
+        }
+    }
+
+    /// Validate regex pattern - ensures it compiles
+    #[inline]
+    fn validate_regex(value: &str) -> ValidationResult {
+        regex::Regex::new(value).map_err(|_| {
+            CandleCommandError::validation_failed(format!("Invalid regex pattern: {value}"))
+        })?;
+        Ok(())
+    }
+
+    /// Validate email format - basic check for @ and .
+    #[inline]
+    fn validate_email(value: &str) -> ValidationResult {
+        if value.contains('@') && value.contains('.') {
+            Ok(())
+        } else {
+            Err(CandleCommandError::validation_failed(format!(
+                "Invalid email format: {value}"
+            )))
+        }
+    }
+
+    /// Validate IP address format
+    #[inline]
+    fn validate_ip_address(value: &str) -> ValidationResult {
+        if value.parse::<std::net::IpAddr>().is_ok() {
+            Ok(())
+        } else {
+            Err(CandleCommandError::validation_failed(format!(
+                "Invalid IP address: {value}"
+            )))
+        }
+    }
+
+    /// Validate UUID format - basic structural check
+    #[inline]
+    fn validate_uuid(value: &str) -> ValidationResult {
+        if value.len() == 36 && value.chars().filter(|&c| c == '-').count() == 4 {
+            Ok(())
+        } else {
+            Err(CandleCommandError::validation_failed(format!(
+                "Invalid UUID format: {value}"
+            )))
+        }
+    }
+
+    /// Validate date format (YYYY-MM-DD)
+    #[inline]
+    fn validate_date(value: &str) -> ValidationResult {
+        if value.len() == 10 && value.chars().filter(|&c| c == '-').count() == 2 {
+            Ok(())
+        } else {
+            Err(CandleCommandError::validation_failed(format!(
+                "Invalid date format (expected YYYY-MM-DD): {value}"
+            )))
+        }
+    }
+
+    /// Validate time format (HH:MM:SS or HH:MM)
+    #[inline]
+    fn validate_time(value: &str) -> ValidationResult {
+        if value.len() >= 5 && value.chars().filter(|&c| c == ':').count() >= 1 {
+            Ok(())
+        } else {
+            Err(CandleCommandError::validation_failed(format!(
+                "Invalid time format (expected HH:MM:SS): {value}"
+            )))
+        }
+    }
+
+    /// Validate datetime format (ISO 8601)
+    #[inline]
+    fn validate_datetime(value: &str) -> ValidationResult {
+        if value.contains('T') || value.len() >= 19 {
+            Ok(())
+        } else {
+            Err(CandleCommandError::validation_failed(format!(
+                "Invalid datetime format (expected ISO 8601): {value}"
+            )))
         }
     }
 

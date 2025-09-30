@@ -58,13 +58,13 @@ impl From<Box<dyn std::error::Error + Send + Sync>> for SimdError {
 
 impl From<std::num::ParseFloatError> for SimdError {
     fn from(err: std::num::ParseFloatError) -> Self {
-        SimdError::NumericalError(format!("Float parsing error: {}", err))
+        SimdError::NumericalError(format!("Float parsing error: {err}"))
     }
 }
 
 impl From<std::num::ParseIntError> for SimdError {
     fn from(err: std::num::ParseIntError) -> Self {
-        SimdError::NumericalError(format!("Integer parsing error: {}", err))
+        SimdError::NumericalError(format!("Integer parsing error: {err}"))
     }
 }
 

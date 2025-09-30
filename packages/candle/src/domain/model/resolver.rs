@@ -7,7 +7,6 @@ use std::hash::Hash;
 
 // Removed unused import: std::sync::Arc
 use ahash::RandomState;
-use dashmap::DashMap;
 use ystream::AsyncStream;
 // Removed unused import: once_cell::sync::Lazy
 use regex::Regex;
@@ -219,11 +218,6 @@ pub struct ModelResolver {
     registry: ModelRegistry,
     rules: Vec<ModelResolutionRule>,
     aliases: HashMap<String, (String, String), RandomState>,
-
-    // Cache for compiled regex patterns
-    #[allow(clippy::type_complexity)]
-    #[allow(dead_code)]
-    pattern_cache: DashMap<String, (String, Regex), RandomState>,
 }
 
 impl Default for ModelResolver {
@@ -239,7 +233,6 @@ impl ModelResolver {
             registry: ModelRegistry::new(),
             rules: Vec::new(),
             aliases: HashMap::with_hasher(RandomState::new()),
-            pattern_cache: DashMap::with_hasher(RandomState::new()),
         }
     }
 

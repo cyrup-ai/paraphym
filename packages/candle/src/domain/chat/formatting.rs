@@ -294,19 +294,32 @@ pub enum FormatError {
 /// Result type for formatting operations
 pub type FormatResult<T> = Result<T, FormatError>;
 
+bitflags::bitflags! {
+    /// Formatting feature flags for zero-allocation feature checks
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(transparent)]
+    pub struct FormatFlags: u8 {
+        const MARKDOWN = 1 << 0;
+        const SYNTAX_HIGHLIGHTING = 1 << 1;
+        const INLINE_FORMATTING = 1 << 2;
+        const LINK_DETECTION = 1 << 3;
+        const EMOJI = 1 << 4;
+        const METADATA = 1 << 5;
+        const OPTIMIZATIONS = 1 << 6;
+    }
+}
+
+impl Default for FormatFlags {
+    fn default() -> Self {
+        Self::MARKDOWN | Self::INLINE_FORMATTING | Self::LINK_DETECTION | Self::OPTIMIZATIONS
+    }
+}
+
 /// Immutable formatting options with owned strings
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImmutableFormatOptions {
-    /// Enable markdown parsing and rendering
-    pub enable_markdown: bool,
-    /// Enable syntax highlighting for code blocks
-    pub enable_syntax_highlighting: bool,
-    /// Enable inline formatting (bold, italic, etc.)
-    pub enable_inline_formatting: bool,
-    /// Enable link detection and formatting
-    pub enable_link_detection: bool,
-    /// Enable emoji rendering
-    pub enable_emoji: bool,
+    /// Formatting feature flags
+    pub flags: FormatFlags,
     /// Maximum line length for text wrapping (0 = no wrapping)
     pub max_line_length: usize,
     /// Indentation size for nested content
@@ -317,10 +330,6 @@ pub struct ImmutableFormatOptions {
     pub color_scheme: ImmutableColorScheme,
     /// Output format target
     pub output_format: OutputFormat,
-    /// Include metadata in formatted output
-    pub include_metadata: bool,
-    /// Enable performance optimizations
-    pub enable_optimizations: bool,
     /// Custom CSS classes for HTML output
     pub custom_css_classes: HashMap<String, String>,
     /// Custom formatting rules
@@ -338,9 +347,9 @@ impl ImmutableFormatOptions {
     #[inline]
     pub fn terminal() -> Self {
         Self {
+            flags: FormatFlags::default() | FormatFlags::OPTIMIZATIONS,
             output_format: OutputFormat::AnsiTerminal,
             max_line_length: 120,
-            enable_optimizations: true,
             ..Default::default()
         }
     }
@@ -349,10 +358,8 @@ impl ImmutableFormatOptions {
     #[inline]
     pub fn html() -> Self {
         Self {
+            flags: FormatFlags::MARKDOWN | FormatFlags::SYNTAX_HIGHLIGHTING | FormatFlags::METADATA | FormatFlags::INLINE_FORMATTING | FormatFlags::LINK_DETECTION,
             output_format: OutputFormat::Html,
-            enable_markdown: true,
-            enable_syntax_highlighting: true,
-            include_metadata: true,
             ..Default::default()
         }
     }
@@ -361,11 +368,8 @@ impl ImmutableFormatOptions {
     #[inline]
     pub fn plain_text() -> Self {
         Self {
+            flags: FormatFlags::OPTIMIZATIONS,
             output_format: OutputFormat::PlainText,
-            enable_markdown: false,
-            enable_syntax_highlighting: false,
-            enable_inline_formatting: false,
-            enable_optimizations: true,
             ..Default::default()
         }
     }
@@ -398,18 +402,17 @@ impl Default for ImmutableFormatOptions {
     #[inline]
     fn default() -> Self {
         Self {
-            enable_markdown: true,
-            enable_syntax_highlighting: true,
-            enable_inline_formatting: true,
-            enable_link_detection: true,
-            enable_emoji: true,
+            flags: FormatFlags::MARKDOWN 
+                | FormatFlags::SYNTAX_HIGHLIGHTING 
+                | FormatFlags::INLINE_FORMATTING 
+                | FormatFlags::LINK_DETECTION 
+                | FormatFlags::EMOJI 
+                | FormatFlags::OPTIMIZATIONS,
             max_line_length: 80,
             indent_size: 2,
             syntax_theme: SyntaxTheme::GitHub,
             color_scheme: ImmutableColorScheme::default(),
             output_format: OutputFormat::Html,
-            include_metadata: false,
-            enable_optimizations: true,
             custom_css_classes: HashMap::new(),
             custom_rules: Vec::new(),
         }

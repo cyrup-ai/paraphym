@@ -1,6 +1,6 @@
 //! Constraint-aware logits processor for structured generation
 //!
-//! This module provides ConstrainedLogitsProcessor that applies both standard
+//! This module provides `ConstrainedLogitsProcessor` that applies both standard
 //! logits processing (temperature, top-k, nucleus) and constraint masking to
 //! ensure generated tokens conform to specified constraints.
 
@@ -24,11 +24,11 @@ use super::GenerationConstraint;
 /// 2. Repetition/frequency/presence penalties  
 /// 3. Top-k filtering
 /// 4. Nucleus (top-p) sampling
-/// 5. **Constraint masking** (sets invalid tokens to f32::NEG_INFINITY)
+/// 5. **Constraint masking** (sets invalid tokens to `f32::NEG_INFINITY`)
 ///
 /// ## Performance
 /// - Zero allocation when no constraints are active
-/// - Efficient constraint validation through try_next() calls
+/// - Efficient constraint validation through `try_next()` calls
 /// - SIMD-optimized masking for large vocabularies
 /// - Maintains all existing SIMD optimizations for standard processing
 pub struct ConstrainedLogitsProcessor {
@@ -48,6 +48,7 @@ impl ConstrainedLogitsProcessor {
     /// 
     /// # Returns
     /// A new processor that can apply both standard and constraint processing
+    #[must_use]
     pub fn new(config: ProcessorConfig) -> Self {
         Self {
             inner: DefaultLogitsProcessor::with_config(config),
@@ -59,8 +60,9 @@ impl ConstrainedLogitsProcessor {
     /// Create a processor with constraints disabled
     /// 
     /// This creates a processor that only does standard processing,
-    /// effectively equivalent to DefaultLogitsProcessor but with
+    /// effectively equivalent to `DefaultLogitsProcessor` but with
     /// the same API for seamless switching.
+    #[must_use]
     pub fn new_unconstrained(config: ProcessorConfig) -> Self {
         Self {
             inner: DefaultLogitsProcessor::with_config(config),
@@ -71,13 +73,14 @@ impl ConstrainedLogitsProcessor {
     
     /// Enable or disable constraint processing
     /// 
-    /// When disabled, this processor behaves identically to DefaultLogitsProcessor.
+    /// When disabled, this processor behaves identically to `DefaultLogitsProcessor`.
     /// When enabled, constraint masking is applied after standard processing.
     pub fn set_constraints_enabled(&mut self, enabled: bool) {
         self.constraints_enabled = enabled;
     }
     
     /// Check if constraint processing is enabled
+    #[must_use]
     pub fn constraints_enabled(&self) -> bool {
         self.constraints_enabled
     }
@@ -85,7 +88,7 @@ impl ConstrainedLogitsProcessor {
     /// Apply constraint masking to logits
     ///
     /// This method iterates through all tokens in the vocabulary and masks
-    /// (sets to f32::NEG_INFINITY) any tokens that would be invalid according
+    /// (sets to `f32::NEG_INFINITY`) any tokens that would be invalid according
     /// to the current constraint state.
     ///
     /// # Arguments
@@ -122,7 +125,7 @@ impl ConstrainedLogitsProcessor {
                         }
                         Err(e) => {
                             return Err(LogitsError::ConstraintError(
-                                format!("JSON constraint validation failed for token {}: {}", token_id, e)
+                                format!("JSON constraint validation failed for token {token_id}: {e}")
                             ));
                         }
                     }
@@ -149,7 +152,7 @@ impl ConstrainedLogitsProcessor {
                         }
                         Err(e) => {
                             return Err(LogitsError::ConstraintError(
-                                format!("Schema constraint validation failed for token {}: {}", token_id, e)
+                                format!("Schema constraint validation failed for token {token_id}: {e}")
                             ));
                         }
                     }
@@ -164,6 +167,7 @@ impl ConstrainedLogitsProcessor {
     ///
     /// Returns information about how many tokens were masked and
     /// constraint validation performance for debugging/monitoring.
+    #[must_use]
     pub fn get_constraint_stats(&self, context: &ProcessingContext) -> ConstraintStats {
         let has_json_constraints = context.json_constraint.is_some() && 
                                   context.json_constraint_state.is_some();

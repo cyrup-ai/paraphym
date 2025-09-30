@@ -191,30 +191,39 @@ impl CandleModelInfo {
     /// This creates a `CandleModelCapabilities` struct from this `CandleModelInfo` instance.
     /// `CandleModelInfo` remains the single source of truth from YAML deserialization.
     pub fn to_capabilities(&self) -> crate::domain::model::capabilities::CandleModelCapabilities {
-        crate::domain::model::capabilities::CandleModelCapabilities {
-            supports_vision: self.supports_vision,
-            supports_function_calling: self.supports_function_calling,
-            supports_streaming: self.supports_streaming,
-            supports_fine_tuning: false,      // Not in ModelInfo yet
-            supports_batch_processing: false, // Not in ModelInfo yet
-            supports_realtime: false,         // Not in ModelInfo yet
-            supports_multimodal: self.supports_vision, // Map vision to multimodal
-            supports_thinking: self.supports_thinking,
-            supports_embedding: self.supports_embeddings,
-            supports_code_completion: false, // Not in ModelInfo yet
-            supports_chat: true,             // Assume all models support chat
-            supports_instruction_following: true, // Assume all models support instructions
-            supports_few_shot_learning: true, // Assume all models support few-shot
-            supports_zero_shot_learning: true, // Assume all models support zero-shot
-            has_long_context: self
-                .max_input_tokens
-                .is_some_and(|tokens| tokens.get() > 32000),
-            is_low_latency: false,        // Not in ModelInfo yet
-            is_high_throughput: false,    // Not in ModelInfo yet
-            supports_quantization: false, // Not in ModelInfo yet
-            supports_distillation: false, // Not in ModelInfo yet
-            supports_pruning: false,      // Not in ModelInfo yet
+        use crate::domain::model::capabilities::ModelCapabilityFlags;
+        
+        let mut flags = ModelCapabilityFlags::empty();
+        
+        // Set flags based on model info
+        if self.supports_vision {
+            flags |= ModelCapabilityFlags::VISION | ModelCapabilityFlags::MULTIMODAL;
         }
+        if self.supports_function_calling {
+            flags |= ModelCapabilityFlags::FUNCTION_CALLING;
+        }
+        if self.supports_streaming {
+            flags |= ModelCapabilityFlags::STREAMING;
+        }
+        if self.supports_thinking {
+            flags |= ModelCapabilityFlags::THINKING;
+        }
+        if self.supports_embeddings {
+            flags |= ModelCapabilityFlags::EMBEDDING;
+        }
+        
+        // Assume all models support these common capabilities
+        flags |= ModelCapabilityFlags::CHAT
+            | ModelCapabilityFlags::INSTRUCTION_FOLLOWING
+            | ModelCapabilityFlags::FEW_SHOT_LEARNING
+            | ModelCapabilityFlags::ZERO_SHOT_LEARNING;
+        
+        // Check for long context window
+        if self.max_input_tokens.is_some_and(|tokens| tokens.get() > 32000) {
+            flags |= ModelCapabilityFlags::LONG_CONTEXT;
+        }
+        
+        crate::domain::model::capabilities::CandleModelCapabilities { flags }
     }
 
     /// Validate the model configuration

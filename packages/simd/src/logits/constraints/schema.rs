@@ -100,6 +100,7 @@ pub struct SchemaState {
 
 impl SchemaState {
     /// Create new schema state
+    #[must_use]
     pub fn new(inner: SchemaConstraintState, schema_type: SchemaType) -> Self {
         Self {
             inner,
@@ -109,42 +110,50 @@ impl SchemaState {
     }
 
     /// Create schema state with name
+    #[must_use]
     pub fn with_name(mut self, name: String) -> Self {
         self.name = Some(name);
         self
     }
 
     /// Get inner constraint state
-    pub fn inner(&self) -> &SchemaConstraintState {
+    #[must_use]
+    pub const fn inner(&self) -> &SchemaConstraintState {
         &self.inner
     }
 
     /// Get mutable inner constraint state
+    #[must_use]
     pub fn inner_mut(&mut self) -> &mut SchemaConstraintState {
         &mut self.inner
     }
 
     /// Get schema type
-    pub fn schema_type(&self) -> &SchemaType {
+    #[must_use]
+    pub const fn schema_type(&self) -> &SchemaType {
         &self.schema_type
     }
 
     /// Get state name
+    #[must_use]
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
     }
 
     /// Check if generation is complete
+    #[must_use]
     pub fn is_complete(&self) -> bool {
         self.inner.is_complete()
     }
 
     /// Get current DFA state
+    #[must_use]
     pub fn current_state(&self) -> StateId {
         self.inner.current_state()
     }
 
     /// Get number of tokens processed
+    #[must_use]
     pub fn tokens_processed(&self) -> usize {
         self.inner.tokens_processed()
     }
@@ -303,7 +312,7 @@ impl SchemaConstraintBuilder {
         Ok(schema)
     }
 
-    /// Convert SchemaType to JSON schema value
+    /// Convert `SchemaType` to JSON schema value
     fn schema_type_to_value(&self, schema_type: &SchemaType) -> AnyResult<Value> {
         match schema_type {
             SchemaType::JsonSchema(value) => Ok(value.clone()),

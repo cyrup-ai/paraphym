@@ -51,6 +51,40 @@ pub enum CandleCapability {
     Pruning,
 }
 
+bitflags::bitflags! {
+    /// Model capability flags using bitflags for zero-allocation capability checks
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(transparent)]
+    pub struct ModelCapabilityFlags: u32 {
+        const VISION = 1 << 0;
+        const FUNCTION_CALLING = 1 << 1;
+        const STREAMING = 1 << 2;
+        const FINE_TUNING = 1 << 3;
+        const BATCH_PROCESSING = 1 << 4;
+        const REALTIME = 1 << 5;
+        const MULTIMODAL = 1 << 6;
+        const THINKING = 1 << 7;
+        const EMBEDDING = 1 << 8;
+        const CODE_COMPLETION = 1 << 9;
+        const CHAT = 1 << 10;
+        const INSTRUCTION_FOLLOWING = 1 << 11;
+        const FEW_SHOT_LEARNING = 1 << 12;
+        const ZERO_SHOT_LEARNING = 1 << 13;
+        const LONG_CONTEXT = 1 << 14;
+        const LOW_LATENCY = 1 << 15;
+        const HIGH_THROUGHPUT = 1 << 16;
+        const QUANTIZATION = 1 << 17;
+        const DISTILLATION = 1 << 18;
+        const PRUNING = 1 << 19;
+    }
+}
+
+impl Default for ModelCapabilityFlags {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
 /// Candle model capability flags for filtering and selection
 ///
 /// This is a utility struct derived from `CandleModelInfo` for capability-based filtering.
@@ -58,46 +92,8 @@ pub enum CandleCapability {
 /// Use `CandleModelInfo::to_capabilities()` to create this struct.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct CandleModelCapabilities {
-    /// Whether the model supports vision/image inputs
-    pub supports_vision: bool,
-    /// Whether the model supports function/tool calling
-    pub supports_function_calling: bool,
-    /// Whether the model supports streaming responses
-    pub supports_streaming: bool,
-    /// Whether the model supports fine-tuning
-    pub supports_fine_tuning: bool,
-    /// Whether the model supports batch processing
-    pub supports_batch_processing: bool,
-    /// Whether the model supports real-time processing
-    pub supports_realtime: bool,
-    /// Whether the model supports multimodal inputs
-    pub supports_multimodal: bool,
-    /// Whether the model supports thinking/reasoning modes
-    pub supports_thinking: bool,
-    /// Whether the model supports embedding generation
-    pub supports_embedding: bool,
-    /// Whether the model supports code completion
-    pub supports_code_completion: bool,
-    /// Whether the model supports chat/conversation
-    pub supports_chat: bool,
-    /// Whether the model supports instruction following
-    pub supports_instruction_following: bool,
-    /// Whether the model supports few-shot learning
-    pub supports_few_shot_learning: bool,
-    /// Whether the model supports zero-shot learning
-    pub supports_zero_shot_learning: bool,
-    /// Whether the model has a long context window
-    pub has_long_context: bool,
-    /// Whether the model is optimized for low-latency inference
-    pub is_low_latency: bool,
-    /// Whether the model is optimized for high-throughput inference
-    pub is_high_throughput: bool,
-    /// Whether the model supports quantization
-    pub supports_quantization: bool,
-    /// Whether the model supports distillation
-    pub supports_distillation: bool,
-    /// Whether the model supports pruning
-    pub supports_pruning: bool,
+    /// Capability flags
+    pub flags: ModelCapabilityFlags,
 }
 
 impl CandleModelCapabilities {
@@ -126,54 +122,40 @@ impl CandleModelCapabilities {
 
     /// Set a specific capability
     pub fn set_capability(&mut self, capability: CandleCapability, enabled: bool) {
+        let flag = Self::capability_to_flag(capability);
+        self.flags.set(flag, enabled);
+    }
+    
+    /// Convert capability enum to flag
+    const fn capability_to_flag(capability: CandleCapability) -> ModelCapabilityFlags {
         match capability {
-            CandleCapability::Vision => self.supports_vision = enabled,
-            CandleCapability::FunctionCalling => self.supports_function_calling = enabled,
-            CandleCapability::Streaming => self.supports_streaming = enabled,
-            CandleCapability::FineTuning => self.supports_fine_tuning = enabled,
-            CandleCapability::BatchProcessing => self.supports_batch_processing = enabled,
-            CandleCapability::Realtime => self.supports_realtime = enabled,
-            CandleCapability::Multimodal => self.supports_multimodal = enabled,
-            CandleCapability::Thinking => self.supports_thinking = enabled,
-            CandleCapability::Embedding => self.supports_embedding = enabled,
-            CandleCapability::CodeCompletion => self.supports_code_completion = enabled,
-            CandleCapability::Chat => self.supports_chat = enabled,
-            CandleCapability::InstructionFollowing => self.supports_instruction_following = enabled,
-            CandleCapability::FewShotLearning => self.supports_few_shot_learning = enabled,
-            CandleCapability::ZeroShotLearning => self.supports_zero_shot_learning = enabled,
-            CandleCapability::LongContext => self.has_long_context = enabled,
-            CandleCapability::LowLatency => self.is_low_latency = enabled,
-            CandleCapability::HighThroughput => self.is_high_throughput = enabled,
-            CandleCapability::Quantization => self.supports_quantization = enabled,
-            CandleCapability::Distillation => self.supports_distillation = enabled,
-            CandleCapability::Pruning => self.supports_pruning = enabled,
+            CandleCapability::Vision => ModelCapabilityFlags::VISION,
+            CandleCapability::FunctionCalling => ModelCapabilityFlags::FUNCTION_CALLING,
+            CandleCapability::Streaming => ModelCapabilityFlags::STREAMING,
+            CandleCapability::FineTuning => ModelCapabilityFlags::FINE_TUNING,
+            CandleCapability::BatchProcessing => ModelCapabilityFlags::BATCH_PROCESSING,
+            CandleCapability::Realtime => ModelCapabilityFlags::REALTIME,
+            CandleCapability::Multimodal => ModelCapabilityFlags::MULTIMODAL,
+            CandleCapability::Thinking => ModelCapabilityFlags::THINKING,
+            CandleCapability::Embedding => ModelCapabilityFlags::EMBEDDING,
+            CandleCapability::CodeCompletion => ModelCapabilityFlags::CODE_COMPLETION,
+            CandleCapability::Chat => ModelCapabilityFlags::CHAT,
+            CandleCapability::InstructionFollowing => ModelCapabilityFlags::INSTRUCTION_FOLLOWING,
+            CandleCapability::FewShotLearning => ModelCapabilityFlags::FEW_SHOT_LEARNING,
+            CandleCapability::ZeroShotLearning => ModelCapabilityFlags::ZERO_SHOT_LEARNING,
+            CandleCapability::LongContext => ModelCapabilityFlags::LONG_CONTEXT,
+            CandleCapability::LowLatency => ModelCapabilityFlags::LOW_LATENCY,
+            CandleCapability::HighThroughput => ModelCapabilityFlags::HIGH_THROUGHPUT,
+            CandleCapability::Quantization => ModelCapabilityFlags::QUANTIZATION,
+            CandleCapability::Distillation => ModelCapabilityFlags::DISTILLATION,
+            CandleCapability::Pruning => ModelCapabilityFlags::PRUNING,
         }
     }
 
     /// Check if a specific capability is enabled
     pub fn has_capability(&self, capability: CandleCapability) -> bool {
-        match capability {
-            CandleCapability::Vision => self.supports_vision,
-            CandleCapability::FunctionCalling => self.supports_function_calling,
-            CandleCapability::Streaming => self.supports_streaming,
-            CandleCapability::FineTuning => self.supports_fine_tuning,
-            CandleCapability::BatchProcessing => self.supports_batch_processing,
-            CandleCapability::Realtime => self.supports_realtime,
-            CandleCapability::Multimodal => self.supports_multimodal,
-            CandleCapability::Thinking => self.supports_thinking,
-            CandleCapability::Embedding => self.supports_embedding,
-            CandleCapability::CodeCompletion => self.supports_code_completion,
-            CandleCapability::Chat => self.supports_chat,
-            CandleCapability::InstructionFollowing => self.supports_instruction_following,
-            CandleCapability::FewShotLearning => self.supports_few_shot_learning,
-            CandleCapability::ZeroShotLearning => self.supports_zero_shot_learning,
-            CandleCapability::LongContext => self.has_long_context,
-            CandleCapability::LowLatency => self.is_low_latency,
-            CandleCapability::HighThroughput => self.is_high_throughput,
-            CandleCapability::Quantization => self.supports_quantization,
-            CandleCapability::Distillation => self.supports_distillation,
-            CandleCapability::Pruning => self.supports_pruning,
-        }
+        let flag = Self::capability_to_flag(capability);
+        self.flags.contains(flag)
     }
 
     /// Check if all specified capabilities are enabled

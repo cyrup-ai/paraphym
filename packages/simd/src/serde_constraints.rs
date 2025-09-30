@@ -32,13 +32,13 @@ use crate::logits::constraints::{
     SchemaConstraint, SchemaVocabulary, regex_from_schema, regex_from_value,
 };
 
-/// Create a JSON constraint from a serde type with JsonSchema derive
+/// Create a JSON constraint from a serde type with `JsonSchema` derive
 ///
 /// This function generates a JSON schema from the given type and creates
 /// a constraint that ensures generated JSON conforms to that type structure.
 ///
 /// # Type Parameters
-/// * `T` - Type implementing Serialize, Deserialize, and JsonSchema
+/// * `T` - Type implementing `Serialize`, `Deserialize`, and `JsonSchema`
 ///
 /// # Arguments
 /// * `tokenizer` - Tokenizer for token-to-text conversion
@@ -180,7 +180,7 @@ impl<'a> ConstraintBuilder<'a> {
     /// Set the constraint to validate against a specific serde type
     ///
     /// # Type Parameters
-    /// * `T` - Type implementing JsonSchema
+    /// * `T` - Type implementing `JsonSchema`
     pub fn with_type<T>(mut self) -> Self
     where
         T: JsonSchema,
@@ -378,8 +378,8 @@ mod tests {
         
         // Verify constraint was created successfully - if it fails, print the error to understand the issue
         if let Err(ref e) = constraint_result {
-            println!("Constraint creation failed: {}", e);
-            println!("Generated regex: {}", regex_from_schema::<TestStruct>().unwrap_or_else(|e| format!("Regex generation failed: {}", e)));
+            println!("Constraint creation failed: {e}");
+            println!("Generated regex: {}", regex_from_schema::<TestStruct>().unwrap_or_else(|e| format!("Regex generation failed: {e}")));
         }
         assert!(constraint_result.is_ok(), "Should create constraint from TestStruct schema");
         let constraint = constraint_result.unwrap();

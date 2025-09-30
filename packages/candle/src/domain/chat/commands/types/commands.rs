@@ -558,152 +558,134 @@ impl ImmutableChatCommand {
     #[inline]
     pub fn validate(&self) -> CommandResult<()> {
         match self {
-            Self::Export { format, .. } => {
-                if !matches!(
-                    format.as_str(),
-                    "json" | "markdown" | "pdf" | "html" | "csv" | "xml" | "yaml"
-                ) {
-                    return Err(CandleCommandError::invalid_arguments(
-                        format!("Invalid export format '{format}'. Supported: json, markdown, pdf, html, csv, xml, yaml")
-                    ));
-                }
+            Self::Export { format, .. } => Self::validate_export_format(format),
+            Self::Search { query, .. } => Self::validate_search_query(query),
+            Self::Load { name, .. } => Self::validate_name_length(name, "Load", 255),
+            Self::Import { source, .. } => Self::validate_import_source(source),
+            Self::Custom { name, .. } => Self::validate_custom_name(name),
+            Self::Chat { message, .. } => Self::validate_chat_message(message),
+            Self::Template { name: Some(name), .. }
+            | Self::Macro { name: Some(name), .. }
+            | Self::Branch { name: Some(name), .. }
+            | Self::Session { name: Some(name), .. }
+            | Self::Tool { name: Some(name), .. }
+            | Self::Theme { name: Some(name), .. } => {
+                Self::validate_generic_name(name, self.command_name())
             }
-            Self::Search { query, .. } => {
-                if query.is_empty() {
-                    return Err(CandleCommandError::invalid_arguments(
-                        "Search query cannot be empty",
-                    ));
-                }
-                if query.len() > 1000 {
-                    return Err(CandleCommandError::invalid_arguments(
-                        "Search query too long (max 1000 characters)",
-                    ));
-                }
-            }
-            Self::Load { name, .. } => {
-                if name.is_empty() {
-                    return Err(CandleCommandError::invalid_arguments(
-                        "Load name cannot be empty",
-                    ));
-                }
-                if name.len() > 255 {
-                    return Err(CandleCommandError::invalid_arguments(
-                        "Load name too long (max 255 characters)",
-                    ));
-                }
-            }
-            Self::Import { source, .. } => {
-                if source.is_empty() {
-                    return Err(CandleCommandError::invalid_arguments(
-                        "Import source cannot be empty",
-                    ));
-                }
-                // Basic URL/path validation
-                if !source.starts_with("http://")
-                    && !source.starts_with("https://")
-                    && !source.starts_with("file://")
-                    && !source.starts_with('/')
-                    && !source.starts_with("./")
-                    && !source.starts_with("../")
-                {
-                    return Err(CandleCommandError::invalid_arguments(
-                        "Import source must be a valid URL or file path",
-                    ));
-                }
-            }
-            Self::Custom { name, .. } => {
-                if name.is_empty() {
-                    return Err(CandleCommandError::invalid_arguments(
-                        "Custom command name cannot be empty",
-                    ));
-                }
-                if name.len() > 100 {
-                    return Err(CandleCommandError::invalid_arguments(
-                        "Custom command name too long (max 100 characters)",
-                    ));
-                }
-                // Check for valid command name characters
-                if !name
-                    .chars()
-                    .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
-                {
-                    return Err(CandleCommandError::invalid_arguments(
-                        "Custom command name can only contain alphanumeric characters, underscores, and hyphens"
-                    ));
-                }
-            }
-            Self::Chat { message, .. } => {
-                if message.is_empty() {
-                    return Err(CandleCommandError::invalid_arguments(
-                        "Chat message cannot be empty",
-                    ));
-                }
-                if message.len() > 100_000 {
-                    return Err(CandleCommandError::invalid_arguments(
-                        "Chat message too long (max 100,000 characters)",
-                    ));
-                }
-            }
-            Self::Template {
-                name: Some(name), ..
-            }
-            | Self::Macro {
-                name: Some(name), ..
-            }
-            | Self::Branch {
-                name: Some(name), ..
-            }
-            | Self::Session {
-                name: Some(name), ..
-            }
-            | Self::Tool {
-                name: Some(name), ..
-            }
-            | Self::Theme {
-                name: Some(name), ..
-            } => {
-                if name.is_empty() {
-                    return Err(CandleCommandError::invalid_arguments(format!(
-                        "{} name cannot be empty",
-                        self.command_name()
-                    )));
-                }
-                if name.len() > 100 {
-                    return Err(CandleCommandError::invalid_arguments(format!(
-                        "{} name too long (max 100 characters)",
-                        self.command_name()
-                    )));
-                }
-            }
-            Self::History {
-                limit: Some(limit), ..
-            } => {
-                if *limit == 0 {
-                    return Err(CandleCommandError::invalid_arguments(
-                        "History limit must be greater than 0",
-                    ));
-                }
-                if *limit > 10_000 {
-                    return Err(CandleCommandError::invalid_arguments(
-                        "History limit too large (max 10,000)",
-                    ));
-                }
-            }
-            Self::Undo {
-                count: Some(count), ..
-            } => {
-                if *count == 0 {
-                    return Err(CandleCommandError::invalid_arguments(
-                        "Undo count must be greater than 0",
-                    ));
-                }
-                if *count > 100 {
-                    return Err(CandleCommandError::invalid_arguments(
-                        "Undo count too large (max 100)",
-                    ));
-                }
-            }
-            _ => {}
+            Self::History { limit: Some(limit), .. } => Self::validate_limit(*limit, 10_000, "History"),
+            Self::Undo { count: Some(count), .. } => Self::validate_limit(*count, 100, "Undo"),
+            _ => Ok(()),
+        }
+    }
+
+    #[inline]
+    fn validate_export_format(format: &str) -> CommandResult<()> {
+        if !matches!(format, "json" | "markdown" | "pdf" | "html" | "csv" | "xml" | "yaml") {
+            return Err(CandleCommandError::invalid_arguments(
+                format!("Invalid export format '{format}'. Supported: json, markdown, pdf, html, csv, xml, yaml")
+            ));
+        }
+        Ok(())
+    }
+
+    #[inline]
+    fn validate_search_query(query: &str) -> CommandResult<()> {
+        if query.is_empty() {
+            return Err(CandleCommandError::invalid_arguments("Search query cannot be empty"));
+        }
+        if query.len() > 1000 {
+            return Err(CandleCommandError::invalid_arguments(
+                "Search query too long (max 1000 characters)",
+            ));
+        }
+        Ok(())
+    }
+
+    #[inline]
+    fn validate_name_length(name: &str, context: &str, max_len: usize) -> CommandResult<()> {
+        if name.is_empty() {
+            return Err(CandleCommandError::invalid_arguments(format!("{context} name cannot be empty")));
+        }
+        if name.len() > max_len {
+            return Err(CandleCommandError::invalid_arguments(
+                format!("{context} name too long (max {max_len} characters)"),
+            ));
+        }
+        Ok(())
+    }
+
+    #[inline]
+    fn validate_import_source(source: &str) -> CommandResult<()> {
+        if source.is_empty() {
+            return Err(CandleCommandError::invalid_arguments("Import source cannot be empty"));
+        }
+        if !source.starts_with("http://")
+            && !source.starts_with("https://")
+            && !source.starts_with("file://")
+            && !source.starts_with('/')
+            && !source.starts_with("./")
+            && !source.starts_with("../")
+        {
+            return Err(CandleCommandError::invalid_arguments(
+                "Import source must be a valid URL or file path",
+            ));
+        }
+        Ok(())
+    }
+
+    #[inline]
+    fn validate_custom_name(name: &str) -> CommandResult<()> {
+        if name.is_empty() {
+            return Err(CandleCommandError::invalid_arguments("Custom command name cannot be empty"));
+        }
+        if name.len() > 100 {
+            return Err(CandleCommandError::invalid_arguments(
+                "Custom command name too long (max 100 characters)",
+            ));
+        }
+        if !name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
+            return Err(CandleCommandError::invalid_arguments(
+                "Custom command name can only contain alphanumeric characters, underscores, and hyphens"
+            ));
+        }
+        Ok(())
+    }
+
+    #[inline]
+    fn validate_chat_message(message: &str) -> CommandResult<()> {
+        if message.is_empty() {
+            return Err(CandleCommandError::invalid_arguments("Chat message cannot be empty"));
+        }
+        if message.len() > 100_000 {
+            return Err(CandleCommandError::invalid_arguments(
+                "Chat message too long (max 100,000 characters)",
+            ));
+        }
+        Ok(())
+    }
+
+    #[inline]
+    fn validate_generic_name(name: &str, command_name: &str) -> CommandResult<()> {
+        if name.is_empty() {
+            return Err(CandleCommandError::invalid_arguments(format!("{command_name} name cannot be empty")));
+        }
+        if name.len() > 100 {
+            return Err(CandleCommandError::invalid_arguments(
+                format!("{command_name} name too long (max 100 characters)"),
+            ));
+        }
+        Ok(())
+    }
+
+    #[inline]
+    fn validate_limit(value: usize, max: usize, context: &str) -> CommandResult<()> {
+        if value == 0 {
+            return Err(CandleCommandError::invalid_arguments(format!("{context} limit must be greater than 0")));
+        }
+        if value > max {
+            return Err(CandleCommandError::invalid_arguments(
+                format!("{context} limit too large (max {max})"),
+            ));
         }
         Ok(())
     }
@@ -735,7 +717,13 @@ impl ImmutableChatCommand {
             Self::Stats { .. } => 10 * 1024 * 1024,  // 10MB for statistics
             Self::History { .. } => 20 * 1024 * 1024, // 20MB for large history
             Self::Search { .. } => 5 * 1024 * 1024,  // 5MB for search operations
-            _ => 1024 * 1024,                        // 1MB for standard operations
+            Self::Help { .. } | Self::Clear { .. }
+            | Self::Config { .. } | Self::Template { .. } | Self::Macro { .. } | Self::Branch { .. }
+            | Self::Session { .. } | Self::Tool { .. } | Self::Theme { .. } | Self::Debug { .. }
+            | Self::Save { .. } | Self::Load { .. } | Self::Settings { .. } | Self::Custom { .. }
+            | Self::Copy { .. } | Self::Retry { .. } | Self::Undo { .. } | Self::Chat { .. } => {
+                1024 * 1024 // 1MB for standard operations
+            }
         }
     }
 

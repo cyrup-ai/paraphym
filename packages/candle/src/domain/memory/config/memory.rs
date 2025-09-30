@@ -121,26 +121,35 @@ pub struct MemorySecurityConfig {
     pub access_permissions: MemoryAccessPermissions,
 }
 
+bitflags::bitflags! {
+    /// Monitoring feature flags for zero-allocation enable/disable checks
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(transparent)]
+    pub struct MonitoringFlags: u8 {
+        /// Enable performance metrics collection
+        const METRICS = 1 << 0;
+        /// Enable memory usage tracking
+        const USAGE_TRACKING = 1 << 1;
+        /// Enable error tracking and reporting
+        const ERROR_TRACKING = 1 << 2;
+        /// Enable health checks
+        const HEALTH_CHECKS = 1 << 3;
+        /// All monitoring features enabled
+        const ALL = Self::METRICS.bits() | Self::USAGE_TRACKING.bits() | Self::ERROR_TRACKING.bits() | Self::HEALTH_CHECKS.bits();
+    }
+}
+
 /// Memory monitoring and observability configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryMonitoringConfig {
-    /// Enable performance metrics collection
-    pub enable_metrics: bool,
+    /// Monitoring feature flags
+    pub flags: MonitoringFlags,
 
     /// Metrics collection interval in seconds
     pub metrics_interval_seconds: u64,
 
-    /// Enable memory usage tracking
-    pub enable_usage_tracking: bool,
-
-    /// Enable error tracking and reporting
-    pub enable_error_tracking: bool,
-
     /// Maximum number of metrics to retain
     pub max_metrics_history: usize,
-
-    /// Enable health checks
-    pub enable_health_checks: bool,
 
     /// Health check interval in seconds
     pub health_check_interval_seconds: u64,
@@ -254,12 +263,9 @@ impl Default for MemorySecurityConfig {
 impl Default for MemoryMonitoringConfig {
     fn default() -> Self {
         Self {
-            enable_metrics: true,
+            flags: MonitoringFlags::ALL,
             metrics_interval_seconds: 60, // 1 minute
-            enable_usage_tracking: true,
-            enable_error_tracking: true,
             max_metrics_history: 10000,
-            enable_health_checks: true,
             health_check_interval_seconds: 300, // 5 minutes
         }
     }

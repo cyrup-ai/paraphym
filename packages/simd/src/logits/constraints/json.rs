@@ -54,6 +54,7 @@ pub struct JsonState {
 
 impl JsonState {
     /// Creates a new JSON state in the initial value-expecting state.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -289,6 +290,10 @@ pub struct JsonConstraint<'a> {
 
 impl<'a> JsonConstraint<'a> {
     /// Creates a new JSON constraint from a tokenizer vocabulary.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if tokenizer vocabulary cannot be processed
     pub fn new(tokenizer: &'a Tokenizer) -> AnyResult<Self> {
         let vocab_size = tokenizer.get_vocab_size(false);
         let mut token_bytes = vec![vec![]; vocab_size];

@@ -9,7 +9,7 @@
 //! - **Vectorized Similarity**: Parallel cosine similarity with runtime CPU feature detection
 //! - **Zero Allocation**: Pre-allocated buffers and stack-based temporary storage
 //! - **Adaptive Selection**: Automatic SIMD vs scalar selection based on vector size
-//! - **Platform Support**: x86_64 AVX2, ARM64 NEON with portable fallbacks
+//! - **Platform Support**: `x86_64` `AVX2`, `ARM64` `NEON` with portable fallbacks
 //!
 //! ## Usage Examples
 //!

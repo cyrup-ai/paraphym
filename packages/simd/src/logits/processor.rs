@@ -14,11 +14,13 @@ pub struct DefaultLogitsProcessor {
 
 impl DefaultLogitsProcessor {
     /// Create a new processor with default configuration
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Create a new processor with the given configuration
+    #[must_use]
     pub fn with_config(config: ProcessorConfig) -> Self {
         Self { config }
     }

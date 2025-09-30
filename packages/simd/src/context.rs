@@ -65,34 +65,40 @@ impl Default for ProcessingContext {
 
 impl ProcessingContext {
     /// Create a new processing context with default values
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Get the token history as a slice
+    #[must_use]
     pub fn token_history(&self) -> &[u32] {
         &self.token_history
     }
 
     /// Set the temperature
-    pub fn with_temperature(mut self, temperature: f32) -> Self {
+    #[must_use]
+    pub const fn with_temperature(mut self, temperature: f32) -> Self {
         self.temperature = temperature;
         self
     }
 
     /// Set the top-k value
-    pub fn with_top_k(mut self, top_k: Option<usize>) -> Self {
+    #[must_use]
+    pub const fn with_top_k(mut self, top_k: Option<usize>) -> Self {
         self.top_k = top_k;
         self
     }
 
     /// Set the top-p value
-    pub fn with_top_p(mut self, top_p: Option<f32>) -> Self {
+    #[must_use]
+    pub const fn with_top_p(mut self, top_p: Option<f32>) -> Self {
         self.top_p = top_p;
         self
     }
 
     /// Set the token history
+    #[must_use]
     pub fn with_token_history(mut self, history: Vec<u32>) -> Self {
         self.token_history = history;
         self
@@ -104,11 +110,13 @@ impl ProcessingContext {
     }
 
     /// Get the number of tokens in history
-    pub fn history_len(&self) -> usize {
+    #[must_use]
+    pub const fn history_len(&self) -> usize {
         self.token_history.len()
     }
 
     /// Check if processing should stop based on stop tokens or max tokens
+    #[must_use]
     pub fn should_stop(&self, new_token: u32, generated_count: usize) -> bool {
         // Check for stop tokens
         if self.stop_tokens.contains(&new_token) {
@@ -136,11 +144,13 @@ impl ProcessingContext {
     }
 
     /// Get elapsed time since timer was started
+    #[must_use]
     pub fn elapsed(&self) -> Option<std::time::Duration> {
         self.start_time.map(|start| start.elapsed())
     }
 
     /// Set a JSON constraint for structured output
+    #[must_use]
     pub fn with_json_constraint(mut self, constraint: JsonConstraint<'static>) -> Self {
         let initial_state = constraint.new_state();
         self.json_constraint = Some(constraint);
@@ -149,6 +159,10 @@ impl ProcessingContext {
     }
 
     /// Check if a token is valid according to JSON constraints
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if constraint validation fails
     pub fn is_token_valid(&self, token: u32) -> anyhow::Result<bool> {
         if let (Some(constraint), Some(state)) = (&self.json_constraint, &self.json_constraint_state) {
             constraint.try_next(state, token)
@@ -158,6 +172,10 @@ impl ProcessingContext {
     }
 
     /// Update JSON constraint state after token generation
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if constraint state update fails
     pub fn update_constraint_state(&mut self, token: u32) -> anyhow::Result<bool> {
         if let (Some(constraint), Some(state)) = (&self.json_constraint, &mut self.json_constraint_state) {
             constraint.update(state, token)
@@ -167,6 +185,7 @@ impl ProcessingContext {
     }
 
     /// Check if JSON constraint-based generation is complete
+    #[must_use]
     pub fn is_constraint_done(&self) -> bool {
         if let (Some(constraint), Some(state)) = (&self.json_constraint, &self.json_constraint_state) {
             constraint.is_done(state)
@@ -176,6 +195,10 @@ impl ProcessingContext {
     }
 
     /// Get deterministic token sequence from JSON constraints
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if sequence generation fails
     pub fn get_deterministic_sequence(&self) -> anyhow::Result<Vec<u32>> {
         if let (Some(constraint), Some(state)) = (&self.json_constraint, &self.json_constraint_state) {
             constraint.get_deterministic_sequence(state)
@@ -185,6 +208,7 @@ impl ProcessingContext {
     }
 
     /// Set a schema constraint from constraint instance
+    #[must_use]
     pub fn with_schema_constraint(mut self, constraint: SchemaConstraint) -> Self {
         let initial_state = constraint.new_state();
         self.schema_constraint = Some(constraint);
@@ -193,6 +217,10 @@ impl ProcessingContext {
     }
 
     /// Set a schema constraint from JSON schema value
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if schema constraint creation fails
     pub fn with_schema_constraint_from_value(
         mut self,
         schema: &serde_json::Value,
@@ -207,6 +235,10 @@ impl ProcessingContext {
     }
 
     /// Set a schema constraint from Serde type
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if schema constraint creation fails
     pub fn with_schema_constraint_from_type<T>(
         mut self,
         vocabulary: std::sync::Arc<SchemaVocabulary>,

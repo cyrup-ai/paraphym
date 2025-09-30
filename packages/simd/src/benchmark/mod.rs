@@ -54,6 +54,7 @@ where
 }
 
 /// Benchmark logits processing functions
+#[must_use]
 pub fn benchmark_logits_processing() -> Vec<BenchmarkResult> {
     let mut results = Vec::new();
 
@@ -67,19 +68,19 @@ pub fn benchmark_logits_processing() -> Vec<BenchmarkResult> {
         }
 
         // Benchmark temperature scaling
-        let temp_result = run_benchmark(&format!("temperature_scaling_{}", size), 1000, |_| {
+        let temp_result = run_benchmark(&format!("temperature_scaling_{size}"), 1000, |_| {
             let _ = crate::logits::processing::apply_temperature_scaling_simd(&mut logits, 0.7);
         });
         results.push(temp_result);
 
         // Benchmark top-k filtering
-        let topk_result = run_benchmark(&format!("topk_filtering_{}", size), 1000, |_| {
+        let topk_result = run_benchmark(&format!("topk_filtering_{size}"), 1000, |_| {
             let _ = crate::logits::topk::topk_filtering_simd(&mut logits, size / 2);
         });
         results.push(topk_result);
 
         // Benchmark normalization
-        let norm_result = run_benchmark(&format!("normalization_{}", size), 1000, |_| {
+        let norm_result = run_benchmark(&format!("normalization_{size}"), 1000, |_| {
             let _ = crate::logits::processing::normalize_probabilities_simd(&mut logits);
         });
         results.push(norm_result);

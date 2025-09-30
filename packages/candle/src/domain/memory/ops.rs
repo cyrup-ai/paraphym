@@ -54,16 +54,24 @@ static CACHE_HITS: LazyLock<RelaxedCounter> = LazyLock::new(|| RelaxedCounter::n
 #[allow(dead_code)]
 static CACHE_MISSES: LazyLock<RelaxedCounter> = LazyLock::new(|| RelaxedCounter::new(0));
 
-/// CPU feature detection for runtime SIMD selection
+bitflags::bitflags! {
+    /// CPU feature detection for runtime SIMD selection
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct CpuFeatureFlags: u32 {
+        const AVX2 = 1 << 0;
+        const AVX512F = 1 << 1;
+        const AVX512BW = 1 << 2;
+        const AVX512VL = 1 << 3;
+        const FMA = 1 << 4;
+        const SSE42 = 1 << 5;
+        const NEON = 1 << 6;
+    }
+}
+
+/// CPU features with architecture information
 #[derive(Debug, Clone, Copy)]
 pub struct CpuFeatures {
-    pub avx2: bool,
-    pub avx512f: bool,
-    pub avx512bw: bool,
-    pub avx512vl: bool,
-    pub fma: bool,
-    pub sse42: bool,
-    pub neon: bool,
+    pub features: CpuFeatureFlags,
     pub architecture: CpuArchitecture,
 }
 
@@ -78,16 +86,82 @@ pub enum CpuArchitecture {
 impl CpuFeatures {
     #[inline]
     pub fn detect() -> Self {
+        let mut features = CpuFeatureFlags::empty();
+        
+        if Self::detect_avx2() {
+            features |= CpuFeatureFlags::AVX2;
+        }
+        if Self::detect_avx512f() {
+            features |= CpuFeatureFlags::AVX512F;
+        }
+        if Self::detect_avx512bw() {
+            features |= CpuFeatureFlags::AVX512BW;
+        }
+        if Self::detect_avx512vl() {
+            features |= CpuFeatureFlags::AVX512VL;
+        }
+        if Self::detect_fma() {
+            features |= CpuFeatureFlags::FMA;
+        }
+        if Self::detect_sse42() {
+            features |= CpuFeatureFlags::SSE42;
+        }
+        if Self::detect_neon() {
+            features |= CpuFeatureFlags::NEON;
+        }
+        
         Self {
-            avx2: Self::detect_avx2(),
-            avx512f: Self::detect_avx512f(),
-            avx512bw: Self::detect_avx512bw(),
-            avx512vl: Self::detect_avx512vl(),
-            fma: Self::detect_fma(),
-            sse42: Self::detect_sse42(),
-            neon: Self::detect_neon(),
+            features,
             architecture: Self::detect_architecture(),
         }
+    }
+    
+    /// Check if a specific feature is available
+    #[inline]
+    pub const fn has(&self, feature: CpuFeatureFlags) -> bool {
+        self.features.contains(feature)
+    }
+    
+    /// Check if AVX2 is available
+    #[inline]
+    pub const fn has_avx2(&self) -> bool {
+        self.features.contains(CpuFeatureFlags::AVX2)
+    }
+    
+    /// Check if AVX512F is available
+    #[inline]
+    pub const fn has_avx512f(&self) -> bool {
+        self.features.contains(CpuFeatureFlags::AVX512F)
+    }
+    
+    /// Check if AVX512BW is available
+    #[inline]
+    pub const fn has_avx512bw(&self) -> bool {
+        self.features.contains(CpuFeatureFlags::AVX512BW)
+    }
+    
+    /// Check if AVX512VL is available
+    #[inline]
+    pub const fn has_avx512vl(&self) -> bool {
+        self.features.contains(CpuFeatureFlags::AVX512VL)
+    }
+    
+    /// Check if FMA is available
+    #[inline]
+    pub const fn has_fma(&self) -> bool {
+        self.features.contains(CpuFeatureFlags::FMA)
+    }
+    
+    /// Check if SSE4.2 is available
+    #[inline]
+    pub const fn has_sse42(&self) -> bool {
+        self.features.contains(CpuFeatureFlags::SSE42)
+    }
+    
+    /// Check if NEON is available
+    #[inline]
+    pub const fn has_neon(&self) -> bool {
+        self.features.contains(CpuFeatureFlags::NEON)
     }
 
     #[cfg(target_arch = "x86_64")]

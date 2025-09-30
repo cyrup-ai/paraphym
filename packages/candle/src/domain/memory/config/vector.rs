@@ -7,6 +7,30 @@ use serde::{Deserialize, Serialize};
 
 use super::super::primitives::types::{MemoryError, MemoryResult};
 
+/// Integer square root to avoid f64 cast precision/sign loss
+#[inline]
+const fn integer_sqrt(n: usize) -> usize {
+    if n < 2 {
+        return n;
+    }
+    let mut x = n;
+    let mut y = x.div_ceil(2);
+    while y < x {
+        x = y;
+        y = usize::midpoint(x, n / x);
+    }
+    x
+}
+
+/// Integer log2 to avoid f64 cast precision/sign loss
+#[inline]
+const fn integer_log2(n: usize) -> usize {
+    if n == 0 {
+        return 0;
+    }
+    usize::BITS as usize - n.leading_zeros() as usize - 1
+}
+
 /// Vector store configuration with SIMD optimization settings
 ///
 /// Features:
@@ -437,8 +461,8 @@ impl IndexConfig {
                 annoy_trees: None,
             },
             IndexType::IVFPQ => {
-                #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
-                let num_clusters = (expected_vectors as f64).sqrt() as usize;
+                // Use integer sqrt to avoid f64 cast precision/sign loss
+                let num_clusters = integer_sqrt(expected_vectors).max(1);
                 let pq_subspaces = (dimension / 4).clamp(1, 64);
                 Self {
                     index_type,
@@ -469,8 +493,7 @@ impl IndexConfig {
                 hnsw_max_connections: None,
                 hnsw_ef_construction: None,
                 search_ef: None,
-                #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
-                annoy_trees: Some((expected_vectors as f64).log2() as usize * 2),
+                annoy_trees: Some(integer_log2(expected_vectors).max(1) * 2),
             },
             IndexType::LSH | IndexType::SQ => Self {
                 index_type,
@@ -488,10 +511,17 @@ impl IndexConfig {
     /// Estimate memory usage in bytes
     pub fn estimate_memory_usage(&self, dimension: usize, num_vectors: usize) -> usize {
         let base_size = num_vectors * dimension * 4; // f32 vectors
-        let multiplier = self.index_type.memory_multiplier();
-        #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
-        let result = (base_size as f32 * multiplier) as usize;
-        result
+        // Use const match to convert f32 multiplier to integer ratio
+        // This avoids cast_sign_loss by using compile-time known positive values
+        let multiplier_int = match self.index_type {
+            IndexType::FlatIP | IndexType::FlatL2 => 1000,  // 1.0
+            IndexType::IVFPQ => 100,                        // 0.1
+            IndexType::HNSW => 1500,                        // 1.5
+            IndexType::Annoy => 2000,                       // 2.0
+            IndexType::LSH => 1200,                         // 1.2
+            IndexType::SQ => 250,                           // 0.25
+        };
+        base_size.saturating_mul(multiplier_int) / 1000
     }
 }
 

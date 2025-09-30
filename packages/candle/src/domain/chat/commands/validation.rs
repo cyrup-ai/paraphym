@@ -65,201 +65,303 @@ impl CommandValidator {
     ///
     /// Returns `ValidationError` if any command parameter fails validation checks
     /// including string length, integer ranges, file paths, or command-specific rules
+    #[inline]
     pub fn validate_command(&self, command: &ImmutableChatCommand) -> Result<(), ValidationError> {
         match command {
-            ImmutableChatCommand::Help { command, .. } => {
-                if let Some(cmd) = command {
-                    self.validate_string_parameter("command", cmd, false)?;
-                }
+            ImmutableChatCommand::Help { command, .. } => self.validate_help_command(command.as_ref()),
+            ImmutableChatCommand::Clear { keep_last, .. } => Self::validate_clear_command(keep_last.as_ref()),
+            ImmutableChatCommand::Export { format, output, .. } => self.validate_export_command(format, output.as_ref()),
+            ImmutableChatCommand::Config { key, value, .. } => self.validate_config_command(key.as_deref(), value.as_deref()),
+            ImmutableChatCommand::Search { query, limit, .. } => self.validate_search_command(query, *limit),
+            ImmutableChatCommand::Template { name, content, variables, .. } => {
+                self.validate_template_command(name.as_deref(), content.as_deref(), variables)
             }
-            ImmutableChatCommand::Clear { keep_last, .. } => {
-                if let Some(n) = keep_last {
-                    Self::validate_integer_parameter("keep_last", i64::try_from(*n).unwrap_or(i64::MAX), Some(1), Some(1000))?;
-                }
+            ImmutableChatCommand::Macro { name, commands, .. } => self.validate_macro_command(name.as_deref(), commands),
+            ImmutableChatCommand::Branch { name, source, .. } => self.validate_branch_command(name.as_deref(), source.as_deref()),
+            ImmutableChatCommand::Session { name, .. } => self.validate_session_command(name.as_deref()),
+            ImmutableChatCommand::Tool { name, args, .. } => self.validate_tool_command(name.as_deref(), args),
+            ImmutableChatCommand::Stats { period, .. } => Self::validate_stats_command(period.as_deref()),
+            ImmutableChatCommand::Theme { name, properties, .. } => self.validate_theme_command(name.as_deref(), properties),
+            ImmutableChatCommand::Debug { level, .. } => Self::validate_debug_command(level.as_deref()),
+            ImmutableChatCommand::History { filter, .. } => self.validate_history_command(filter.as_deref()),
+            ImmutableChatCommand::Save { name, location, .. } => self.validate_save_command(name.as_deref(), location.as_deref()),
+            ImmutableChatCommand::Load { name, location, .. } => self.validate_load_command(name, location.as_deref()),
+            ImmutableChatCommand::Import { source, .. } => self.validate_import_command(source),
+            ImmutableChatCommand::Settings { key, value, .. } => self.validate_settings_command(key.as_deref(), value.as_deref()),
+            ImmutableChatCommand::Custom { name, args, .. } => self.validate_custom_command(name, args),
+            ImmutableChatCommand::Copy { message_id, content, .. } => {
+                self.validate_copy_command(message_id.as_deref(), content.as_deref())
             }
-            ImmutableChatCommand::Export { format, output, .. } => {
-                Self::validate_enum_parameter(
-                    "format",
-                    format,
-                    &["json", "markdown", "pdf", "html"],
-                )?;
-                if let Some(path) = output {
-                    self.validate_path_parameter("output", path)?;
-                }
-            }
-            ImmutableChatCommand::Config { key, value, .. } => {
-                if let Some(k) = key {
-                    self.validate_config_key(k)?;
-                }
-                if let Some(v) = value {
-                    self.validate_config_value(v)?;
-                }
-            }
-            ImmutableChatCommand::Search { query, limit, .. } => {
-                self.validate_string_parameter("query", query, false)?;
-                if let Some(n) = limit {
-                    Self::validate_integer_parameter("limit", i64::try_from(*n).unwrap_or(i64::MAX), Some(1), Some(100))?;
-                }
-            }
-            ImmutableChatCommand::Template {
-                name,
-                content,
-                variables,
-                ..
-            } => {
-                if let Some(n) = name {
-                    self.validate_name_parameter("name", n)?;
-                }
-                if let Some(c) = content {
-                    self.validate_content_parameter("content", c)?;
-                }
-                self.validate_variables(variables)?;
-            }
-            ImmutableChatCommand::Macro { name, commands, .. } => {
-                if let Some(n) = name {
-                    self.validate_name_parameter("name", n)?;
-                }
-                for (i, cmd) in commands.iter().enumerate() {
-                    self.validate_string_parameter(&format!("command_{i}"), cmd, false)?;
-                }
-            }
-            ImmutableChatCommand::Branch { name, source, .. } => {
-                if let Some(n) = name {
-                    self.validate_name_parameter("name", n)?;
-                }
-                if let Some(s) = source {
-                    self.validate_name_parameter("source", s)?;
-                }
-            }
-            ImmutableChatCommand::Session { name, .. } => {
-                if let Some(n) = name {
-                    self.validate_name_parameter("name", n)?;
-                }
-            }
-            ImmutableChatCommand::Tool { name, args, .. } => {
-                if let Some(n) = name {
-                    self.validate_name_parameter("name", n)?;
-                }
-                self.validate_tool_args(args)?;
-            }
-            ImmutableChatCommand::Stats { period, .. } => {
-                if let Some(p) = period {
-                    Self::validate_enum_parameter("period", p, &["day", "week", "month", "year"])?;
-                }
-            }
-            ImmutableChatCommand::Theme {
-                name, properties, ..
-            } => {
-                if let Some(n) = name {
-                    self.validate_name_parameter("name", n)?;
-                }
-                self.validate_theme_properties(properties)?;
-            }
-            ImmutableChatCommand::Debug { level, .. } => {
-                if let Some(l) = level {
-                    Self::validate_enum_parameter(
-                        "level",
-                        l,
-                        &["trace", "debug", "info", "warn", "error"],
-                    )?;
-                }
-            }
-            ImmutableChatCommand::History { filter, .. } => {
-                if let Some(f) = filter {
-                    self.validate_string_parameter("filter", f, true)?;
-                }
-            }
-            ImmutableChatCommand::Save { name, location, .. } => {
-                if let Some(n) = name {
-                    self.validate_name_parameter("name", n)?;
-                }
-                if let Some(l) = location {
-                    self.validate_path_parameter("location", l)?;
-                }
-            }
-            ImmutableChatCommand::Load { name, location, .. } => {
-                self.validate_string_parameter("name", name, false)?;
-                if let Some(l) = location {
-                    self.validate_path_parameter("location", l)?;
-                }
-            }
-            ImmutableChatCommand::Import { source, .. } => {
-                self.validate_string_parameter("source", source, false)?;
-                // Additional import source validation could be added here
-            }
-            ImmutableChatCommand::Settings { key, value, .. } => {
-                if let Some(k) = key {
-                    self.validate_string_parameter("key", k, false)?;
-                }
-                if let Some(v) = value {
-                    self.validate_string_parameter("value", v, true)?;
-                }
-            }
-            ImmutableChatCommand::Custom { name, args, .. } => {
-                self.validate_name_parameter("name", name)?;
-                for (k, v) in args {
-                    self.validate_string_parameter(&format!("arg_{k}"), v, true)?;
-                }
-            }
-            ImmutableChatCommand::Copy {
-                message_id,
-                content,
-                format: _,
-            } => {
-                if let Some(msg_id) = message_id {
-                    self.validate_string_parameter("message_id", msg_id, false)?;
-                }
-                if let Some(ctnt) = content {
-                    self.validate_string_parameter("content", ctnt, false)?;
-                }
-                // Format is an enum, so no need to validate
-            }
-            ImmutableChatCommand::Retry {
-                command, attempts, ..
-            } => {
-                if let Some(cmd) = command {
-                    self.validate_string_parameter("command", cmd, false)?;
-                }
-                if let Some(attempts) = attempts
-                    && (*attempts == 0 || *attempts > 100)
-                {
-                    return Err(ValidationError::InvalidParameterFormat {
-                        parameter: "attempts".to_string(),
-                        value: attempts.to_string(),
-                        expected_format: "1-100".to_string(),
-                    });
-                }
-            }
-            ImmutableChatCommand::Undo { count, .. } => {
-                if let Some(cnt) = count
-                    && (*cnt == 0 || *cnt > 1000)
-                {
-                    return Err(ValidationError::InvalidParameterFormat {
-                        parameter: "count".to_string(),
-                        value: cnt.to_string(),
-                        expected_format: "1-1000".to_string(),
-                    });
-                }
-            }
-            ImmutableChatCommand::Chat {
-                message,
-                context,
-                priority,
-            } => {
-                self.validate_string_parameter("message", message, false)?;
-                if let Some(ctx) = context {
-                    self.validate_string_parameter("context", ctx, true)?;
-                }
-                if *priority > 10 {
-                    return Err(ValidationError::InvalidParameterFormat {
-                        parameter: "priority".to_string(),
-                        value: priority.to_string(),
-                        expected_format: "0-10".to_string(),
-                    });
-                }
+            ImmutableChatCommand::Retry { command, attempts, .. } => self.validate_retry_command(command.as_deref(), *attempts),
+            ImmutableChatCommand::Undo { count, .. } => Self::validate_undo_command(*count),
+            ImmutableChatCommand::Chat { message, context, priority } => {
+                self.validate_chat_command(message, context.as_deref(), *priority)
             }
         }
+    }
 
+    /// Validate Help command - checks optional command parameter
+    #[inline]
+    fn validate_help_command(&self, command: Option<&String>) -> Result<(), ValidationError> {
+        if let Some(cmd) = command {
+            self.validate_string_parameter("command", cmd, false)?;
+        }
+        Ok(())
+    }
+
+    /// Validate Clear command - checks `keep_last` range
+    #[inline]
+    fn validate_clear_command(keep_last: Option<&usize>) -> Result<(), ValidationError> {
+        if let Some(n) = keep_last {
+            Self::validate_integer_parameter("keep_last", i64::try_from(*n).unwrap_or(i64::MAX), Some(1), Some(1000))?;
+        }
+        Ok(())
+    }
+
+    /// Validate Export command - checks format enum and output path
+    #[inline]
+    fn validate_export_command(&self, format: &str, output: Option<&String>) -> Result<(), ValidationError> {
+        Self::validate_enum_parameter("format", format, &["json", "markdown", "pdf", "html"])?;
+        if let Some(path) = output {
+            self.validate_path_parameter("output", path)?;
+        }
+        Ok(())
+    }
+
+    /// Validate Config command - checks key/value format
+    #[inline]
+    fn validate_config_command(&self, key: Option<&str>, value: Option<&str>) -> Result<(), ValidationError> {
+        if let Some(k) = key {
+            self.validate_config_key(k)?;
+        }
+        if let Some(v) = value {
+            self.validate_config_value(v)?;
+        }
+        Ok(())
+    }
+
+    /// Validate Search command - checks query and limit
+    #[inline]
+    fn validate_search_command(&self, query: &str, limit: Option<usize>) -> Result<(), ValidationError> {
+        self.validate_string_parameter("query", query, false)?;
+        if let Some(n) = limit {
+            Self::validate_integer_parameter("limit", i64::try_from(n).unwrap_or(i64::MAX), Some(1), Some(100))?;
+        }
+        Ok(())
+    }
+
+    /// Validate Template command - checks name, content, and variables
+    #[inline]
+    fn validate_template_command(
+        &self,
+        name: Option<&str>,
+        content: Option<&str>,
+        variables: &HashMap<String, String>,
+    ) -> Result<(), ValidationError> {
+        if let Some(n) = name {
+            self.validate_name_parameter("name", n)?;
+        }
+        if let Some(c) = content {
+            self.validate_content_parameter("content", c)?;
+        }
+        self.validate_variables(variables)?;
+        Ok(())
+    }
+
+    /// Validate Macro command - checks name and commands list
+    #[inline]
+    fn validate_macro_command(&self, name: Option<&str>, commands: &[String]) -> Result<(), ValidationError> {
+        if let Some(n) = name {
+            self.validate_name_parameter("name", n)?;
+        }
+        for (i, cmd) in commands.iter().enumerate() {
+            self.validate_string_parameter(&format!("command_{i}"), cmd, false)?;
+        }
+        Ok(())
+    }
+
+    /// Validate Branch command - checks name and source
+    #[inline]
+    fn validate_branch_command(&self, name: Option<&str>, source: Option<&str>) -> Result<(), ValidationError> {
+        if let Some(n) = name {
+            self.validate_name_parameter("name", n)?;
+        }
+        if let Some(s) = source {
+            self.validate_name_parameter("source", s)?;
+        }
+        Ok(())
+    }
+
+    /// Validate Session command - checks optional name
+    #[inline]
+    fn validate_session_command(&self, name: Option<&str>) -> Result<(), ValidationError> {
+        if let Some(n) = name {
+            self.validate_name_parameter("name", n)?;
+        }
+        Ok(())
+    }
+
+    /// Validate Tool command - checks name and args
+    #[inline]
+    fn validate_tool_command(&self, name: Option<&str>, args: &HashMap<String, String>) -> Result<(), ValidationError> {
+        if let Some(n) = name {
+            self.validate_name_parameter("name", n)?;
+        }
+        self.validate_tool_args(args)?;
+        Ok(())
+    }
+
+    /// Validate Stats command - checks period enum
+    #[inline]
+    fn validate_stats_command(period: Option<&str>) -> Result<(), ValidationError> {
+        if let Some(p) = period {
+            Self::validate_enum_parameter("period", p, &["day", "week", "month", "year"])?;
+        }
+        Ok(())
+    }
+
+    /// Validate Theme command - checks name and properties
+    #[inline]
+    fn validate_theme_command(
+        &self,
+        name: Option<&str>,
+        properties: &HashMap<String, String>,
+    ) -> Result<(), ValidationError> {
+        if let Some(n) = name {
+            self.validate_name_parameter("name", n)?;
+        }
+        self.validate_theme_properties(properties)?;
+        Ok(())
+    }
+
+    /// Validate Debug command - checks level enum
+    #[inline]
+    fn validate_debug_command(level: Option<&str>) -> Result<(), ValidationError> {
+        if let Some(l) = level {
+            Self::validate_enum_parameter("level", l, &["trace", "debug", "info", "warn", "error"])?;
+        }
+        Ok(())
+    }
+
+    /// Validate History command - checks optional filter
+    #[inline]
+    fn validate_history_command(&self, filter: Option<&str>) -> Result<(), ValidationError> {
+        if let Some(f) = filter {
+            self.validate_string_parameter("filter", f, true)?;
+        }
+        Ok(())
+    }
+
+    /// Validate Save command - checks name and location
+    #[inline]
+    fn validate_save_command(&self, name: Option<&str>, location: Option<&str>) -> Result<(), ValidationError> {
+        if let Some(n) = name {
+            self.validate_name_parameter("name", n)?;
+        }
+        if let Some(l) = location {
+            self.validate_path_parameter("location", l)?;
+        }
+        Ok(())
+    }
+
+    /// Validate Load command - checks required name and optional location
+    #[inline]
+    fn validate_load_command(&self, name: &str, location: Option<&str>) -> Result<(), ValidationError> {
+        self.validate_string_parameter("name", name, false)?;
+        if let Some(l) = location {
+            self.validate_path_parameter("location", l)?;
+        }
+        Ok(())
+    }
+
+    /// Validate Import command - checks source
+    #[inline]
+    fn validate_import_command(&self, source: &str) -> Result<(), ValidationError> {
+        self.validate_string_parameter("source", source, false)?;
+        Ok(())
+    }
+
+    /// Validate Settings command - checks key and value
+    #[inline]
+    fn validate_settings_command(&self, key: Option<&str>, value: Option<&str>) -> Result<(), ValidationError> {
+        if let Some(k) = key {
+            self.validate_string_parameter("key", k, false)?;
+        }
+        if let Some(v) = value {
+            self.validate_string_parameter("value", v, true)?;
+        }
+        Ok(())
+    }
+
+    /// Validate Custom command - checks name and all args
+    #[inline]
+    fn validate_custom_command(&self, name: &str, args: &HashMap<String, String>) -> Result<(), ValidationError> {
+        self.validate_name_parameter("name", name)?;
+        for (k, v) in args {
+            self.validate_string_parameter(&format!("arg_{k}"), v, true)?;
+        }
+        Ok(())
+    }
+
+    /// Validate Copy command - checks `message_id` and content
+    #[inline]
+    fn validate_copy_command(&self, message_id: Option<&str>, content: Option<&str>) -> Result<(), ValidationError> {
+        if let Some(msg_id) = message_id {
+            self.validate_string_parameter("message_id", msg_id, false)?;
+        }
+        if let Some(ctnt) = content {
+            self.validate_string_parameter("content", ctnt, false)?;
+        }
+        Ok(())
+    }
+
+    /// Validate Retry command - checks command string and attempts range
+    #[inline]
+    fn validate_retry_command(&self, command: Option<&str>, attempts: Option<u32>) -> Result<(), ValidationError> {
+        if let Some(cmd) = command {
+            self.validate_string_parameter("command", cmd, false)?;
+        }
+        if let Some(att) = attempts
+            && (att == 0 || att > 100)
+        {
+            return Err(ValidationError::InvalidParameterFormat {
+                parameter: "attempts".to_string(),
+                value: att.to_string(),
+                expected_format: "1-100".to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    /// Validate Undo command - checks count range
+    #[inline]
+    fn validate_undo_command(count: Option<usize>) -> Result<(), ValidationError> {
+        if let Some(cnt) = count
+            && (cnt == 0 || cnt > 1000)
+        {
+            return Err(ValidationError::InvalidParameterFormat {
+                parameter: "count".to_string(),
+                value: cnt.to_string(),
+                expected_format: "1-1000".to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    /// Validate Chat command - checks message, context, and priority
+    #[inline]
+    fn validate_chat_command(&self, message: &str, context: Option<&str>, priority: u8) -> Result<(), ValidationError> {
+        self.validate_string_parameter("message", message, false)?;
+        if let Some(ctx) = context {
+            self.validate_string_parameter("context", ctx, true)?;
+        }
+        if priority > 10 {
+            return Err(ValidationError::InvalidParameterFormat {
+                parameter: "priority".to_string(),
+                value: priority.to_string(),
+                expected_format: "0-10".to_string(),
+            });
+        }
         Ok(())
     }
 

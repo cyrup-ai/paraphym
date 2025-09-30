@@ -8257,6 +8257,7 @@ dependencies = [
  "base64 0.22.1",
  "bincode 2.0.1",
  "bindgen_cuda",
+ "bitflags 2.9.4",
  "bytes",
  "cache-padded",
  "candle-core",

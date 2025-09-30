@@ -24,8 +24,8 @@ pub type TokenId = u32;
 
 /// High-performance index for DFA-based token validation
 ///
-/// The SchemaIndex efficiently maps vocabulary tokens to state transitions
-/// using a precomputed transition table for O(1) token validation.
+/// The `SchemaIndex` efficiently maps vocabulary tokens to state transitions
+/// using a precomputed transition table for `O(1)` token validation.
 #[derive(Clone, Debug)]
 pub struct SchemaIndex {
     /// The initial state of the DFA
@@ -43,7 +43,7 @@ pub struct SchemaIndex {
 }
 
 impl SchemaIndex {
-    /// Build a new SchemaIndex from regex pattern and vocabulary
+    /// Build a new `SchemaIndex` from regex pattern and vocabulary
     pub fn new(regex_pattern: &str, vocabulary: &SchemaVocabulary) -> AnyResult<Self> {
         // Build DFA from regex pattern with optimized settings
         let dfa = Builder::new()
@@ -157,19 +157,22 @@ impl SchemaIndex {
     }
 
     /// Get the initial state of the DFA
-    #[inline(always)]
-    pub fn initial_state(&self) -> StateId {
+    #[inline]
+    #[must_use]
+    pub const fn initial_state(&self) -> StateId {
         self.initial_state
     }
 
     /// Check if a state is a final/accepting state
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub fn is_final_state(&self, state: StateId) -> bool {
         self.final_states.contains(&state)
     }
 
     /// Get the next state after consuming a token
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub fn next_state(&self, current_state: StateId, token_id: TokenId) -> Option<StateId> {
         self.transitions
             .get(&current_state)?
@@ -178,30 +181,35 @@ impl SchemaIndex {
     }
 
     /// Get all allowed tokens from a given state
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub fn allowed_tokens(&self, state: StateId) -> Option<&HashMap<TokenId, StateId>> {
         self.transitions.get(&state)
     }
 
     /// Get the vocabulary size
-    #[inline(always)]
-    pub fn vocab_size(&self) -> usize {
+    #[inline]
+    #[must_use]
+    pub const fn vocab_size(&self) -> usize {
         self.vocab_size
     }
 
     /// Get the end-of-sequence token ID
-    #[inline(always)]
-    pub fn eos_token_id(&self) -> TokenId {
+    #[inline]
+    #[must_use]
+    pub const fn eos_token_id(&self) -> TokenId {
         self.eos_token_id
     }
 
     /// Check if a state is the dead state
-    #[inline(always)]
-    pub fn is_dead_state(&self, state: StateId) -> bool {
+    #[inline]
+    #[must_use]
+    pub const fn is_dead_state(&self, state: StateId) -> bool {
         state == self.dead_state
     }
 
     /// Get statistics about the index
+    #[must_use]
     pub fn stats(&self) -> IndexStats {
         let total_transitions: usize = self.transitions.values()
             .map(|transitions| transitions.len())
@@ -217,7 +225,7 @@ impl SchemaIndex {
     }
 }
 
-/// Statistics about a SchemaIndex
+/// Statistics about a `SchemaIndex`
 #[derive(Debug, Clone)]
 pub struct IndexStats {
     /// Total number of states in the DFA
@@ -534,7 +542,7 @@ pub mod utils {
         pattern: &str,
         vocabulary: Arc<SchemaVocabulary>,
     ) -> AnyResult<SchemaConstraint> {
-        let regex = format!(r#""{}""#, pattern);
+        let regex = format!(r#""{pattern}""#);
         SchemaConstraint::new(&regex, vocabulary)
     }
 
@@ -545,7 +553,10 @@ pub mod utils {
     ) -> AnyResult<SchemaConstraint> {
         let escaped_values: Vec<String> = values
             .iter()
-            .map(|v| format!(r#""{}""#, regex::escape(v)))
+            .map(|v| {
+                let escaped = regex::escape(v);
+                format!(r#""{escaped}""#)
+            })
             .collect();
 
         let regex = escaped_values.join("|");

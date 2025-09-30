@@ -5,6 +5,7 @@ edition = "2024"
 
 
 [dependencies]
+bitflags = "2.9.4"
 paraphym_simd = { path = "../simd" }
 cylo = { path = "../cylo" }
 

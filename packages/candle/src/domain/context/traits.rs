@@ -245,17 +245,27 @@ pub enum CandleContextSource {
     Unknown,
 }
 
+bitflags::bitflags! {
+    /// Context capability flags for zero-allocation capability checks
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(transparent)]
+    pub struct ContextCapabilityFlags: u8 {
+        /// Context supports real-time updates
+        const REALTIME_UPDATES = 1 << 0;
+        /// Context can be refreshed
+        const REFRESH = 1 << 1;
+        /// Context supports streaming
+        const STREAMING = 1 << 2;
+        /// Context supports search/filtering
+        const SEARCH = 1 << 3;
+    }
+}
+
 /// Context capabilities and supported operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CandleContextCapabilities {
-    /// Whether context supports real-time updates
-    pub supports_realtime_updates: bool,
-    /// Whether context can be refreshed
-    pub supports_refresh: bool,
-    /// Whether context supports streaming
-    pub supports_streaming: bool,
-    /// Whether context supports search/filtering
-    pub supports_search: bool,
+    /// Capability flags
+    pub flags: ContextCapabilityFlags,
     /// Maximum content size supported
     pub max_content_size: Option<u64>,
     /// Supported content types
@@ -267,10 +277,7 @@ pub struct CandleContextCapabilities {
 impl Default for CandleContextCapabilities {
     fn default() -> Self {
         Self {
-            supports_realtime_updates: false,
-            supports_refresh: true,
-            supports_streaming: true,
-            supports_search: false,
+            flags: ContextCapabilityFlags::REFRESH | ContextCapabilityFlags::STREAMING,
             max_content_size: Some(10 * 1024 * 1024), // 10MB
             supported_content_types: vec![CandleContextType::Text],
             required_permissions: Vec::new(),
@@ -281,10 +288,7 @@ impl Default for CandleContextCapabilities {
 impl MessageChunk for CandleContextCapabilities {
     fn bad_chunk(error: String) -> Self {
         CandleContextCapabilities {
-            supports_realtime_updates: false,
-            supports_refresh: false,
-            supports_streaming: false,
-            supports_search: false,
+            flags: ContextCapabilityFlags::empty(),
             max_content_size: None,
             supported_content_types: vec![CandleContextType::Text],
             required_permissions: vec![format!("ERROR: {}", error)],
@@ -381,10 +385,7 @@ impl CandleContext for CandleFileContext {
     fn get_capabilities(&self) -> AsyncStream<CandleContextCapabilities> {
         AsyncStream::with_channel(move |sender| {
             let capabilities = CandleContextCapabilities {
-                supports_realtime_updates: false, // Would need file watching
-                supports_refresh: true,
-                supports_streaming: true,
-                supports_search: false,
+                flags: ContextCapabilityFlags::REFRESH | ContextCapabilityFlags::STREAMING,
                 max_content_size: Some(100 * 1024 * 1024), // 100MB
                 supported_content_types: vec![
                     CandleContextType::Text,

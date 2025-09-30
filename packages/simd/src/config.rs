@@ -9,7 +9,7 @@ pub struct ProcessorConfig {
     /// Number of highest probability tokens to keep (None = keep all)
     pub top_k: Option<usize>,
 
-    /// Nucleus sampling parameter (None = disabled, 0.0 < top_p <= 1.0)
+    /// Nucleus sampling parameter (`None` = disabled, `0.0 < top_p <= 1.0`)
     pub top_p: Option<f32>,
 
     /// Penalty for repeated tokens (1.0 = no penalty, > 1.0 = more penalty)
@@ -42,11 +42,11 @@ pub enum ConfigError {
     #[error("Invalid temperature value: {0}. Must be positive")]
     InvalidTemperature(f32),
 
-    /// Invalid top_k value - must be > 0 if set
+    /// Invalid `top_k` value - must be `> 0` if set
     #[error("Invalid top_k value: {0}. Must be > 0 if set")]
     InvalidTopK(usize),
 
-    /// Invalid top_p value - must be in range (0.0, 1.0]
+    /// Invalid `top_p` value - must be in range `(0.0, 1.0]`
     #[error("Invalid top_p value: {0}. Must be in range (0.0, 1.0]")]
     InvalidTopP(f32),
 
@@ -65,11 +65,16 @@ pub enum ConfigError {
 
 impl ProcessorConfig {
     /// Create a new configuration with default values
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Validate configuration values
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any configuration parameter is invalid
     pub fn validate(&self) -> Result<(), ConfigError> {
         if self.temperature <= 0.0 {
             return Err(ConfigError::InvalidTemperature(self.temperature));
@@ -103,37 +108,43 @@ impl ProcessorConfig {
     }
 
     /// Set temperature parameter
-    pub fn with_temperature(mut self, temperature: f32) -> Self {
+    #[must_use]
+    pub const fn with_temperature(mut self, temperature: f32) -> Self {
         self.temperature = temperature;
         self
     }
 
     /// Set top-k parameter
-    pub fn with_top_k(mut self, top_k: Option<usize>) -> Self {
+    #[must_use]
+    pub const fn with_top_k(mut self, top_k: Option<usize>) -> Self {
         self.top_k = top_k;
         self
     }
 
     /// Set top-p parameter
-    pub fn with_top_p(mut self, top_p: Option<f32>) -> Self {
+    #[must_use]
+    pub const fn with_top_p(mut self, top_p: Option<f32>) -> Self {
         self.top_p = top_p;
         self
     }
 
     /// Set repetition penalty
-    pub fn with_repetition_penalty(mut self, penalty: f32) -> Self {
+    #[must_use]
+    pub const fn with_repetition_penalty(mut self, penalty: f32) -> Self {
         self.repetition_penalty = penalty;
         self
     }
 
     /// Set frequency penalty
-    pub fn with_frequency_penalty(mut self, penalty: f32) -> Self {
+    #[must_use]
+    pub const fn with_frequency_penalty(mut self, penalty: f32) -> Self {
         self.frequency_penalty = penalty;
         self
     }
 
     /// Set presence penalty
-    pub fn with_presence_penalty(mut self, penalty: f32) -> Self {
+    #[must_use]
+    pub const fn with_presence_penalty(mut self, penalty: f32) -> Self {
         self.presence_penalty = penalty;
         self
     }

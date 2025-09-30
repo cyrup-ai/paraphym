@@ -754,10 +754,7 @@ impl MacroSystem {
     }
 
     /// Evaluate a condition string - planned feature
-    fn _evaluate_condition(
-        condition: &str,
-        variables: &HashMap<String, String>,
-    ) -> bool {
+    fn _evaluate_condition(condition: &str, variables: &HashMap<String, String>) -> bool {
         // Simple condition evaluation - in a real implementation, this would be more sophisticated
         if condition.contains("==") {
             let parts: Vec<&str> = condition.split("==").collect();
@@ -913,6 +910,26 @@ pub struct MacroProcessorStatsSnapshot {
     pub active_executions: usize,
 }
 
+bitflags::bitflags! {
+    /// Macro processor feature flags for zero-allocation enable/disable checks
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(transparent)]
+    pub struct MacroFeatureFlags: u8 {
+        /// Enable variable substitution in macros
+        const VARIABLE_SUBSTITUTION = 1 << 0;
+        /// Enable conditional execution (if/else)
+        const CONDITIONAL_EXECUTION = 1 << 1;
+        /// Enable loop execution (for/while)
+        const LOOP_EXECUTION = 1 << 2;
+        /// Enable performance monitoring
+        const MONITORING = 1 << 3;
+        /// Auto-save macro changes
+        const AUTO_SAVE = 1 << 4;
+        /// All macro features enabled
+        const ALL = Self::VARIABLE_SUBSTITUTION.bits() | Self::CONDITIONAL_EXECUTION.bits() | Self::LOOP_EXECUTION.bits() | Self::MONITORING.bits() | Self::AUTO_SAVE.bits();
+    }
+}
+
 /// Macro processor configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MacroProcessorConfig {
@@ -920,18 +937,10 @@ pub struct MacroProcessorConfig {
     pub max_concurrent_executions: usize,
     /// Default execution timeout in seconds
     pub default_timeout_seconds: u64,
-    /// Enable variable substitution
-    pub enable_variable_substitution: bool,
-    /// Enable conditional execution
-    pub enable_conditional_execution: bool,
-    /// Enable loop execution
-    pub enable_loop_execution: bool,
+    /// Feature flags
+    pub flags: MacroFeatureFlags,
     /// Maximum macro recursion depth
     pub max_recursion_depth: usize,
-    /// Enable performance monitoring
-    pub enable_monitoring: bool,
-    /// Auto-save macro changes
-    pub auto_save: bool,
 }
 
 /// Macro execution request
@@ -1022,12 +1031,8 @@ impl Default for MacroProcessorConfig {
         Self {
             max_concurrent_executions: 10,
             default_timeout_seconds: 30,
-            enable_variable_substitution: true,
-            enable_conditional_execution: true,
-            enable_loop_execution: true,
+            flags: MacroFeatureFlags::ALL,
             max_recursion_depth: 10,
-            enable_monitoring: true,
-            auto_save: true,
         }
     }
 }

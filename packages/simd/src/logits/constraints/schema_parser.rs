@@ -91,7 +91,7 @@ impl<'a> SchemaParser<'a> {
         let mut patterns = Vec::with_capacity(types.len());
         for object in types.iter() {
             let pattern = self.to_regex(object)?;
-            patterns.push(format!("({})", pattern));
+            patterns.push(format!("({pattern})"));
         }
         Ok(patterns.join("|"))
     }
@@ -145,12 +145,12 @@ impl<'a> SchemaParser<'a> {
         // Handle empty object case
         if properties.is_empty() && required.is_empty() && min_properties == 0 {
             return match additional_properties {
-                Value::Bool(false) => Ok(format!(r"\{{{}\}}", ws)),
-                _ => Ok(format!(r"\{{{}.*{}\}}", ws, ws)),
+                Value::Bool(false) => Ok(format!(r"\{{{ws}\}}")),
+                _ => Ok(format!(r"\{{{ws}.*{ws}\}}")),
             };
         }
 
-        let mut regex = format!(r"\{{{}", ws);
+        let mut regex = format!(r"\{{{ws}");
 
         // Collect required and optional properties
         let mut required_patterns = Vec::new();
@@ -172,7 +172,7 @@ impl<'a> SchemaParser<'a> {
 
         // Build property combinations
         if !required_patterns.is_empty() {
-            regex.push_str(&required_patterns.join(&format!("{},{}", ws, ws)));
+            regex.push_str(&required_patterns.join(&format!("{ws},{ws}")));
 
             if !optional_patterns.is_empty() {
                 // Add optional properties with proper combinations
@@ -208,21 +208,21 @@ impl<'a> SchemaParser<'a> {
         // Handle additional properties
         if !matches!(additional_properties, Value::Bool(false)) {
             let additional_regex = match additional_properties {
-                Value::Bool(true) => format!(r#""[^"]*"{}:{}[^,}}]*"#, ws, ws),
+                Value::Bool(true) => format!(r#""[^"]*"{ws}:{ws}[^,}}]*"#),
                 schema => {
                     let schema_regex = self.to_regex(schema)?;
-                    format!(r#""[^"]*"{}:{}{}"#, ws, ws, schema_regex)
+                    format!(r#""[^"]*"{ws}:{ws}{schema_regex}"#)
                 }
             };
 
             if properties.is_empty() && required.is_empty() {
-                regex.push_str(&format!("({}({},{},{})*)?", additional_regex, ws, ws, additional_regex));
+                regex.push_str(&format!("({additional_regex}({ws},{ws},{additional_regex})*)?"));
             } else {
-                regex.push_str(&format!("({},{},{})*", ws, ws, additional_regex));
+                regex.push_str(&format!("({ws},{ws},{additional_regex})*"));
             }
         }
 
-        regex.push_str(&format!("{}}}", ws));
+        regex.push_str(&format!(r"{ws}\}}"));
         Ok(regex)
     }
 
@@ -267,7 +267,7 @@ impl<'a> SchemaParser<'a> {
                 for type_val in types {
                     if let Value::String(type_str) = type_val {
                         let pattern = self.generate_type_regex(type_str.as_str(), obj)?;
-                        patterns.push(format!("({})", pattern));
+                        patterns.push(format!("({pattern})"));
                     }
                 }
                 Ok(patterns.join("|"))
@@ -300,7 +300,8 @@ impl<'a> SchemaParser<'a> {
         match (minimum, maximum, multiple_of) {
             (Some(min), Some(max), None) if min >= 0 && max <= 9999 => {
                 // Generate specific range regex for small positive ranges
-                Ok(format!(r"({})", (min..=max).map(|n| n.to_string()).collect::<Vec<_>>().join("|")))
+                let range_values = (min..=max).map(|n| n.to_string()).collect::<Vec<_>>().join("|");
+                Ok(format!(r"({range_values})"))
             }
             (Some(0), None, None) => Ok(r"(0|[1-9][0-9]*)".to_string()),
             (Some(min), None, None) if min > 0 => Ok(r"[1-9][0-9]*".to_string()),
@@ -329,15 +330,15 @@ impl<'a> SchemaParser<'a> {
         let pattern = obj.get("pattern").and_then(Value::as_str);
 
         if let Some(custom_pattern) = pattern {
-            Ok(format!(r#""{}""#, custom_pattern))
+            Ok(format!(r#""{custom_pattern}""#))
         } else {
             let content_regex = match (min_length, max_length) {
                 (0, None) => r#"[^"]*"#.to_string(),
-                (min, None) => format!(r#"[^"]{{{},}}"#, min),
-                (0, Some(max)) => format!(r#"[^"]{{0,{}}}"#, max),
-                (min, Some(max)) => format!(r#"[^"]{{{},{}}}"#, min, max),
+                (min, None) => format!(r#"[^"]{{{min},}}"#),
+                (0, Some(max)) => format!(r#"[^"]{{0,{max}}}"#),
+                (min, Some(max)) => format!(r#"[^"]{{{min},{max}}}"#),
             };
-            Ok(format!(r#""{}""#, content_regex))
+            Ok(format!(r#""{content_regex}""#))
         }
     }
 
@@ -421,7 +422,10 @@ impl<'a> SchemaParser<'a> {
         let mut patterns = Vec::with_capacity(enum_values.len());
         for value in enum_values {
             let pattern = match value {
-                Value::String(s) => format!(r#""{}""#, escape(s)),
+                Value::String(s) => {
+                    let escaped = escape(s);
+                    format!(r#""{escaped}""#)
+                }
                 Value::Number(n) => n.to_string(),
                 Value::Bool(b) => b.to_string(),
                 Value::Null => "null".to_string(),
@@ -441,7 +445,10 @@ impl<'a> SchemaParser<'a> {
     fn parse_const(&self, obj: &serde_json::Map<String, Value>) -> AnyResult<String> {
         let const_value = obj.get("const").context("Const field not found")?;
         match const_value {
-            Value::String(s) => Ok(format!(r#""{}""#, escape(s))),
+            Value::String(s) => {
+                let escaped = escape(s);
+                Ok(format!(r#""{escaped}""#))
+            }
             Value::Number(n) => Ok(n.to_string()),
             Value::Bool(b) => Ok(b.to_string()),
             Value::Null => Ok("null".to_string()),
@@ -511,7 +518,7 @@ impl<'a> SchemaParser<'a> {
         let mut patterns = Vec::with_capacity(any_of.len());
         for schema in any_of {
             let pattern = self.to_regex(schema)?;
-            patterns.push(format!("({})", pattern));
+            patterns.push(format!("({pattern})"));
         }
 
         if patterns.is_empty() {
