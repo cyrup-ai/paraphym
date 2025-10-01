@@ -226,9 +226,8 @@ impl MemoryContextAdapter {
 
         log::info!("Cleared {} subscriptions", sub_count);
 
-        // Note: MemoryCoordinator and SurrealDB connections are cleaned up
-        // automatically when the Arc is dropped. The Surreal<Any> connection
-        // has a proper Drop implementation that closes the connection.
+        // Note: SurrealDB connections are cleaned up automatically when the Arc is dropped.
+        // The Surreal<Any> connection has a proper Drop implementation that closes the connection.
         log::info!("MemoryContextAdapter shutdown complete. Database connections will be closed on Arc drop.");
         
         Ok(())

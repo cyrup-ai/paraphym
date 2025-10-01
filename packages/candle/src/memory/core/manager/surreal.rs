@@ -20,7 +20,6 @@ use crate::memory::migration::{DataExporter, ExportFormat, MigrationManager, Bui
 use std::path::Path;
 
 // Vector search and embedding imports
-use crate::memory::vector::vector_search::{VectorSearch, SearchOptions};
 use crate::memory::vector::embedding_model::EmbeddingModel;
 use crate::providers::bert_embedding::CandleBertEmbeddingProvider;
 use tracing;  // For logging in create_memory
@@ -282,9 +281,6 @@ pub trait MemoryManager: Send + Sync + 'static {
 #[derive(Debug)]
 pub struct SurrealDBMemoryManager {
     db: Surreal<Any>,
-    #[allow(dead_code)] // Will be used in future VectorStore implementation
-    vector_search: Option<Arc<VectorSearch>>,
-    #[allow(dead_code)] // Will be used in future VectorStore implementation  
     embedding_model: Option<Arc<dyn EmbeddingModel>>,
 }
 
@@ -298,20 +294,16 @@ struct ExportData {
 impl SurrealDBMemoryManager {
     /// Create a new SurrealDB memory manager with embedding support
     ///
-    /// This factory method initializes the manager with BERT embedding capabilities.
-    /// The VectorSearch field remains None as VectorStore implementation is pending.
+    /// This factory method initializes the manager with BERT embedding capabilities
+    /// for auto-generating embeddings on memory creation and text search.
     pub async fn with_embeddings(db: Surreal<Any>) -> Result<Self> {
         // Create BERT embedding model using ProgressHub download
         let embedding_model = Arc::new(
             CandleBertEmbeddingProvider::new().await?
         ) as Arc<dyn EmbeddingModel>;
 
-        // VectorSearch requires VectorStore trait implementation which is not yet available
-        // When VectorStore is implemented, initialize VectorSearch here
-
         Ok(Self {
             db,
-            vector_search: None, // Will be populated when VectorStore implementation is available
             embedding_model: Some(embedding_model),
         })
     }
