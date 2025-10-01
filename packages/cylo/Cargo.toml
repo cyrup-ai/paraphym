@@ -6,6 +6,8 @@ description = "Secure multi-language code execution service"
 authors = ["CYRUP AI"]
 repository = "https://github.com/cyrup-ai/fluent-ai"
 license = "MIT"
+keywords = ["sandbox", "security", "execution", "isolation", "vm"]
+categories = ["os", "development-tools", "virtualization"]
 
 [dependencies]
 # Core dependencies with latest versions

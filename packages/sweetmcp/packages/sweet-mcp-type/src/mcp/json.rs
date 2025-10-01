@@ -146,7 +146,7 @@ impl Message {
                         out.push_str(",\"data\":");
                         out.push_str(&d.encode());
                     }
-                    out.push_str(r#"}}"#);
+                    out.push_str(r"}}");
                 } else if let Some(res) = &r.result {
                     out.push_str(",\"result\":");
                     out.push_str(&res.encode());

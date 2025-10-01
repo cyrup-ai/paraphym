@@ -1,6 +1,6 @@
-//! SweetMCP Cap'n Proto Client Library
+//! `SweetMCP` Cap'n Proto Client Library
 //! 
-//! This library provides a Cap'n Proto client for demonstrating the SweetMCP protocol
+//! This library provides a Cap'n Proto client for demonstrating the `SweetMCP` protocol
 //! extension that supports GraphQL and Cap'n Proto requests converted to JSON-RPC.
 
 use anyhow::{Context, Result};

@@ -5,7 +5,7 @@ fn main() {
         .file("schema/mcp_request.capnp")
         .run()
     {
-        eprintln!("Failed to compile Cap'n Proto schema: {}", e);
+        eprintln!("Failed to compile Cap'n Proto schema: {e}");
         eprintln!("Make sure capnp compiler is installed and schema file exists");
         std::process::exit(1);
     }

@@ -40,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 2. Create and initialize the memory manager
     println!("2. Initializing memory manager...");
-    let memory_manager = SurrealDBMemoryManager::new(db);
+    let memory_manager = SurrealDBMemoryManager::with_embeddings(db).await?;
     match memory_manager.initialize().await {
         Ok(_) => println!("   ✓ Memory manager initialized"),
         Err(e) => {

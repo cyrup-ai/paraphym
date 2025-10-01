@@ -882,7 +882,10 @@ impl VectorStoreConfig {
 
 impl Default for VectorStoreConfig {
     fn default() -> Self {
-        Self::new(VectorStoreType::Memory, EmbeddingConfig::default(), 1536)
-            .expect("Default vector store configuration should be valid")
+        let embedding_config = EmbeddingConfig::default();
+        // Use the embedding config's dimension instead of hardcoding 1536
+        // This ensures dimension always matches and validation cannot fail
+        Self::new(VectorStoreType::Memory, embedding_config.clone(), embedding_config.dimension)
+            .expect("Default vector store configuration with matching dimensions must be valid")
     }
 }

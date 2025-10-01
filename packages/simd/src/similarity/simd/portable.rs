@@ -56,11 +56,11 @@ impl PortableSimdSimilarity {
 
         // Reduce SIMD vectors to scalars
         let dot_scalar = dot.reduce_add();
-        let norm_a_scalar = norm_a.reduce_add();
-        let norm_b_scalar = norm_b.reduce_add();
+        let a_norm_scalar = norm_a.reduce_add();
+        let b_norm_scalar = norm_b.reduce_add();
 
         // Process remainder
-        let (dot_rem, norm_a_rem, norm_b_rem) = if !remainder.is_empty() {
+        let (dot_rem, a_norm_rem, b_norm_rem) = if !remainder.is_empty() {
             let a_remainder = &a[a.len() - remainder.len()..];
             let b_remainder = &b[b.len() - remainder.len()..];
             crate::similarity::ScalarSimilarity::dot_and_norms(a_remainder, b_remainder)
@@ -70,8 +70,8 @@ impl PortableSimdSimilarity {
 
         (
             dot_scalar + dot_rem,
-            norm_a_scalar + norm_a_rem,
-            norm_b_scalar + norm_b_rem,
+            a_norm_scalar + a_norm_rem,
+            b_norm_scalar + b_norm_rem,
         )
     }
 }
@@ -136,7 +136,7 @@ mod tests {
         let b = [8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0];
 
         let result = sim.cosine_similarity(&a, &b);
-        let expected = 0.5882353; // Correct value: dot=120, norm=204, cosine=120/204=0.5882353
+        let expected = 0.588_235_3; // Correct value: dot=120, norm=204, cosine=120/204=0.5882353
         assert_relative_eq!(result, expected, epsilon = 1e-6);
 
         // Test with vectors that have a remainder
@@ -144,7 +144,7 @@ mod tests {
         let b = [5.0, 4.0, 3.0, 2.0, 1.0];
 
         let result = sim.cosine_similarity(&a, &b);
-        let expected = 0.6363636; // Correct value: dot=35, norm=55, cosine=35/55=0.6363636
+        let expected = 0.636_363_6; // Correct value: dot=35, norm=55, cosine=35/55=0.6363636
         assert_relative_eq!(result, expected, epsilon = 1e-6);
     }
 

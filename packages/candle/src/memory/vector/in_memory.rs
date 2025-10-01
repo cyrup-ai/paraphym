@@ -20,6 +20,7 @@ use crate::memory::utils::error::{Error, Result};
 ///
 /// All operations are synchronous and thread-safe. For concurrent access,
 /// wrap in Arc<RwLock<>> or use external synchronization.
+#[derive(Debug)]
 pub struct InMemoryVectorStore {
     vectors: HashMap<String, Vec<f32>>,
     metadata: HashMap<String, VectorMetadata>,

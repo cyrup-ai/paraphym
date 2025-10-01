@@ -5,6 +5,10 @@ edition = "2024"
 authors = ["David Maple<david@cyrup.ai>"]
 description = "Zero-Serde, high-perf JSON/TOML (de)serialization for MCP 2025-03-26"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/cyrusnimda/paraphym"
+readme = "README.md"
+keywords = ["mcp", "json", "toml", "serialization", "performance"]
+categories = ["encoding", "parser-implementations"]
 
 [dependencies]
 # ----------------------------

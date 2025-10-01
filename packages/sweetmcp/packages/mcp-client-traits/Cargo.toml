@@ -5,6 +5,10 @@ edition = "2024"
 authors = ["CYRUP AI"]
 description = "Common traits for MCP client implementations using sweet-mcp-type"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/cyrusnimda/paraphym"
+readme = "README.md"
+keywords = ["mcp", "protocol", "traits", "client", "api"]
+categories = ["api-bindings", "network-programming"]
 
 [dependencies]
 # Core MCP types and high-performance JSON serialization

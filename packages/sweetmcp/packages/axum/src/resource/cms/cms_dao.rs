@@ -419,7 +419,7 @@ impl ResourceManager for SurrealDbManager {
 #[derive(serde::Deserialize, Debug, Clone)]
 struct ResourceRow {
     // SurrealDB specific ID format
-    id: surrealdb::sql::Thing,
+    id: surrealdb::RecordId,
     #[serde(rename = "type")]
     type_: String,
     title: String,
@@ -429,9 +429,9 @@ struct ResourceRow {
     tags: Option<Vec<String>>,
     mime_type: Option<String>,
     // References to other resources
-    parent: Option<surrealdb::sql::Thing>,
-    children: Option<Vec<surrealdb::sql::Thing>>,
-    links: Option<Vec<surrealdb::sql::Thing>>,
+    parent: Option<surrealdb::RecordId>,
+    children: Option<Vec<surrealdb::RecordId>>,
+    links: Option<Vec<surrealdb::RecordId>>,
 }
 
 /// Helper function to map a database row to a Resource
@@ -440,18 +440,18 @@ fn map_row_to_resource(row: ResourceRow) -> Resource {
     let uri_str = format!("cms://{}", row.id);
     let uri = url::Url::parse(&uri_str).unwrap_or_else(|_| {
         // Fallback URL if parsing fails
-        url::Url::parse(&format!("cms://resource/{}", row.id.id))
+        url::Url::parse(&format!("cms://resource/{}", row.id.key()))
             .unwrap_or_else(|_| url::Url::parse("cms://resource/unknown").unwrap())
     });
 
     // Helper to convert SurrealDB Thing to URL
-    let thing_to_url = |thing: Option<surrealdb::sql::Thing>| -> Option<url::Url> {
+    let thing_to_url = |thing: Option<surrealdb::RecordId>| -> Option<url::Url> {
         thing.and_then(|t| url::Url::parse(&format!("cms://{}", t)).ok())
     };
 
     // Helper to convert Option<Vec<Thing>> to Option<Vec<Url>>
     let vec_thing_to_vec_url =
-        |things: Option<Vec<surrealdb::sql::Thing>>| -> Option<Vec<url::Url>> {
+        |things: Option<Vec<surrealdb::RecordId>>| -> Option<Vec<url::Url>> {
             things.map(|ts| {
                 ts.into_iter()
                     .filter_map(|t| url::Url::parse(&format!("cms://{}", t)).ok())

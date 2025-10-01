@@ -5,6 +5,9 @@ edition = "2024"
 authors = ["David Maple<david@cyrup.ai>"]
 description = "MCP voice tool definitions for text-to-speech and speech-to-text operations"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/cyrusnimda/paraphym"
+keywords = ["mcp", "voice", "tts", "stt", "audio"]
+categories = ["multimedia::audio", "api-bindings"]
 
 [dependencies]
 serde = { version = "1.0.228", features = ["derive"] }

@@ -84,13 +84,17 @@ impl DatabaseClient {
 
                 // Convert to a generic result
                 let value = response
-                    .take::<Option<surrealdb::sql::Value>>(0_usize)
+                    .take::<Option<surrealdb::Value>>(0_usize)
                     .map_err(SurrealdbError::from)?;
 
                 match value {
                     Some(val) => {
                         // Convert the value to our target type
-                        let json_val = serde_json::Value::from(val);
+                        // Serialize to string then parse as JSON
+                        let json_str = serde_json::to_string(&val)
+                            .map_err(SurrealdbError::Serialization)?;
+                        let json_val: serde_json::Value = serde_json::from_str(&json_str)
+                            .map_err(SurrealdbError::Serialization)?;
                         serde_json::from_value::<T>(json_val).map_err(SurrealdbError::Serialization)
                     }
                     None => Err(SurrealdbError::NotFound(SurrealdbErrorContext::new(
@@ -162,13 +166,17 @@ impl DatabaseClient {
 
                 // Convert to a generic result
                 let value = response
-                    .take::<Option<surrealdb::sql::Value>>(0_usize)
+                    .take::<Option<surrealdb::Value>>(0_usize)
                     .map_err(SurrealdbError::from)?;
 
                 match value {
                     Some(val) => {
                         // Convert the value to our target type
-                        let json_val = serde_json::Value::from(val);
+                        // Serialize to string then parse as JSON
+                        let json_str = serde_json::to_string(&val)
+                            .map_err(SurrealdbError::Serialization)?;
+                        let json_val: serde_json::Value = serde_json::from_str(&json_str)
+                            .map_err(SurrealdbError::Serialization)?;
                         serde_json::from_value::<T>(json_val).map_err(SurrealdbError::Serialization)
                     }
                     None => Err(SurrealdbError::NotFound(SurrealdbErrorContext::new(

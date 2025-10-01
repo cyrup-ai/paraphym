@@ -19,6 +19,12 @@ use crate::memory::utils::error::Error;
 use crate::memory::migration::{DataExporter, ExportFormat, MigrationManager, BuiltinMigrations, DataImporter, ImportFormat};
 use std::path::Path;
 
+// Vector search and embedding imports
+use crate::memory::vector::vector_search::{VectorSearch, SearchOptions};
+use crate::memory::vector::embedding_model::EmbeddingModel;
+use crate::providers::bert_embedding::CandleBertEmbeddingProvider;
+use tracing;  // For logging in create_memory
+
 /// Content structure for creating/updating memory nodes (without ID)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct MemoryNodeCreateContent {
@@ -276,6 +282,10 @@ pub trait MemoryManager: Send + Sync + 'static {
 #[derive(Debug)]
 pub struct SurrealDBMemoryManager {
     db: Surreal<Any>,
+    #[allow(dead_code)] // Will be used in future VectorStore implementation
+    vector_search: Option<Arc<VectorSearch>>,
+    #[allow(dead_code)] // Will be used in future VectorStore implementation  
+    embedding_model: Option<Arc<dyn EmbeddingModel>>,
 }
 
 /// Data structure for memory export containing nodes and relationships
@@ -286,9 +296,24 @@ struct ExportData {
 }
 
 impl SurrealDBMemoryManager {
-    /// Create a new SurrealDB memory manager
-    pub fn new(db: Surreal<Any>) -> Self {
-        Self { db }
+    /// Create a new SurrealDB memory manager with embedding support
+    ///
+    /// This factory method initializes the manager with BERT embedding capabilities.
+    /// The VectorSearch field remains None as VectorStore implementation is pending.
+    pub async fn with_embeddings(db: Surreal<Any>) -> Result<Self> {
+        // Create BERT embedding model using ProgressHub download
+        let embedding_model = Arc::new(
+            CandleBertEmbeddingProvider::new().await?
+        ) as Arc<dyn EmbeddingModel>;
+
+        // VectorSearch requires VectorStore trait implementation which is not yet available
+        // When VectorStore is implemented, initialize VectorSearch here
+
+        Ok(Self {
+            db,
+            vector_search: None, // Will be populated when VectorStore implementation is available
+            embedding_model: Some(embedding_model),
+        })
     }
 
     /// Get a reference to the database connection
@@ -558,13 +583,37 @@ impl SurrealDBMemoryManager {
 }
 
 impl MemoryManager for SurrealDBMemoryManager {
-    fn create_memory(&self, memory: MemoryNode) -> PendingMemory {
+    fn create_memory(&self, mut memory: MemoryNode) -> PendingMemory {
         let db = self.db.clone();
-        let memory_content = MemoryNodeCreateContent::from(&memory);
+        let embedding_model = self.embedding_model.clone();
 
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         tokio::spawn(async move {
+            // Auto-generate embedding if missing and model is available
+            if memory.embedding.is_none() {
+                if let Some(ref model) = embedding_model {
+                    // Extract text content for embedding
+                    let content_text = memory.content.text.clone();
+                    
+                    // Generate embedding synchronously (EmbeddingModel trait methods are sync)
+                    match model.embed(&content_text, Some("search".to_string())) {
+                        Ok(embedding_vec) => {
+                            memory.embedding = Some(embedding_vec);
+                            // Also update metadata.embedding for consistency
+                            memory.metadata.embedding = memory.embedding.clone();
+                        }
+                        Err(e) => {
+                            // Log but don't fail - memory can exist without embedding
+                            tracing::warn!("Failed to generate embedding: {:?}", e);
+                        }
+                    }
+                }
+            }
+            
+            // Continue with existing storage logic
+            let memory_content = MemoryNodeCreateContent::from(&memory);
+            
             // Create the memory in SurrealDB with specific ID
             // The embedding is stored directly in the metadata field
             let created: Option<MemoryNodeSchema> = match db
@@ -865,5 +914,108 @@ impl MemoryManager for SurrealDBMemoryManager {
         });
 
         MemoryStream::new(rx)
+    }
+}
+
+// Additional methods for SurrealDBMemoryManager
+impl SurrealDBMemoryManager {
+    /// Search memories by text with auto-embedding generation
+    pub async fn search_by_text(
+        &self,
+        text: &str,
+        limit: usize
+    ) -> Result<MemoryStream> {
+        // Generate embedding from text
+        if let Some(ref embedding_model) = self.embedding_model {
+            // Generate embedding synchronously
+            let embedding = embedding_model.embed(
+                text,
+                Some("search".to_string())
+            )?;
+            
+            // Delegate to existing search_by_vector
+            let stream = self.search_by_vector(embedding, limit);
+            Ok(stream)
+        } else {
+            Err(Error::Config(
+                "No embedding model configured for text search".to_string()
+            ))
+        }
+    }
+
+    /// Query memories by metadata filters
+    pub async fn query_by_metadata(
+        &self,
+        metadata_filters: std::collections::HashMap<String, serde_json::Value>
+    ) -> Result<MemoryStream> {
+        let db = self.db.clone();
+        
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
+        
+        tokio::spawn(async move {
+            // Build WHERE clause from filters
+            let mut conditions = Vec::new();
+            let mut bindings = Vec::new();
+            
+            for (idx, (key, value)) in metadata_filters.iter().enumerate() {
+                // Use parameter binding to prevent injection
+                let param_name = format!("param_{}", idx);
+                conditions.push(format!("metadata.custom.{} = ${}", key, param_name));
+                bindings.push((param_name, value.clone()));
+            }
+            
+            let where_clause = if conditions.is_empty() {
+                String::new()
+            } else {
+                format!(" WHERE {}", conditions.join(" AND "))
+            };
+            
+            let query_str = format!("SELECT * FROM memory{}", where_clause);
+            
+            // Build and execute query with bindings
+            let mut query_builder = db.query(&query_str);
+            for (param, value) in bindings {
+                query_builder = query_builder.bind((param, value));
+            }
+            
+            match query_builder.await {
+                Ok(mut response) => {
+                    let results: Vec<MemoryNodeSchema> = response.take(0).unwrap_or_default();
+                    
+                    for schema in results {
+                        let memory = SurrealDBMemoryManager::from_schema(schema);
+                        if tx.send(Ok(memory)).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(Err(Error::Database(format!("{:?}", e)))).await;
+                }
+            }
+        });
+        
+        Ok(MemoryStream::new(rx))
+    }
+
+    /// Fetch multiple memories by their IDs efficiently
+    async fn get_memories_by_ids(&self, ids: Vec<String>) -> Result<Vec<MemoryNode>> {
+        // Use SurrealDB's batch select for efficiency
+        let query = "SELECT * FROM memory WHERE id IN $ids";
+        
+        let mut response = self.db
+            .query(query)
+            .bind(("ids", ids))
+            .await
+            .map_err(|e| Error::Database(format!("{:?}", e)))?;
+        
+        let results: Vec<MemoryNodeSchema> = response
+            .take(0)
+            .map_err(|e| Error::Database(format!("{:?}", e)))?;
+        
+        Ok(results
+            .into_iter()
+            .map(Self::from_schema)
+            .collect())
     }
 }

@@ -396,10 +396,9 @@ impl SandboxManager {
                                 "Failed to retrieve Node.js environment after creation".to_string(),
                             )
                         });
-                    } else {
-                        let stderr = String::from_utf8_lossy(&output.stderr);
-                        warn!("Failed to create Node.js environment with fnm: {}", stderr);
                     }
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    warn!("Failed to create Node.js environment with fnm: {}", stderr);
                 }
                 Err(e) => {
                     warn!("Failed to execute fnm: {}", e);

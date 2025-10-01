@@ -639,8 +639,33 @@ pub fn encode_sixel(img: &image::RgbImage) -> String {
         return String::from("\x1BPq\x1B\\");
     }
 
+    let pixel_count = img.width() as u64 * img.height() as u64;
+    
+    // Use legacy encoder for complex images to avoid O(r²) merge performance issues
+    // Threshold: 200k pixels is a reasonable cutoff (roughly 450x450 image)
+    // Web screenshots and photos should use the proven O(w*h) column-based approach
+    if pixel_count > 200_000 {
+        tracing::debug!(
+            "Using legacy encoder for large image ({}x{} = {} pixels)",
+            img.width(),
+            img.height(),
+            pixel_count
+        );
+        return encode_sixel_legacy(img);
+    }
+
     // Phase 1: Detect uniform color regions in the image
     let regions = detect_regions(img);
+    
+    // If initial region count is very high, the geometric merge will be too slow
+    // Fall back to legacy encoder for complex images with many regions
+    if regions.len() > 10_000 {
+        tracing::debug!(
+            "Using legacy encoder due to high region count ({} regions detected)",
+            regions.len()
+        );
+        return encode_sixel_legacy(img);
+    }
     
     // Phase 2: Merge adjacent regions (geometric folding)
     let merged_regions = merge_regions(regions);
@@ -649,8 +674,10 @@ pub fn encode_sixel(img: &image::RgbImage) -> String {
     regions_to_sixel(&merged_regions, img.width(), img.height())
 }
 
-// Legacy column-based encoding preserved for reference
-#[allow(dead_code)]
+/// Legacy column-based encoding - O(w*h) complexity, reliable for all image types
+/// 
+/// Used as fallback for large or complex images where geometric encoding would be too slow.
+/// This approach processes the image column-by-column with run-length encoding.
 fn encode_sixel_legacy(img: &image::RgbImage) -> String {
         let mut result = String::from("\x1BPq");
 

@@ -6,6 +6,9 @@ description = "Shared high-performance SIMD operations for paraphym ecosystem"
 authors = ["Fluent AI Contributors"]
 license = "MIT"
 repository = "https://github.com/cyrusnimda/paraphym"
+readme = "README.md"
+keywords = ["simd", "ml", "ai", "performance", "optimization"]
+categories = ["mathematics", "science", "algorithms", "concurrency"]
 
 [dependencies]
 # Core SIMD support and zero-allocation data structures

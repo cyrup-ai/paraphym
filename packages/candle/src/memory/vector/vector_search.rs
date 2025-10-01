@@ -212,6 +212,7 @@ impl SearchOptions {
 /// - Memory-efficient result processing
 /// - Thread-safe operations for concurrent access
 /// - Comprehensive filtering and ranking capabilities
+#[derive(Debug)]
 pub struct VectorSearch {
     /// Vector store for persistence and retrieval
     store: Arc<dyn VectorStore>,

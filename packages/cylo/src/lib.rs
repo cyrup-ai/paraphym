@@ -4,8 +4,8 @@
 //!
 //! High-performance secure code execution with multiple isolation backends:
 //! - Apple containerization for macOS with Apple Silicon
-//! - LandLock sandboxing for Linux with kernel-level security
-//! - FireCracker microVMs for ultra-lightweight virtualization
+//! - `LandLock` sandboxing for Linux with kernel-level security
+//! - `FireCracker` microVMs for ultra-lightweight virtualization
 //!
 //! Features:
 //! - Zero allocation in hot paths

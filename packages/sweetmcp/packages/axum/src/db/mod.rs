@@ -16,5 +16,8 @@ pub use error::{SurrealdbError, SurrealdbErrorContext};
 pub use group::Group;
 pub use role::Role;
 pub use surrealdb::Surreal;
-pub use surrealdb::sql::{Array, Id, Object, Thing, Value};
+// Use types from surrealdb SDK, not core
+pub use surrealdb::{RecordId as Thing, Value, Object};
+// Array is in val module, not sql
+pub use surrealdb_core::val::Array;
 pub use user::User;

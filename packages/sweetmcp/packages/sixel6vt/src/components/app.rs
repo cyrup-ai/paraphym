@@ -427,6 +427,27 @@ impl ApplicationHandler<EventPayload> for Application {
                     terminal_pane.window.request_redraw();
                 }
             }
+            RioEventType::Rio(RioEvent::UpdateGraphics { route_id: _, queues }) => {
+                // CRITICAL: This event is sent by Crosswords after sixel parsing completes
+                // It contains GraphicData that must be uploaded to GPU for rendering
+                if let Some(terminal_pane) = self.terminal_pane.as_mut() {
+                    info!("UpdateGraphics event: {} pending graphics, {} to remove", 
+                          queues.pending.len(), queues.remove_queue.len());
+                    
+                    // Upload new graphics to Sugarloaf's texture manager
+                    for graphic_data in queues.pending {
+                        terminal_pane.sugarloaf.graphics.insert(graphic_data);
+                    }
+                    
+                    // Remove old graphics
+                    for graphic_id in queues.remove_queue {
+                        terminal_pane.sugarloaf.graphics.remove(&graphic_id);
+                    }
+                    
+                    // Request redraw to display the graphics
+                    terminal_pane.window.request_redraw();
+                }
+            }
             RioEventType::Rio(RioEvent::Render) => {
                 if let Some(terminal_pane) = self.terminal_pane.as_mut() {
                     terminal_pane.render(); // Call render directly

@@ -41,6 +41,7 @@ struct Args {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize Rustls crypto provider for TLS/HTTPS connections
     // This must happen before any HTTPS connections are made
+    // APPROVED BY DAVID MAPLE 09/30/2025: Panic is appropriate for crypto provider initialization failure
     aws_lc_rs::default_provider()
         .install_default()
         .expect("Failed to install rustls crypto provider");

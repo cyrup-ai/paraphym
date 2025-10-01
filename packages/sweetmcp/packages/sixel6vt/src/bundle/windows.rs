@@ -14,13 +14,14 @@ mod implementation {
         SigningError, ValidationError, path_utils
     };
     use std::path::{Path, PathBuf};
-    use std::time::{Duration, Instant, SystemTime};
+    use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
     use tokio::process::Command;
     use tracing::{debug, error, info, instrument, warn};
     use windows::{
         core::*,
         Win32::Foundation::*,
         Win32::Security::Cryptography::*,
+        Win32::Storage::FileSystem::*,
         Win32::System::Registry::*,
     };
     
@@ -76,6 +77,117 @@ mod implementation {
         }
     }
     
+    /// Convert Windows FILETIME to SystemTime
+    /// 
+    /// FILETIME represents 100-nanosecond intervals since January 1, 1601 UTC
+    /// SystemTime uses Unix epoch (January 1, 1970 UTC)
+    fn filetime_to_systemtime(filetime: &FILETIME) -> Result<SystemTime, BundleError> {
+        // Combine dwLowDateTime and dwHighDateTime into u64
+        let filetime_u64 = ((filetime.dwHighDateTime as u64) << 32) | (filetime.dwLowDateTime as u64);
+        
+        // FILETIME epoch (1601-01-01) to Unix epoch (1970-01-01) difference in 100ns units
+        const FILETIME_TO_UNIX_EPOCH: u64 = 116_444_736_000_000_000;
+        
+        // Convert to Unix epoch
+        if filetime_u64 < FILETIME_TO_UNIX_EPOCH {
+            return Err(BundleError::Platform(PlatformError::Windows(
+                WindowsError::CertStoreError("Invalid FILETIME: before Unix epoch")
+            )));
+        }
+        
+        let unix_time_100ns = filetime_u64 - FILETIME_TO_UNIX_EPOCH;
+        
+        // Convert 100ns units to seconds and nanoseconds
+        let secs = unix_time_100ns / 10_000_000;
+        let nanos = ((unix_time_100ns % 10_000_000) * 100) as u32;
+        
+        Ok(UNIX_EPOCH + Duration::new(secs, nanos))
+    }
+
+    /// Extract version from PE (Portable Executable) file
+    /// 
+    /// Reads VERSION_INFO resource and extracts version from VS_FIXEDFILEINFO structure
+    async fn extract_pe_version(path: &Path) -> Result<semver::Version, BundleError> {
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+        
+        unsafe {
+            // Convert path to wide string
+            let wide_path: Vec<u16> = OsStr::new(path)
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+            
+            // Get version info size
+            let size = GetFileVersionInfoSizeW(
+                PCWSTR::from_raw(wide_path.as_ptr()),
+                None
+            );
+            
+            if size == 0 {
+                warn!("No version info available for {:?}, using default version", path);
+                return Ok(semver::Version::new(0, 0, 0));
+            }
+            
+            // Allocate buffer and read version info
+            let mut buffer = vec![0u8; size as usize];
+            let result = GetFileVersionInfoW(
+                PCWSTR::from_raw(wide_path.as_ptr()),
+                0,
+                size,
+                buffer.as_mut_ptr() as *mut _,
+            );
+            
+            if !result.as_bool() {
+                warn!("Failed to read version info for {:?}, using default version", path);
+                return Ok(semver::Version::new(0, 0, 0));
+            }
+            
+            // Query for VS_FIXEDFILEINFO structure
+            let mut file_info: *mut u8 = std::ptr::null_mut();
+            let mut info_len: u32 = 0;
+            
+            let root_key: Vec<u16> = OsStr::new("\\")
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+            
+            let query_result = VerQueryValueW(
+                buffer.as_ptr() as *const _,
+                PCWSTR::from_raw(root_key.as_ptr()),
+                &mut file_info as *mut *mut u8 as *mut *mut std::ffi::c_void,
+                &mut info_len,
+            );
+            
+            if !query_result.as_bool() || file_info.is_null() {
+                warn!("Failed to query version value for {:?}, using default version", path);
+                return Ok(semver::Version::new(0, 0, 0));
+            }
+            
+            // VS_FIXEDFILEINFO structure layout:
+            // DWORD dwSignature (0xFEEF04BD)
+            // DWORD dwStrucVersion
+            // DWORD dwFileVersionMS (high word = major, low word = minor)
+            // DWORD dwFileVersionLS (high word = patch, low word = build)
+            #[repr(C)]
+            struct VS_FIXEDFILEINFO {
+                dw_signature: u32,
+                dw_struc_version: u32,
+                dw_file_version_ms: u32,
+                dw_file_version_ls: u32,
+            }
+            
+            let fixed_info = &*(file_info as *const VS_FIXEDFILEINFO);
+            
+            // Extract version components
+            let major = (fixed_info.dw_file_version_ms >> 16) as u64;
+            let minor = (fixed_info.dw_file_version_ms & 0xFFFF) as u64;
+            let patch = (fixed_info.dw_file_version_ls >> 16) as u64;
+            
+            Ok(semver::Version::new(major, minor, patch))
+        }
+    }
+
     /// High-performance Windows code signer
     #[derive(Debug)]
     pub struct WindowsSigner {
@@ -270,12 +382,23 @@ mod implementation {
                 &mut 0,
             ).as_bool();
             
+            // Extract certificate validity dates from CERT_INFO
+            let cert_info = (*cert_context).pCertInfo;
+            if cert_info.is_null() {
+                return Err(BundleError::Platform(PlatformError::Windows(
+                    WindowsError::CertStoreError("Certificate info is null")
+                )));
+            }
+            
+            let valid_from = filetime_to_systemtime(&(*cert_info).NotBefore)?;
+            let valid_to = filetime_to_systemtime(&(*cert_info).NotAfter)?;
+            
             Ok(CertificateInfo {
                 subject,
                 thumbprint,
                 has_private_key,
-                valid_from: SystemTime::now(), // TODO: Extract actual dates
-                valid_to: SystemTime::now(),
+                valid_from,
+                valid_to,
             })
         }
         
@@ -549,13 +672,16 @@ mod implementation {
                 self.validate_msi_package(bundle_path).await?;
             }
             
+            // Extract version from PE file
+            let version = extract_pe_version(bundle_path).await?;
+            
             let result = SignedBundle {
                 path: bundle_path.to_path_buf(),
                 platform: crate::bundle::PlatformTarget::current(),
                 signature_hash,
                 timestamp: SystemTime::now(),
                 size: metadata.len(),
-                version: semver::Version::new(1, 0, 0), // TODO: Extract from version info
+                version,
             };
             
             let duration = start_time.elapsed();

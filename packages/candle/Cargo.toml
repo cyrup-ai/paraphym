@@ -2,6 +2,12 @@
 name = "paraphym_candle"
 version = "0.1.0"
 edition = "2024"
+description = "High-performance AI framework with fluent API for building agents using Candle ML"
+license = "MIT"
+repository = "https://github.com/cyrusnimda/paraphym"
+readme = "README.md"
+keywords = ["ai", "ml", "agents", "candle", "inference"]
+categories = ["science", "mathematics", "algorithms", "api-bindings"]
 
 
 [dependencies]

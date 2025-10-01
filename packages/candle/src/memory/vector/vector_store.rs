@@ -17,7 +17,7 @@ pub type VectorSearchResult = (String, Vec<f32>, f32, Option<VectorMetadata>);
 /// This trait provides a thread-safe, synchronous interface for vector storage operations.
 /// All implementations must be thread-safe (Send + Sync) but use synchronous methods.
 /// For concurrent operations, use thread pools and channels externally.
-pub trait VectorStore: Send + Sync {
+pub trait VectorStore: Send + Sync + std::fmt::Debug {
     /// Add a vector to the store
     ///
     /// # Arguments

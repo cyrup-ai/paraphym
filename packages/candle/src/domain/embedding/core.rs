@@ -12,7 +12,7 @@ use crate::domain::model::usage::Usage;
 use crate::AsyncTask;
 
 /// Core trait for embedding models
-pub trait EmbeddingModel: Send + Sync + Clone {
+pub trait EmbeddingModel: Send + Sync + Clone + std::fmt::Debug {
     /// Create embeddings for a single text
     fn embed(&self, text: &str) -> AsyncTask<ZeroOneOrMany<f32>>;
 

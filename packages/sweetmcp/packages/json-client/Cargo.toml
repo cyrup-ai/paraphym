@@ -5,6 +5,10 @@ edition = "2024"
 authors = ["CYRUP AI"]
 description = "Direct JSON-RPC 2.0 client for SweetMCP protocol using sweet-mcp-type exclusively"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/cyrusnimda/paraphym"
+readme = "README.md"
+keywords = ["mcp", "json-rpc", "client", "protocol", "api"]
+categories = ["api-bindings", "network-programming"]
 
 [dependencies]
 # Core MCP types and high-performance JSON processing

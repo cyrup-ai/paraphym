@@ -455,17 +455,35 @@ impl<M: Model + 'static> std::ops::Deref for RegisteredModel<M> {
     type Target = M;
 
     fn deref(&self) -> &Self::Target {
+        // SAFETY: Type M is guaranteed to match at construction time in register().
+        // RegisteredModel<M> can only be created with a model of type M.
+        // This unwrap is safe but required because Deref cannot return Result.
         self.handle
             .as_model()
-            .expect("type mismatch in RegisteredModel")
+            .unwrap_or_else(|| {
+                panic!(
+                    "Type invariant violated: RegisteredModel<{}> handle does not contain type {}",
+                    std::any::type_name::<M>(),
+                    std::any::type_name::<M>()
+                )
+            })
     }
 }
 
 impl<M: Model + 'static> AsRef<M> for RegisteredModel<M> {
     fn as_ref(&self) -> &M {
+        // SAFETY: Type M is guaranteed to match at construction time in register().
+        // RegisteredModel<M> can only be created with a model of type M.
+        // This unwrap is safe but required because AsRef cannot return Result.
         self.handle
             .as_model()
-            .expect("type mismatch in RegisteredModel")
+            .unwrap_or_else(|| {
+                panic!(
+                    "Type invariant violated: RegisteredModel<{}> handle does not contain type {}",
+                    std::any::type_name::<M>(),
+                    std::any::type_name::<M>()
+                )
+            })
     }
 }
 

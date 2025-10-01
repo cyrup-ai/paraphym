@@ -71,10 +71,10 @@ pub async fn initialize(config: &MemoryConfig) -> Result<SurrealMemoryManager, E
         .map_err(|e| Error::Config(format!("Database sign-in failed: {e}")))?;
     }
 
-    // Create the memory manager
-    let manager = SurrealMemoryManager::new(db.clone());
+    // Create the memory manager with embeddings
+    let manager = SurrealMemoryManager::with_embeddings(db.clone()).await?;
 
-    // Initialize the manager (e.g., create tables/schemas if they don_t exist)
+    // Initialize the manager (e.g., create tables/schemas if they don't exist)
     manager.initialize().await?;
 
     // Run schema migrations to ensure database schema is up-to-date

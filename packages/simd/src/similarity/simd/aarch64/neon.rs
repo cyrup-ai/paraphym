@@ -39,8 +39,8 @@ impl NeonSimilarity {
 
         // Initialize SIMD accumulators
         let mut dot_sum = vdupq_n_f32(0.0);
-        let mut norm_a_sum = vdupq_n_f32(0.0);
-        let mut norm_b_sum = vdupq_n_f32(0.0);
+        let mut a_norm_sum = vdupq_n_f32(0.0);
+        let mut b_norm_sum = vdupq_n_f32(0.0);
 
         // Process 4 floats at a time using real NEON intrinsics
         for i in 0..chunks {
@@ -54,19 +54,19 @@ impl NeonSimilarity {
             dot_sum = vfmaq_f32(dot_sum, a_vec, b_vec);
 
             // Compute squared norms: norm_a += a_vec * a_vec
-            norm_a_sum = vfmaq_f32(norm_a_sum, a_vec, a_vec);
+            a_norm_sum = vfmaq_f32(a_norm_sum, a_vec, a_vec);
 
             // Compute squared norms: norm_b += b_vec * b_vec
-            norm_b_sum = vfmaq_f32(norm_b_sum, b_vec, b_vec);
+            b_norm_sum = vfmaq_f32(b_norm_sum, b_vec, b_vec);
         }
 
         // Horizontal reduction of SIMD vectors to scalars
         let dot_scalar = unsafe { Self::horizontal_sum_neon(dot_sum) };
-        let norm_a_scalar = unsafe { Self::horizontal_sum_neon(norm_a_sum) };
-        let norm_b_scalar = unsafe { Self::horizontal_sum_neon(norm_b_sum) };
+        let a_norm_scalar = unsafe { Self::horizontal_sum_neon(a_norm_sum) };
+        let b_norm_scalar = unsafe { Self::horizontal_sum_neon(b_norm_sum) };
 
         // Process remainder elements with scalar operations
-        let (dot_remainder, norm_a_remainder, norm_b_remainder) = if remainder > 0 {
+        let (dot_remainder, a_norm_remainder, b_norm_remainder) = if remainder > 0 {
             let remainder_offset = chunks * 4;
             Self::process_remainder_scalar(&a[remainder_offset..], &b[remainder_offset..])
         } else {
@@ -75,8 +75,8 @@ impl NeonSimilarity {
 
         (
             dot_scalar + dot_remainder,
-            norm_a_scalar + norm_a_remainder,
-            norm_b_scalar + norm_b_remainder,
+            a_norm_scalar + a_norm_remainder,
+            b_norm_scalar + b_norm_remainder,
         )
     }
 
@@ -193,7 +193,7 @@ mod tests {
         let b = [4.0, 3.0, 2.0, 1.0];
 
         let result = sim.cosine_similarity(&a, &b);
-        let expected = 0.6666667; // Correct value: dot=20, norm=30, cosine=20/30=0.6667
+        let expected = 0.666_666_7; // Correct value: dot=20, norm=30, cosine=20/30=0.6667
         assert_relative_eq!(result, expected, epsilon = 1e-6);
 
         // Test with 8-element vectors (two NEON chunks)
@@ -201,7 +201,7 @@ mod tests {
         let b = [8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0];
 
         let result = sim.cosine_similarity(&a, &b);
-        let expected = 0.5882353; // Correct value: dot=120, norm=204, cosine=120/204=0.5882353
+        let expected = 0.588_235_3; // Correct value: dot=120, norm=204, cosine=120/204=0.5882353
         assert_relative_eq!(result, expected, epsilon = 1e-6);
 
         // Test with remainder elements (6 elements = 1 chunk + 2 remainder)
@@ -209,7 +209,7 @@ mod tests {
         let b = [6.0, 5.0, 4.0, 3.0, 2.0, 1.0];
 
         let result = sim.cosine_similarity(&a, &b);
-        let expected = 0.61538464; // Correct value: dot=56, norm=91, cosine=56/91=0.61538464
+        let expected = 0.615_384_64; // Correct value: dot=56, norm=91, cosine=56/91=0.61538464
         assert_relative_eq!(result, expected, epsilon = 1e-6);
     }
 
@@ -238,7 +238,7 @@ mod tests {
         let a = [1.0, 2.0];
         let b = [3.0, 4.0];
         let result = sim.cosine_similarity(&a, &b);
-        let expected = 0.9838699; // Precomputed value
+        let expected = 0.983_869_9; // Precomputed value
         assert_relative_eq!(result, expected, epsilon = 1e-6);
     }
 

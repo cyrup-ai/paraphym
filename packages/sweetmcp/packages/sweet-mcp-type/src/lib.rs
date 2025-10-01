@@ -1,4 +1,4 @@
-//! sweet_mcp_type: Zero-Serde, high-perf JSON/TOML for MCP 2025-03-26
+//! `sweet_mcp_type`: Zero-Serde, high-perf JSON/TOML for MCP 2025-03-26
 
 pub mod mcp;
 

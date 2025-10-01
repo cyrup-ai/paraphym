@@ -4,6 +4,7 @@ use rio_backend::{
     // Assuming PtyConfig is public under config
     config::{Config as RioConfig}, // PtyConfig removed, Shell removed
     event::RioEvent, // Import only RioEvent
+    performer::handler::Processor,
     sugarloaf::{
         font::FontLibrary,
         layout::RootStyle,
@@ -40,6 +41,7 @@ pub struct TerminalPane<U: rio_backend::event::EventListener + Clone + Send + 's
     pub event_proxy: U, // Use the generic parameter U for the proxy type
     pub clipboard: Rc<RefCell<Clipboard>>,
     pub sugarloaf: Sugarloaf<'static>,
+    parser: Processor, // Parser for processing terminal escape sequences and sixel data
     
     // Thread management resources
     running: Arc<AtomicBool>,
@@ -364,6 +366,7 @@ impl<U: rio_backend::event::EventListener + Clone + Send + 'static> TerminalPane
             event_proxy,
             clipboard: Rc::new(RefCell::new(clipboard)),
             sugarloaf,
+            parser: Processor::new(), // Initialize the parser for terminal byte processing
             // Store thread management resources
             running,
             reader_thread: Some(reader_thread),
@@ -373,20 +376,97 @@ impl<U: rio_backend::event::EventListener + Clone + Send + 'static> TerminalPane
 
     // Render terminal content using Sugarloaf
     pub fn render(&mut self) {
-        // Update clipboard state for copy/paste functionality
-        if let Ok(_clipboard) = self.clipboard.try_borrow() {
-            // Terminal clipboard handling is managed by Rio internally
-            // No explicit call needed here
+        use rio_backend::crosswords::pos::{Column, Line};
+        use rio_backend::crosswords::square::Flags;
+        use rio_backend::sugarloaf::{FragmentStyle, Graphic};
+        
+        // Note: Graphics are uploaded via UpdateGraphics event handler in app.rs
+        // The event is sent by Crosswords.send_graphics_updates() after sixel parsing
+        
+        // Get the content builder from Sugarloaf
+        let content = self.sugarloaf.content();
+        
+        // Create or get the rich text ID for terminal content
+        // Use a fixed ID for the main terminal display
+        let rich_text_id = 0;
+        content.sel(rich_text_id);
+        content.clear();
+        
+        // Get terminal dimensions
+        let rows = self.terminal.screen_lines();
+        let cols = self.terminal.columns();
+        
+        // Iterate through visible rows
+        for row_idx in 0..rows {
+            let mut line_content = String::with_capacity(cols);
+            let mut last_style = FragmentStyle::default();
+            let mut has_content = false;
+            
+            // Get the row from the terminal grid
+            let row = &self.terminal.grid[Line(row_idx as i32)];
+            
+            for col_idx in 0..cols {
+                let square = &row[Column(col_idx)];
+                
+                // Skip wide char spacers
+                if square.flags.contains(Flags::WIDE_CHAR_SPACER) {
+                    continue;
+                }
+                
+                let mut style = FragmentStyle::default();
+                
+                // Handle graphics (sixel)
+                if square.flags.contains(Flags::GRAPHICS) {
+                    // Flush any pending text
+                    if !line_content.is_empty() {
+                        content.add_text_on_line(row_idx, &line_content, last_style);
+                        line_content.clear();
+                    }
+                    
+                    // Add graphic
+                    if let Some(graphics) = square.graphics() {
+                        if let Some(graphic) = graphics.first() {
+                            style.media = Some(Graphic {
+                                id: graphic.texture.id,
+                                offset_x: graphic.offset_x,
+                                offset_y: graphic.offset_y,
+                            });
+                            // Add a space with the graphic style
+                            content.add_text_on_line(row_idx, " ", style);
+                            has_content = true;
+                        }
+                    }
+                } else {
+                    // Regular text character
+                    let c = if square.c == '\t' { ' ' } else { square.c };
+                    
+                    // Simple style with foreground color
+                    style.color = [1.0, 1.0, 1.0, 1.0]; // White text for now
+                    
+                    // If style changed, flush previous content
+                    if has_content && style != last_style && !line_content.is_empty() {
+                        content.add_text_on_line(row_idx, &line_content, last_style);
+                        line_content.clear();
+                    }
+                    
+                    line_content.push(c);
+                    last_style = style;
+                    has_content = true;
+                }
+            }
+            
+            // Flush any remaining content for this line
+            if !line_content.is_empty() {
+                content.add_text_on_line(row_idx, &line_content, last_style);
+            }
         }
         
-        // CRITICAL: Update the terminal grid state to Sugarloaf
-        // Crosswords stores all cell data needed for rendering
-        // Rio would normally handle this through its internal renderer
+        // Build the content
+        content.build();
         
-        // Render the current terminal state using Sugarloaf's renderer
+        // Render
         self.sugarloaf.render();
         
-        // Log that rendering occurred for debugging
         tracing::debug!("Terminal rendered");
     }
 
@@ -434,7 +514,10 @@ impl<U: rio_backend::event::EventListener + Clone + Send + 'static> TerminalPane
         }
     }
     
-    /// Handle output from the PTY process
+    /// Handle output from the PTY process or injected content (like sixel graphics)
+    /// 
+    /// This processes data that should be written to the terminal display.
+    /// Uses the batched parser to handle escape sequences, sixel graphics, and text.
     pub fn handle_pty_output(&mut self, data: &[u8]) -> anyhow::Result<()> {
         // Skip processing if terminal is shutting down
         if !self.running.load(Ordering::SeqCst) {
@@ -442,41 +525,12 @@ impl<U: rio_backend::event::EventListener + Clone + Send + 'static> TerminalPane
             return Ok(());
         }
 
-        // Convert bytes to UTF-8 string for terminal processing
-        let text = String::from_utf8_lossy(data).to_string();
+        // Process the bytes through the parser which will update the terminal grid
+        // This handles all escape sequences, sixel graphics, and text rendering
+        self.parser.advance(&mut self.terminal, data);
         
-        // Check for common control sequences that don't need to be echoed back
-        let is_control_sequence = text.starts_with("\x1B") || 
-                                 text.starts_with("\r") || 
-                                 text.starts_with("\n");
-        
-        // Only process text that actually contains visible content
-        if !text.trim().is_empty() {
-            // CRITICAL: Process the text through the terminal
-            // Send a direct PtyWrite event to update the terminal grid
-            let update_event = RioEvent::PtyWrite(text.clone());
-            
-            // The event_proxy.send_event method returns (), not Result
-            self.event_proxy.send_event(update_event, self.window.id());
-            
-            // Only send to PTY for actual command input (not control sequences or output)
-            // This helps prevent feedback loops
-            if !is_control_sequence && text.contains(|c: char| c.is_alphanumeric()) {
-                match self.pty_tx.send(data.to_vec()) {
-                    Ok(_) => {
-                        debug!("Sent user input to PTY: {:?}", text);
-                    }
-                    Err(e) => {
-                        // Don't fail the whole operation just because we couldn't send to PTY
-                        // This could be during shutdown
-                        debug!("Failed to send to PTY (possibly shutting down): {}", e);
-                    }
-                }
-            }
-            
-            // Request redraw to display the updates
-            self.window.request_redraw();
-        }
+        // Request redraw to display the updates
+        self.window.request_redraw();
         
         Ok(())
     }

@@ -97,7 +97,7 @@ mod tests {
         let b = [4.0, 5.0, 6.0];
 
         let result = sim.cosine_similarity(&a, &b);
-        let expected = 0.9746318; // Precomputed value
+        let expected = 0.974_631_8; // Precomputed value
         assert_relative_eq!(result, expected, epsilon = 1e-6);
 
         // Test with orthogonal vectors

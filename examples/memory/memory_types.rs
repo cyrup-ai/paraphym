@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Setup
     let db = create_mem_db().await?;
-    let memory_manager = SurrealDBMemoryManager::new(db);
+    let memory_manager = SurrealDBMemoryManager::with_embeddings(db).await?;
     memory_manager.initialize().await?;
 
     // 1. Semantic Memory Example

@@ -111,7 +111,8 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + MessageC
             max_tokens: completion_request
                 .max_tokens
                 .and_then(|t| std::num::NonZeroU64::new(t.get())),
-            n: std::num::NonZeroU8::new(1).expect("1 is a valid NonZeroU8 constant"),
+            // 1 is always non-zero
+            n: std::num::NonZeroU8::new(1).expect("1 is non-zero"),
             stream: true,
             tools: None,
             additional_params: None,

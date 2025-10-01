@@ -97,7 +97,8 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static>
                 let params = CompletionParams {
                     temperature: completion_request.temperature.unwrap_or(0.2),
                     max_tokens: completion_request.max_tokens.and_then(|t| std::num::NonZeroU64::new(t as u64)),
-                    n: std::num::NonZeroU8::new(1).expect("1 is a valid NonZeroU8 constant"),
+                    // SAFETY: 1 is mathematically guaranteed to be non-zero
+                    n: unsafe { std::num::NonZeroU8::new_unchecked(1) },
                     stream: true};
                 let mut stream = model.prompt(prompt, &params);
 

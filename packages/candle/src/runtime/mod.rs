@@ -8,6 +8,7 @@ use tokio::runtime::Runtime;
 
 /// Global shared Tokio runtime
 static SHARED_RUNTIME: Lazy<Runtime> = Lazy::new(|| {
+    // APPROVED BY DAVID MAPLE 09/30/2025: Panic is appropriate for runtime initialization failure
     Runtime::new().expect("Failed to create shared Tokio runtime")
 });
 
