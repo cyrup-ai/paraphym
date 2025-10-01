@@ -38,6 +38,21 @@ pub struct MemoryRelationship {
     pub relationship_type: String,
     /// Additional metadata
     pub metadata: Option<Value>,
+
+    /// Creation timestamp (milliseconds since epoch)
+    /// Optional for backwards compatibility with existing code
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<u64>,
+
+    /// Last update timestamp (milliseconds since epoch)
+    /// Optional for backwards compatibility with existing code
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<u64>,
+
+    /// Relationship strength (0.0 to 1.0)
+    /// Optional for backwards compatibility with existing code
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strength: Option<f32>,
 }
 
 impl MemoryRelationship {
@@ -49,6 +64,9 @@ impl MemoryRelationship {
             target_id,
             relationship_type,
             metadata: None,
+            created_at: None,
+            updated_at: None,
+            strength: None,
         }
     }
 
@@ -65,12 +83,23 @@ impl MemoryRelationship {
             target_id,
             relationship_type,
             metadata: None,
+            created_at: None,
+            updated_at: None,
+            strength: None,
         }
     }
 
     /// Add metadata to the relationship
     pub fn with_metadata(mut self, metadata: Value) -> Self {
         self.metadata = Some(metadata);
+        self
+    }
+
+    /// Set timestamp fields (for import/deserialization)
+    pub fn with_timestamps(mut self, created_at: u64, updated_at: u64, strength: f32) -> Self {
+        self.created_at = Some(created_at);
+        self.updated_at = Some(updated_at);
+        self.strength = Some(strength);
         self
     }
 }
@@ -83,6 +112,9 @@ impl Default for MemoryRelationship {
             target_id: String::new(),
             relationship_type: "unknown".to_string(),
             metadata: None,
+            created_at: None,
+            updated_at: None,
+            strength: None,
         }
     }
 }
@@ -95,6 +127,9 @@ impl MessageChunk for MemoryRelationship {
             target_id: "error".to_string(),
             relationship_type: "error".to_string(),
             metadata: Some(serde_json::json!({"error": error})),
+            created_at: None,
+            updated_at: None,
+            strength: None,
         }
     }
 

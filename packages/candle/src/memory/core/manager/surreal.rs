@@ -60,6 +60,9 @@ struct RelationshipCreateContent {
 
 impl From<&MemoryRelationship> for RelationshipCreateContent {
     fn from(relationship: &MemoryRelationship) -> Self {
+        // Preserve timestamps if present, generate if absent
+        let now = crate::memory::utils::current_timestamp_ms();
+
         Self {
             source_id: relationship.source_id.clone(),
             target_id: relationship.target_id.clone(),
@@ -68,9 +71,9 @@ impl From<&MemoryRelationship> for RelationshipCreateContent {
                 .metadata
                 .clone()
                 .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new())),
-            created_at: crate::memory::utils::current_timestamp_ms(),
-            updated_at: crate::memory::utils::current_timestamp_ms(),
-            strength: 1.0,
+            created_at: relationship.created_at.unwrap_or(now),
+            updated_at: relationship.updated_at.unwrap_or(now),
+            strength: relationship.strength.unwrap_or(1.0),
         }
     }
 }
@@ -425,16 +428,39 @@ impl SurrealDBMemoryManager {
         let mut nodes_response = self.db.query(nodes_query).await
             .map_err(|e| Error::Database(format!("Failed to query memory nodes: {}", e)))?;
 
-        let nodes: Vec<MemoryNode> = nodes_response.take(0)
+        // Get as schema first, then convert using established helper
+        let node_schemas: Vec<MemoryNodeSchema> = nodes_response.take(0)
             .map_err(|e| Error::Database(format!("Failed to parse memory nodes: {}", e)))?;
+
+        // Use from_schema for consistent conversion (see line 328)
+        let nodes: Vec<MemoryNode> = node_schemas
+            .into_iter()
+            .map(SurrealDBMemoryManager::from_schema)
+            .collect();
 
         // Query all relationships from 'memory_relationship' table
         let rels_query = "SELECT * FROM memory_relationship";
         let mut rels_response = self.db.query(rels_query).await
             .map_err(|e| Error::Database(format!("Failed to query relationships: {}", e)))?;
 
-        let relationships: Vec<MemoryRelationship> = rels_response.take(0)
+        // Get as RelationshipSchema first, then convert properly
+        let relationship_schemas: Vec<RelationshipSchema> = rels_response.take(0)
             .map_err(|e| Error::Database(format!("Failed to parse relationships: {}", e)))?;
+
+        // Convert with full field preservation
+        let relationships: Vec<MemoryRelationship> = relationship_schemas
+            .into_iter()
+            .map(|schema| MemoryRelationship {
+                id: schema.id.key().to_string(),
+                source_id: schema.source_id,
+                target_id: schema.target_id,
+                relationship_type: schema.relationship_type,
+                metadata: Some(schema.metadata),
+                created_at: Some(schema.created_at),
+                updated_at: Some(schema.updated_at),
+                strength: Some(schema.strength),
+            })
+            .collect();
 
         // Create export data structure
         let export_data = ExportData {
@@ -463,7 +489,7 @@ impl SurrealDBMemoryManager {
     ///
     /// # Arguments
     /// * `path` - Path to import file
-    /// * `format` - Import format (Json, Csv, or Binary)
+    /// * `format` - Import format (Json or Csv)
     ///
     /// # Returns
     /// Total count of imported items (nodes + relationships)
@@ -485,11 +511,6 @@ impl SurrealDBMemoryManager {
                 .map_err(|e| Error::Migration(format!("JSON import failed: {}", e)))?,
             ImportFormat::Csv => importer.import_csv(path).await
                 .map_err(|e| Error::Migration(format!("CSV import failed: {}", e)))?,
-            ImportFormat::Binary => {
-                return Err(Error::Migration(
-                    "Binary import not supported - ExportData doesn't implement bincode::Decode".to_string()
-                ));
-            }
         };
 
         // Extract the single ExportData element (export creates array of 1 element)
@@ -666,6 +687,9 @@ impl MemoryManager for SurrealDBMemoryManager {
                     target_id: schema.target_id,
                     relationship_type: schema.relationship_type,
                     metadata: Some(schema.metadata),
+                    created_at: Some(schema.created_at),
+                    updated_at: Some(schema.updated_at),
+                    strength: Some(schema.strength),
                 }),
                 None => Err(Error::NotFound("Failed to create relationship".to_string())),
             };
@@ -696,6 +720,9 @@ impl MemoryManager for SurrealDBMemoryManager {
                             target_id: schema.target_id,
                             relationship_type: schema.relationship_type,
                             metadata: Some(schema.metadata),
+                            created_at: Some(schema.created_at),
+                            updated_at: Some(schema.updated_at),
+                            strength: Some(schema.strength),
                         };
 
                         if tx.send(Ok(relationship)).await.is_err() {

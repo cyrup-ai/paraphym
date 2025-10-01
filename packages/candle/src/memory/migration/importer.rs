@@ -113,12 +113,6 @@ impl DataImporter {
         let data = match format {
             ImportFormat::Json => self.import_json(path).await?,
             ImportFormat::Csv => self.import_csv(path).await?,
-            ImportFormat::Binary => {
-                return Err(MigrationError::UnsupportedFormat(
-                    "Binary validation requires bincode::Decode trait - use import_binary directly"
-                        .to_string(),
-                ));
-            }
         };
 
         // Validate each item
@@ -143,8 +137,6 @@ pub enum ImportFormat {
     Json,
     /// CSV format
     Csv,
-    /// Binary format
-    Binary,
 }
 
 /// Import configuration

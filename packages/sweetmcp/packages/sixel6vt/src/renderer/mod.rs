@@ -1,3 +1,5 @@
+use image;
+
 /// VT340-compatible 16-color palette for sixel encoding
 /// RGB values scaled to 0-100 range per sixel specification
 /// Source: VT330/VT340 Programmer Reference Manual, Chapter 14
@@ -19,6 +21,23 @@ const PALETTE: [(i32, i32, i32); 16] = [
     (100, 100, 40),  // 14: Yellow
     (100, 100, 100), // 15: White
 ];
+
+/// Generate sixel color palette definition from PALETTE constant
+/// 
+/// Returns a string containing all 16 color definitions in sixel format.
+/// Format per VT340 spec: `#<index>;2;<r>;<g>;<b>` for each color.
+/// RGB values are in 0-100 percent range per sixel specification.
+///
+/// # Returns
+/// String like: `#0;2;0;0;0#1;2;20;20;80...#15;2;100;100;100`
+fn palette_to_sixel_header() -> String {
+    PALETTE
+        .iter()
+        .enumerate()
+        .map(|(i, &(r, g, b))| format!("#{};2;{};{};{}", i, r, g, b))
+        .collect::<Vec<_>>()
+        .join("")
+}
 
 /// Standard sixel height in pixels (6 pixels per sixel row)
 /// Per VT340 specification: each sixel encodes 6 vertical pixels
@@ -98,9 +117,18 @@ where
                     height: row_height,
                     color: region_color,
                 });
+                x += region_width;
+            } else {
+                // Verification failed - create single-pixel region
+                regions.push(EncoderRegion {
+                    x,
+                    y,
+                    width: 1,
+                    height: row_height,
+                    color: region_color,
+                });
+                x += 1;
             }
-            
-            x += region_width;
         }
     }
     
@@ -134,14 +162,14 @@ fn merge_regions(mut regions: Vec<EncoderRegion>) -> Vec<EncoderRegion> {
                 if can_merge_vertical {
                     // Merge vertically: extend height
                     regions[i].height += regions[j].height;
-                    regions.remove(j);
+                    regions.swap_remove(j);
                     merged = true;
                     found_merge = true;
                     break;
                 } else if can_merge_horizontal {
                     // Merge horizontally: extend width
                     regions[i].width += regions[j].width;
-                    regions.remove(j);
+                    regions.swap_remove(j);
                     merged = true;
                     found_merge = true;
                     break;
@@ -167,10 +195,8 @@ fn regions_to_sixel(regions: &[EncoderRegion], img_width: u32, img_height: u32) 
     // Add raster attributes
     result.push_str(&format!("\"{};{}", img_width, img_height));
     
-    // Define 16-color palette (VT-340 compatible)
-    for (i, &(r, g, b)) in PALETTE.iter().enumerate() {
-        result.push_str(&format!("#{};2;{};{};{}", i, r, g, b));
-    }
+    // Define palette (DRY - generated from PALETTE constant)
+    result.push_str(&palette_to_sixel_header());
     
     // Process by sixel rows
     for y in (0..img_height).step_by(SIXEL_HEIGHT as usize) {
@@ -268,24 +294,8 @@ fn encode_sixel_legacy(img: &image::RgbImage) -> String {
         // Add raster attributes (crucial for Rio compatibility)
         result.push_str(&format!("\"{};{}", img.width(), img.height()));
 
-        // Define a basic 16-color palette (8-bit RGB values)
-        // Using VT-340 compatible palette for better Rio compatibility
-        result.push_str("#0;2;0;0;0"); // 0: Black
-        result.push_str("#1;2;20;20;80"); // 1: Dark Blue
-        result.push_str("#2;2;20;80;20"); // 2: Dark Green
-        result.push_str("#3;2;20;80;80"); // 3: Dark Cyan
-        result.push_str("#4;2;80;20;20"); // 4: Dark Red
-        result.push_str("#5;2;80;20;80"); // 5: Dark Magenta
-        result.push_str("#6;2;80;80;20"); // 6: Brown
-        result.push_str("#7;2;80;80;80"); // 7: Light Gray
-        result.push_str("#8;2;40;40;40"); // 8: Dark Gray
-        result.push_str("#9;2;40;40;100"); // 9: Light Blue
-        result.push_str("#10;2;40;100;40"); // 10: Light Green
-        result.push_str("#11;2;40;100;100"); // 11: Light Cyan
-        result.push_str("#12;2;100;40;40"); // 12: Light Red
-        result.push_str("#13;2;100;40;100"); // 13: Light Magenta
-        result.push_str("#14;2;100;100;40"); // 14: Yellow
-        result.push_str("#15;2;100;100;100"); // 15: White
+        // Define palette (DRY - generated from PALETTE constant)
+        result.push_str(&palette_to_sixel_header());
 
         // Function to find the closest color in our palette
         let find_closest_color = |r: u8, g: u8, b: u8| -> u16 {
@@ -333,10 +343,24 @@ fn encode_sixel_legacy(img: &image::RgbImage) -> String {
                 }
 
                 // Use most common color in this column
-                let dominant_color = *column_colors
-                    .iter()
-                    .max_by_key(|&&c| column_colors.iter().filter(|&&x| x == c).count())
-                    .unwrap_or(&0);
+                let dominant_color = {
+                    // Count occurrences of each color (max 16 palette colors)
+                    let mut counts = [0u8; 16];
+                    for &color in &column_colors[..] {
+                        // Bounds check: only count valid palette indices
+                        if (color as usize) < 16 {
+                            counts[color as usize] += 1;
+                        }
+                    }
+                    
+                    // Find color with maximum count
+                    counts
+                        .iter()
+                        .enumerate()
+                        .max_by_key(|&(_, &count)| count)
+                        .map(|(idx, _)| idx as u16)
+                        .unwrap_or(0)
+                };
 
                 // Switch color if needed
                 if dominant_color != current_color {
@@ -416,11 +440,12 @@ mod tests {
     fn test_geometric_encoding() {
         // Create a simple 12x12 test image with uniform regions
         // This tests the geometric folding innovation
-        let mut img = image::RgbImage::new(12, 12);
+        const TEST_IMG_SIZE: u32 = 2 * SIXEL_HEIGHT;  // 12 pixels = 2 sixel rows
+        let mut img = image::RgbImage::new(TEST_IMG_SIZE, TEST_IMG_SIZE);
         
         // Fill with a uniform color (should create one large region)
-        for y in 0..12 {
-            for x in 0..12 {
+        for y in 0..TEST_IMG_SIZE {
+            for x in 0..TEST_IMG_SIZE {
                 img.put_pixel(x, y, image::Rgb([100u8, 100u8, 100u8]));
             }
         }
@@ -438,19 +463,21 @@ mod tests {
     
     #[test]
     fn test_region_detection() {
-        // Create 6x6 image with two regions
-        let mut img = image::RgbImage::new(6, 6);
+        // Create 6x6 image with two regions (1 sixel row tall)
+        let img_height = SIXEL_HEIGHT;
+        let img_width = SIXEL_HEIGHT;  // Arbitrary width matching height for square test
+        let mut img = image::RgbImage::new(img_width, img_height);
         
         // Left half: color 1
-        for y in 0..6 {
-            for x in 0..3 {
+        for y in 0..img_height {
+            for x in 0..(img_width / 2) {
                 img.put_pixel(x, y, image::Rgb([20u8, 20u8, 80u8]));
             }
         }
-        
+
         // Right half: color 2
-        for y in 0..6 {
-            for x in 3..6 {
+        for y in 0..img_height {
+            for x in (img_width / 2)..img_width {
                 img.put_pixel(x, y, image::Rgb([20u8, 80u8, 20u8]));
             }
         }
@@ -471,8 +498,8 @@ mod tests {
     fn test_region_merging() {
         // Create regions that should merge
         let regions = vec![
-            EncoderRegion { x: 0, y: 0, width: 5, height: 6, color: 1 },
-            EncoderRegion { x: 5, y: 0, width: 5, height: 6, color: 1 },  // Horizontal merge
+            EncoderRegion { x: 0, y: 0, width: 5, height: SIXEL_HEIGHT, color: 1 },
+            EncoderRegion { x: 5, y: 0, width: 5, height: SIXEL_HEIGHT, color: 1 },  // Horizontal merge
         ];
         
         let merged = merge_regions(regions);
@@ -480,5 +507,32 @@ mod tests {
         // Should merge into one region
         assert_eq!(merged.len(), 1, "Should merge into 1 region");
         assert_eq!(merged[0].width, 10, "Merged region width should be 10");
+    }
+    
+    #[test]
+    fn test_vertical_stripes_no_skip() {
+        // This test catches the pixel-skipping bug where verification fails
+        // and pixels get skipped instead of being encoded
+        let mut img = image::RgbImage::new(12, 6);
+        
+        // Columns 0-5: color 1 (dark blue)
+        for y in 0..6 {
+            for x in 0..6 {
+                img.put_pixel(x, y, image::Rgb([20u8, 20u8, 80u8]));
+            }
+        }
+        
+        // Columns 6-11: color 2 (dark green)
+        for y in 0..6 {
+            for x in 6..12 {
+                img.put_pixel(x, y, image::Rgb([20u8, 80u8, 20u8]));
+            }
+        }
+        
+        let sixel = encode_sixel(&img);
+        
+        // Both colors must appear in output (no pixels skipped)
+        assert!(sixel.contains("#1"), "Must encode color 1 (dark blue)");
+        assert!(sixel.contains("#2"), "Must encode color 2 (dark green)");
     }
 }

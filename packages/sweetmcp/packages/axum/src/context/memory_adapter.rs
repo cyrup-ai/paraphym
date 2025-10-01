@@ -37,6 +37,8 @@ impl MemoryContextAdapter {
                 pool_size: Some(5),
                 options: None,
             },
+            // Note: MemoryCoordinator generates BERT embeddings (384D) internally
+            // No external vector_store config needed
             vector_store: paraphym_candle::memory::utils::config::VectorStoreConfig {
                 store_type: paraphym_candle::memory::utils::config::VectorStoreType::SurrealDB,
                 embedding_model: paraphym_candle::memory::utils::config::EmbeddingModelConfig {
@@ -46,7 +48,7 @@ impl MemoryContextAdapter {
                     api_base: None,
                     options: None,
                 },
-                dimension: 768,
+                dimension: 384, // Actual BERT embedding dimension used by coordinator
                 connection_string: None,
                 api_key: None,
                 options: None,
@@ -93,49 +95,71 @@ impl MemoryContextAdapter {
     }
 
     /// Store context value using production memory system with automatic BERT embeddings
+    /// Updates existing context if key already exists, creates new one otherwise
     pub async fn store_context(&self, key: String, value: Value) -> Result<()> {
         let json_str = serde_json::to_string(&value)?;
 
-        // Create metadata with context information
-        let mut metadata = MemoryMetadata::new();
-        metadata.importance = 1.0;
-        metadata.custom = serde_json::json!({
-            "key": key,
-            "type": "context"
-        });
+        // Check if context with this key already exists
+        let existing = self.find_context_memory(&key).await?;
 
-        // Use coordinator's add_memory which automatically generates BERT embeddings
-        // Note: The coordinator manages IDs internally, we store key in metadata for retrieval
-        let _memory = self.memory_coordinator
-            .add_memory(json_str, DomainMemoryTypeEnum::Semantic, metadata)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to store context: {}", e))?;
+        if let Some(existing_memory) = existing {
+            // Update existing memory with new content
+            let existing_id = existing_memory.id().to_string();
+            
+            // Preserve existing metadata, just update the content
+            let mut updated_metadata = paraphym_candle::memory::MemoryMetadata::new();
+            updated_metadata.importance = existing_memory.metadata.importance;
+            updated_metadata.custom = existing_memory.metadata.custom
+                .iter()
+                .map(|(k, v)| (k.to_string(), (**v).clone()))
+                .collect();
+            
+            self.memory_coordinator
+                .update_memory(&existing_id, Some(json_str), Some(updated_metadata))
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to update context: {}", e))?;
+        } else {
+            // Create new memory with metadata
+            let mut metadata = MemoryMetadata::new();
+            metadata.importance = 1.0;
+            metadata.custom = serde_json::json!({
+                "key": key,
+                "type": "context"
+            });
+
+            self.memory_coordinator
+                .add_memory(json_str, DomainMemoryTypeEnum::Semantic, metadata)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to store context: {}", e))?;
+        }
 
         Ok(())
     }
 
-    /// Retrieve context value from production memory using metadata search
+    /// Retrieve context value from production memory using metadata filtering
     pub async fn get_context(&self, key: &str) -> Result<Option<Value>> {
-        // Search for memory with matching key in metadata
+        if let Some(memory) = self.find_context_memory(key).await? {
+            let value: Value = serde_json::from_str(memory.content().to_string().as_str())?;
+            Ok(Some(value))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Helper method to find a context memory by key
+    async fn find_context_memory(&self, key: &str) -> Result<Option<paraphym_candle::domain::memory::primitives::node::MemoryNode>> {
+        // Filter by memory type, context type, and specific key in metadata
         let filter = paraphym_candle::memory::core::ops::filter::MemoryFilter::default()
-            .with_memory_types(vec![CoreMemoryTypeEnum::Semantic]);
+            .with_memory_types(vec![CoreMemoryTypeEnum::Semantic])
+            .with_metadata("type", serde_json::Value::String("context".to_string()))
+            .with_metadata("key", serde_json::Value::String(key.to_string()));
 
         let memories = self.memory_coordinator
             .get_memories(filter)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to search for context: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to find context: {}", e))?;
 
-        // Find the memory with matching key in custom metadata
-        for memory in memories {
-            if let Some(custom) = memory.metadata.custom.get("key") {
-                if custom.as_str() == Some(key) {
-                    let value: Value = serde_json::from_str(memory.content().to_string().as_str())?;
-                    return Ok(Some(value));
-                }
-            }
-        }
-
-        Ok(None)
+        Ok(memories.into_iter().next())
     }
 
     /// Add a subscription
@@ -160,12 +184,19 @@ impl MemoryContextAdapter {
     }
 
     /// Search using production semantic search with BERT embeddings
-    pub async fn search_contexts(&self, pattern: &str) -> Result<Vec<(String, Value)>> {
+    /// 
+    /// # Arguments
+    /// * `pattern` - The search pattern/query
+    /// * `limit` - Maximum number of results to return (default: 10, max: 100)
+    pub async fn search_contexts(&self, pattern: &str, limit: Option<usize>) -> Result<Vec<(String, Value)>> {
         let mut results = Vec::new();
+
+        // Enforce reasonable limits: default 10, max 100
+        let search_limit = limit.unwrap_or(10).min(100);
 
         // Use coordinator's semantic search which leverages BERT embeddings
         let search_results = self.memory_coordinator
-            .search_memories(pattern, None, 10)
+            .search_memories(pattern, None, search_limit)
             .await
             .map_err(|e| anyhow::anyhow!("Search failed: {}", e))?;
 
@@ -187,28 +218,32 @@ impl MemoryContextAdapter {
         Ok(results)
     }
 
-    /// Graceful shutdown
+    /// Graceful shutdown with proper resource cleanup
     pub async fn shutdown(&self) -> Result<()> {
         log::info!("Shutting down MemoryContextAdapter...");
         
+        // Clear all subscriptions
         let mut subs = self.subscriptions.write().await;
         let sub_count = subs.len();
         subs.clear();
+        drop(subs); // Explicitly drop write lock
 
-        log::info!("MemoryContextAdapter shutdown complete. Cleared {} subscriptions", sub_count);
+        log::info!("Cleared {} subscriptions", sub_count);
+
+        // Note: MemoryCoordinator and SurrealDB connections are cleaned up
+        // automatically when the Arc is dropped. The Surreal<Any> connection
+        // has a proper Drop implementation that closes the connection.
+        log::info!("MemoryContextAdapter shutdown complete. Database connections will be closed on Arc drop.");
+        
         Ok(())
     }
 
     /// Validate memory system
     pub async fn validate(&self) -> Result<()> {
-        // Test search functionality which uses embeddings
-        let test_result = self.memory_coordinator
-            .search_memories("__health_check__", None, 1)
-            .await;
-
+        // Test search functionality with proper timeout wrapping the async operation
         match tokio::time::timeout(
             std::time::Duration::from_secs(5),
-            async { test_result }
+            self.memory_coordinator.search_memories("__health_check__", None, 1)
         ).await {
             Ok(Ok(_)) => {
                 log::debug!("Memory system validation passed: Coordinator and embeddings functional");
@@ -223,30 +258,23 @@ impl MemoryContextAdapter {
         }
     }
 
-    /// Get real statistics from memory system
+    /// Get real statistics from memory system using efficient metadata filtering
     pub async fn get_stats(&self) -> MemoryStats {
         let mut total_nodes = 0;
         let mut total_relationships = 0;
 
-        // Get all semantic memories and filter for context entries
+        // Filter for context entries directly using metadata
         let filter = paraphym_candle::memory::core::ops::filter::MemoryFilter::default()
-            .with_memory_types(vec![CoreMemoryTypeEnum::Semantic]);
+            .with_memory_types(vec![CoreMemoryTypeEnum::Semantic])
+            .with_metadata("type", serde_json::Value::String("context".to_string()));
 
         match self.memory_coordinator.get_memories(filter).await {
             Ok(memories) => {
-                let mut context_ids = Vec::new();
-                for memory in memories {
-                    // Check if this is a context entry
-                    if let Some(type_value) = memory.metadata.custom.get("type") {
-                        if type_value.as_str() == Some("context") {
-                            total_nodes += 1;
-                            context_ids.push(memory.id().to_string());
-                        }
-                    }
-                }
-
+                total_nodes = memories.len();
+                
                 // Count relationships for context nodes
-                for node_id in context_ids {
+                for memory in memories {
+                    let node_id = memory.id().to_string();
                     if let Ok(relationships) = self.memory_coordinator.get_relationships(&node_id).await {
                         total_relationships += relationships.len();
                     }

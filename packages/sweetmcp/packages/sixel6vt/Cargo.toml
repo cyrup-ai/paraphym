@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 build = "build.rs"
 
+[lib]
+name = "sixel_renderer"
+path = "src/renderer/mod.rs"
+
 [dependencies]
 anyhow = "1.0.98"
 chromiumoxide = { version = "0.7.0", features = ["tokio-runtime"] }
@@ -27,6 +31,25 @@ ring = "0.17"
 semver = { version = "1.0", features = ["serde"] }
 heapless = { version = "0.8", features = ["serde"] }
 
+# Core dependencies for sixel renderer
+image = "0.25.6"
+
+# Optional test harness dependencies
+image-compare = { version = "0.4.1", optional = true }
+sixel-tokenizer = { version = "0.1.0", optional = true }
+pollster = { version = "0.4", optional = true }
+
+# Rio integration - optional test harness only
+rio_window = { package = "rio-window", git = "https://github.com/raphamorim/rio", tag = "v0.2.31", default-features = false, optional = true }
+rio_backend = { package = "rio-backend", git = "https://github.com/raphamorim/rio", tag = "v0.2.31", optional = true }
+sugarloaf = { package = "sugarloaf", git = "https://github.com/raphamorim/rio", tag = "v0.2.31", optional = true }
+teletypewriter = { package = "teletypewriter", git = "https://github.com/raphamorim/rio", tag = "v0.2.31", optional = true }
+raw-window-handle = { version = "0.6.2", optional = true }
+base64 = { version = "0.22.1", optional = true }
+percent-encoding = { version = "2.3.1", optional = true }
+thiserror = { version = "2.0.12", optional = true }
+wgpu = { version = "25.0.0", optional = true }
+
 # Platform-specific signing dependencies
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri-macos-sign = "2.1.0"
@@ -46,29 +69,27 @@ windows = { version = "0.61", features = [
 gpgme = "0.11"
 deb = "0.5"
 
-# Image processing
-image = "0.25.6"
-image-compare = "0.4.1"
-sixel-tokenizer = "0.1.0"
-pollster = "0.4"
-
-# Rio integration - all from same branch to ensure compatibility
-rio-window = { git = "https://github.com/raphamorim/rio", branch = "main" }
-rio-backend = { git = "https://github.com/raphamorim/rio", branch = "main" }
-sugarloaf = { git = "https://github.com/raphamorim/rio", branch = "main", package = "sugarloaf" }
-teletypewriter = { git = "https://github.com/raphamorim/rio", branch = "main", package = "teletypewriter" }
-raw-window-handle = "0.6.2"
-base64 = "0.22.1"
-percent-encoding = "2.3.1"
-thiserror = "2.0.12"
-wgpu = "25.0.0"
-
-# Exclude this package from the parent workspace
-[workspace]
+[features]
+default = []
+rio-test-harness = [
+    "image-compare",
+    "sixel-tokenizer",
+    "pollster",
+    "rio_window",
+    "rio_backend",
+    "sugarloaf",
+    "teletypewriter",
+    "raw-window-handle",
+    "base64",
+    "percent-encoding",
+    "thiserror",
+    "wgpu",
+]
 
 [[bin]]
 name = "rio-ext-test"
 path = "src/main.rs"
+required-features = ["rio-test-harness"]
 
 [[bin]]
 name = "build-installers"

@@ -116,8 +116,6 @@ pub enum ExportFormat {
     Json,
     /// CSV format
     Csv,
-    /// Binary format
-    Binary,
 }
 
 /// Data exporter
@@ -140,10 +138,6 @@ impl DataExporter {
         match self.format {
             ExportFormat::Json => self.export_json(data, path),
             ExportFormat::Csv => self.export_csv(data, path),
-            ExportFormat::Binary => Err(crate::memory::migration::MigrationError::UnsupportedFormat(
-                "Binary export requires bincode::Encode trait - use export_binary directly"
-                    .to_string(),
-            )),
         }
     }
 

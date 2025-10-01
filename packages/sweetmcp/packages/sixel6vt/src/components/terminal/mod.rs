@@ -89,8 +89,8 @@ impl<U: rio_backend::event::EventListener + Clone + Send + 'static> TerminalPane
             ),
         ) {
             Ok(instance) => instance,
-            // Use the correct error type from Sugarloaf
-            Err(SugarloafWithErrors { instance, .. }) => instance, // Use SugarloafWithErrors
+            // Use the correct error type from Sugarloaf - destructure Box
+            Err(boxed_err) => boxed_err.instance, // Extract instance from Box<SugarloafWithErrors>
         };
 
         // Get dimensions for terminal
@@ -134,10 +134,13 @@ impl<U: rio_backend::event::EventListener + Clone + Send + 'static> TerminalPane
         };
         // Set critical terminal environment variables before creating PTY
         // From frontends/rioterm/src/main.rs example
-        std::env::set_var("TERM", "xterm-256color");
-        std::env::set_var("TERM_PROGRAM", "rio");
-        std::env::set_var("TERM_PROGRAM_VERSION", "1.0.0"); // Simulate a version
-        std::env::set_var("COLORTERM", "truecolor");
+        // SAFETY: Setting environment variables before spawning subprocess
+        unsafe {
+            std::env::set_var("TERM", "xterm-256color");
+            std::env::set_var("TERM_PROGRAM", "rio");
+            std::env::set_var("TERM_PROGRAM_VERSION", "1.0.0"); // Simulate a version
+            std::env::set_var("COLORTERM", "truecolor");
+        }
         
         // Get shell path using same approach as the spawn.rs example
         use std::borrow::Cow;

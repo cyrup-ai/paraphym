@@ -254,7 +254,7 @@ impl Migration for V2AddVectorIndex {
             // Create vector similarity index on memory table
             // This enables efficient vector search using SurrealDB's vector::similarity functions
             let result = db
-                .query("DEFINE INDEX IF NOT EXISTS memory_embedding_idx ON TABLE memory COLUMNS metadata.embedding MTREE DIMENSION 384")
+                .query("DEFINE INDEX IF NOT EXISTS memory_embedding_idx ON TABLE memory COLUMNS metadata.embedding MTREE DIMENSION 384 DIST COSINE TYPE F32")
                 .await
                 .map_err(|e| MigrationError::DatabaseError(format!("Failed to create vector index: {:?}", e)));
 

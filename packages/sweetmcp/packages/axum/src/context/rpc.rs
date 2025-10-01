@@ -132,12 +132,12 @@ pub async fn context_get(request: GetContextRequest) -> HandlerResult<GetContext
         let memory_adapter = app_context.memory_adapter();
 
         // Search for relevant context using the memory system
-        match memory_adapter.search_contexts(&request.query).await {
+        let max_results = request.max_results.map(|r| r as usize);
+        match memory_adapter.search_contexts(&request.query, max_results).await {
             Ok(search_results) => {
                 let mut items = Vec::new();
-                let max_results = request.max_results.unwrap_or(10) as usize;
 
-                for (key, value) in search_results.into_iter().take(max_results) {
+                for (key, value) in search_results {
                     let item = ContextItem {
                         id: key.clone(),
                         source: "memory".to_string(),

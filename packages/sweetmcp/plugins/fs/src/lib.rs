@@ -59,6 +59,18 @@ impl McpTool for FsTool {
             )
             .optional_string("content", "Content to write (required for write operation)")
             .optional_string("pattern", "Search pattern for file search operations")
+            .optional_string(
+                "old_content",
+                "Text to find and replace (required for edit operation)",
+            )
+            .optional_string(
+                "new_content",
+                "Replacement text (required for edit operation)",
+            )
+            .optional_number(
+                "count",
+                "Number of occurrences to replace (optional for edit operation, default: all)",
+            )
             .build()
     }
 
@@ -257,7 +269,11 @@ fn edit_file(args: &Value) -> Result<CallToolResult, Error> {
         .map_err(|e| Error::msg(format!("Failed to convert diff to string: {}", e)))?;
     
     // Count actual changes made
-    let num_replacements = current_content.matches(old_content).count();
+    let total_occurrences = current_content.matches(old_content).count();
+    let num_replacements = match replace_count {
+        Some(n) => n.min(total_occurrences),  // Can't replace more than exist
+        None => total_occurrences              // Replace all
+    };
     
     Ok(ContentBuilder::text(
         json!({
