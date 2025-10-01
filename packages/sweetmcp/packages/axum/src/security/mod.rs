@@ -11,6 +11,12 @@
 pub mod memory_safety;
 pub mod validation;
 
-// Re-export all security types for convenience
-pub use memory_safety::*;
-pub use validation::*;
+// Re-export all security types from submodules
+pub use memory_safety::core::*;
+pub use memory_safety::monitoring::*;
+pub use memory_safety::validation::*;
+pub use validation::{
+    ValidationEngine, ValidationEngineMetrics, ValidationRule, ValidationResult
+};
+pub use validation::core::*;
+pub use validation::rules::*;

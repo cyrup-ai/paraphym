@@ -47,7 +47,7 @@ impl ApplicationContext {
     /// Initialize a new application context
     pub async fn initialize(
         config_path: &std::path::Path,
-        log_level: &str,
+        _log_level: &str,
         plugin_configs: &[crate::config::PluginConfig],
     ) -> Result<Option<Self>, anyhow::Error> {
         // Load configuration
@@ -60,7 +60,7 @@ impl ApplicationContext {
         };
 
         // Initialize logger
-        let logger = Arc::new(logger::ConsoleLogger::new(log_level));
+        let logger = Arc::new(logger::ConsoleLogger::new());
 
         // Initialize plugin manager
         let plugin_manager = match crate::plugin::PluginManager::new(plugin_configs).await {
@@ -93,7 +93,7 @@ impl ApplicationContext {
         // Check if database configuration exists
         if let Some(db_config) = &config_lock.database {
             // Attempt to connect to database
-            match crate::db::DatabaseClient::new(db_config).await {
+            match crate::db::connect_database(db_config.clone()).await {
                 Ok(_) => {
                     log::info!("Database connection established successfully");
                     true
@@ -142,7 +142,7 @@ impl ApplicationContext {
 
         let config_lock = self.config.read().await;
         if let Some(db_config) = &config_lock.database {
-            match crate::db::DatabaseClient::new(db_config).await {
+            match crate::db::connect_database(db_config.clone()).await {
                 Ok(client) => Some(client),
                 Err(e) => {
                     log::error!("Failed to create database client: {}", e);
@@ -165,15 +165,15 @@ impl ApplicationContext {
     }
 
     /// Get configuration value by key
-    pub async fn get_config_value(&self, key: &str) -> Option<Value> {
+    pub async fn get_config_value(&self, key: &str) -> Option<String> {
         let config_lock = self.config.read().await;
-        config_lock.get_value(key)
+        config_lock.get(key)
     }
 
     /// Set configuration value by key
-    pub async fn set_config_value(&self, key: &str, value: Value) -> Result<(), anyhow::Error> {
+    pub async fn set_config_value(&self, key: &str, value: String) -> Result<(), anyhow::Error> {
         let mut config_lock = self.config.write().await;
-        config_lock.set_value(key, value)
+        config_lock.set(key, value)
     }
 
     /// Validate context integrity
@@ -181,8 +181,8 @@ impl ApplicationContext {
         let mut errors = Vec::new();
 
         // Validate configuration
-        let config_lock = self.config.read().await;
-        if let Err(e) = config_lock.validate() {
+        let config = self.config.read().await;
+        if let Err(e) = config.validate() {
             errors.push(format!("Configuration validation failed: {}", e));
         }
 
@@ -201,7 +201,7 @@ impl ApplicationContext {
 
     /// Get context statistics
     pub async fn get_stats(&self) -> ContextStats {
-        let config_lock = self.config.read().await;
+        let _config = self.config.read().await;
         let plugin_stats = self.plugin_manager.get_stats().await;
         let memory_stats = self.memory_adapter.get_stats().await;
 

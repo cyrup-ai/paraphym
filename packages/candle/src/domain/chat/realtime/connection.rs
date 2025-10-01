@@ -308,12 +308,12 @@ impl ConnectionManager {
                         let conn_id = entry.key().clone();
                         let conn = entry.value();
                         
-                        if !conn.is_connection_healthy(heartbeat_timeout) {
+                        if conn.is_connection_healthy(heartbeat_timeout) {
+                            None
+                        } else {
                             let user_id = conn.user_id.clone();
                             let attempts = conn.reconnection_attempts.load(Ordering::Acquire);
                             Some((conn_id, user_id, attempts))
-                        } else {
-                            None
                         }
                     })
                     .collect();

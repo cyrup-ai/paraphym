@@ -4,15 +4,11 @@
 //! allocation patterns, blazing-fast performance, and comprehensive safety validation
 //! for production environments.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use arrayvec::{ArrayString, ArrayVec};
-use dashmap::DashMap;
-use memchr::memmem;
 use serde::{Deserialize, Serialize};
-use tokio::time::timeout;
 
 /// Maximum number of memory safety violations to track without heap allocation
 pub const MAX_SAFETY_VIOLATIONS: usize = 64;
@@ -121,7 +117,10 @@ impl MemorySafetyViolation {
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_secs())
                 .unwrap_or(0),
-            thread_id: std::thread::current().id().as_u64().get(),
+            thread_id: {
+                let id = std::thread::current().id();
+                format!("{:?}", id).chars().filter(|c| c.is_numeric()).collect::<String>().parse().unwrap_or(0)
+            },
             stack_depth: 0, // Would be populated by stack trace analysis
         })
     }
@@ -234,7 +233,10 @@ impl MemoryOperation {
             size,
             source_address: None,
             destination_address: None,
-            thread_id: std::thread::current().id().as_u64().get(),
+            thread_id: {
+                let id = std::thread::current().id();
+                format!("{:?}", id).chars().filter(|c| c.is_numeric()).collect::<String>().parse().unwrap_or(0)
+            },
             timestamp: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_secs())
@@ -446,7 +448,10 @@ impl AllocationEntry {
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_secs())
                 .unwrap_or(0),
-            thread_id: std::thread::current().id().as_u64().get(),
+            thread_id: {
+                let id = std::thread::current().id();
+                format!("{:?}", id).chars().filter(|c| c.is_numeric()).collect::<String>().parse().unwrap_or(0)
+            },
             stack_depth: 0,
             is_valid: true,
         }

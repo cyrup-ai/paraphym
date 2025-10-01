@@ -8,10 +8,14 @@ use surrealdb::{
     opt::auth::Root,
 };
 use tracing::{debug, info, warn};
+use once_cell::sync::OnceCell;
+use std::sync::Arc;
 
 use crate::db::config::{DatabaseConfig, StorageEngine};
 use crate::db::error::{SurrealdbError, SurrealdbErrorContext};
 use crate::db::result::Result;
+
+static DB_CLIENT: OnceCell<Arc<DatabaseClient>> = OnceCell::new();
 
 /// Unified client for different SurrealDB storage engines
 #[derive(Debug)]
@@ -465,4 +469,23 @@ pub async fn connect_database(config: DatabaseConfig) -> Result<DatabaseClient> 
 pub async fn new(config: DatabaseConfig) -> Result<DatabaseClient> {
     debug!("Creating database client from config: {:?}", config);
     connect_database(config).await
+}
+
+/// Initialize global database client from configuration
+/// Returns error if already initialized or connection fails
+pub async fn init_db_client(config: DatabaseConfig) -> Result<()> {
+    let client = connect_database(config).await?;
+    
+    DB_CLIENT
+        .set(Arc::new(client))
+        .map_err(|_| SurrealdbError::other("Database client already initialized"))
+}
+
+/// Get global database client reference  
+/// Returns error if not initialized
+pub fn get_db_client() -> Result<Arc<DatabaseClient>> {
+    DB_CLIENT
+        .get()
+        .cloned()
+        .ok_or_else(|| SurrealdbError::other("Database client not initialized"))
 }

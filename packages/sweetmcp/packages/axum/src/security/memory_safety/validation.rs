@@ -5,10 +5,11 @@
 //! safety rule enforcement for production environments.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use dashmap::DashMap;
+use serde::{Serialize, Deserialize};
 use tokio::time::timeout;
 
 use crate::security::memory_safety::core::*;
@@ -25,7 +26,7 @@ pub trait MemorySafetyRule: Send + Sync {
     fn severity(&self) -> SafetyViolationSeverity;
 
     /// Check if rule applies to operation type
-    fn applies_to(&self, operation_type: MemoryOperationType) -> bool {
+    fn applies_to(&self, _operation_type: MemoryOperationType) -> bool {
         // Default implementation applies to all operations
         true
     }
@@ -444,7 +445,7 @@ impl MemorySafetyValidator {
     /// Scan for memory leaks
     pub async fn scan_for_leaks(&self) -> Result<MemorySafetyResult, MemorySafetyViolation> {
         let mut result = MemorySafetyResult::new();
-        let current_time = SystemTime::now()
+        let _current_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);

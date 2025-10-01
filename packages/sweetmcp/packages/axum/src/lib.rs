@@ -4,6 +4,7 @@ pub const PROTOCOL_VERSION: &str = "2024-11-05";
 pub const SERVER_NAME: &str = "sweet-mcp-server";
 pub const SERVER_VERSION: &str = "0.1.0";
 
+pub mod audit;
 pub mod config; // Make module public
 
 // Declare context as a directory module
@@ -17,6 +18,7 @@ mod prompt;
 pub mod resource; // Make resource module public
 pub mod router; // Ensure router is declared
 pub mod sampling; // Re-enable
+pub mod search;
 pub mod security; // Zero-allocation input validation framework
 mod tool; // Re-enable
 mod types;
@@ -49,8 +51,10 @@ pub use security::{
     MemorySafetyResult, MemorySafetyRule, MemorySafetyValidator, MemorySafetyViolation,
     PathTraversalValidationRule, SafetyViolationSeverity, SafetyViolationType,
     SqlInjectionValidationRule, UrlValidationRule, ValidationEngine, ValidationError,
-    ValidationMetrics, ValidationResult, ValidationRule, ValidationSeverity, XssValidationRule,
+    ValidationResult, ValidationRule, ValidationSeverity, XssValidationRule,
 };
+pub use security::memory_safety::ValidationMetrics;
+pub use security::validation::ValidationEngineMetrics;
 // Restore glob export for tool
 // Export specific components instead of using glob imports
 pub use tool::model;

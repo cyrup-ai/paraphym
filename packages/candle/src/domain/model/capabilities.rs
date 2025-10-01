@@ -52,7 +52,7 @@ pub enum CandleCapability {
 }
 
 impl CandleCapability {
-    /// Parse a capability string (case-insensitive, supports snake_case and kebab-case)
+    /// Parse a capability string (case-insensitive, supports `snake_case` and kebab-case)
     pub fn from_string(s: &str) -> Option<Self> {
         let normalized = s.to_lowercase().replace('-', "_");
         match normalized.as_str() {

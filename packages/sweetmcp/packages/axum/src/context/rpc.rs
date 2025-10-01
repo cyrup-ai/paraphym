@@ -8,6 +8,7 @@ use serde_json::Value;
 
 // Import common types used in RPC definitions
 use crate::types::MetaParams;
+use crate::notifications::NOTIFICATION_REGISTRY;
 
 /// Request to retrieve context for an AI response generation
 #[derive(Debug, Deserialize, Serialize, RpcParams, Clone)]
@@ -126,7 +127,8 @@ pub async fn context_get(request: GetContextRequest) -> HandlerResult<GetContext
     log::info!("Received context/get request: {:?}", request);
 
     // Get memory adapter from global application context
-    if let Some(app_context) = crate::context::APPLICATION_CONTEXT.get() {
+    let app_lock = crate::context::APPLICATION_CONTEXT.read().await;
+    if let Some(app_context) = app_lock.as_ref() {
         let memory_adapter = app_context.memory_adapter();
 
         // Search for relevant context using the memory system
@@ -183,7 +185,8 @@ pub async fn context_subscribe(
     let subscription_id = uuid::Uuid::new_v4().to_string();
 
     // Store subscription in memory system
-    if let Some(app_context) = crate::context::APPLICATION_CONTEXT.get() {
+    let app_lock = crate::context::APPLICATION_CONTEXT.read().await;
+    if let Some(app_context) = app_lock.as_ref() {
         let memory_adapter = app_context.memory_adapter();
 
         // Store subscription metadata in memory system
@@ -217,22 +220,43 @@ pub async fn context_subscribe(
     Ok(result)
 }
 
-/// Send a context changed notification
+/// Send a context changed notification to subscribed clients
+///
+/// This function creates a ContextChangedNotification and sends it through the
+/// notification registry, which handles both channel-based routing and JSON-RPC
+/// broadcast to all connected clients.
 pub async fn send_context_changed_notification(
     subscription_id: &str,
     scope: &str,
     change_type: &str,
     items: Vec<ContextItem>,
 ) -> HandlerResult<()> {
-    // In a real implementation, we would send this notification to the client
-    // For now, we just log it
     log::info!(
-        "Would send context_changed notification: subscription={}, scope={}, change_type={}, items={}",
+        "Sending context_changed notification: subscription={}, scope={}, change_type={}, items={}",
         subscription_id,
         scope,
         change_type,
         items.len()
     );
 
+    // Create the notification payload
+    let notification = ContextChangedNotification {
+        subscription_id: subscription_id.to_string(),
+        scope: scope.to_string(),
+        change_type: change_type.to_string(),
+        items,
+    };
+
+    // Send via notification registry
+    // Returns true if sent successfully, false if no channel registered (but still broadcasts via JSON-RPC)
+    let sent = NOTIFICATION_REGISTRY.send_context_changed(notification).await;
+    
+    if !sent {
+        log::debug!(
+            "No direct channel for subscription {}, but notification was broadcast via JSON-RPC",
+            subscription_id
+        );
+    }
+    
     Ok(())
 }

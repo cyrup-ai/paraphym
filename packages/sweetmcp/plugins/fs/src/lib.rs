@@ -4,6 +4,7 @@ use std::time::SystemTime;
 
 use extism_pdk::*;
 use serde_json::{Value, json};
+use similar::TextDiff;
 use sweetmcp_plugin_builder::prelude::*;
 use sweetmcp_plugin_builder::{CallToolRequest, CallToolResult, ListToolsResult, Ready};
 
@@ -187,15 +188,89 @@ fn write_file(args: &Value) -> Result<CallToolResult, Error> {
     }
 }
 
-/// Edit file (simplified implementation)
+/// Edit file with targeted replacement and diff output
 fn edit_file(args: &Value) -> Result<CallToolResult, Error> {
-    let _path = args
+    let path = args
         .get("path")
         .and_then(|v| v.as_str())
         .ok_or_else(|| Error::msg("path parameter required for edit operation"))?;
-
-    // For now, treat edit the same as write - a full implementation would support targeted edits
-    write_file(args)
+    
+    let old_content = args
+        .get("old_content")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| Error::msg("old_content parameter required for edit operation"))?;
+    
+    let new_content = args
+        .get("new_content")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| Error::msg("new_content parameter required for edit operation"))?;
+    
+    // Optional: control how many occurrences to replace (default: all)
+    let replace_count = args
+        .get("count")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize);
+    
+    // Read current file content
+    let current_content = fs::read_to_string(path)
+        .map_err(|e| Error::msg(format!("Failed to read file: {}", e)))?;
+    
+    // Validate that old_content exists in the file
+    if !current_content.contains(old_content) {
+        return Err(Error::msg(format!(
+            "old_content not found in file '{}'. File may have been modified or content is incorrect.",
+            path
+        )));
+    }
+    
+    // Perform replacement based on count parameter
+    let updated_content = match replace_count {
+        Some(n) if n == 1 => {
+            // Replace only first occurrence
+            current_content.replacen(old_content, new_content, 1)
+        },
+        Some(n) => {
+            // Replace first N occurrences
+            current_content.replacen(old_content, new_content, n)
+        },
+        None => {
+            // Replace all occurrences (default behavior)
+            current_content.replace(old_content, new_content)
+        }
+    };
+    
+    // Write back to file
+    fs::write(path, &updated_content)
+        .map_err(|e| Error::msg(format!("Failed to write file: {}", e)))?;
+    
+    // Generate unified diff for user feedback
+    let diff = TextDiff::from_lines(&current_content, &updated_content);
+    let mut diff_buffer = Vec::new();
+    
+    // Use unified diff format for better readability
+    diff.unified_diff()
+        .header(&format!("a/{}", path), &format!("b/{}", path))
+        .to_writer(&mut diff_buffer)
+        .map_err(|e| Error::msg(format!("Failed to generate diff: {}", e)))?;
+    
+    let diff_output = String::from_utf8(diff_buffer)
+        .map_err(|e| Error::msg(format!("Failed to convert diff to string: {}", e)))?;
+    
+    // Count actual changes made
+    let num_replacements = current_content.matches(old_content).count();
+    
+    Ok(ContentBuilder::text(
+        json!({
+            "path": path,
+            "success": true,
+            "diff": diff_output,
+            "old_length": current_content.len(),
+            "new_length": updated_content.len(),
+            "replacements_made": num_replacements,
+            "bytes_changed": (updated_content.len() as i64) - (current_content.len() as i64)
+        })
+        .to_string(),
+    ))
 }
 
 /// Create directory

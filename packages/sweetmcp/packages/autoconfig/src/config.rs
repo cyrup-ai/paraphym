@@ -1,6 +1,10 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use serde_json::Value as JsonValue;
+use serde_yaml::Value as YamlValue;
 use toml::Value as TomlValue;
+
+#[cfg(target_os = "macos")]
+use plist::Value as PlistValue;
 
 use crate::ConfigFormat;
 
@@ -14,6 +18,9 @@ pub struct ConfigMerger {
 struct SweetMcpConfig {
     json_template: JsonValue,
     toml_template: TomlValue,
+    yaml_template: YamlValue,
+    #[cfg(target_os = "macos")]
+    plist_template: PlistValue,
 }
 
 impl ConfigMerger {
@@ -46,6 +53,36 @@ impl ConfigMerger {
                 map.insert("mcpServers".to_string(), TomlValue::Table(mcp_servers));
                 map
             }),
+            yaml_template: {
+                let yaml_str = r#"
+mcpServers:
+  sweetmcp:
+    command: sweetmcp
+    args:
+      - "--daemon"
+    env: {}
+"#;
+                serde_yaml::from_str(yaml_str).ok().unwrap_or(YamlValue::Null)
+            },
+            #[cfg(target_os = "macos")]
+            plist_template: {
+                use plist::Value;
+                
+                let mut sweetmcp = plist::Dictionary::new();
+                sweetmcp.insert("command".to_string(), Value::String("sweetmcp".to_string()));
+                sweetmcp.insert("args".to_string(), Value::Array(vec![
+                    Value::String("--daemon".to_string())
+                ]));
+                sweetmcp.insert("env".to_string(), Value::Dictionary(plist::Dictionary::new()));
+                
+                let mut servers = plist::Dictionary::new();
+                servers.insert("sweetmcp".to_string(), Value::Dictionary(sweetmcp));
+                
+                let mut root = plist::Dictionary::new();
+                root.insert("mcpServers".to_string(), Value::Dictionary(servers));
+                
+                Value::Dictionary(root)
+            },
         };
 
         Self { sweetmcp_config }
@@ -133,28 +170,112 @@ impl ConfigMerger {
         Ok(toml::to_string_pretty(&config)?)
     }
 
-    /// Merge YAML config (similar structure to JSON)
+    /// Merge YAML config with proper YAML parsing and serialization
     #[inline]
     fn merge_yaml(&self, existing: &str) -> Result<String> {
-        // For YAML, we can use the JSON merger since the structure is similar
-        // This avoids adding another dependency
-        let json_result = self.merge_json(existing)?;
-        Ok(json_result) // In production, you'd convert JSON to YAML
-    }
+        let mut config: YamlValue = if existing.trim().is_empty() {
+            YamlValue::Mapping(serde_yaml::Mapping::new())
+        } else {
+            serde_yaml::from_str(existing)
+                .map_err(|e| anyhow!("Failed to parse existing YAML: {}", e))?
+        };
 
-    /// Merge Plist config (macOS specific)
-    #[inline]
-    fn merge_plist(&self, existing: &str) -> Result<String> {
-        // For plist, we'd use the plist crate
-        // For now, return a basic implementation
-        if existing.contains("sweetmcp") {
-            return Ok(existing.to_string());
+        // Fast path: check if already configured
+        if let YamlValue::Mapping(ref map) = config {
+            if let Some(YamlValue::Mapping(servers)) = map.get(&YamlValue::String("mcpServers".to_string())) {
+                if servers.contains_key(&YamlValue::String("sweetmcp".to_string())) {
+                    return Ok(existing.to_string());
+                }
+            }
         }
 
-        // In production, use plist crate to properly merge
-        Err(anyhow!(
-            "Plist merging requires platform-specific implementation"
-        ))
+        // Merge efficiently
+        if let YamlValue::Mapping(ref mut map) = config {
+            if !map.contains_key(&YamlValue::String("mcpServers".to_string())) {
+                map.insert(
+                    YamlValue::String("mcpServers".to_string()),
+                    YamlValue::Mapping(serde_yaml::Mapping::new()),
+                );
+            }
+
+            if let Some(YamlValue::Mapping(servers)) = map.get_mut(&YamlValue::String("mcpServers".to_string())) {
+                if let YamlValue::Mapping(ref template_servers) = self.sweetmcp_config.yaml_template {
+                    if let Some(sweetmcp_config) = template_servers.get(&YamlValue::String("mcpServers".to_string())) {
+                        if let YamlValue::Mapping(ref sweetmcp_map) = sweetmcp_config {
+                            if let Some(sweetmcp_entry) = sweetmcp_map.get(&YamlValue::String("sweetmcp".to_string())) {
+                                servers.insert(
+                                    YamlValue::String("sweetmcp".to_string()),
+                                    sweetmcp_entry.clone(),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        serde_yaml::to_string(&config)
+            .map_err(|e| anyhow!("Failed to serialize YAML: {}", e))
+    }
+
+    /// Merge Plist config with proper plist parsing and serialization (macOS only)
+    #[cfg(target_os = "macos")]
+    #[inline]
+    fn merge_plist(&self, existing: &str) -> Result<String> {
+        use plist::Value;
+        
+        let mut config: Value = if existing.trim().is_empty() {
+            Value::Dictionary(plist::Dictionary::new())
+        } else {
+            plist::from_reader(std::io::Cursor::new(existing.as_bytes()))
+                .context("Failed to parse existing plist")?
+        };
+        
+        // Fast path: check if already configured
+        if let Value::Dictionary(ref dict) = config {
+            if let Some(Value::Dictionary(servers)) = dict.get("mcpServers") {
+                if servers.contains_key("sweetmcp") {
+                    return Ok(existing.to_string());
+                }
+            }
+        }
+        
+        // Merge efficiently
+        if let Value::Dictionary(ref mut dict) = config {
+            // Ensure mcpServers exists
+            if !dict.contains_key("mcpServers") {
+                dict.insert(
+                    "mcpServers".to_string(),
+                    Value::Dictionary(plist::Dictionary::new()),
+                );
+            }
+            
+            // Insert sweetmcp config
+            if let Some(Value::Dictionary(servers)) = dict.get_mut("mcpServers") {
+                if let Value::Dictionary(ref template_root) = self.sweetmcp_config.plist_template {
+                    if let Some(Value::Dictionary(template_servers)) = template_root.get("mcpServers") {
+                        if let Some(sweetmcp_config) = template_servers.get("sweetmcp") {
+                            servers.insert("sweetmcp".to_string(), sweetmcp_config.clone());
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Serialize to XML plist format
+        let mut output = Vec::new();
+        plist::to_writer_xml(&mut output, &config)
+            .context("Failed to serialize plist")?;
+        
+        String::from_utf8(output)
+            .context("Failed to convert plist to UTF-8")
+    }
+
+    /// Plist format not supported on non-macOS platforms
+    #[cfg(not(target_os = "macos"))]
+    #[inline]
+    fn merge_plist(&self, _existing: &str) -> Result<String> {
+        Err(anyhow!("Plist format only supported on macOS"))
     }
 }
 

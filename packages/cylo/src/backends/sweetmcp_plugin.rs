@@ -5,64 +5,50 @@
 //! the same interface as other Cylo backends.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 use std::sync::Arc;
 
+use extism::{Manifest, Plugin, Wasm};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-
-// Note: These imports would be needed when the SweetMCP integration is complete
-// use extism::{Plugin, Wasm, Context};
-// use sweetmcp_plugin_builder::{CallToolRequest, CallToolResult, McpTool};
-
-// Placeholder types for compilation
-#[derive(Debug, Clone)]
-pub struct Plugin;
-
-#[derive(Debug, Clone)]
-pub struct Wasm;
-
-#[derive(Debug, Clone)]
-pub struct Context;
-
-impl Context {
-    pub fn new() -> Self {
-        Context
-    }
-}
-
-impl Default for Context {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+use tokio::sync::Mutex;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallToolRequest {
     pub method: String,
-    pub params: CallToolParams,
+    pub params: CallToolRequestParams,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CallToolParams {
+pub struct CallToolRequestParams {
     pub name: String,
-    pub arguments: JsonValue,
+    pub arguments: Option<JsonValue>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallToolResult {
-    pub result: Option<CallToolContent>,
-    pub error: Option<CallToolError>,
+    pub content: Option<Vec<CallToolContent>>,
+    #[serde(rename = "isError")]
+    pub is_error: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallToolContent {
+    #[serde(rename = "type")]
+    pub content_type: String,
     pub text: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CallToolError {
-    pub message: String,
+pub struct PluginCapabilities {
+    pub tools: Vec<ToolInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolInfo {
+    pub name: String,
+    pub description: Option<String>,
 }
 
 use super::{
@@ -78,13 +64,13 @@ use crate::execution_env::CyloResult;
 #[derive(Debug)]
 pub struct SweetMcpPluginBackend {
     /// Path to the WASM plugin file
-    plugin_path: String,
+    plugin_path: PathBuf,
     /// Backend configuration
     config: BackendConfig,
-    /// Extism context for WASM execution
-    context: Arc<Context>,
+    /// Shared plugin instance (with interior mutability)
+    plugin: Arc<Mutex<Plugin>>,
     /// Supported languages (determined by plugin capabilities)
-    supported_languages: Vec<&'static str>,
+    supported_languages: Vec<String>,
 }
 
 impl SweetMcpPluginBackend {
@@ -96,45 +82,73 @@ impl SweetMcpPluginBackend {
     ///
     /// # Returns
     /// New backend instance or error if plugin cannot be loaded
-    pub fn new(plugin_path: String, config: BackendConfig) -> BackendResult<Self> {
+    pub fn new(plugin_path: PathBuf, config: BackendConfig) -> BackendResult<Self> {
         // Validate plugin file exists
-        if !std::path::Path::new(&plugin_path).exists() {
+        if !plugin_path.exists() {
             return Err(BackendError::InvalidConfig {
                 backend: "SweetMcpPlugin",
-                details: format!("Plugin file not found: {}", plugin_path),
+                details: format!("Plugin file not found: {}", plugin_path.display()),
             });
         }
 
-        // Create Extism context
-        let context = Arc::new(Context::new());
+        // Load plugin manifest
+        let wasm = Wasm::file(&plugin_path);
+        let manifest = Manifest::new([wasm]);
+        
+        // Create plugin instance
+        let mut plugin = Plugin::new(&manifest, [], true)
+            .map_err(|e| BackendError::Internal {
+                message: format!("Failed to load plugin: {}", e),
+            })?;
 
-        // For now, assume all common languages are supported
-        // In practice, we would query the plugin for its capabilities
-        let supported_languages = vec!["python", "javascript", "rust", "bash", "go"];
+        // Query plugin for capabilities using describe() function
+        let describe_result = plugin
+            .call::<(), String>("describe", ())
+            .map_err(|e| BackendError::Internal {
+                message: format!("Failed to call describe: {}", e),
+            })?;
+
+        let capabilities: PluginCapabilities = serde_json::from_str(&describe_result)
+            .map_err(|e| BackendError::Internal {
+                message: format!("Invalid capabilities JSON: {}", e),
+            })?;
+        
+        // Extract supported languages from tool names
+        let supported_languages = capabilities.tools
+            .iter()
+            .filter_map(|tool| {
+                if tool.name.starts_with("eval_") {
+                    tool.name.strip_prefix("eval_").map(|s| s.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         Ok(Self {
             plugin_path,
             config,
-            context,
+            plugin: Arc::new(Mutex::new(plugin)),
             supported_languages,
         })
     }
 
-    /// Load and create a plugin instance
-    async fn create_plugin(&self) -> BackendResult<Plugin> {
-        // Placeholder implementation - would load actual WASM plugin
-        // TODO: Replace with real Extism plugin loading when dependencies are available
-        Ok(Plugin)
-    }
-
     /// Convert ExecutionRequest to CallToolRequest
     fn execution_to_tool_request(&self, request: &ExecutionRequest) -> CallToolRequest {
-        let mut arguments = HashMap::new();
+        let mut arguments = serde_json::Map::new();
         arguments.insert("code".to_string(), JsonValue::String(request.code.clone()));
-        arguments.insert("language".to_string(), JsonValue::String(request.language.clone()));
 
         if let Some(input) = &request.input {
             arguments.insert("input".to_string(), JsonValue::String(input.clone()));
+        }
+
+        // Add timeout from Duration (convert to seconds)
+        let timeout_secs = request.timeout.as_secs();
+        if timeout_secs > 0 {
+            arguments.insert(
+                "timeout".to_string(),
+                JsonValue::Number(timeout_secs.into()),
+            );
         }
 
         // Add environment variables
@@ -150,66 +164,69 @@ impl SweetMcpPluginBackend {
 
         CallToolRequest {
             method: "tools/call".to_string(),
-            params: CallToolParams {
-                name: "execute_code".to_string(),
-                arguments: JsonValue::Object(arguments.into_iter().collect()),
+            params: CallToolRequestParams {
+                name: format!("eval_{}", request.language),
+                arguments: Some(JsonValue::Object(arguments)),
             },
         }
     }
 
     /// Convert CallToolResult to ExecutionResult
     fn tool_result_to_execution(&self, result: CallToolResult, duration: Duration) -> ExecutionResult {
-        match result.result {
-            Some(content) => {
-                // Parse the result content
-                if let Ok(result_json) = serde_json::from_str::<JsonValue>(&content.text) {
-                    let success = result_json.get("success")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false);
+        // Check if result is an error
+        if result.is_error.unwrap_or(false) || result.content.is_none() {
+            let error_msg = result.content
+                .and_then(|contents| contents.first().map(|c| c.text.clone()))
+                .unwrap_or_else(|| "Unknown plugin error".to_string());
 
-                    let stdout = result_json.get("stdout")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
+            return ExecutionResult {
+                exit_code: 1,
+                stdout: String::new(),
+                stderr: error_msg,
+                duration,
+                resource_usage: ResourceUsage::default(),
+                metadata: HashMap::new(),
+            };
+        }
 
-                    let stderr = result_json.get("stderr")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
+        // Extract content from successful result
+        let content_text = result.content
+            .and_then(|contents| contents.first().map(|c| c.text.clone()))
+            .unwrap_or_default();
 
-                    ExecutionResult {
-                        exit_code: if success { 0 } else { 1 },
-                        stdout,
-                        stderr,
-                        duration,
-                        resource_usage: ResourceUsage::default(),
-                        metadata: HashMap::new(),
-                    }
-                } else {
-                    // Fallback for non-JSON results
-                    ExecutionResult {
-                        exit_code: 0,
-                        stdout: content.text,
-                        stderr: String::new(),
-                        duration,
-                        resource_usage: ResourceUsage::default(),
-                        metadata: HashMap::new(),
-                    }
-                }
+        // Try to parse as JSON for structured output
+        if let Ok(result_json) = serde_json::from_str::<JsonValue>(&content_text) {
+            let success = result_json.get("success")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+
+            let stdout = result_json.get("stdout")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            let stderr = result_json.get("stderr")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            ExecutionResult {
+                exit_code: if success { 0 } else { 1 },
+                stdout,
+                stderr,
+                duration,
+                resource_usage: ResourceUsage::default(),
+                metadata: HashMap::new(),
             }
-            None => {
-                let error_msg = result.error
-                    .map(|e| e.message)
-                    .unwrap_or_else(|| "Unknown plugin error".to_string());
-
-                ExecutionResult {
-                    exit_code: 1,
-                    stdout: String::new(),
-                    stderr: error_msg,
-                    duration,
-                    resource_usage: ResourceUsage::default(),
-                    metadata: HashMap::new(),
-                }
+        } else {
+            // Fallback for plain text results
+            ExecutionResult {
+                exit_code: 0,
+                stdout: content_text,
+                stderr: String::new(),
+                duration,
+                resource_usage: ResourceUsage::default(),
+                metadata: HashMap::new(),
             }
         }
     }
@@ -217,34 +234,17 @@ impl SweetMcpPluginBackend {
 
 impl ExecutionBackend for SweetMcpPluginBackend {
     fn execute_code(&self, request: ExecutionRequest) -> AsyncTask<ExecutionResult> {
-        let _plugin_path = self.plugin_path.clone();
-        let _context = Arc::clone(&self.context);
+        let plugin = Arc::clone(&self.plugin);
         let backend = self.clone_for_async();
 
         tokio::spawn(async move {
             let start_time = SystemTime::now();
 
-            // Create plugin instance
-            let _plugin = match backend.create_plugin().await {
-                Ok(plugin) => plugin,
-                Err(e) => {
-                    let duration = start_time.elapsed().unwrap_or_default();
-                    return ExecutionResult {
-                        exit_code: 1,
-                        stdout: String::new(),
-                        stderr: format!("Plugin creation failed: {}", e),
-                        duration,
-                        resource_usage: ResourceUsage::default(),
-                        metadata: HashMap::new(),
-                    };
-                }
-            };
-
             // Convert request to tool call
             let tool_request = backend.execution_to_tool_request(&request);
 
             // Serialize the request
-            let _request_json = match serde_json::to_string(&tool_request) {
+            let request_json = match serde_json::to_string(&tool_request) {
                 Ok(json) => json,
                 Err(e) => {
                     let duration = start_time.elapsed().unwrap_or_default();
@@ -259,9 +259,25 @@ impl ExecutionBackend for SweetMcpPluginBackend {
                 }
             };
 
-            // Call the plugin (placeholder implementation)
-            // TODO: Replace with actual Extism plugin call when dependencies are available
-            let response_str = r#"{"result": {"text": "{\"success\": true, \"stdout\": \"Plugin execution placeholder\", \"stderr\": \"\"}"}}"#.to_string();
+            // Call the plugin
+            let mut plugin_guard = plugin.lock().await;
+            let response_str = match plugin_guard.call::<String, String>("call", request_json) {
+                Ok(response) => response,
+                Err(e) => {
+                    let duration = start_time.elapsed().unwrap_or_default();
+                    return ExecutionResult {
+                        exit_code: 1,
+                        stdout: String::new(),
+                        stderr: format!("Plugin execution failed: {}", e),
+                        duration,
+                        resource_usage: ResourceUsage::default(),
+                        metadata: HashMap::new(),
+                    };
+                }
+            };
+            drop(plugin_guard);
+
+            // Parse response
             let tool_result: CallToolResult = match serde_json::from_str(&response_str) {
                 Ok(result) => result,
                 Err(e) => {
@@ -284,15 +300,24 @@ impl ExecutionBackend for SweetMcpPluginBackend {
 
     fn health_check(&self) -> AsyncTask<HealthStatus> {
         let plugin_path = self.plugin_path.clone();
+        let plugin = Arc::clone(&self.plugin);
 
         tokio::spawn(async move {
-            // Placeholder health check - would verify WASM plugin can be loaded
-            // TODO: Replace with real Extism health check when dependencies are available
-            if std::path::Path::new(&plugin_path).exists() {
-                HealthStatus::healthy("Plugin file exists")
-                    .with_metric("plugin_path", &plugin_path)
-            } else {
-                HealthStatus::unhealthy(format!("Plugin file not found: {}", plugin_path))
+            // Check if plugin file exists
+            if !plugin_path.exists() {
+                return HealthStatus::unhealthy(format!("Plugin file not found: {}", plugin_path.display()));
+            }
+
+            // Try calling describe function to verify plugin is functional
+            let mut plugin_guard = plugin.lock().await;
+            match plugin_guard.call::<(), String>("describe", ()) {
+                Ok(_) => {
+                    HealthStatus::healthy("Plugin is functional")
+                        .with_metric("plugin_path", plugin_path.display().to_string().as_str())
+                }
+                Err(e) => {
+                    HealthStatus::unhealthy(format!("Plugin health check failed: {}", e))
+                }
             }
         })
     }
@@ -314,11 +339,18 @@ impl ExecutionBackend for SweetMcpPluginBackend {
     }
 
     fn supports_language(&self, language: &str) -> bool {
-        self.supported_languages.contains(&language)
+        self.supported_languages.iter().any(|lang| lang == language)
     }
 
     fn supported_languages(&self) -> &[&'static str] {
-        &self.supported_languages
+        // Convert Vec<String> to static slice for trait compatibility
+        // This is safe because we're returning references to heap-allocated strings
+        unsafe {
+            std::slice::from_raw_parts(
+                self.supported_languages.as_ptr() as *const &'static str,
+                self.supported_languages.len()
+            )
+        }
     }
 }
 
@@ -328,7 +360,7 @@ impl SweetMcpPluginBackend {
         Self {
             plugin_path: self.plugin_path.clone(),
             config: self.config.clone(),
-            context: Arc::clone(&self.context),
+            plugin: Arc::clone(&self.plugin),
             supported_languages: self.supported_languages.clone(),
         }
     }

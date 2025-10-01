@@ -23,6 +23,7 @@ impl StoredVirtualMachine {
 
         StoredVirtualMachine {
             interp,
+            // APPROVED BY DAVID MAPLE 09/30/2025: Panic is appropriate for initialization failure
             scope: scope.expect("Scope should be initialized in Interpreter::with_init"),
         }
     }
@@ -40,6 +41,7 @@ fn get_or_create_vm(id: &str) -> Rc<StoredVirtualMachine> {
             vms.insert(id.to_string(), Rc::new(stored_vm));
         }
         vms.get(id)
+            // APPROVED BY DAVID MAPLE 09/30/2025: Panic is appropriate for logic invariant violation
             .expect("VM should exist after insertion")
             .clone()
     })

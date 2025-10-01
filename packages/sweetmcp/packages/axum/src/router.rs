@@ -50,6 +50,9 @@ fn build_rpc_router(plugin_manager: PluginManager) -> RpcRouter {
         // Tool handlers
         .append("tools/list", tool::tools_list_handler)
         .append("tools/call", tool::tools_call_handler)
+        // Search and Analytics handlers (DAO queries)
+        .append("search", crate::search::handlers::search_handler)
+        .append("analytics", crate::search::handlers::analytics_handler)
         // Context handlers
         .append("context/get", crate::context::rpc::context_get)
         .append("context/subscribe", crate::context::rpc::context_subscribe);
@@ -93,77 +96,24 @@ pub async fn run_server(
     plugin_manager: PluginManager,
     serve_args: ServeArgs,
 ) -> Result<()> {
-    // Initialize memory system if configured
+    // Initialize DAO database client if configured
     if let Some(db_config) = &config.database {
-        let memory_config = sweetmcp_memory::MemoryConfig {
-            database: sweetmcp_memory::utils::config::DatabaseConfig {
-                db_type: sweetmcp_memory::utils::config::DatabaseType::SurrealDB,
-                connection_string: db_config
-                    .path
-                    .clone()
-                    .map(|p| format!("surrealkv://{}", p))
-                    .unwrap_or_else(|| "surrealkv://./data/mcp_memory.db".to_string()),
-                namespace: db_config
-                    .namespace
-                    .clone()
-                    .unwrap_or_else(|| "mcp".to_string()),
-                database: db_config
-                    .database
-                    .clone()
-                    .unwrap_or_else(|| "agent_memory".to_string()),
-                username: db_config.username.clone(),
-                password: db_config.password.clone(),
-                pool_size: Some(10),
-                options: None,
-            },
-            vector_store: sweetmcp_memory::utils::config::VectorStoreConfig {
-                store_type: sweetmcp_memory::utils::config::VectorStoreType::SurrealDB,
-                embedding_model: sweetmcp_memory::utils::config::EmbeddingModelConfig {
-                    model_type: sweetmcp_memory::utils::config::EmbeddingModelType::Custom,
-                    model_name: "nomic-embed-text".to_string(),
-                    api_key: None,
-                    api_base: Some("http://localhost:11434/api/embeddings".to_string()),
-                    options: None,
-                },
-                dimension: 768,
-                connection_string: None,
-                api_key: None,
-                options: None,
-            },
-            llm: sweetmcp_memory::utils::config::LLMConfig {
-                provider: sweetmcp_memory::utils::config::LLMProvider::Custom,
-                model_name: "llama2".to_string(),
-                api_key: None,
-                api_base: Some("http://localhost:11434/api/generate".to_string()),
-                temperature: Some(0.7),
-                max_tokens: Some(2048),
-                options: None,
-            },
-            cache: sweetmcp_memory::utils::config::CacheConfig {
-                enabled: true,
-                cache_type: sweetmcp_memory::utils::config::CacheType::Memory,
-                size: Some(10000),
-                ttl: Some(3600),
-                options: None,
-            },
-            logging: sweetmcp_memory::utils::config::LoggingConfig {
-                level: sweetmcp_memory::utils::config::LogLevel::Info,
-                file: Some("./logs/mcp_memory.log".to_string()),
-                console: true,
-                options: None,
-            },
-            api: None,
-        };
-
-        match sweetmcp_memory::initialize(&memory_config).await {
-            Ok(_) => {
-                info!("Memory system initialized successfully");
-            }
-            Err(e) => {
-                error!("Failed to initialize memory system: {}", e);
-                // Continue without memory system for now
-            }
+        tracing::info!("Initializing database for DAO persistence layer");
+        crate::db::client::init_db_client(db_config.clone())
+            .await
+            .context("Failed to initialize database client")?;
+        
+        // Create tables
+        if let Ok(client) = crate::db::client::get_db_client() {
+            create_dao_tables(client).await?;
         }
+    }
+    
+    // Memory system initialization
+    // The production memory system is now initialized within MemoryContextAdapter::new()
+    // using paraphym_candle's SurrealDB-backed memory with vector embeddings
+    if let Some(_db_config) = &config.database {
+        log::info!("Memory system will be initialized by context adapter");
     }
 
     if serve_args.daemon {
@@ -171,6 +121,27 @@ pub async fn run_server(
     } else {
         run_stdio_server(plugin_manager).await
     }
+}
+
+/// Create all DAO tables
+async fn create_dao_tables(client: Arc<crate::db::client::DatabaseClient>) -> Result<()> {
+    use crate::db::dao::{Dao, entities::{PluginEntity, ToolEntity, PromptEntity, AuditLog}};
+    
+    // Create tables using DAO
+    let plugin_dao = Dao::<PluginEntity>::new((*client).clone());
+    plugin_dao.create_table().await;
+    
+    let tool_dao = Dao::<ToolEntity>::new((*client).clone());
+    tool_dao.create_table().await;
+    
+    let prompt_dao = Dao::<PromptEntity>::new((*client).clone());
+    prompt_dao.create_table().await;
+    
+    let audit_dao = Dao::<AuditLog>::new((*client).clone());
+    audit_dao.create_table().await;
+    
+    info!("DAO tables created successfully");
+    Ok(())
 }
 
 /// Run the server using stdin/stdout

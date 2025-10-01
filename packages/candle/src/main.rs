@@ -125,7 +125,7 @@ async fn run_chat(
                     CandleChatLoop::Reprompt("Hello, can you help me understand how the Candle ML framework works with the Kimi-K2 model?".to_string())
                 }
             }
-        });
+        })?;
 
     Ok(())
 }
@@ -167,7 +167,7 @@ async fn run_chat_qwen(
                     CandleChatLoop::Reprompt("Hello, can you help me with coding tasks using Qwen3-Coder?".to_string())
                 }
             }
-        });
+        })?;
 
     Ok(())
 }

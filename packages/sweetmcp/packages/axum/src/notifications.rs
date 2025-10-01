@@ -101,28 +101,34 @@ impl NotificationRegistry {
     }
 
     /// Send a progress notification
+    ///
+    /// Always broadcasts to external clients via JSON-RPC. If an internal channel
+    /// is registered for this progress token, also sends typed notification.
+    ///
+    /// Returns true if internal channel received notification, false otherwise.
     pub async fn send_progress(&self, notification: ProgressNotification) -> bool {
+        // ALWAYS broadcast to external clients first
+        self.send_json_rpc_notification(
+            "$/progress",
+            serde_json::to_value(&notification).unwrap(),
+        )
+        .await;
+
+        // Also send to internal channel if one is registered
         let lock = self.progress_channels.lock().await;
-
         if let Some(sender) = lock.get(&notification.progress_token) {
-            let send_result = sender.send(notification.clone()).await;
-
+            let send_result = sender.send(notification).await;
             if send_result.is_err() {
-                log::warn!("Failed to send progress notification: {:?}", send_result);
+                log::warn!(
+                    "Failed to send progress notification to internal channel: {:?}",
+                    send_result
+                );
                 return false;
             }
-
-            // Also send as JSON-RPC notification
-            self.send_json_rpc_notification(
-                "$/progress",
-                serde_json::to_value(notification).unwrap(),
-            )
-            .await;
-
             true
         } else {
-            log::warn!(
-                "No progress channel found for token: {}",
+            log::debug!(
+                "No internal channel for progress token {}, notification broadcast via JSON-RPC",
                 notification.progress_token
             );
             false
@@ -130,31 +136,34 @@ impl NotificationRegistry {
     }
 
     /// Send a context changed notification
+    ///
+    /// Always broadcasts to external clients via JSON-RPC. If an internal channel
+    /// is registered for this subscription, also sends typed notification.
+    ///
+    /// Returns true if internal channel received notification, false otherwise.
     pub async fn send_context_changed(&self, notification: ContextChangedNotification) -> bool {
+        // ALWAYS broadcast to external clients first
+        self.send_json_rpc_notification(
+            "$/context/changed",
+            serde_json::to_value(&notification).unwrap(),
+        )
+        .await;
+
+        // Also send to internal channel if one is registered
         let lock = self.context_channels.lock().await;
-
         if let Some(sender) = lock.get(&notification.subscription_id) {
-            let send_result = sender.send(notification.clone()).await;
-
+            let send_result = sender.send(notification).await;
             if send_result.is_err() {
                 log::warn!(
-                    "Failed to send context changed notification: {:?}",
+                    "Failed to send context notification to internal channel: {:?}",
                     send_result
                 );
                 return false;
             }
-
-            // Also send as JSON-RPC notification
-            self.send_json_rpc_notification(
-                "$/context/changed",
-                serde_json::to_value(notification).unwrap(),
-            )
-            .await;
-
             true
         } else {
-            log::warn!(
-                "No context channel found for subscription: {}",
+            log::debug!(
+                "No internal channel for subscription {}, notification broadcast via JSON-RPC",
                 notification.subscription_id
             );
             false

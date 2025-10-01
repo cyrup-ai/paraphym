@@ -67,7 +67,7 @@ fn create_default_config() -> MemoryConfig {
             log::info!("Loading production memory configuration preset");
             MemoryConfig::production()
         }
-        "default" | _ => {
+        _ => {
             log::info!("Loading default memory configuration preset");
             MemoryConfig::default()
         }
@@ -84,7 +84,7 @@ fn create_default_config() -> MemoryConfig {
     
     // 4. Validate
     if let Err(e) = config.validate() {
-        log::error!("Invalid memory configuration: {}. Falling back to safe defaults.", e);
+        log::error!("Invalid memory configuration: {e}. Falling back to safe defaults.");
         return MemoryConfig::default();
     }
     
@@ -105,7 +105,7 @@ fn apply_env_overrides(config: &mut MemoryConfig) {
         .and_then(|s| s.parse().ok())
     {
         config.performance.max_concurrent_operations = max_ops;
-        log::debug!("Override: max_concurrent_operations={}", max_ops);
+        log::debug!("Override: max_concurrent_operations={max_ops}");
     }
     
     if let Some(timeout) = std::env::var("PARAPHYM_MEMORY_TIMEOUT_MS")
@@ -113,7 +113,7 @@ fn apply_env_overrides(config: &mut MemoryConfig) {
         .and_then(|s| s.parse().ok())
     {
         config.performance.operation_timeout_ms = timeout;
-        log::debug!("Override: operation_timeout_ms={}", timeout);
+        log::debug!("Override: operation_timeout_ms={timeout}");
     }
     
     if let Some(cache_size) = std::env::var("PARAPHYM_MEMORY_CACHE_SIZE")
@@ -121,7 +121,7 @@ fn apply_env_overrides(config: &mut MemoryConfig) {
         .and_then(|s| s.parse().ok())
     {
         config.performance.cache_size = cache_size;
-        log::debug!("Override: cache_size={}", cache_size);
+        log::debug!("Override: cache_size={cache_size}");
     }
     
     if let Some(batch_size) = std::env::var("PARAPHYM_MEMORY_BATCH_SIZE")
@@ -129,7 +129,7 @@ fn apply_env_overrides(config: &mut MemoryConfig) {
         .and_then(|s| s.parse().ok())
     {
         config.performance.batch_size = batch_size;
-        log::debug!("Override: batch_size={}", batch_size);
+        log::debug!("Override: batch_size={batch_size}");
     }
     
     // Retention overrides
@@ -138,7 +138,7 @@ fn apply_env_overrides(config: &mut MemoryConfig) {
         .and_then(|s| s.parse().ok())
     {
         config.retention.default_retention_seconds = retention;
-        log::debug!("Override: default_retention_seconds={}", retention);
+        log::debug!("Override: default_retention_seconds={retention}");
     }
     
     if let Some(max_age) = std::env::var("PARAPHYM_MEMORY_MAX_AGE_SECONDS")
@@ -146,7 +146,7 @@ fn apply_env_overrides(config: &mut MemoryConfig) {
         .and_then(|s| s.parse().ok())
     {
         config.retention.max_age_seconds = max_age;
-        log::debug!("Override: max_age_seconds={}", max_age);
+        log::debug!("Override: max_age_seconds={max_age}");
     }
     
     if let Some(max_memories) = std::env::var("PARAPHYM_MEMORY_MAX_ACTIVE")
@@ -154,7 +154,7 @@ fn apply_env_overrides(config: &mut MemoryConfig) {
         .and_then(|s| s.parse().ok())
     {
         config.retention.max_active_memories = max_memories;
-        log::debug!("Override: max_active_memories={}", max_memories);
+        log::debug!("Override: max_active_memories={max_memories}");
     }
     
     // Security overrides
@@ -163,7 +163,7 @@ fn apply_env_overrides(config: &mut MemoryConfig) {
         .and_then(|s| s.parse().ok())
     {
         config.security.enable_encryption = enable_encryption;
-        log::debug!("Override: enable_encryption={}", enable_encryption);
+        log::debug!("Override: enable_encryption={enable_encryption}");
     }
     
     if let Some(max_attempts) = std::env::var("PARAPHYM_MEMORY_MAX_FAILED_ATTEMPTS")
@@ -171,7 +171,7 @@ fn apply_env_overrides(config: &mut MemoryConfig) {
         .and_then(|s| s.parse().ok())
     {
         config.security.max_failed_attempts = max_attempts;
-        log::debug!("Override: max_failed_attempts={}", max_attempts);
+        log::debug!("Override: max_failed_attempts={max_attempts}");
     }
     
     // Monitoring overrides
@@ -180,7 +180,7 @@ fn apply_env_overrides(config: &mut MemoryConfig) {
         .and_then(|s| s.parse().ok())
     {
         config.monitoring.metrics_interval_seconds = interval;
-        log::debug!("Override: metrics_interval_seconds={}", interval);
+        log::debug!("Override: metrics_interval_seconds={interval}");
     }
 }
 
@@ -191,16 +191,16 @@ fn load_config_file() -> Option<MemoryConfig> {
     match std::fs::read_to_string(&config_path) {
         Ok(content) => match toml::from_str::<MemoryConfig>(&content) {
             Ok(config) => {
-                log::info!("Configuration loaded from: {}", config_path);
+                log::info!("Configuration loaded from: {config_path}");
                 Some(config)
             }
             Err(e) => {
-                log::error!("Failed to parse config file {}: {}", config_path, e);
+                log::error!("Failed to parse config file {config_path}: {e}");
                 None
             }
         },
         Err(e) => {
-            log::error!("Failed to read config file {}: {}", config_path, e);
+            log::error!("Failed to read config file {config_path}: {e}");
             None
         }
     }

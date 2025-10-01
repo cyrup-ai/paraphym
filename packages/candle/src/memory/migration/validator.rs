@@ -1,6 +1,7 @@
 //! Data validation for migrations
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
+use jsonschema::{Draft, Validator};
 
 use crate::memory::migration::{MigrationError, Result};
 
@@ -130,22 +131,38 @@ impl ValidationRule for TypeValidation {
 }
 
 /// Schema validator
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct SchemaValidator {
     /// Schema definition
     pub schema: serde_json::Value,
+    /// Compiled JSON schema for validation
+    compiled: Validator,
 }
 
 impl SchemaValidator {
     /// Create a new schema validator
-    pub fn new(schema: serde_json::Value) -> Self {
-        Self { schema }
+    pub fn new(schema: serde_json::Value) -> Result<Self> {
+        let compiled = Validator::options()
+            .with_draft(Draft::Draft7)
+            .build(&schema)
+            .map_err(|e| MigrationError::ValidationFailed(format!("Failed to build schema: {e}")))?;
+
+        Ok(Self { schema, compiled })
     }
 
     /// Validate against schema
-    pub fn validate(&self, _data: &serde_json::Value) -> Result<()> {
-        // Simplified schema validation
-        // In production, would use jsonschema crate
-        Ok(())
+    pub fn validate(&self, data: &serde_json::Value) -> Result<()> {
+        match self.compiled.validate(data) {
+            Ok(_) => Ok(()),
+            Err(errors) => {
+                let error_messages: Vec<String> = errors
+                    .map(|e| format!("{}", e))
+                    .collect();
+                Err(MigrationError::ValidationFailed(format!(
+                    "Schema validation failed: {}",
+                    error_messages.join(", ")
+                )))
+            }
+        }
     }
 }

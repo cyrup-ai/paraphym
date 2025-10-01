@@ -102,7 +102,10 @@ pub fn exec_go(code: &str, config: &RamdiskConfig) -> Result<()> {
     // Execute the code in the sandboxed environment
     let go_bin = env.get_binary_path("go");
     let mut cmd = Command::new(&go_bin);
-    cmd.args(["run", tmpfile.path().to_str().unwrap()]);
+    let tmpfile_path_str = tmpfile.path().to_str().ok_or_else(|| {
+        ExecError::RuntimeError("Temporary file path contains invalid UTF-8".to_string())
+    })?;
+    cmd.args(["run", tmpfile_path_str]);
 
     // Add environment variables
     for (key, value) in &env.env_vars {
@@ -343,7 +346,11 @@ pub fn exec_js(code: &str, config: &RamdiskConfig) -> Result<()> {
     info!("Created Node environment at {:?}", env.path);
 
     // Execute the code in the sandboxed environment
-    let mut cmd = Command::new(env.get_binary_path("node").to_str().unwrap());
+    let node_bin = env.get_binary_path("node");
+    let node_bin_str = node_bin.to_str().ok_or_else(|| {
+        ExecError::RuntimeError("Node binary path contains invalid UTF-8".to_string())
+    })?;
+    let mut cmd = Command::new(node_bin_str);
     cmd.arg(tmpfile.path());
 
     // Add environment variables

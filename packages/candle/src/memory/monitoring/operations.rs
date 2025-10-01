@@ -396,6 +396,12 @@ impl OperationTracker {
         self.metrics.history_count.load(Ordering::Relaxed)
     }
 
+    /// Get maximum history size configuration
+    #[inline]
+    pub fn max_history(&self) -> usize {
+        self.max_history
+    }
+
     /// Clear all completed operations with atomic operations
     #[inline]
     pub fn clear_history(&self) {

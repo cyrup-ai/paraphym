@@ -412,3 +412,329 @@ pub struct PublicUserProfile {
     pub bio: Option<String>,
     pub avatar_url: Option<String>,
 }
+
+/// Plugin registry entity for persistent storage
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginEntity {
+    /// SurrealDB record ID (format: "plugin_registry:uuid")
+    pub id: Option<String>,
+    
+    /// Plugin name (unique identifier)
+    pub name: String,
+    
+    /// Plugin source path (file path, URL, or OCI reference)
+    pub source_path: String,
+    
+    /// Plugin type: "file", "http", "oci"
+    pub source_type: String,
+    
+    /// SHA256 hash of plugin WASM for integrity verification
+    pub wasm_hash: String,
+    
+    /// Runtime environment configuration (JSON)
+    pub env_config: Option<serde_json::Value>,
+    
+    /// Plugin status: "active", "disabled", "error"
+    pub status: String,
+    
+    /// Last error message if status="error"
+    pub error_message: Option<String>,
+    
+    /// Discovery metadata (tools_count, prompts_count as JSON)
+    pub metadata: Option<serde_json::Value>,
+    
+    /// Timestamps
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub last_loaded_at: Option<DateTime<Utc>>,
+}
+
+impl Entity for PluginEntity {
+    fn table_name() -> &'static str {
+        "plugin_registry"
+    }
+    
+    fn id(&self) -> Option<String> {
+        self.id.clone()
+    }
+    
+    fn set_id(&mut self, id: String) {
+        self.id = Some(id);
+    }
+}
+
+impl PluginEntity {
+    /// Create from PluginConfig and WASM bytes
+    pub fn from_config(config: &crate::config::PluginConfig, wasm_hash: String) -> Self {
+        let source_type = if config.path.starts_with("http") {
+            "http"
+        } else if config.path.starts_with("oci://") {
+            "oci"
+        } else {
+            "file"
+        };
+        
+        let env_config = config.env.as_ref().map(|e| {
+            serde_json::to_value(e).unwrap_or(serde_json::Value::Null)
+        });
+        
+        let now = Utc::now();
+        
+        Self {
+            id: None,
+            name: config.name.clone(),
+            source_path: config.path.clone(),
+            source_type: source_type.to_string(),
+            wasm_hash,
+            env_config,
+            status: "active".to_string(),
+            error_message: None,
+            metadata: None,
+            created_at: now,
+            updated_at: now,
+            last_loaded_at: Some(now),
+        }
+    }
+}
+
+/// Tool registry entity for indexing and search
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolEntity {
+    pub id: Option<String>,
+    
+    /// Tool name (unique across all plugins)
+    pub name: String,
+    
+    /// Plugin that provides this tool
+    pub plugin_name: String,
+    
+    /// Tool description
+    pub description: Option<String>,
+    
+    /// Input schema (stored as JSON)
+    pub input_schema: serde_json::Value,
+    
+    /// Tags for categorization/search (extracted from description)
+    pub tags: Vec<String>,
+    
+    /// Usage statistics
+    pub call_count: i64,
+    pub last_called_at: Option<DateTime<Utc>>,
+    pub average_duration_ms: Option<f64>,
+    
+    /// Timestamps
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl Entity for ToolEntity {
+    fn table_name() -> &'static str {
+        "tool_registry"
+    }
+    
+    fn id(&self) -> Option<String> {
+        self.id.clone()
+    }
+    
+    fn set_id(&mut self, id: String) {
+        self.id = Some(id);
+    }
+}
+
+impl ToolEntity {
+    /// Create from MCP Tool
+    pub fn from_tool(tool: &crate::types::Tool, plugin_name: String) -> Self {
+        let input_schema = serde_json::to_value(&tool.input_schema)
+            .unwrap_or(serde_json::Value::Null);
+        
+        let tags = extract_tags_from_description(
+            tool.description.as_deref().unwrap_or("")
+        );
+        
+        let now = Utc::now();
+        
+        Self {
+            id: None,
+            name: tool.name.clone(),
+            plugin_name,
+            description: tool.description.clone(),
+            input_schema,
+            tags,
+            call_count: 0,
+            last_called_at: None,
+            average_duration_ms: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+    
+    /// Record tool call with duration (updates moving average)
+    pub fn record_call(&mut self, duration_ms: f64) {
+        self.call_count += 1;
+        self.last_called_at = Some(Utc::now());
+        
+        // Calculate moving average
+        if let Some(avg) = self.average_duration_ms {
+            let n = self.call_count as f64;
+            self.average_duration_ms = Some((avg * (n - 1.0) + duration_ms) / n);
+        } else {
+            self.average_duration_ms = Some(duration_ms);
+        }
+        
+        self.updated_at = Utc::now();
+    }
+}
+
+/// Prompt library entity for template storage and versioning
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromptEntity {
+    pub id: Option<String>,
+    
+    /// Prompt ID (unique across all plugins)
+    pub prompt_id: String,
+    
+    /// Prompt name
+    pub name: String,
+    
+    /// Plugin that provides this prompt
+    pub plugin_name: String,
+    
+    /// Description
+    pub description: Option<String>,
+    
+    /// Template content (Jinja2 template)
+    pub template: String,
+    
+    /// Arguments schema (JSON array)
+    pub arguments: Option<serde_json::Value>,
+    
+    /// Version number for template versioning
+    pub version: i32,
+    
+    /// Tags for categorization
+    pub tags: Vec<String>,
+    
+    /// Usage statistics
+    pub use_count: i64,
+    pub last_used_at: Option<DateTime<Utc>>,
+    
+    /// Timestamps
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl Entity for PromptEntity {
+    fn table_name() -> &'static str {
+        "prompt_library"
+    }
+    
+    fn id(&self) -> Option<String> {
+        self.id.clone()
+    }
+    
+    fn set_id(&mut self, id: String) {
+        self.id = Some(id);
+    }
+}
+
+impl PromptEntity {
+    /// Create from MCP Prompt with template
+    pub fn from_prompt(
+        prompt: &crate::types::Prompt,
+        plugin_name: String,
+        template: String,
+    ) -> Self {
+        let arguments = prompt.arguments.as_ref().map(|args| {
+            serde_json::to_value(args).unwrap_or(serde_json::Value::Null)
+        });
+        
+        let tags = extract_tags_from_description(
+            prompt.description.as_deref().unwrap_or("")
+        );
+        
+        let now = Utc::now();
+        
+        Self {
+            id: None,
+            prompt_id: prompt.id.clone(),
+            name: prompt.name.clone(),
+            plugin_name,
+            description: prompt.description.clone(),
+            template,
+            arguments,
+            version: 1,
+            tags,
+            use_count: 0,
+            last_used_at: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+    
+    /// Update template and increment version
+    pub fn update_template(&mut self, new_template: String) {
+        self.template = new_template;
+        self.version += 1;
+        self.updated_at = Utc::now();
+    }
+    
+    /// Record prompt usage
+    pub fn record_use(&mut self) {
+        self.use_count += 1;
+        self.last_used_at = Some(Utc::now());
+        self.updated_at = Utc::now();
+    }
+}
+
+/// Audit log for tracking all database operations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditLog {
+    pub id: Option<String>,
+    
+    /// Operation type: "create", "update", "delete"
+    pub operation: String,
+    
+    /// Entity type: "plugin", "tool", "prompt"
+    pub entity_type: String,
+    
+    /// Entity ID that was operated on
+    pub entity_id: String,
+    
+    /// Actor (user or system) that performed operation
+    pub actor: String,
+    
+    /// Old values (for updates/deletes, stored as JSON)
+    pub old_values: Option<serde_json::Value>,
+    
+    /// New values (for creates/updates, stored as JSON)
+    pub new_values: Option<serde_json::Value>,
+    
+    /// Timestamp
+    pub created_at: DateTime<Utc>,
+}
+
+impl Entity for AuditLog {
+    fn table_name() -> &'static str {
+        "audit_log"
+    }
+    
+    fn id(&self) -> Option<String> {
+        self.id.clone()
+    }
+    
+    fn set_id(&mut self, id: String) {
+        self.id = Some(id);
+    }
+}
+
+/// Extract keywords from description for tagging
+fn extract_tags_from_description(desc: &str) -> Vec<String> {
+    let keywords = ["authentication", "hash", "crypto", "time", "browser", 
+                    "fetch", "database", "file", "network", "api"];
+    let desc_lower = desc.to_lowercase();
+    
+    keywords.iter()
+        .filter(|&kw| desc_lower.contains(kw))
+        .map(|&kw| kw.to_string())
+        .collect()
+}

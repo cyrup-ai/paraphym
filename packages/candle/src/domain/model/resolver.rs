@@ -22,7 +22,7 @@ use crate::domain::model::registry::RegisteredModel;
 use crate::domain::model::traits::CandleModel as Model;
 
 /// Cached environment variable for default provider
-/// Using LazyLock prevents memory leaks while maintaining &'static str return type
+/// Using `LazyLock` prevents memory leaks while maintaining &'static str return type
 static ENV_DEFAULT_PROVIDER: LazyLock<Option<&'static str>> = LazyLock::new(|| {
     std::env::var("CANDLE_DEFAULT_PROVIDER")
         .ok()
@@ -278,7 +278,7 @@ impl ModelResolver {
     /// Set the default provider for model resolution
     /// 
     /// This provider will be used when no provider is explicitly specified
-    /// and the CANDLE_DEFAULT_PROVIDER environment variable is not set.
+    /// and the `CANDLE_DEFAULT_PROVIDER` environment variable is not set.
     /// 
     /// # Example
     /// ```rust
@@ -366,22 +366,22 @@ impl ModelResolver {
 
         // Apply resolution rules
         for rule in &self.rules {
-            if rule.pattern.matches(model_name) {
-                if let Ok(Some(model)) = registry.get::<M>(&rule.provider, &rule.target) {
-                    if let Some(condition) = &rule.condition
-                        && !self.check_condition(condition, model.info())
-                    {
-                        continue;
-                    }
-
-                    return Ok(ModelResolution::new(
-                        rule.provider.clone(),
-                        rule.target.clone(),
-                        Some(model.info().clone()),
-                        Some(rule.clone()),
-                        0.7,
-                    ));
+            if rule.pattern.matches(model_name)
+                && let Ok(Some(model)) = registry.get::<M>(&rule.provider, &rule.target)
+            {
+                if let Some(condition) = &rule.condition
+                    && !self.check_condition(condition, model.info())
+                {
+                    continue;
                 }
+
+                return Ok(ModelResolution::new(
+                    rule.provider.clone(),
+                    rule.target.clone(),
+                    Some(model.info().clone()),
+                    Some(rule.clone()),
+                    0.7,
+                ));
             }
         }
 
@@ -497,16 +497,7 @@ impl ModelResolver {
             }
             
             RuleCondition::HasFeature { feature } => {
-                // For now, treat HasFeature the same as HasCapability
-                // In the future, this could check a separate features list
-                use crate::domain::model::capabilities::CandleCapability;
-                
-                if let Some(cap) = CandleCapability::from_string(feature) {
-                    let capabilities = model_info.to_capabilities();
-                    capabilities.has_capability(cap)
-                } else {
-                    false
-                }
+                self.is_feature_enabled(feature)
             }
             
             RuleCondition::FeatureEnabled { name } => {
@@ -669,7 +660,7 @@ mod tests {
 
         assert_eq!(resolution.provider, "test-provider");
         assert_eq!(resolution.model, "test-model-a");
-        assert_eq!(resolution.score, 1.0);
+        assert!((resolution.score - 1.0).abs() < f64::EPSILON);
         assert!(resolution.info.is_some());
         assert!(resolution.rule.is_none());
     }
@@ -693,7 +684,7 @@ mod tests {
 
         assert_eq!(resolution.provider, "test-provider");
         assert_eq!(resolution.model, "test-model-a");
-        assert_eq!(resolution.score, 0.8);
+        assert!((resolution.score - 0.8).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -830,6 +821,6 @@ mod tests {
 
         assert_eq!(resolution.provider, "test-provider");
         assert_eq!(resolution.model, "test-model-a");
-        assert_eq!(resolution.score, 0.7); // Rule-based resolution score
+        assert!((resolution.score - 0.7).abs() < f64::EPSILON); // Rule-based resolution score
     }
 }

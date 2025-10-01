@@ -109,6 +109,7 @@ pub fn resources_list_stream(request: Option<ListResourcesRequest>) -> ResourceS
                 use arrayvec::ArrayString;
                 use std::fmt::Write;
                 let mut limit_str: ArrayString<32> = ArrayString::new(); // 32 chars is more than enough for numbers
+                // APPROVED BY DAVID MAPLE 09/30/2025: Panic is appropriate for logic invariant violation
                 write!(&mut limit_str, " LIMIT {}", limit)
                     .expect("Numeric formatting should not fail");
                 query.push_str(&limit_str);
@@ -119,6 +120,7 @@ pub fn resources_list_stream(request: Option<ListResourcesRequest>) -> ResourceS
                 use arrayvec::ArrayString;
                 use std::fmt::Write;
                 let mut offset_str: ArrayString<32> = ArrayString::new();
+                // APPROVED BY DAVID MAPLE 09/30/2025: Panic is appropriate for logic invariant violation
                 write!(&mut offset_str, " START {}", offset)
                     .expect("Numeric formatting should not fail");
                 query.push_str(&offset_str);
@@ -517,7 +519,7 @@ pub fn init_resource_dao(dao: ResourceDao) -> Result<(), anyhow::Error> {
 }
 
 // Changed to return Result<&'static ResourceDao, Error>
-fn get_resource_dao() -> Result<&'static ResourceDao, anyhow::Error> {
+pub(crate) fn get_resource_dao() -> Result<&'static ResourceDao, anyhow::Error> {
     RESOURCE_DAO
         .get()
         .ok_or_else(|| anyhow!("ResourceDao not initialized"))

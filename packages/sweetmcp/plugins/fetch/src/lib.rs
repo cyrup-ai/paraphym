@@ -1,3 +1,4 @@
+#[cfg(not(target_family = "wasm"))]
 mod chromiumoxide;
 mod hyper;
 // mod bevy; // Disabled due to API incompatibility with bevy 0.16 - approved by David Maple 07/03/2025
@@ -8,19 +9,24 @@ use std::str::FromStr;
 
 // Sixel encoding is implemented inline below based on sixel6vt renderer
 use base64::Engine;
+#[cfg(not(target_family = "wasm"))]
 use chromiumoxide::ContentFetcher;
+#[cfg(target_family = "wasm")]
+use crate::hyper::ContentFetcher;
 use extism_pdk::*;
 use htmd::HtmlToMarkdown;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sweetmcp_plugin_builder::prelude::*;
 use sweetmcp_plugin_builder::{CallToolResult, Content, ContentType, Ready};
+#[cfg(not(target_family = "wasm"))]
 use syntect::{highlighting::ThemeSet, html::highlighted_html_for_string, parsing::SyntaxSet};
 
 // use async_trait::async_trait;
 use crate::hyper::HyperFetcher;
 
 /// Encode an RGB image to Sixel format (based on sixel6vt implementation)
+#[cfg(not(target_family = "wasm"))]
 fn encode_sixel(img: &image::RgbImage) -> String {
     // Start with DCS sequence + sixel + raster attributes with image dimensions
     let mut result = String::from("\x1BPq");
@@ -223,7 +229,10 @@ impl McpTool for FetchTool {
 
     fn execute(args: Value) -> Result<CallToolResult, Error> {
         // Parse and validate arguments
-        let options = parse_options(args.as_object().unwrap().clone())?;
+        let obj = args.as_object().ok_or_else(|| {
+            Error::msg("Expected arguments to be an object")
+        })?;
+        let options = parse_options(obj.clone())?;
 
         // Run the async fetching process
         let fetch_result = block_on_fetch(options.url.as_str())?;
@@ -282,6 +291,7 @@ fn parse_options(args: serde_json::Map<String, Value>) -> Result<FetchOptions, E
 }
 
 // Helper function to run async code from the sync world
+#[cfg(not(target_family = "wasm"))]
 fn block_on_fetch(url: &str) -> Result<chromiumoxide::FetchResult, Error> {
     // Set up a minimal runtime for async execution
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -319,7 +329,40 @@ fn block_on_fetch(url: &str) -> Result<chromiumoxide::FetchResult, Error> {
     })
 }
 
+// WASM version: simplified fetching without browser automation
+#[cfg(target_family = "wasm")]
+fn block_on_fetch(url: &str) -> Result<hyper::FetchResult, Error> {
+    // Set up a minimal runtime for async execution
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| Error::msg(format!("Failed to create runtime: {}", e)))?;
+
+    rt.block_on(async {
+        // WASM fetching with fallbacks (no browser automation):
+
+        // 1. First attempt: Use hyper (HTTP client)
+        let hyper_result = HyperFetcher.fetch_content(url).await;
+
+        if let Ok(result) = hyper_result {
+            return Ok(result);
+        }
+
+        // 2. Final contingency: Use firecrawl
+        let firecrawl_result = firecrawl::FirecrawlFetcher.fetch_content(url).await;
+
+        match firecrawl_result {
+            Ok(result) => Ok(result),
+            Err(e) => Err(Error::msg(format!(
+                "All fetch attempts failed. Last error: {}",
+                e
+            ))),
+        }
+    })
+}
+
 // Process the fetch result to get the desired format
+#[cfg(not(target_family = "wasm"))]
 fn process_fetch_result(
     result: chromiumoxide::FetchResult,
     options: FetchOptions,
@@ -339,6 +382,61 @@ fn process_fetch_result(
             encode_sixel(&image.to_rgb8())
         }
     };
+
+    // Process the content based on the requested format
+    let (content, content_type) = match options.content_format {
+        ContentFormat::Markdown => {
+            let converter = HtmlToMarkdown::builder()
+                .skip_tags(vec!["script", "style"])
+                .build();
+
+            let markdown = converter
+                .convert(&result.content)
+                .map_err(|e| Error::msg(format!("Failed to convert HTML to markdown: {}", e)))?;
+
+            (markdown, "text/markdown".to_string())
+        }
+        ContentFormat::Json => {
+            // Extract text content from HTML and convert to JSON
+            let text_content = extract_text_content(&result.content);
+            let json = json!({
+                "url": options.url,
+                "title": extract_title(&result.content),
+                "text": text_content,
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+                "original_content_type": result.content_type
+            });
+
+            (json.to_string(), "application/json".to_string())
+        }
+        ContentFormat::Txt => {
+            let text_content = extract_text_content(&result.content);
+            (text_content, "text/plain".to_string())
+        }
+    };
+
+    // Apply syntax highlighting if requested
+    let final_content = if options.syntax_highlighting {
+        apply_syntax_highlighting(&content, &options.content_format, options.theme.as_deref())?
+    } else {
+        content.to_string()
+    };
+
+    Ok(FetchResponse {
+        screenshot,
+        content: final_content,
+        content_type,
+    })
+}
+
+// WASM version: process fetch result without browser-specific features
+#[cfg(target_family = "wasm")]
+fn process_fetch_result(
+    result: hyper::FetchResult,
+    options: FetchOptions,
+) -> Result<FetchResponse, Error> {
+    // WASM: Return empty screenshot (browser automation not available)
+    let screenshot = String::new();
 
     // Process the content based on the requested format
     let (content, content_type) = match options.content_format {
@@ -421,7 +519,8 @@ fn extract_text_content(html: &str) -> String {
     text.trim().to_string()
 }
 
-// Apply syntax highlighting to content
+// Apply syntax highlighting to content (native only)
+#[cfg(not(target_family = "wasm"))]
 fn apply_syntax_highlighting(
     content: &str,
     format: &ContentFormat,
@@ -453,6 +552,17 @@ fn apply_syntax_highlighting(
         }
         ContentFormat::Txt => Ok(content.to_string()),
     }
+}
+
+// WASM version: No syntax highlighting (syntect not available)
+#[cfg(target_family = "wasm")]
+fn apply_syntax_highlighting(
+    content: &str,
+    _format: &ContentFormat,
+    _theme_name: Option<&str>,
+) -> Result<String, Error> {
+    // WASM: Return content as-is (syntax highlighting not available)
+    Ok(content.to_string())
 }
 
 /// Create the plugin instance

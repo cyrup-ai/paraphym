@@ -104,8 +104,12 @@ impl TemplateParser {
         // Return single node or block
         match nodes.len() {
             0 => Ok(TemplateAst::Text(String::new())),
-            1 => Ok(nodes.into_iter().next()
-                .expect("Vector with length 1 should have exactly one element")),
+            1 => {
+                // Safe: We just verified length is exactly 1, so next() must return Some
+                let node = nodes.into_iter().next()
+                    .unwrap_or_else(|| TemplateAst::Text(String::new()));
+                Ok(node)
+            }
             _ => Ok(TemplateAst::Block(nodes.into())),
         }
     }

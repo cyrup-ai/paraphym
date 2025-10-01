@@ -14,6 +14,7 @@ use crate::{
     vector_store::VectorStoreIndexDyn};
 use crate::domain::chat::message::types::{CandleMessageRole as MessageRole, CandleMessageChunk as MessageChunk, CandleConversationTrait as AgentConversation, ZeroOneOrMany as ZeroOneOrMany};
 use crate::domain::chat::CandleChatLoop;
+use crate::domain::agent::core::AgentError;
 
 // ============================================================================
 // Configuration constants
@@ -175,7 +176,15 @@ where
     }
 
     /// Simple chat method - EXACT syntax: .chat("Hello")
-    pub fn chat(&self, message: impl Into<String>) -> AsyncStream<MessageChunk, { cfg::CHAT_CAPACITY }> {
+    ///
+    /// # Errors
+    ///
+    /// Returns `AgentError::Engine` if engine initialization fails due to:
+    /// - Invalid model configuration (empty model name, invalid parameters)
+    /// - Missing or inaccessible model
+    /// - Authentication failures
+    /// - Configuration validation errors
+    pub fn chat(&self, message: impl Into<String>) -> Result<AsyncStream<MessageChunk, { cfg::CHAT_CAPACITY }>, AgentError> {
         let message_text = message.into();
         
         // Create a message with the chat content
@@ -211,45 +220,43 @@ where
             .with_temperature(self.temperature.unwrap_or(0.7) as f32)
             .with_max_tokens(self.max_tokens.unwrap_or(1000) as u32)
             .with_streaming();
+        
+        // Propagate engine creation errors using ? operator
+        let engine = crate::core::Engine::new(engine_config)?;
+        
+        let completion_request = crate::core::CompletionRequest::new(&full_prompt);
+        
+        // Get streaming completion and convert to MessageChunk
+        let completion_stream = engine.process_completion_stream(completion_request);
+        
+        Ok(AsyncStream::with_channel(move |sender| {
+            let mut chunks_sent = 0u32;
+            let mut completion_iter = completion_stream;
             
-        if let Ok(engine) = crate::core::Engine::new(engine_config) {
-            let completion_request = crate::core::CompletionRequest::new(&full_prompt);
-            
-            // Get streaming completion and convert to MessageChunk
-            let completion_stream = engine.process_completion_stream(completion_request);
-            
-            AsyncStream::with_channel(move |sender| {
-                let mut chunks_sent = 0u32;
-                let mut completion_iter = completion_stream;
+            while let Some(response) = completion_iter.try_next() {
+                let chunk = MessageChunk {
+                    content: response.text.to_string(),
+                    done: response.finish_reason.is_some(),
+                };
                 
-                while let Some(response) = completion_iter.try_next() {
-                    let chunk = MessageChunk {
-                        content: response.text.to_string(),
-                        done: response.finish_reason.is_some(),
-                    };
-                    
-                    if sender.send(chunk).is_err() {
-                        break; // Client disconnected
-                    }
-                    
-                    chunks_sent += 1;
-                    if response.finish_reason.is_some() {
-                        break; // Completion finished
-                    }
+                if sender.send(chunk).is_err() {
+                    break; // Client disconnected
                 }
                 
-                // Send final chunk if none were sent
-                if chunks_sent == 0 {
-                    let _ = sender.send(MessageChunk {
-                        content: String::new(),
-                        done: true,
-                    });
+                chunks_sent += 1;
+                if response.finish_reason.is_some() {
+                    break; // Completion finished
                 }
-            })
-        } else {
-            // Fallback to empty stream on engine creation failure
-            AsyncStream::empty()
-        }
+            }
+            
+            // Send final chunk if none were sent
+            if chunks_sent == 0 {
+                let _ = sender.send(MessageChunk {
+                    content: String::new(),
+                    done: true,
+                });
+            }
+        }))
     }
 
     /// Closure-based chat loop - EXACT syntax: .chat(|conversation| CandleChatLoop) - zero allocation  

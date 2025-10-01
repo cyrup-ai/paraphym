@@ -39,7 +39,7 @@ pub use commands::{
 };
 pub use config::{CandleChatConfig, CandlePersonalityConfig};
 pub use conversation::{
-    CandleConversationEvent as CandleConversation, ConversationImpl as CandleConversationImpl,
+    CandleConversationEvent as CandleConversation,
 };
 pub use export::{ExportData as CandleExportData, ExportFormat as CandleExportFormat};
 pub use formatting::{
@@ -102,8 +102,9 @@ pub use types::responses::{
 // - PersonalityConfig → CandlePersonalityConfig
 //
 // Conversation Types:
-// - Conversation → CandleConversation
-// - ConversationImpl → CandleConversationImpl
+// - CandleConversation (event type)
+// - CandleStreamingConversation (primary conversation implementation)
+// - CandleAgentConversation (agent workflow conversations)
 //
 // Export/Format Types:
 // - ExportData → CandleExportData

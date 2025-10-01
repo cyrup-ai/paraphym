@@ -243,7 +243,7 @@ fn translate_openai_to_mcp(request: &ChatRequest) -> McpSamplingParams {
 }
 
 // Helper function to translate MCP response to OpenAI format
-fn translate_mcp_to_openai(mcp_response: &Value) -> Result<ChatResponse, anyhow::Error> {
+fn translate_mcp_to_openai(_mcp_response: &Value) -> Result<ChatResponse, anyhow::Error> {
     // This is a placeholder implementation - would need proper mapping
     // Generate a session token for conversation continuity
     let session_token = format!("session-{}", uuid::Uuid::new_v4());

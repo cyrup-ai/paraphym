@@ -9,6 +9,8 @@ use crossbeam_utils::CachePadded;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use paraphym_simd::similarity::cosine_similarity;
+
 /// Quantum-inspired cognitive state with atomic operations and lock-free queues
 ///
 /// Features:
@@ -1268,8 +1270,9 @@ pub struct ProcessingState {
 pub struct PatternMatcher {
     /// Matching threshold
     threshold: f32,
-    /// Pattern cache
-    #[allow(dead_code)] // TODO: Implement pattern cache functionality
+    /// Stored reference patterns for similarity comparison
+    patterns: Vec<Vec<f32>>,
+    /// Pattern cache for performance optimization
     cache: Arc<SkipMap<Uuid, f32>>,
 }
 
@@ -1510,22 +1513,63 @@ impl PatternMatcher {
     pub fn new(threshold: f32) -> Self {
         Self {
             threshold,
+            patterns: Vec::new(),
             cache: Arc::new(SkipMap::new()),
         }
     }
 
-    /// Match input against patterns
+    /// Add a reference pattern for matching
+    pub fn add_pattern(&mut self, pattern: Vec<f32>) {
+        self.patterns.push(pattern);
+    }
+
+    /// Clear all stored patterns
+    pub fn clear_patterns(&mut self) {
+        self.patterns.clear();
+    }
+
+    /// Match input against stored patterns using SIMD-optimized cosine similarity
     ///
     /// # Errors
     ///
     /// Returns `CognitiveError` if pattern strength is below threshold
     pub fn match_pattern(&self, input: &[f32]) -> CognitiveResult<f32> {
-        // Simple pattern matching logic - in production this would be more sophisticated
-        #[allow(clippy::cast_precision_loss)]
-        let pattern_strength = input.iter().map(|x| x.abs()).sum::<f32>() / input.len() as f32;
-
-        if pattern_strength >= self.threshold {
-            Ok(pattern_strength)
+        // Handle edge cases
+        if input.is_empty() {
+            return Ok(0.0);
+        }
+        
+        if self.patterns.is_empty() {
+            return Ok(0.0);
+        }
+        
+        // Find best matching pattern using SIMD-optimized cosine similarity
+        let mut best_similarity = -1.0f32; // Start at minimum possible value
+        
+        for stored_pattern in &self.patterns {
+            // Skip dimension mismatches
+            if stored_pattern.len() != input.len() {
+                continue;
+            }
+            
+            // Check for zero-magnitude vectors
+            let input_magnitude: f32 = input.iter().map(|x| x * x).sum::<f32>().sqrt();
+            let pattern_magnitude: f32 = stored_pattern.iter().map(|x| x * x).sum::<f32>().sqrt();
+            
+            if input_magnitude == 0.0 || pattern_magnitude == 0.0 {
+                continue;
+            }
+            
+            // Use SIMD-optimized cosine similarity from paraphym_simd
+            let similarity = cosine_similarity(input, stored_pattern);
+            best_similarity = best_similarity.max(similarity);
+        }
+        
+        // Normalize from [-1, 1] to [0, 1] range for threshold comparison
+        let normalized_strength = f32::midpoint(best_similarity, 1.0);
+        
+        if normalized_strength >= self.threshold {
+            Ok(normalized_strength)
         } else {
             Ok(0.0)
         }

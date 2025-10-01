@@ -59,8 +59,9 @@ impl CandleModelHandle {
                 ModelInfo {
                     name: "kimi-k2-instruct",
                     provider_name: "moonshot",
-                    max_input_tokens: Some(NonZeroU32::new(131072).unwrap()),
-                    max_output_tokens: Some(NonZeroU32::new(2048).unwrap()),
+                    // Safe: Constants are non-zero
+                    max_input_tokens: NonZeroU32::new(131072),
+                    max_output_tokens: NonZeroU32::new(2048),
                     input_price: None,
                     output_price: None,
                     supports_vision: false,
@@ -143,8 +144,8 @@ impl GenericCandleModel {
         ModelInfo {
             name: Box::leak(self.name.clone().into_boxed_str()),
             provider_name: Box::leak(self.provider.clone().into_boxed_str()),
-            max_input_tokens: Some(NonZeroU32::new(self.context_length).unwrap_or_else(|| NonZeroU32::new(4096).unwrap())),
-            max_output_tokens: Some(NonZeroU32::new(2048).unwrap()),
+            max_input_tokens: NonZeroU32::new(self.context_length).or_else(|| NonZeroU32::new(4096)),
+            max_output_tokens: NonZeroU32::new(2048),
             input_price: None,
             output_price: None,
             supports_vision: false,

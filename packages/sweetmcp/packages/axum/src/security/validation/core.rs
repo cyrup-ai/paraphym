@@ -9,6 +9,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use arrayvec::{ArrayString, ArrayVec};
 use serde::{Deserialize, Serialize};
 
+/// Default padding for cache alignment
+fn default_padding() -> [u8; 64] {
+    [0u8; 64]
+}
+
 /// Maximum number of validation errors to track without heap allocation
 pub const MAX_VALIDATION_ERRORS: usize = 32;
 
@@ -108,7 +113,10 @@ impl ValidationError {
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_secs())
                 .unwrap_or(0),
-            thread_id: std::thread::current().id().as_u64().get(),
+            thread_id: {
+                let id = std::thread::current().id();
+                format!("{:?}", id).chars().filter(|c| c.is_numeric()).collect::<String>().parse().unwrap_or(0)
+            },
         })
     }
 
@@ -142,6 +150,7 @@ pub struct ValidationResult {
     /// Validation timestamp
     pub timestamp: u64,
     /// Cache padding for performance
+    #[serde(skip, default = "default_padding")]
     _padding: [u8; 64],
 }
 

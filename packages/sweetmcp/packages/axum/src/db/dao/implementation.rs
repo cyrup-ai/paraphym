@@ -49,10 +49,13 @@ impl<T: Entity + 'static> Dao<T> {
     }
 
     /// Create a new entity
+    /// 
+    /// Returns Ok(entity) on success with the created entity from the database.
+    /// Returns Err(message) on failure with a descriptive error message.
     pub fn create(
         &self,
         entity: &mut <Self as BaseDao>::Entity,
-    ) -> crate::types::AsyncTask<<Self as BaseDao>::Entity> {
+    ) -> crate::types::AsyncTask<Result<<Self as BaseDao>::Entity, String>> {
         let client = self.client.clone();
         let mut entity_clone = entity.clone();
         if entity_clone.id().is_none() {
@@ -62,7 +65,7 @@ impl<T: Entity + 'static> Dao<T> {
         }
         crate::types::AsyncTask::from_future(async move {
             let task = client.create::<T>(T::table_name(), entity_clone.clone());
-            task.await.expect("Failed to create entity")
+            task.await.map_err(|e| format!("Failed to create entity in table '{}': {}", T::table_name(), e))
         })
     }
 
@@ -124,7 +127,7 @@ impl<T: Entity + 'static> Dao<T> {
                 limit,
                 offset
             );
-            let task = client.query::<T>(&query);
+            let _task = client.query::<T>(&query);
             // In a real implementation, this would return a proper stream
             // For now, we'll use the basic find method
             client.find::<T>(T::table_name()).await
@@ -147,7 +150,7 @@ impl<T: Entity + 'static> Dao<T> {
                 field,
                 value
             );
-            let task = client.query::<T>(&query);
+            let _task = client.query::<T>(&query);
             // In a real implementation, this would return a proper stream
             // For now, we'll use the basic find method
             client.find::<T>(T::table_name()).await
@@ -159,7 +162,7 @@ impl<T: Entity + 'static> Dao<T> {
         let client = self.client.clone();
         crate::types::AsyncTask::from_future(async move {
             let query = format!("SELECT count() FROM {} GROUP ALL", T::table_name());
-            let task = client.query::<u64>(&query);
+            let _task = client.query::<u64>(&query);
             // In a real implementation, this would parse the count result
             // For now, we'll return a placeholder
             0
@@ -173,7 +176,11 @@ impl<T: Entity + 'static> Dao<T> {
     }
 
     /// Create multiple entities in batch
-    pub fn create_batch(&self, entities: &mut [T]) -> crate::types::AsyncTask<Vec<T>> {
+    /// 
+    /// Returns a Vec of Result<Entity, String> where each entry represents
+    /// the outcome of creating that specific entity. Success and failure
+    /// for individual entities are explicit.
+    pub fn create_batch(&self, entities: &mut [T]) -> crate::types::AsyncTask<Vec<Result<T, String>>> {
         let client = self.client.clone();
         let mut entities_clone = entities.to_vec();
 
@@ -198,13 +205,10 @@ impl<T: Entity + 'static> Dao<T> {
             let mut results = Vec::with_capacity(entities_clone.len());
             for entity in entities_clone {
                 let task = client.create::<T>(T::table_name(), entity.clone());
-                match task.await {
-                    Ok(created_entity) => results.push(created_entity),
-                    Err(_) => {
-                        // In case of error, we still add the entity to maintain consistency
-                        results.push(entity);
-                    }
-                }
+                let result = task.await.map_err(|e| {
+                    format!("Failed to create entity in table '{}': {}", T::table_name(), e)
+                });
+                results.push(result);
             }
             results
         })
@@ -279,7 +283,7 @@ impl<T: Entity + 'static> Dao<T> {
         let client = self.client.clone();
         let query = query.to_string();
         crate::types::AsyncTask::from_future(async move {
-            let task = client.query::<T>(&query);
+            let _task = client.query::<T>(&query);
             // In a real implementation, this would return a proper stream
             // For now, we'll use the basic find method
             client.find::<T>(T::table_name()).await
@@ -291,7 +295,7 @@ impl<T: Entity + 'static> Dao<T> {
         let client = self.client.clone();
         let query = query.to_string();
         crate::types::AsyncTask::from_future(async move {
-            let task = client.query::<T>(&query);
+            let _task = client.query::<T>(&query);
             // In a real implementation, this would parse the first result
             // For now, we'll return None
             None
@@ -326,7 +330,7 @@ impl<T: Entity + 'static> BaseDao for Dao<T> {
     fn create(
         &self,
         entity: &mut <Self as BaseDao>::Entity,
-    ) -> crate::types::AsyncTask<<Self as BaseDao>::Entity> {
+    ) -> crate::types::AsyncTask<Result<<Self as BaseDao>::Entity, String>> {
         self.create(entity)
     }
 

@@ -179,6 +179,7 @@ impl Strategy for BeamSearchStrategy {
                                     None => std::cmp::Ordering::Equal, // Handle NaN values
                                 }
                             })
+                            // APPROVED BY DAVID MAPLE 09/30/2025: Panic is appropriate for logic invariant violation
                             .expect("Deepest beam should contain at least one element")
                             .id
                             .clone();

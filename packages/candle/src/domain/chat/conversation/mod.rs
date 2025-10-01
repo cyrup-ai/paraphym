@@ -12,7 +12,6 @@ use cyrup_sugars::prelude::MessageChunk;
 
 use crate::domain::chat::message::types::CandleMessageRole;
 // REMOVED: use ystream::AsyncStream::with_channel;
-use cyrup_sugars::ZeroOneOrMany;
 
 /// Error types for conversation operations
 #[derive(Error, Debug)]
@@ -495,72 +494,4 @@ impl CandleConversationStats {
     }
 }
 
-/// Legacy conversation trait for backward compatibility
-pub trait Conversation: Send + Sync + std::fmt::Debug + Clone {
-    /// Get the latest user message
-    fn latest_user_message(&self) -> &str;
 
-    /// Add a new user message to the conversation
-    fn add_user_message(&mut self, message: impl Into<String>);
-
-    /// Add an assistant response to the conversation  
-    fn add_assistant_response(&mut self, response: impl Into<String>);
-
-    /// Get all messages in the conversation
-    fn messages(&self) -> ZeroOneOrMany<String>;
-
-    /// Get the number of messages in the conversation
-    fn message_count(&self) -> usize;
-
-    /// Create a new conversation with initial user message
-    fn new(user_message: impl Into<String>) -> Self;
-}
-
-/// Legacy conversation implementation (deprecated - use `StreamingConversation`)
-#[derive(Debug, Clone)]
-pub struct ConversationImpl {
-    messages: Vec<String>,
-    latest_user_message: String,
-}
-
-impl Conversation for ConversationImpl {
-    #[inline]
-    fn latest_user_message(&self) -> &str {
-        &self.latest_user_message
-    }
-
-    #[inline]
-    fn add_user_message(&mut self, message: impl Into<String>) {
-        let message = message.into();
-        self.messages.push(message.clone());
-        self.latest_user_message = message;
-    }
-
-    #[inline]
-    fn add_assistant_response(&mut self, response: impl Into<String>) {
-        self.messages.push(response.into());
-    }
-
-    #[inline]
-    fn messages(&self) -> ZeroOneOrMany<String> {
-        match self.messages.len() {
-            0 => ZeroOneOrMany::None,
-            1 => ZeroOneOrMany::One(self.messages[0].clone()),
-            _ => ZeroOneOrMany::Many(self.messages.clone()),
-        }
-    }
-
-    #[inline]
-    fn message_count(&self) -> usize {
-        self.messages.len()
-    }
-
-    #[inline]
-    fn new(user_message: impl Into<String>) -> Self {
-        let message = user_message.into();
-        Self {
-            latest_user_message: message.clone(),
-            messages: vec![message],
-        }
-    }
-}

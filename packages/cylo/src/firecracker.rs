@@ -1,13 +1,15 @@
 //! Firecracker-based secure execution environment
 
 use std::fs::{self, File};
-use std::io::Write;
-use std::path::PathBuf;
+use std::io::{Read, Write};
+use std::net::TcpStream;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use ssh2::Session;
 use tracing::{error, info, warn};
 
 use crate::config::RamdiskConfig;
@@ -28,6 +30,32 @@ pub struct FirecrackerConfig {
     pub vcpu_count: u32,
     /// Network configuration (optional)
     pub network_config: Option<NetworkConfig>,
+    /// SSH connection details for VM communication
+    pub ssh_config: Option<SshConfig>,
+}
+
+/// SSH configuration for VM communication
+#[derive(Debug, Clone)]
+pub struct SshConfig {
+    /// SSH host (typically 127.0.0.1 or VM IP)
+    pub host: String,
+    /// SSH port
+    pub port: u16,
+    /// SSH username
+    pub username: String,
+    /// SSH authentication method
+    pub auth: SshAuth,
+}
+
+/// SSH authentication methods
+#[derive(Debug, Clone)]
+pub enum SshAuth {
+    /// Agent-based authentication
+    Agent,
+    /// Key-based authentication with path to private key
+    Key(PathBuf),
+    /// Password authentication
+    Password(String),
 }
 
 /// Network configuration for Firecracker VM
@@ -50,6 +78,7 @@ impl Default for FirecrackerConfig {
             mem_size_mib: 512,
             vcpu_count: 1,
             network_config: None,
+            ssh_config: None,
         }
     }
 }
@@ -283,20 +312,130 @@ impl FirecrackerVM {
         Ok(output)
     }
 
-    /// Copy a file to the VM
+    /// Copy a file to the VM using SSH/SCP
     fn copy_to_vm(&self, host_path: &str, guest_path: &str) -> Result<()> {
-        // In a real implementation, this would use SSH or another method to copy files
-        // For now, we'll simulate it
         info!("Copying {} to VM at {}", host_path, guest_path);
+        
+        let ssh_config = self.config.ssh_config.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("SSH configuration not provided"))?;
+        
+        let session = self.create_ssh_session(ssh_config)?;
+        
+        // Get file metadata for size
+        let metadata = fs::metadata(host_path)
+            .context("Failed to read host file metadata")?;
+        let file_size = metadata.len();
+        
+        // Open local file
+        let mut local_file = File::open(host_path)
+            .context("Failed to open host file")?;
+        
+        // Create remote file via SCP
+        let mut remote_file = session.scp_send(
+            Path::new(guest_path),
+            0o644,
+            file_size,
+            None,
+        ).context("Failed to initiate SCP transfer")?;
+        
+        // Copy file contents
+        std::io::copy(&mut local_file, &mut remote_file)
+            .context("Failed to copy file contents")?;
+        
+        // Send EOF to remote file
+        remote_file.send_eof()
+            .context("Failed to send EOF")?;
+        remote_file.wait_eof()
+            .context("Failed to wait for EOF")?;
+        remote_file.close()
+            .context("Failed to close remote file")?;
+        remote_file.wait_close()
+            .context("Failed to wait for close")?;
+        
+        info!("Successfully copied file to VM");
         Ok(())
     }
 
-    /// Execute a command in the VM
+    /// Execute a command in the VM via SSH
     fn execute_command(&self, command: &str) -> Result<String> {
-        // In a real implementation, this would use SSH or another method to execute commands
-        // For now, we'll simulate it
         info!("Executing command in VM: {}", command);
-        Ok(format!("Output from command: {command}"))
+        
+        let ssh_config = self.config.ssh_config.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("SSH configuration not provided"))?;
+        
+        let session = self.create_ssh_session(ssh_config)?;
+        
+        // Create SSH channel
+        let mut channel = session.channel_session()
+            .context("Failed to create SSH channel")?;
+        
+        // Execute command
+        channel.exec(command)
+            .context("Failed to execute command")?;
+        
+        // Read output
+        let mut output = String::new();
+        channel.read_to_string(&mut output)
+            .context("Failed to read command output")?;
+        
+        // Wait for channel to close
+        channel.wait_close()
+            .context("Failed to wait for channel close")?;
+        
+        // Check exit status
+        let exit_status = channel.exit_status()
+            .context("Failed to get exit status")?;
+        
+        if exit_status != 0 {
+            return Err(anyhow::anyhow!(
+                "Command failed with exit code {}: {}",
+                exit_status,
+                output
+            ));
+        }
+        
+        info!("Command executed successfully");
+        Ok(output)
+    }
+    
+    /// Create an SSH session to the VM
+    fn create_ssh_session(&self, ssh_config: &SshConfig) -> Result<Session> {
+        // Connect to SSH server
+        let tcp = TcpStream::connect(format!("{}:{}", ssh_config.host, ssh_config.port))
+            .context("Failed to connect to SSH server")?;
+        
+        // Create SSH session
+        let mut session = Session::new()
+            .context("Failed to create SSH session")?;
+        session.set_tcp_stream(tcp);
+        session.handshake()
+            .context("SSH handshake failed")?;
+        
+        // Authenticate based on configured method
+        match &ssh_config.auth {
+            SshAuth::Agent => {
+                session.userauth_agent(&ssh_config.username)
+                    .context("SSH agent authentication failed")?;
+            }
+            SshAuth::Key(key_path) => {
+                session.userauth_pubkey_file(
+                    &ssh_config.username,
+                    None,
+                    key_path,
+                    None,
+                ).context("SSH key authentication failed")?;
+            }
+            SshAuth::Password(password) => {
+                session.userauth_password(&ssh_config.username, password)
+                    .context("SSH password authentication failed")?;
+            }
+        }
+        
+        if !session.authenticated() {
+            return Err(anyhow::anyhow!("SSH authentication failed"));
+        }
+        
+        Ok(session)
     }
 
     /// Get the file extension for a language
@@ -334,6 +473,7 @@ pub fn create_firecracker_environment(
         mem_size_mib: (config.size_gb * 1024) as u32,
         vcpu_count: 1,
         network_config: None,
+        ssh_config: None,
     };
 
     let vm_id = format!("cylo-{}", uuid::Uuid::new_v4());

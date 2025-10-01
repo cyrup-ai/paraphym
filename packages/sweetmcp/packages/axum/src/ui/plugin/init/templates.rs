@@ -6,6 +6,8 @@
 
 use std::fs;
 
+use crossterm::style::Stylize;
+
 use crate::ui::plugin::init::core::*;
 
 /// Template generator for plugin files

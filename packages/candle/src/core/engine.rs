@@ -288,6 +288,7 @@ impl<'a> CompletionRequest<'a> {
 }
 
 /// Core engine implementation with lock-free atomic operations
+#[derive(Debug)]
 pub struct Engine {
     config: EngineConfig,
     request_count: Arc<AtomicU64>,

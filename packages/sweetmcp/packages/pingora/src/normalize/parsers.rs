@@ -1003,7 +1003,7 @@ pub fn capnp_from_json_rpc(ctx: &ProtocolContext, response: &Value) -> Conversio
     let message_builder = build_capnp_message(data_to_convert)?;
 
     // Determine format preference - default to packed for efficiency
-    let use_packed = ctx.metadata().options.include_debug_info == false; // Use packed in production
+    let use_packed = !ctx.metadata().options.include_debug_info; // Packed format for efficiency
 
     // Serialize to binary format
     serialize_capnp_response(message_builder, use_packed)

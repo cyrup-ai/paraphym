@@ -385,9 +385,8 @@ impl MemoryVersion {
         // Extract metadata
         let mut metadata = HashMap::new();
         for (key, value) in entity.attributes() {
-            if key.starts_with("metadata_") {
-                let metadata_key = key.strip_prefix("metadata_").unwrap().to_string();
-                metadata.insert(metadata_key, value.clone());
+            if let Some(stripped_key) = key.strip_prefix("metadata_") {
+                metadata.insert(stripped_key.to_string(), value.clone());
             }
         }
 
@@ -552,24 +551,25 @@ impl MemoryHistory {
         let new_lines: Vec<&str> = new.lines().collect();
 
         // Simple line-based diff
-        writeln!(&mut output, "--- Version A").unwrap();
-        writeln!(&mut output, "+++ Version B").unwrap();
+        // Safe: writeln! to String never fails as String always has sufficient capacity
+        let _ = writeln!(&mut output, "--- Version A");
+        let _ = writeln!(&mut output, "+++ Version B");
 
         let max_lines = old_lines.len().max(new_lines.len());
         for i in 0..max_lines {
             match (old_lines.get(i), new_lines.get(i)) {
                 (Some(old_line), Some(new_line)) if old_line != new_line => {
-                    writeln!(&mut output, "-{old_line}").unwrap();
-                    writeln!(&mut output, "+{new_line}").unwrap();
+                    let _ = writeln!(&mut output, "-{old_line}");
+                    let _ = writeln!(&mut output, "+{new_line}");
                 }
                 (Some(old_line), None) => {
-                    writeln!(&mut output, "-{old_line}").unwrap();
+                    let _ = writeln!(&mut output, "-{old_line}");
                 }
                 (None, Some(new_line)) => {
-                    writeln!(&mut output, "+{new_line}").unwrap();
+                    let _ = writeln!(&mut output, "+{new_line}");
                 }
                 (Some(line), Some(_)) => {
-                    writeln!(&mut output, " {line}").unwrap();
+                    let _ = writeln!(&mut output, " {line}");
                 }
                 _ => {}
             }

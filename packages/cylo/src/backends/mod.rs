@@ -561,7 +561,7 @@ pub fn create_backend(
         )),
 
         crate::execution_env::Cylo::SweetMcpPlugin(plugin_path) => {
-            let backend = SweetMcpPluginBackend::new(plugin_path.clone(), config)?;
+            let backend = SweetMcpPluginBackend::new(plugin_path.clone().into(), config)?;
             Ok(Box::new(backend))
         }
     }

@@ -105,6 +105,7 @@ symphonia = { version = "0.5.4", features = ["all"], optional = true }
 # Core dependencies
 serde = { version = "1.0.228", features = ["derive"] }
 schemars = { version = "1.0", features = ["derive"] }
+jsonschema = "0.24"
 thiserror = "2.0.17"
 uuid = { version = "1.18.1", features = ["v4", "serde"] }
 serde_json = "1.0.145"

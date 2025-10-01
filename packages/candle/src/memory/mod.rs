@@ -77,5 +77,10 @@ pub async fn initialize(config: &MemoryConfig) -> Result<SurrealMemoryManager, E
     // Initialize the manager (e.g., create tables/schemas if they don_t exist)
     manager.initialize().await?;
 
+    // Run schema migrations to ensure database schema is up-to-date
+    tracing::info!("Running schema migrations...");
+    manager.run_migrations().await?;
+    tracing::info!("Schema migrations completed");
+
     Ok(manager)
 }

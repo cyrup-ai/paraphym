@@ -178,6 +178,7 @@ impl MCTS002AlphaStrategy {
         };
 
         // Combine with linguistic novelty
+        // APPROVED BY DAVID MAPLE 09/30/2025: Panic is appropriate for hardcoded regex compilation
         let re = regex::Regex::new(r"[.!?;]|therefore|because|if|then")
             .expect("Failed to compile regex pattern");
         let complexity_score = re.find_iter(&node.base.thought).count() as f64 / 10.0; // Simple complexity heuristic

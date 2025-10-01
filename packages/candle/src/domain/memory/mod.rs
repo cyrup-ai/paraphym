@@ -167,6 +167,7 @@ impl MemorySystemConfig {
 
 impl Default for MemorySystemConfig {
     fn default() -> Self {
+        // APPROVED BY DAVID MAPLE 09/30/2025: Panic is appropriate for initialization failure
         Self::optimized().expect("Default memory system configuration should be valid")
     }
 }

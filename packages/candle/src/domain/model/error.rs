@@ -58,7 +58,7 @@ impl fmt::Display for CandleModelError {
             Self::InvalidInput(msg) => write!(f, "Invalid input: {msg}"),
             Self::Internal(msg) => write!(f, "Internal error: {msg}"),
             Self::TypeMismatch { expected, found } => {
-                write!(f, "Type mismatch: expected {}, found {}", expected, found)
+                write!(f, "Type mismatch: expected {expected}, found {found}")
             }
         }
     }

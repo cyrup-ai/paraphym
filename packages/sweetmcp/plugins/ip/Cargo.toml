@@ -3,6 +3,8 @@ name = "sweetmcp-plugin-ip"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+
 [lib]
 name = "sweetmcp_plugin_ip"
 crate-type = ["cdylib"]
@@ -14,4 +16,9 @@ serde_json = "1.0"
 base64 = "0.22"
 base64-serde = "0.8.0"
 sweetmcp-plugin-builder = { version = "0.1.0", path = "../../packages/plugin-builder" }
-# sweetmcp-workspace-hack = { version = "0.1", path = "../../packagworkspace-hack" }
+# HTTP client dependencies (same versions as fetch plugin)
+hyper = { version = "1.6.0", features = ["client", "http1"] }
+hyper-util = { version = "0.1.16", features = ["http1", "client-legacy"] }
+hyper-rustls = { version = "0.27.7", features = ["ring", "http1"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
+http-body-util = "0.1"

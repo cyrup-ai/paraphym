@@ -16,7 +16,7 @@ use crate::domain::model::CandleModelInfo;
 
 /// A type-erased model reference
 struct CandleModelHandle {
-    model: Box<dyn Any + Send + Sync>,
+    model: Arc<dyn Any + Send + Sync>,
     info: &'static CandleModelInfo,
     type_name: &'static str,
 }
@@ -25,7 +25,7 @@ impl CandleModelHandle {
     fn new<M: CandleModel + 'static>(model: M) -> Self {
         let info = model.info();
         Self {
-            model: Box::new(model),
+            model: Arc::new(model),
             info,
             type_name: std::any::type_name::<M>(),
         }
@@ -37,6 +37,14 @@ impl CandleModelHandle {
 
     fn as_model<M: CandleModel + 'static>(&self) -> Option<&M> {
         self.model.downcast_ref::<M>()
+    }
+
+    /// Attempt to downcast the model handle to a concrete Arc<T>
+    fn as_arc<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
+        // Clone the Arc and attempt downcast
+        Arc::clone(&self.model)
+            .downcast::<T>()
+            .ok()
     }
 
     fn info(&self) -> &'static CandleModelInfo {
@@ -141,8 +149,8 @@ impl CandleModelRegistry {
 
     /// Count the number of registered models per provider
     /// 
-    /// Returns a vector of (provider_name, model_count) tuples.
-    /// Used by ModelResolver for usage-based default provider selection.
+    /// Returns a vector of (`provider_name`, `model_count`) tuples.
+    /// Used by `ModelResolver` for usage-based default provider selection.
     /// 
     /// # Returns
     /// 
@@ -271,19 +279,14 @@ impl CandleModelRegistry {
             return Ok(None);
         };
 
-        // Attempt to downcast the handle to the requested type
-        match handle.as_any().downcast_ref::<T>() {
-            Some(_) => {
-                // For now, this method is not fully implemented due to Arc<T> conversion complexity
-                Err(CandleModelError::InvalidConfiguration(
-                    format!("Model downcast for '{name}' from provider '{provider}' requires additional implementation").into()
-                ))
-            }
+        // Use the Arc downcasting helper
+        match handle.as_arc::<T>() {
+            Some(arc_model) => Ok(Some(arc_model)),
             None => Err(CandleModelError::InvalidConfiguration(
                 format!(
-                    "Model '{name}' from provider '{provider}' is not of the requested type"
-                )
-                .into(),
+                    "Model '{name}' from provider '{provider}' is not of type {}",
+                    std::any::type_name::<T>()
+                ).into()
             )),
         }
     }
@@ -399,7 +402,7 @@ impl<M: CandleModel + 'static> Clone for RegisteredModel<M> {
 impl<M: CandleModel + 'static> RegisteredModel<M> {
     /// Try to get a reference to the model, returning an error on type mismatch
     ///
-    /// This is a fallible alternative to using Deref or AsRef, which panic on type mismatch.
+    /// This is a fallible alternative to using Deref or `AsRef`, which panic on type mismatch.
     /// Use this when you want to handle type mismatches gracefully.
     ///
     /// # Errors

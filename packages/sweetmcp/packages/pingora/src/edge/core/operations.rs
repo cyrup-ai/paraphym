@@ -244,11 +244,42 @@ impl EdgeService {
         })
     }
 
-    /// Count healthy backends
+    /// Count healthy backends by performing TCP health checks
     async fn count_healthy_backends(&self) -> usize {
-        // In a full implementation, this would ping each backend
-        // For now, assume all configured backends are healthy
-        self.backend_count()
+        // Get list of backend addresses
+        let backends: Vec<SocketAddr> = {
+            let selector = self.picker.selector.lock();
+            selector
+                .backends()
+                .map(|backend| backend.addr)
+                .collect()
+        };
+        
+        if backends.is_empty() {
+            return 0;
+        }
+        
+        // Perform health checks concurrently with timeout
+        let health_checks: Vec<_> = backends
+            .iter()
+            .map(|addr| self.check_backend_health_tcp(*addr))
+            .collect();
+        
+        let results = futures::future::join_all(health_checks).await;
+        results.iter().filter(|&&healthy| healthy).count()
+    }
+    
+    /// Check if a single backend is healthy via TCP connection
+    async fn check_backend_health_tcp(&self, addr: SocketAddr) -> bool {
+        // TCP health check with 1 second timeout
+        let health_check = async {
+            tokio::net::TcpStream::connect(addr).await.is_ok()
+        };
+        
+        match tokio::time::timeout(Duration::from_secs(1), health_check).await {
+            Ok(result) => result,
+            Err(_) => false, // Timeout
+        }
     }
 
     /// Get service statistics

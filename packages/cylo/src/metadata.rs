@@ -54,8 +54,10 @@ impl MetadataManager {
     /// Creates the clean script that runs when files are staged
     fn create_clean_script(&self) -> io::Result<()> {
         let script_path = self.repo_path.join(".parallm/git/clean.rs");
-        if !script_path.parent().unwrap().exists() {
-            std::fs::create_dir_all(script_path.parent().unwrap())?;
+        if let Some(parent) = script_path.parent()
+            && !parent.exists()
+        {
+            std::fs::create_dir_all(parent)?;
         }
 
         let mut file = File::create(&script_path)?;
@@ -96,8 +98,10 @@ fn main() -> io::Result<()> {{
     /// Creates the smudge script that runs when files are checked out
     fn create_smudge_script(&self) -> io::Result<()> {
         let script_path = self.repo_path.join(".parallm/git/smudge.rs");
-        if !script_path.parent().unwrap().exists() {
-            std::fs::create_dir_all(script_path.parent().unwrap())?;
+        if let Some(parent) = script_path.parent()
+            && !parent.exists()
+        {
+            std::fs::create_dir_all(parent)?;
         }
 
         let mut file = File::create(&script_path)?;

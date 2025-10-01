@@ -4,6 +4,11 @@ use extism_pdk::*;
 use serde_json::{Value, json};
 use sweetmcp_plugin_builder::prelude::*;
 use sweetmcp_plugin_builder::{CallToolRequest, CallToolResult, ListToolsResult, Ready};
+use hyper::body::Bytes;
+use hyper_util::client::legacy::Client;
+use hyper_rustls::HttpsConnectorBuilder;
+use http_body_util::{BodyExt, Empty};
+use tokio::time::{timeout, Duration};
 
 /// IP operations tool using plugin-builder
 struct IpTool;
@@ -80,16 +85,75 @@ impl McpTool for IpTool {
     }
 }
 
+/// Fetch public IP from external service
+async fn fetch_public_ip_from_service(url: &str) -> Result<String, String> {
+    // Build HTTPS connector with native root certificates
+    let https = HttpsConnectorBuilder::new()
+        .with_native_roots()
+        .map_err(|e| format!("TLS init failed: {}", e))?
+        .https_only()
+        .enable_http1()
+        .build();
+    
+    // Create HTTP client with legacy builder API
+    let client: Client<_, Empty<Bytes>> = Client::builder(hyper_util::rt::TokioExecutor::new())
+        .build(https);
+    
+    // Build GET request
+    let req = hyper::Request::builder()
+        .uri(url)
+        .header("User-Agent", "sweetmcp-ip-plugin/0.1.0")
+        .body(Empty::<Bytes>::new())
+        .map_err(|e| format!("Request build failed: {}", e))?;
+    
+    // Execute request with 5-second timeout
+    let res = timeout(Duration::from_secs(5), client.request(req))
+        .await
+        .map_err(|_| "Request timeout after 5 seconds".to_string())?
+        .map_err(|e| format!("HTTP request failed: {}", e))?;
+    
+    // Read response body
+    let body = res.into_body()
+        .collect()
+        .await
+        .map_err(|e| format!("Body read failed: {}", e))?
+        .to_bytes();
+    
+    // Convert to trimmed string
+    String::from_utf8(body.to_vec())
+        .map_err(|e| format!("UTF-8 decode failed: {}", e))
+        .map(|s| s.trim().to_string())
+}
+
 /// Get public IP address
 fn get_public_ip() -> Result<CallToolResult, Error> {
-    // For now, return a placeholder - full HTTP requests would need more setup
-    Ok(ContentBuilder::text(
-        json!({
-            "message": "Public IP detection would require HTTP request to external service",
-            "note": "This feature is not yet implemented"
-        })
-        .to_string(),
-    ))
+    // Use multiple services for redundancy (fallback on failure)
+    let services = [
+        "https://api.ipify.org",      // Heroku-backed, highly reliable
+        "https://icanhazip.com",       // Cloudflare-backed since 2021
+        "https://ifconfig.me/ip",      // Alternative fallback
+    ];
+    
+    // Create Tokio runtime for async execution in sync plugin context
+    let rt = tokio::runtime::Runtime::new()
+        .map_err(|e| Error::msg(format!("Tokio runtime failed: {}", e)))?;
+    
+    // Try each service sequentially until one succeeds
+    for service in &services {
+        if let Ok(ip) = rt.block_on(fetch_public_ip_from_service(service)) {
+            return Ok(ContentBuilder::text(
+                json!({
+                    "ip": ip,
+                    "source": service,
+                    "success": true
+                })
+                .to_string(),
+            ));
+        }
+    }
+    
+    // All services failed
+    Err(Error::msg("All public IP services failed"))
 }
 
 /// Validate IP address format

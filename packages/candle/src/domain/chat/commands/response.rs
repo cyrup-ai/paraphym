@@ -90,7 +90,7 @@ impl ResponseFormatter {
     /// Returns `ResponseError::SerializationError` if JSON serialization fails
     pub fn format_output(&self, output: &CommandOutput) -> Result<String, ResponseError> {
         match self.format {
-            ResponseFormat::Text => Ok(self.format_text(output)),
+            ResponseFormat::Text => self.format_text(output),
             ResponseFormat::Json => self.format_json(output),
             ResponseFormat::Structured => self.format_structured(output),
             ResponseFormat::Streaming => self.format_streaming(output),
@@ -98,7 +98,7 @@ impl ResponseFormatter {
     }
 
     /// Format as plain text
-    fn format_text(&self, output: &CommandOutput) -> String {
+    fn format_text(&self, output: &CommandOutput) -> Result<String, ResponseError> {
         let mut result = String::new();
 
         // Add status indicator based on output type
@@ -113,16 +113,22 @@ impl ResponseFormatter {
 
         // Add execution time if metrics are enabled
         if self.include_metrics && output.execution_time > 0 {
-            write!(&mut result, " ({}μs)", output.execution_time).unwrap();
+            write!(&mut result, " ({}μs)", output.execution_time)
+                .map_err(|e| ResponseError::FormatError {
+                    detail: format!("Failed to write metrics: {e}"),
+                })?;
         }
 
         // Add timestamp if enabled
         if self.include_timestamps {
             let timestamp = chrono::Utc::now().format("%H:%M:%S");
-            write!(&mut result, " [{timestamp}]").unwrap();
+            write!(&mut result, " [{timestamp}]")
+                .map_err(|e| ResponseError::FormatError {
+                    detail: format!("Failed to write timestamp: {e}"),
+                })?;
         }
 
-        result
+        Ok(result)
     }
 
     /// Format as JSON
@@ -193,10 +199,15 @@ impl ResponseFormatter {
             &mut result,
             "Status: {}",
             if output.success { "SUCCESS" } else { "FAILED" }
-        ).unwrap();
+        ).map_err(|e| ResponseError::FormatError {
+            detail: format!("Failed to write status: {e}"),
+        })?;
 
         // Message
-        writeln!(&mut result, "Message: {}", output.message).unwrap();
+        writeln!(&mut result, "Message: {}", output.message)
+            .map_err(|e| ResponseError::FormatError {
+                detail: format!("Failed to write message: {e}"),
+            })?;
 
         // Data section
         if let Some(data) = &output.data {
@@ -207,26 +218,47 @@ impl ResponseFormatter {
                 }
             })?;
             for line in data_str.lines() {
-                writeln!(&mut result, "  {line}").unwrap();
+                writeln!(&mut result, "  {line}")
+                    .map_err(|e| ResponseError::FormatError {
+                        detail: format!("Failed to write data line: {e}"),
+                    })?;
             }
         }
 
         // Metrics section
         if self.include_metrics {
             result.push_str("Metrics:\n");
-            writeln!(&mut result, "  Execution Time: {}μs", output.execution_time).unwrap();
+            writeln!(&mut result, "  Execution Time: {}μs", output.execution_time)
+                .map_err(|e| ResponseError::FormatError {
+                    detail: format!("Failed to write execution time: {e}"),
+                })?;
             if let Some(ref usage) = output.resource_usage {
-                writeln!(&mut result, "  Memory Usage: {} bytes", usage.memory_bytes).unwrap();
-                writeln!(&mut result, "  CPU Time: {}μs", usage.cpu_time_us).unwrap();
-                writeln!(&mut result, "  Network Requests: {}", usage.network_requests).unwrap();
-                writeln!(&mut result, "  Disk Operations: {}", usage.disk_operations).unwrap();
+                writeln!(&mut result, "  Memory Usage: {} bytes", usage.memory_bytes)
+                    .map_err(|e| ResponseError::FormatError {
+                        detail: format!("Failed to write memory usage: {e}"),
+                    })?;
+                writeln!(&mut result, "  CPU Time: {}μs", usage.cpu_time_us)
+                    .map_err(|e| ResponseError::FormatError {
+                        detail: format!("Failed to write CPU time: {e}"),
+                    })?;
+                writeln!(&mut result, "  Network Requests: {}", usage.network_requests)
+                    .map_err(|e| ResponseError::FormatError {
+                        detail: format!("Failed to write network requests: {e}"),
+                    })?;
+                writeln!(&mut result, "  Disk Operations: {}", usage.disk_operations)
+                    .map_err(|e| ResponseError::FormatError {
+                        detail: format!("Failed to write disk operations: {e}"),
+                    })?;
             }
         }
 
         // Timestamp
         if self.include_timestamps {
             let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC");
-            writeln!(&mut result, "Timestamp: {timestamp}").unwrap();
+            writeln!(&mut result, "Timestamp: {timestamp}")
+                .map_err(|e| ResponseError::FormatError {
+                    detail: format!("Failed to write timestamp: {e}"),
+                })?;
         }
 
         result.push_str("========================\n");
@@ -316,14 +348,14 @@ impl ResponseFormatter {
 
         // Format each category
         for (category, category_commands) in categories {
-            writeln!(&mut result, "{category}:").unwrap();
+            let _ = writeln!(&mut result, "{category}:");
 
             for command in category_commands {
-                writeln!(
+                let _ = writeln!(
                     &mut result,
                     "  /{:<12} - {}",
                     command.name, command.description
-                ).unwrap();
+                );
 
                 // Add aliases if any
                 if !command.aliases.is_empty() {
@@ -333,7 +365,7 @@ impl ResponseFormatter {
                         .map(|a| format!("/{a}"))
                         .collect::<Vec<_>>()
                         .join(", ");
-                    writeln!(&mut result, "               (aliases: {aliases})").unwrap();
+                    let _ = writeln!(&mut result, "               (aliases: {aliases})");
                 }
             }
             result.push('\n');

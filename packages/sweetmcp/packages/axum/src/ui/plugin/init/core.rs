@@ -7,10 +7,9 @@
 use std::{fs, process::Command};
 
 use clap::Args;
-use ratatui::style::Stylize;
 
 /// Plugin initialization arguments
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 pub struct InitArgs {
     /// Name of the plugin to create
     #[arg(short, long)]

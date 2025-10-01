@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 
 use dashmap::DashMap;
 use tokio::time::timeout;
@@ -303,8 +303,8 @@ impl ValidationEngine {
     }
 
     /// Get validation metrics
-    pub fn get_metrics(&self) -> ValidationMetrics {
-        ValidationMetrics {
+    pub fn get_metrics(&self) -> ValidationEngineMetrics {
+        ValidationEngineMetrics {
             total_validations: self.total_validations.load(Ordering::Relaxed),
             successful_validations: self.successful_validations.load(Ordering::Relaxed),
             failed_validations: self.failed_validations.load(Ordering::Relaxed),
@@ -376,9 +376,9 @@ impl Default for ValidationEngine {
     }
 }
 
-/// Validation metrics for monitoring
+/// Validation engine metrics for monitoring
 #[derive(Debug, Clone, Copy)]
-pub struct ValidationMetrics {
+pub struct ValidationEngineMetrics {
     /// Total validations performed
     pub total_validations: u64,
     /// Successful validations
@@ -395,7 +395,7 @@ pub struct ValidationMetrics {
     pub rule_count: u32,
 }
 
-impl ValidationMetrics {
+impl ValidationEngineMetrics {
     /// Calculate success rate as percentage
     pub fn success_rate(&self) -> f64 {
         if self.total_validations == 0 {

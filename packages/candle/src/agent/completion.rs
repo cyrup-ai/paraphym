@@ -91,7 +91,15 @@ impl<M: CompletionModelTrait> Completion<M> for Agent<M> {
                 return;
             }
 
-            let rag_seed = rag_seed.unwrap();
+            let rag_seed = match rag_seed {
+                Some(seed) => seed,
+                None => {
+                    // No RAG seed, return request as-is with static tools only
+                    let final_req = req.tools(static_defs);
+                    let _ = sender.send(final_req);
+                    return;
+                }
+            };
 
             // ---------------------------------------------------------
             // 3. Dynamic context (vector stores)

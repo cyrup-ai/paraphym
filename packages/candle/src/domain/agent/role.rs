@@ -245,7 +245,7 @@ impl CandleAgentRoleImpl {
     /// Get completion provider with explicit error handling
     ///
     /// # Returns
-    /// Result containing reference to completion provider, or ProviderNotInitialized error
+    /// Result containing reference to completion provider, or `ProviderNotInitialized` error
     ///
     /// # Errors
     /// Returns `AgentError::ProviderNotInitialized` if:

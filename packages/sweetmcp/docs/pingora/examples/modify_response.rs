@@ -124,7 +124,7 @@ fn main() {
     let mut my_proxy = pingora_proxy::http_proxy_service(
         &my_server.configuration,
         Json2Yaml {
-            // hardcode the IP of ip.jsontest.com for now
+            // Example: Hardcoded IP for ip.jsontest.com (production code should use DNS resolution)
             addr: ("142.251.2.121", 80)
                 .to_socket_addrs()
                 .unwrap()

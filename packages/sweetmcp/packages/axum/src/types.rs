@@ -7,8 +7,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use url::Url;
 
-use crate::JSONRPC_VERSION;
-
 #[derive(Debug, Deserialize, Serialize, RpcParams, Clone)]
 pub struct InitializeRequest {
     #[serde(rename = "protocolVersion")]
@@ -190,7 +188,7 @@ pub struct ListPromptsResult {
     pub prompts: Vec<Prompt>,
 }
 
-#[derive(Debug, Deserialize, Serialize, RpcParams)]
+#[derive(Debug, Deserialize, Serialize, RpcParams, Clone)]
 pub struct GetPromptRequest {
     pub id: String,
 }

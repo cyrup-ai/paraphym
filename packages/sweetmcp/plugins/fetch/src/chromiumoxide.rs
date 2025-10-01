@@ -5,7 +5,8 @@ use std::time::Duration;
 use async_trait::async_trait;
 use base64::Engine;
 use chromiumoxide::handler::viewport::Viewport;
-use chromiumoxide::{Browser, BrowserConfig, Page};
+use chromiumoxide::{Browser, BrowserConfig};
+pub use chromiumoxide::Page;
 use futures::StreamExt;
 
 #[derive(Debug)]
@@ -47,55 +48,55 @@ pub trait ContentFetcher {
 
 pub struct ChromiumFetcher;
 
-impl ChromiumFetcher {
-    // Create a new browser instance
-    async fn create_browser() -> Result<Browser, ChromiumFetchError> {
-        let viewport = Viewport {
-            width: 1280,
-            height: 800,
-            device_scale_factor: None,
-            emulating_mobile: false,
-            is_landscape: false,
-            has_touch: false,
-        };
+// Create a new browser instance (module-level function for reuse)
+pub async fn create_browser() -> Result<Browser, ChromiumFetchError> {
+    let viewport = Viewport {
+        width: 1280,
+        height: 800,
+        device_scale_factor: None,
+        emulating_mobile: false,
+        is_landscape: false,
+        has_touch: false,
+    };
 
-        let config = BrowserConfig::builder()
-            .viewport(viewport)
-            .build()
-            .map_err(|e| {
-                ChromiumFetchError::Browser(format!("Failed to build browser config: {}", e))
-            })?;
-
-        let (browser, mut handler) = Browser::launch(config)
-            .await
-            .map_err(|e| ChromiumFetchError::Browser(format!("Failed to launch browser: {}", e)))?;
-
-        // Spawn the handler
-        tokio::spawn(async move {
-            while let Some(event) = handler.next().await {
-                if let Err(e) = event {
-                    eprintln!("Browser event error: {}", e);
-                }
-            }
-        });
-
-        Ok(browser)
-    }
-
-    // Take a screenshot of the page
-    async fn take_screenshot(page: &Page) -> Result<String, ChromiumFetchError> {
-        use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotParams;
-
-        let screenshot_params = CaptureScreenshotParams::default();
-        let screenshot_data = page.screenshot(screenshot_params).await.map_err(|e| {
-            ChromiumFetchError::Screenshot(format!("Failed to take screenshot: {}", e))
+    let config = BrowserConfig::builder()
+        .viewport(viewport)
+        .build()
+        .map_err(|e| {
+            ChromiumFetchError::Browser(format!("Failed to build browser config: {}", e))
         })?;
 
-        // Convert to base64
-        let screenshot_base64 = base64::engine::general_purpose::STANDARD.encode(&screenshot_data);
-        Ok(screenshot_base64)
-    }
+    let (browser, mut handler) = Browser::launch(config)
+        .await
+        .map_err(|e| ChromiumFetchError::Browser(format!("Failed to launch browser: {}", e)))?;
 
+    // Spawn the handler
+    tokio::spawn(async move {
+        while let Some(event) = handler.next().await {
+            if let Err(e) = event {
+                eprintln!("Browser event error: {}", e);
+            }
+        }
+    });
+
+    Ok(browser)
+}
+
+// Take a screenshot of the page (module-level function for reuse)
+pub async fn take_screenshot(page: &Page) -> Result<String, ChromiumFetchError> {
+    use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotParams;
+
+    let screenshot_params = CaptureScreenshotParams::default();
+    let screenshot_data = page.screenshot(screenshot_params).await.map_err(|e| {
+        ChromiumFetchError::Screenshot(format!("Failed to take screenshot: {}", e))
+    })?;
+
+    // Convert to base64
+    let screenshot_base64 = base64::engine::general_purpose::STANDARD.encode(&screenshot_data);
+    Ok(screenshot_base64)
+}
+
+impl ChromiumFetcher {
     // Get page content with scripts and styles removed
     async fn get_cleaned_content(page: &Page) -> Result<String, ChromiumFetchError> {
         // Execute JavaScript to get HTML content with script and style tags removed
@@ -139,7 +140,7 @@ impl ContentFetcher for ChromiumFetcher {
         url: &str,
     ) -> Result<FetchResult, Box<dyn StdError + Send + Sync>> {
         // Launch browser
-        let mut browser = Self::create_browser().await?;
+        let mut browser = create_browser().await?;
 
         // Create a new page
         let page = browser
@@ -169,7 +170,7 @@ impl ContentFetcher for ChromiumFetcher {
         tokio::time::sleep(Duration::from_secs(2)).await;
 
         // Take screenshot
-        let screenshot_base64 = Self::take_screenshot(&page).await?;
+        let screenshot_base64 = take_screenshot(&page).await?;
 
         // Get content
         let content = Self::get_cleaned_content(&page).await?;

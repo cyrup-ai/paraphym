@@ -170,7 +170,10 @@ impl MemoryContent {
         if let Some(embedding) = &self.embedding {
             map.insert(
                 "content_embedding".to_string(),
-                serde_json::to_value(embedding).unwrap(),
+                serde_json::to_value(embedding).unwrap_or_else(|e| {
+                    tracing::warn!("Failed to serialize embedding: {}. Using null.", e);
+                    Value::Null
+                }),
             );
         }
         if let Some(image_data) = &self.image_data {

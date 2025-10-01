@@ -16,4 +16,3 @@ base64-serde = "0.8"
 base64 = "0.22"
 qrcode-png = "0.4.1"
 sweetmcp-plugin-builder = { version = "0.1.0", path = "../../packages/plugin-builder" }
-# sweetmcp-workspace-hack = { version = "0.1", path = "../../packagworkspace-hack" }

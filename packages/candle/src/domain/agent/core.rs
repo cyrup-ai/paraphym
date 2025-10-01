@@ -13,6 +13,7 @@ use crate::domain::memory::MemoryConfig;
 use crate::domain::memory::{Error as MemoryError, MemoryTool, MemoryToolError};
 use crate::memory::core::SurrealDBMemoryManager;
 use crate::domain::model::CandleModel as Model;
+use crate::core::EngineError;
 // Tool data now comes from SweetMCP ToolInfo directly
 use cyrup_sugars::ZeroOneOrMany;
 
@@ -27,14 +28,14 @@ static AGENT_STATS: CachePadded<AtomicUsize> = CachePadded::new(AtomicUsize::new
 pub type AgentResult<T> = Result<T, AgentError>;
 
 /// Agent creation error types
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error, serde::Serialize, serde::Deserialize)]
 pub enum AgentError {
     /// Memory system initialization error
     #[error("Memory initialization failed: {0}")]
-    MemoryInit(#[from] MemoryError),
+    MemoryInit(String),
     /// Memory tool creation error
     #[error("Memory tool creation failed: {0}")]
-    MemoryTool(#[from] Box<MemoryToolError>),
+    MemoryTool(String),
     /// Configuration error
     #[error("Configuration error: {0}")]
     Config(String),
@@ -44,6 +45,49 @@ pub enum AgentError {
     /// Completion provider not initialized
     #[error("Completion provider not initialized - use .completion_provider() in builder")]
     ProviderNotInitialized,
+    /// Engine initialization or execution error
+    #[error("Engine error: {0}")]
+    Engine(String),
+    /// Model loading or inference error
+    #[error("Model error: {0}")]
+    Model(String),
+    /// Prompt template or formatting error
+    #[error("Prompt error: {0}")]
+    Prompt(String),
+    /// Context loading error (distinct from general Config)
+    #[error("Context error: {0}")]
+    Context(String),
+    /// Tool invocation error (distinct from `MemoryTool`)
+    #[error("Tool error: {0}")]
+    Tool(String),
+    /// Unknown/unclassified error
+    #[error("Unknown error: {0}")]
+    Unknown(String),
+}
+
+// From implementations for error conversions
+impl From<MemoryError> for AgentError {
+    fn from(err: MemoryError) -> Self {
+        AgentError::MemoryInit(err.to_string())
+    }
+}
+
+impl From<Box<MemoryToolError>> for AgentError {
+    fn from(err: Box<MemoryToolError>) -> Self {
+        AgentError::MemoryTool(err.to_string())
+    }
+}
+
+impl From<MemoryToolError> for AgentError {
+    fn from(err: MemoryToolError) -> Self {
+        AgentError::MemoryTool(err.to_string())
+    }
+}
+
+impl From<EngineError> for AgentError {
+    fn from(err: EngineError) -> Self {
+        AgentError::Engine(err.to_string())
+    }
 }
 
 /// Agent data structure with automatic memory tool injection
@@ -67,6 +111,8 @@ pub struct Agent<M: Model> {
     pub max_tokens: Option<u64>,
     /// Additional model-specific parameters as flexible JSON
     pub additional_params: Option<Value>,
+    /// Typed error if agent creation/operation failed
+    pub error: Option<AgentError>,
 }
 
 impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
@@ -161,6 +207,7 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
                         temperature: None,
                         max_tokens: None,
                         additional_params: None,
+                        error: None,
                     };
 
                     // Send the successfully created agent
@@ -264,6 +311,7 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
                         temperature: None,
                         max_tokens: None,
                         additional_params: None,
+                        error: None,
                     };
 
                     // Send the successfully created agent
@@ -309,6 +357,7 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
                     temperature: None,
                     max_tokens: None,
                     additional_params: None,
+                    error: None,
                 };
 
                 let _ = sender.send(crate::domain::context::chunk::CandleResult { 
@@ -417,6 +466,7 @@ impl<M: Model + Clone + Send + 'static + Default> Default for Agent<M> {
             temperature: None,
             max_tokens: None,
             additional_params: None,
+            error: None,
         }
     }
 }
@@ -425,9 +475,11 @@ use cyrup_sugars::prelude::MessageChunk;
 
 impl<M: Model + Clone + Send + 'static + Default> MessageChunk for Agent<M> {
     fn bad_chunk(error: String) -> Self {
+        let typed_error = AgentError::Unknown(error.clone());
+        
         Self {
             model: M::default(),
-            system_prompt: error, // Use error directly instead of format!("Error: {}", error)
+            system_prompt: error, // Keep error string in system_prompt for error() lifetime
             context: ZeroOneOrMany::None,
             tools: ZeroOneOrMany::None,
             memory: None,
@@ -435,21 +487,40 @@ impl<M: Model + Clone + Send + 'static + Default> MessageChunk for Agent<M> {
             temperature: None,
             max_tokens: None,
             additional_params: None,
+            error: Some(typed_error),
         }
     }
 
     fn error(&self) -> Option<&str> {
-        // For proper DTO-based error handling, we could check if system_prompt
-        // contains error indicators or use a dedicated error field
-        // For now, simple non-empty system_prompt check
-        if !self.system_prompt.is_empty() && 
-           (self.system_prompt.contains("error") || 
-            self.system_prompt.contains("Error") ||
-            self.system_prompt.contains("failed") ||
-            self.system_prompt.contains("Failed")) {
-            Some(&self.system_prompt)
-        } else {
-            None
+        // If error field is set, return system_prompt (which contains error message)
+        self.error.as_ref().map(|_| self.system_prompt.as_str())
+    }
+}
+
+impl<M: Model> Agent<M> {
+    /// Get typed error if agent is in error state
+    ///
+    /// This is preferred over `error()` for new code as it provides
+    /// type-safe error handling with pattern matching.
+    ///
+    /// # Returns
+    /// - `Some(&AgentError)` if agent has an error
+    /// - `None` if agent is in valid state
+    pub fn get_error(&self) -> Option<&AgentError> {
+        self.error.as_ref()
+    }
+    
+    /// Check if agent is in error state
+    #[inline]
+    pub fn has_error(&self) -> bool {
+        self.error.is_some()
+    }
+    
+    /// Clear error state
+    pub fn clear_error(&mut self) {
+        self.error = None;
+        if self.error.is_none() {
+            self.system_prompt.clear(); // Clear error message from system_prompt
         }
     }
 }

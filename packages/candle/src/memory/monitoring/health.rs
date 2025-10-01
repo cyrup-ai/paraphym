@@ -3,11 +3,16 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tokio::sync::oneshot;
+use surrealdb::engine::any::Any;
+use surrealdb::Surreal;
+use tokio::sync::{oneshot, RwLock};
+
+use crate::memory::vector::vector_store::VectorStore;
 
 /// Health status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -146,8 +151,17 @@ pub trait ComponentChecker: Send + Sync {
     fn check(&self) -> PendingComponentHealth;
 }
 
-/// Database health checker
-pub struct DatabaseHealthChecker;
+/// Database health checker with actual SurrealDB access
+pub struct DatabaseHealthChecker {
+    database: Arc<Surreal<Any>>,
+}
+
+impl DatabaseHealthChecker {
+    /// Create new health checker with SurrealDB instance
+    pub fn new(database: Arc<Surreal<Any>>) -> Self {
+        Self { database }
+    }
+}
 
 impl ComponentChecker for DatabaseHealthChecker {
     fn name(&self) -> &str {
@@ -157,6 +171,11 @@ impl ComponentChecker for DatabaseHealthChecker {
     fn check(&self) -> PendingComponentHealth {
         let (tx, rx) = oneshot::channel();
         let name = self.name().to_string();
+        
+        // Clone database references before moving into async block
+        let db_conn = self.database.clone();
+        let db_query = self.database.clone();
+        let db_pool = self.database.clone();
 
         tokio::spawn(async move {
             // Production database health check with comprehensive diagnostics
@@ -171,28 +190,45 @@ impl ComponentChecker for DatabaseHealthChecker {
             let connection_start = std::time::Instant::now();
 
             // 1. Test basic connectivity
-            let connection_test = async {
-                // Simulate connection test with timeout
-                tokio::time::timeout(std::time::Duration::from_millis(5000), async {
-                    // In production, this would be: database.health().await
-                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                    Ok::<_, Box<dyn std::error::Error + Send + Sync>>(())
+            let connection_test = async move {
+                // Test basic connectivity with SurrealDB health check
+                tokio::time::timeout(std::time::Duration::from_millis(5000), async move {
+                    db_conn.health()
+                        .await
+                        .map_err(|e| {
+                            let err_msg = e.to_string();
+                            Box::new(std::io::Error::other(err_msg)) as Box<dyn std::error::Error + Send + Sync>
+                        })
                 })
                 .await
             };
 
             // 2. Test query performance
-            let query_performance_test = async {
+            let query_performance_test = async move {
                 let query_start = std::time::Instant::now();
-                // In production: database.query("SELECT 1").await
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                // Execute simple query to measure actual database response time
+                let _ = db_query.query("SELECT 1").await;
                 query_start.elapsed()
             };
 
             // 3. Check connection pool status
-            let pool_status_test = async {
-                // In production: get actual pool metrics
-                (10u32, 50u32) // (active_connections, max_connections)
+            let pool_status_test = async move {
+                // SurrealDB SDK does not expose connection pool metrics
+                // Best effort: verify database is responsive with INFO query
+                let result = db_pool.query("INFO FOR DB").await;
+                
+                match result {
+                    Ok(_) => {
+                        // Connection is active and working
+                        // Conservative estimate: 1 active connection confirmed by successful query
+                        // Max set to 100 as reasonable default (SDK manages pool internally)
+                        (1u32, 100u32)
+                    }
+                    Err(_) => {
+                        // Query failed - no active connections
+                        (0u32, 100u32)
+                    }
+                }
             };
 
             // Execute all tests concurrently
@@ -276,8 +312,17 @@ impl ComponentChecker for DatabaseHealthChecker {
     }
 }
 
-/// Vector store health checker
-pub struct VectorStoreHealthChecker;
+/// Vector store health checker with actual VectorStore access
+pub struct VectorStoreHealthChecker {
+    vector_store: Arc<RwLock<dyn VectorStore + Send + Sync>>,
+}
+
+impl VectorStoreHealthChecker {
+    /// Create new health checker with VectorStore instance
+    pub fn new(vector_store: Arc<RwLock<dyn VectorStore + Send + Sync>>) -> Self {
+        Self { vector_store }
+    }
+}
 
 impl ComponentChecker for VectorStoreHealthChecker {
     fn name(&self) -> &str {
@@ -286,7 +331,13 @@ impl ComponentChecker for VectorStoreHealthChecker {
 
     fn check(&self) -> PendingComponentHealth {
         let (tx, rx) = oneshot::channel();
-        let name = self.name().to_string();
+        let name = "vector_store".to_string();
+        
+        // Clone vector store references before moving into async block
+        let vs_conn = self.vector_store.clone();
+        let vs_idx = self.vector_store.clone();
+        let vs_search = self.vector_store.clone();
+        let vs_mem = self.vector_store.clone();
 
         tokio::spawn(async move {
             // Production vector store health check with comprehensive diagnostics
@@ -300,35 +351,69 @@ impl ComponentChecker for VectorStoreHealthChecker {
             let health_check_start = std::time::Instant::now();
 
             // Perform comprehensive vector store health checks
-            let connectivity_test = async {
-                // Test basic connectivity to vector store
-                tokio::time::timeout(std::time::Duration::from_millis(3000), async {
-                    // In production: vector_store.ping().await
-                    tokio::time::sleep(std::time::Duration::from_millis(30)).await;
-                    Ok::<_, Box<dyn std::error::Error + Send + Sync>>(())
+            let connectivity_test = async move {
+                // Test connectivity by calling count() - if it succeeds, VectorStore is accessible
+                tokio::time::timeout(std::time::Duration::from_millis(3000), async move {
+                    tokio::task::spawn_blocking(move || {
+                        let vs = vs_conn.blocking_read();
+                        vs.count().map(|_| ())
+                    })
+                    .await
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
                 })
                 .await
             };
 
-            let index_status_test = async {
-                // Check index status and statistics
-                // In production: vector_store.get_index_stats().await
-                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-                (1000000u64, 768u32, 95.5f32) // (vector_count, dimensions, index_quality)
+            let index_status_test = async move {
+                // Get actual vector count from VectorStore
+                let vector_count = tokio::task::spawn_blocking(move || {
+                    let vs = vs_idx.blocking_read();
+                    vs.count().unwrap_or(0)
+                })
+                .await
+                .unwrap_or(0) as u64;
+                
+                // Dimensions and index quality require trait extension or type-specific methods
+                // For now, use sensible defaults or get from config
+                let dimensions = 768u32; // Could be passed to constructor
+                let index_quality = 100.0f32; // Assume healthy if count() succeeds
+                
+                (vector_count, dimensions, index_quality)
             };
 
-            let search_performance_test = async {
+            let search_performance_test = async move {
                 let search_start = std::time::Instant::now();
-                // Test search performance with sample query
-                // In production: vector_store.search(&sample_vector, 10).await
-                tokio::time::sleep(std::time::Duration::from_millis(15)).await;
-                (search_start.elapsed(), 10u32) // (duration, results_found)
+                
+                // Execute real search with sample vector
+                let (duration, results_count) = tokio::task::spawn_blocking(move || {
+                    let vs = vs_search.blocking_read();
+                    let sample_vector = vec![0.0f32; 768]; // Zero vector for health check
+                    let results = vs.search(&sample_vector, Some(10), None).unwrap_or_default();
+                    let count = results.len() as u32;
+                    (search_start.elapsed(), count)
+                })
+                .await
+                .unwrap_or((search_start.elapsed(), 0));
+                
+                (duration, results_count)
             };
 
-            let memory_usage_test = async {
-                // Check vector store memory usage
-                // In production: vector_store.get_memory_stats().await
-                (2048u64, 8192u64) // (used_memory_mb, total_memory_mb)
+            let memory_usage_test = async move {
+                // Estimate memory from vector count (no trait method available)
+                let count = tokio::task::spawn_blocking(move || {
+                    let vs = vs_mem.blocking_read();
+                    vs.count().unwrap_or(0)
+                })
+                .await
+                .unwrap_or(0);
+                
+                // Rough estimate: 768 dimensions * 4 bytes per f32 = ~3KB per vector
+                let estimated_mb = (count * 768 * 4) / (1024 * 1024);
+                let used_memory_mb = estimated_mb as u64;
+                let total_memory_mb = (estimated_mb * 2) as u64; // Assume 50% utilization
+                
+                (used_memory_mb, total_memory_mb)
             };
 
             // Execute all health checks concurrently

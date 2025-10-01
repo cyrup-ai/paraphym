@@ -8,8 +8,10 @@ use tokio::sync::{mpsc, oneshot};
 // Candle inference imports
 use paraphym_candle::providers::kimi_k2::CandleKimiK2Provider;
 use paraphym_candle::domain::completion::{
-    CandleCompletionModel, CandlePrompt, CandleCompletionParams, CandleCompletionChunk,
+    CandleCompletionModel, CandleCompletionParams, CandleCompletionChunk,
 };
+use paraphym_candle::domain::prompt::CandlePrompt;
+use paraphym_candle::domain::model::CandleModel;
 
 // use fluent_ai::{FluentAi, Providers, Models}; // Temporarily disabled due to dependency issues
 use super::model::*;
@@ -105,13 +107,11 @@ pub fn sampling_create_message_pending(request: CreateMessageRequest) -> AsyncSa
         let prompt = CandlePrompt::new(full_prompt);
 
         // Configure completion parameters from request
-        let temperature = request.temperature.unwrap_or(0.7);
+        let temperature = request.temperature.unwrap_or(0.7) as f64;
         let max_tokens = request.max_tokens.unwrap_or(2048);
-        let params = CandleCompletionParams {
-            temperature,
-            max_tokens: NonZeroU64::new(max_tokens as u64),
-            ..Default::default()
-        };
+        let mut params = CandleCompletionParams::default();
+        params.temperature = temperature;
+        params.max_tokens = NonZeroU64::new(max_tokens as u64);
 
         // Perform inference with streaming collection
         let completion_stream = provider.prompt(prompt, &params);
@@ -128,16 +128,14 @@ pub fn sampling_create_message_pending(request: CreateMessageRequest) -> AsyncSa
                     response_text.push_str(&text);
                 }
                 CandleCompletionChunk::Complete { text, finish_reason, usage } => {
-                    if let Some(text) = text {
-                        response_text.push_str(&text);
-                    }
+                    response_text.push_str(&text);
                     if let Some(reason) = finish_reason {
-                        stop_reason = reason;
+                        stop_reason = format!("{:?}", reason);
                     }
                     if let Some(u) = usage {
                         actual_usage = Some(CompletionUsage {
-                            prompt_tokens: u.prompt_tokens,
-                            completion_tokens: u.completion_tokens,
+                            prompt_tokens: u.prompt_tokens(),
+                            completion_tokens: u.completion_tokens(),
                             total_tokens: u.total_tokens,
                         });
                     }
@@ -224,13 +222,11 @@ pub fn sampling_create_message_stream(request: CreateMessageRequest) -> Sampling
         let prompt = CandlePrompt::new(full_prompt);
 
         // Configure completion parameters
-        let temperature = request.temperature.unwrap_or(0.7);
+        let temperature = request.temperature.unwrap_or(0.7) as f64;
         let max_tokens = request.max_tokens.unwrap_or(2048);
-        let params = CandleCompletionParams {
-            temperature,
-            max_tokens: NonZeroU64::new(max_tokens as u64),
-            ..Default::default()
-        };
+        let mut params = CandleCompletionParams::default();
+        params.temperature = temperature;
+        params.max_tokens = NonZeroU64::new(max_tokens as u64);
 
         // Get model name from provider
         let model_name = provider.name().to_string();
@@ -261,9 +257,7 @@ pub fn sampling_create_message_stream(request: CreateMessageRequest) -> Sampling
                     }
                 }
                 CandleCompletionChunk::Complete { text, finish_reason, usage } => {
-                    if let Some(text) = text {
-                        accumulated_text.push_str(&text);
-                    }
+                    accumulated_text.push_str(&text);
                     // Send final result
                     let final_result = CreateMessageResult {
                         role: "assistant".to_string(),
@@ -274,10 +268,10 @@ pub fn sampling_create_message_stream(request: CreateMessageRequest) -> Sampling
                             mime_type: None,
                         },
                         model: model_name,
-                        stop_reason: finish_reason,
+                        stop_reason: finish_reason.map(|r| format!("{:?}", r)),
                         usage: usage.map(|u| CompletionUsage {
-                            prompt_tokens: u.prompt_tokens,
-                            completion_tokens: u.completion_tokens,
+                            prompt_tokens: u.prompt_tokens(),
+                            completion_tokens: u.completion_tokens(),
                             total_tokens: u.total_tokens,
                         }),
                     };

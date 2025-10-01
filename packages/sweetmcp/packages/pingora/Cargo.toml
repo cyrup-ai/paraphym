@@ -11,7 +11,6 @@ keywords = ["mcp", "gateway", "proxy", "pingora", "opentelemetry"]
 categories = ["network-programming", "web-programming", "api-bindings"]
 
 [dependencies]
-fluent-ai-workspace-hack = { path = "../../../../workspace-hack"}
 # Core Pingora dependencies - using latest from GitHub main branch
 pingora = { git = "https://github.com/cloudflare/pingora", package = "pingora", features = ["proxy", "lb"] }
 pingora-proxy = { git = "https://github.com/cloudflare/pingora", package = "pingora-proxy" }

@@ -143,9 +143,12 @@ fn create_uri_from_node(row: &NodeRow) -> Result<Url, ResourceDaoError> {
 
 /// Get database client with error handling
 async fn get_database_client() -> Result<DatabaseClient, String> {
-    // This would typically get the database client from a connection pool
-    // For now, we'll return a placeholder error
-    Err("Database client not implemented".to_string())
+    // Access the ResourceDao singleton and extract the DatabaseClient
+    crate::resource::cms::resource_dao::get_resource_dao()
+        .map_err(|e| format!("ResourceDao not initialized: {}", e))?
+        .client()
+        .cloned()
+        .ok_or_else(|| "DatabaseClient not available in ResourceDao".to_string())
 }
 
 /// Stream resources by type

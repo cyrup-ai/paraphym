@@ -6,11 +6,28 @@ use base64::Engine;
 use http_body_util::{BodyExt, Empty};
 use hyper::body::Bytes;
 use hyper::{Request, Uri};
+#[cfg(not(target_family = "wasm"))]
 use hyper_rustls::ConfigBuilderExt;
 use hyper_util::rt::TokioIo;
+#[cfg(not(target_family = "wasm"))]
 use tokio_rustls::TlsConnector;
 
-use crate::chromiumoxide::{ContentFetcher, FetchResult};
+#[cfg(not(target_family = "wasm"))]
+pub use crate::chromiumoxide::{ContentFetcher, FetchResult};
+
+// WASM: Define the trait and types locally since chromiumoxide module doesn't exist
+#[cfg(target_family = "wasm")]
+pub struct FetchResult {
+    pub content: String,
+    pub screenshot_base64: String,
+    pub content_type: String,
+}
+
+#[cfg(target_family = "wasm")]
+#[async_trait]
+pub trait ContentFetcher {
+    async fn fetch_content(&self, url: &str) -> Result<FetchResult, Box<dyn StdError + Send + Sync>>;
+}
 
 #[derive(Debug)]
 pub enum FetchError {
@@ -72,6 +89,7 @@ impl From<std::io::Error> for FetchError {
 pub struct HyperFetcher;
 
 impl HyperFetcher {
+    #[cfg(not(target_family = "wasm"))]
     pub async fn fetch(url: &str) -> Result<String, FetchError> {
         // Parse the URL
         let uri: Uri = url.parse()?;
@@ -186,6 +204,13 @@ impl HyperFetcher {
         // Convert to string without re-allocation
         String::from_utf8(body_bytes)
             .map_err(|e| FetchError::Other(format!("Invalid UTF-8: {}", e)))
+    }
+
+    // WASM version: simplified HTTP-only fetch
+    #[cfg(target_family = "wasm")]
+    pub async fn fetch(url: &str) -> Result<String, FetchError> {
+        // WASM: Return error for now as HTTPS without rustls is not straightforward
+        Err(FetchError::Other("HTTPS not available in WASM build. Use firecrawl backend.".to_string()))
     }
 
     pub fn clean_html(html: &str) -> String {

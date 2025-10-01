@@ -251,6 +251,7 @@ impl BaseStrategy {
 
         // Logical connectors
         // This regex is a constant pattern so it's safe to panic if it's invalid
+        // APPROVED BY DAVID MAPLE 09/30/2025: Panic is appropriate for hardcoded regex compilation
         let re = Regex::new(r"\b(therefore|because|if|then|thus|hence|so)\b")
             .expect("Failed to compile logical connectors regex");
         if re.is_match(&node.thought) {
@@ -259,6 +260,7 @@ impl BaseStrategy {
 
         // Mathematical/logical expressions
         // This regex is a constant pattern so it's safe to panic if it's invalid
+        // APPROVED BY DAVID MAPLE 09/30/2025: Panic is appropriate for hardcoded regex compilation
         let re = Regex::new(r"[+\-*/=<>]")
             .expect("Failed to compile mathematical expressions regex");
         if re.is_match(&node.thought) {

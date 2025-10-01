@@ -102,7 +102,7 @@ impl RealtimeContextProvider {
     /// * `on_update` - Callback function to handle context update events
     ///
     /// # Returns
-    /// A JoinHandle for the background task, allowing graceful shutdown
+    /// A `JoinHandle` for the background task, allowing graceful shutdown
     pub fn start_event_loop<F>(&self, on_update: F) -> tokio::task::JoinHandle<()>
     where
         F: Fn(ContextUpdateEvent) + Send + 'static,

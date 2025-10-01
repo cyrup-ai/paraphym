@@ -9,6 +9,27 @@ use regex::Regex;
 
 use super::types::ImmutableChatCommand;
 
+// Static compiled regexes for security validation - initialized once on first access
+// These patterns are compile-time constants and guaranteed to be valid
+
+/// Regex for detecting command injection patterns: `[;&|$()]` including backtick
+static COMMAND_INJECTION_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"[;&|`$()]")
+        .expect("Command injection regex pattern is a compile-time constant and must be valid")
+});
+
+/// Regex for detecting path traversal patterns: ../
+static PATH_TRAVERSAL_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\.\.[\\/]")
+        .expect("Path traversal regex pattern is a compile-time constant and must be valid")
+});
+
+/// Regex for detecting script injection patterns: <script>
+static SCRIPT_INJECTION_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"<script[^>]*>")
+        .expect("Script injection regex pattern is a compile-time constant and must be valid")
+});
+
 /// Command validator with comprehensive validation rules
 #[derive(Debug, Clone)]
 pub struct CommandValidator {
@@ -33,8 +54,8 @@ impl Default for CommandValidator {
 impl CommandValidator {
     /// Create a new command validator with default settings
     ///
-    /// # Panics
-    /// Panics if internal regex patterns fail to compile (should never happen with valid patterns)
+    /// Uses pre-compiled static regexes for security validation (compiled once on first access).
+    /// Cloning these regexes is cheap due to internal reference counting.
     pub fn new() -> Self {
         Self {
             max_command_length: 1024,
@@ -49,12 +70,9 @@ impl CommandValidator {
                 "pdf".to_string(),
             ],
             blocked_patterns: vec![
-                // Prevent command injection
-                Regex::new(r"[;&|`$()]").expect("Command injection regex should be valid"),
-                // Prevent path traversal
-                Regex::new(r"\.\.[\\/]").expect("Path traversal regex should be valid"),
-                // Prevent script injection
-                Regex::new(r"<script[^>]*>").expect("Script injection regex should be valid"),
+                COMMAND_INJECTION_REGEX.clone(),
+                PATH_TRAVERSAL_REGEX.clone(),
+                SCRIPT_INJECTION_REGEX.clone(),
             ],
         }
     }

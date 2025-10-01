@@ -6,6 +6,7 @@ use cyrup_sugars::ZeroOneOrMany;
 
 use ystream::AsyncStream;
 
+use crate::domain::agent::core::AgentError;
 use crate::domain::chat::message::{CandleMessageChunk, CandleMessageRole};
 use crate::domain::chat::CandleChatLoop;
 use crate::domain::completion::{
@@ -224,7 +225,7 @@ pub trait CandleAgentRoleBuilder: Sized + Send {
     fn into_agent(self) -> impl CandleAgentBuilder;
 
     /// Chat with closure - EXACT syntax: .chat(|conversation| ChatLoop)
-    fn chat<F>(self, handler: F) -> AsyncStream<CandleMessageChunk>
+    fn chat<F>(self, handler: F) -> Result<AsyncStream<CandleMessageChunk>, AgentError>
     where
         F: FnOnce(&CandleAgentConversation) -> CandleChatLoop + Send + 'static;
 
@@ -250,7 +251,7 @@ pub trait CandleAgentBuilder: Sized + Send + Sync {
         -> impl CandleAgentBuilder;
 
     /// Chat with closure - EXACT syntax: .chat(|conversation| ChatLoop)
-    fn chat<F>(self, handler: F) -> AsyncStream<CandleMessageChunk>
+    fn chat<F>(self, handler: F) -> Result<AsyncStream<CandleMessageChunk>, AgentError>
     where
         F: FnOnce(&CandleAgentConversation) -> CandleChatLoop + Send + 'static;
 
@@ -445,15 +446,15 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
     }
 
     /// Chat with closure - EXACT syntax: .chat(|conversation| ChatLoop)
-    fn chat<F>(self, _handler: F) -> AsyncStream<CandleMessageChunk>
+    fn chat<F>(self, _handler: F) -> Result<AsyncStream<CandleMessageChunk>, AgentError>
     where
         F: FnOnce(&CandleAgentConversation) -> CandleChatLoop + Send + 'static,
     {
-        AsyncStream::with_channel(|sender| {
+        Ok(AsyncStream::with_channel(|sender| {
             let _ = sender.send(CandleMessageChunk::Error(
                 "No provider configured".to_string(),
             ));
-        })
+        }))
     }
 
     /// Convert to agent - EXACT syntax: .into_agent()
@@ -564,14 +565,14 @@ impl CandleAgentBuilder for NoProviderAgent {
         self
     }
 
-    fn chat<F>(self, _handler: F) -> AsyncStream<CandleMessageChunk>
+    fn chat<F>(self, _handler: F) -> Result<AsyncStream<CandleMessageChunk>, AgentError>
     where
         F: FnOnce(&CandleAgentConversation) -> CandleChatLoop + Send + 'static,
     {
-        AsyncStream::with_channel(move |sender| {
+        Ok(AsyncStream::with_channel(move |sender| {
             let error_chunk = CandleMessageChunk::Error("No completion provider configured. Use .completion_provider() before .into_agent()".to_string());
             let _ = sender.send(error_chunk);
-        })
+        }))
     }
 
     fn chat_direct(self, _input: CandleChatLoop) -> AsyncStream<CandleMessageChunk> {
@@ -719,13 +720,13 @@ where
     }
 
     /// Chat with closure - EXACT syntax: .chat(|conversation| ChatLoop)
-    fn chat<F>(self, _handler: F) -> AsyncStream<CandleMessageChunk>
+    fn chat<F>(self, _handler: F) -> Result<AsyncStream<CandleMessageChunk>, AgentError>
     where
         F: FnOnce(&CandleAgentConversation) -> CandleChatLoop + Send + 'static,
     {
-        AsyncStream::with_channel(|sender| {
+        Ok(AsyncStream::with_channel(|sender| {
             let _ = sender.send(CandleMessageChunk::Text("Hello from Candle!".to_string()));
-        })
+        }))
     }
 
 
@@ -747,7 +748,7 @@ where
     }
 
     /// Chat with closure - EXACT syntax: .chat(|conversation| ChatLoop)
-    fn chat<F>(self, handler: F) -> AsyncStream<CandleMessageChunk>
+    fn chat<F>(self, handler: F) -> Result<AsyncStream<CandleMessageChunk>, AgentError>
     where
         F: FnOnce(&CandleAgentConversation) -> CandleChatLoop + Send + 'static,
     {
@@ -758,7 +759,7 @@ where
         let tools = self.tools;
         let mcp_servers = self.mcp_servers;
 
-        AsyncStream::with_channel(move |sender| {
+        Ok(AsyncStream::with_channel(move |sender| {
             // Create initial empty conversation for handler to inspect
             let initial_conversation = CandleAgentConversation::new();
 
@@ -893,7 +894,7 @@ where
                     });
                 }
             }
-        })
+        }))
     }
 
     fn chat_direct(self, input: CandleChatLoop) -> AsyncStream<CandleMessageChunk> {

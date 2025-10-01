@@ -99,7 +99,13 @@ impl ExecutionPool {
         loop {
             info!("Worker {} waiting for next task", worker_id);
             let next_task = {
-                let lock = rx.lock().unwrap();
+                let lock = match rx.lock() {
+                    Ok(l) => l,
+                    Err(poisoned) => {
+                        error!("Worker {} mutex poisoned, recovering", worker_id);
+                        poisoned.into_inner()
+                    }
+                };
                 info!("Worker {} acquired lock", worker_id);
                 let task = lock.recv();
                 info!(

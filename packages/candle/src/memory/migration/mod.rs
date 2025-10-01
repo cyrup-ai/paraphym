@@ -12,12 +12,15 @@ pub mod validator;
 // Re-export main types
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 pub use converter::*;
 pub use exporter::*;
 pub use importer::*;
 pub use schema_migrations::*;
+use surrealdb::engine::any::Any;
+use surrealdb::Surreal;
 use tokio::sync::oneshot;
 pub use validator::*;
 
@@ -90,29 +93,35 @@ pub trait Migration: Send + Sync {
     fn name(&self) -> &str;
 
     /// Apply the migration
-    fn up(&self) -> PendingMigration;
+    fn up(&self, db: Arc<Surreal<Any>>) -> PendingMigration;
 
     /// Rollback the migration
-    fn down(&self) -> PendingMigration;
+    fn down(&self, db: Arc<Surreal<Any>>) -> PendingMigration;
 }
 
-/// Migration manager
+/// Migration manager with SurrealDB integration
 pub struct MigrationManager {
+    db: Arc<Surreal<Any>>,
     migrations: Vec<Box<dyn Migration>>,
-}
-
-impl Default for MigrationManager {
-    fn default() -> Self {
-        Self::new()
-    }
+    tracker: SchemaTracker,
 }
 
 impl MigrationManager {
-    /// Create a new migration manager
-    pub fn new() -> Self {
-        Self {
+    /// Create a new migration manager with database connection
+    pub async fn new(db: Arc<Surreal<Any>>) -> Result<Self> {
+        // Ensure schema_migrations table exists
+        db.query("DEFINE TABLE IF NOT EXISTS schema_migrations SCHEMALESS")
+            .await
+            .map_err(|e| MigrationError::DatabaseError(format!("{:?}", e)))?;
+        
+        // Load existing migration records using SchemaTracker's persistence
+        let tracker = SchemaTracker::load_from_db(&db).await?;
+        
+        Ok(Self {
+            db,
             migrations: Vec::new(),
-        }
+            tracker,
+        })
     }
 
     /// Add a migration
@@ -121,26 +130,94 @@ impl MigrationManager {
     }
 
     /// Run pending migrations
-    pub fn migrate(&self) -> PendingMigration {
-        let (tx, rx) = oneshot::channel();
-
-        tokio::spawn(async move {
-            // Implementation would check current version and apply pending migrations
-            let _ = tx.send(Ok(()));
-        });
-
-        PendingMigration::new(rx)
+    pub async fn migrate(&mut self) -> Result<()> {
+        // Sort migrations by version
+        self.migrations.sort_by_key(|m| m.version());
+        
+        for migration in &self.migrations {
+            let version = migration.version();
+            
+            // Skip if already applied
+            if self.tracker.is_applied(version) {
+                tracing::debug!(
+                    "Migration v{} ({}) already applied, skipping",
+                    version,
+                    migration.name()
+                );
+                continue;
+            }
+            
+            tracing::info!(
+                "Applying migration v{}: {}",
+                version,
+                migration.name()
+            );
+            
+            // Execute migration (await the PendingMigration)
+            migration.up(Arc::clone(&self.db)).await?;
+            
+            // Calculate checksum (simple version-based for now)
+            let checksum = format!("v{}", version);
+            
+            // Record in database
+            let record = MigrationRecord {
+                version,
+                name: migration.name().to_string(),
+                applied_at: crate::domain::memory::cache::get_cached_utc(),
+                checksum: checksum.clone(),
+            };
+            
+            let _: Option<MigrationRecord> = self.db.create(("schema_migrations", format!("v{}", version)))
+                .content(record.clone())
+                .await
+                .map_err(|e| MigrationError::DatabaseError(format!("{:?}", e)))?;
+            
+            // Update tracker
+            self.tracker.record_migration(version, migration.name().to_string(), checksum);
+            
+            tracing::info!(
+                "Migration v{} ({}) applied successfully",
+                version,
+                migration.name()
+            );
+        }
+        
+        Ok(())
     }
 
     /// Rollback to a specific version
-    pub fn rollback_to(&self, _version: u32) -> PendingMigration {
-        let (tx, rx) = oneshot::channel();
-
-        tokio::spawn(async move {
-            // Implementation would rollback migrations to reach target version
-            let _ = tx.send(Ok(()));
-        });
-
-        PendingMigration::new(rx)
+    pub async fn rollback_to(&mut self, target_version: u32) -> Result<()> {
+        // Sort migrations in reverse order
+        self.migrations.sort_by_key(|m| std::cmp::Reverse(m.version()));
+        
+        for migration in &self.migrations {
+            let version = migration.version();
+            
+            if version <= target_version {
+                break;
+            }
+            
+            if !self.tracker.is_applied(version) {
+                continue;
+            }
+            
+            tracing::info!(
+                "Rolling back migration v{}: {}",
+                version,
+                migration.name()
+            );
+            
+            migration.down(Arc::clone(&self.db)).await?;
+            
+            // Remove from database
+            self.db.delete::<Option<MigrationRecord>>(("schema_migrations", format!("v{}", version)))
+                .await
+                .map_err(|e| MigrationError::DatabaseError(format!("{:?}", e)))?;
+            
+            // FIX: Update tracker to reflect rollback
+            self.tracker.remove_migration(version);
+        }
+        
+        Ok(())
     }
 }

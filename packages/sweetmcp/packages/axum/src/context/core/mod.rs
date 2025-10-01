@@ -24,21 +24,29 @@ pub fn subscription(id: String, scopes: Vec<String>) -> ContextSubscription {
 }
 
 /// Get global application context (convenience function)
-pub fn app_context() -> &'static ApplicationContext {
-    context_access::app_context()
+///
+/// **Note:** Now async and returns owned value
+pub async fn app_context() -> ApplicationContext {
+    context_access::app_context().await
 }
 
 /// Get global sampling context (convenience function)
-pub fn sampling_context() -> &'static SamplingContext {
-    context_access::sampling_context()
+///
+/// **Note:** Now async and returns owned value
+pub async fn sampling_context() -> SamplingContext {
+    context_access::sampling_context().await
 }
 
 /// Try to get global application context (convenience function)
-pub fn try_app_context() -> Option<&'static ApplicationContext> {
-    context_access::try_app_context()
+///
+/// **Note:** Now async and returns owned value
+pub async fn try_app_context() -> Option<ApplicationContext> {
+    context_access::try_app_context().await
 }
 
 /// Try to get global sampling context (convenience function)
-pub fn try_sampling_context() -> Option<&'static SamplingContext> {
-    context_access::try_sampling_context()
+///
+/// **Note:** Now async and returns owned value
+pub async fn try_sampling_context() -> Option<SamplingContext> {
+    context_access::try_sampling_context().await
 }

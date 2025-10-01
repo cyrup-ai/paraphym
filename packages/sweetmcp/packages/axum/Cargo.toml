@@ -12,7 +12,6 @@ documentation = "docs.https://cyrup.ai/docs/sweet-mcp-server"
 homepage = "https://cyrup.ai"
 
 [dependencies]
-fluent-ai-workspace-hack = { path = "../../../../workspace-hack"}
 futures-util = "0.3"
 
 anyhow = "1.0.98"
@@ -72,9 +71,10 @@ smallvec = { version = "2.0.0-alpha.11" }         # Small vectors that avoid hea
 dashmap = { version = "6.1" }           # Lock-free concurrent HashMap for blazing-fast performance
 memchr = { version = "2.7" }
 # SIMD-accelerated string matching
-fluent_ai = { path = "../../../fluent-ai" } # Temporarily disabled due to dependency issues
-fluent_ai_memory = { path = "../../../memory", default-features = false, features = ["surreal-vector"] }
-
+# fluent_ai = { path = "../../../fluent-ai" } # Temporarily disabled due to dependency issues
+# fluent_ai_memory = { path = "../../../memory", default-features = false, features = ["surreal-vector"] }
+paraphym_candle = { path = "../../../candle" }
+termcolor = { git = "https://github.com/cyrup-ai/termcolor", branch = "main" }
 
 [lib]
 name = "sweetmcp_axum"

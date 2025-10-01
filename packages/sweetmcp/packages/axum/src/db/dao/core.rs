@@ -82,7 +82,10 @@ pub trait BaseDao {
     type Entity: Entity + 'static;
 
     /// Create a new entity
-    fn create(&self, entity: &mut Self::Entity) -> crate::types::AsyncTask<Self::Entity>;
+    /// 
+    /// Returns Ok(entity) on success with the created entity from the database.
+    /// Returns Err(message) on failure with a descriptive error message.
+    fn create(&self, entity: &mut Self::Entity) -> crate::types::AsyncTask<Result<Self::Entity, String>>;
 
     /// Find a single entity by ID
     fn find_by_id(&self, id: &str) -> crate::types::AsyncTask<Option<Self::Entity>>;
@@ -109,7 +112,7 @@ pub trait BaseDao {
     fn count(&self) -> crate::types::AsyncTask<u64> {
         let find_task = self.find();
         crate::types::AsyncTask::from_future(async move {
-            let stream = find_task.await;
+            let _stream = find_task.await;
             // In a real implementation, this would use a COUNT query
             // For now, we'll return a placeholder
             0

@@ -174,7 +174,7 @@ impl CandleAgentRoleImpl {
     ) -> Result<String, ChatError> {
         // Get configured provider from agent role
         let provider = self.get_completion_provider()
-            .map_err(|e| ChatError::System(format!("Provider error: {}", e)))?;
+            .map_err(|e| ChatError::System(format!("Provider error: {e}")))?;
 
         // Use PromptFormatter for proper memory vs context sectioning
         let formatter = PromptFormatter::new()
@@ -227,7 +227,7 @@ impl CandleAgentRoleImpl {
     fn generate_ai_response(&self, message: &str, context: &str) -> Result<String, ChatError> {
         // Get configured provider from agent role
         let provider = self.get_completion_provider()
-            .map_err(|e| ChatError::System(format!("Provider error: {}", e)))?;
+            .map_err(|e| ChatError::System(format!("Provider error: {e}")))?;
 
         // Create prompt with context
         let full_prompt = if context.is_empty() {

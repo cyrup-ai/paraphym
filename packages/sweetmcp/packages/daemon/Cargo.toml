@@ -5,7 +5,6 @@ edition      = "2021"
 license      = "Apache-2.0 OR MIT"
 
 [dependencies]
-fluent-ai-workspace-hack = { path = "../../../../workspace-hack"}
 anyhow               = "1"
 chrono               = { version = "0.4", features = ["serde"] }
 crossbeam-channel    = "0.5"

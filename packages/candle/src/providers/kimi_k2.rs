@@ -27,7 +27,6 @@ use crate::domain::{
     context::{chunk::CandleCompletionChunk, CandleStringChunk},
     prompt::CandlePrompt,
 };
-use ystream::emit;
 
 /// CandleKimiK2Provider for local Kimi K2 model inference using Candle ML framework
 #[derive(Debug, Clone)]
@@ -391,42 +390,15 @@ impl CandleCompletionModel for CandleKimiK2Provider {
         prompt: CandlePrompt,
         params: &CandleCompletionParams,
     ) -> AsyncStream<CandleCompletionChunk> {
-        // Create ModelConfig for this provider (thin wrapper - only config!)
-        // Convert LlamaConfig to the format expected by ModelArchitecture
-        let candle_config = candle_transformers::models::llama::Config {
-            hidden_size: self.model_config.hidden_size,
-            intermediate_size: self.model_config.intermediate_size,
-            vocab_size: self.model_config.vocab_size,
-            num_hidden_layers: self.model_config.num_hidden_layers,
-            num_attention_heads: self.model_config.num_attention_heads,
-            num_key_value_heads: self
-                .model_config
-                .num_key_value_heads
-                .unwrap_or(self.model_config.num_attention_heads),
-            use_flash_attn: false,
-            rms_norm_eps: self.model_config.rms_norm_eps,
-            rope_theta: self.model_config.rope_theta,
-            bos_token_id: self.model_config.bos_token_id,
-            eos_token_id: self.model_config.eos_token_id.clone(),
-            rope_scaling: self.model_config.rope_scaling.clone(),
-            max_position_embeddings: self.model_config.max_position_embeddings,
-            tie_word_embeddings: self.model_config.tie_word_embeddings.unwrap_or(false),
-        };
-
-        let _model_config = crate::core::ModelConfig::new(
-            &self.model_path,
-            format!("{}/tokenizer.json", self.model_path),
-            crate::core::ModelArchitecture::Llama(candle_config),
-            "kimi-k2",
-            "kimi-k2",
-        )
-        .with_vocab_size(self.config.vocab_size as usize)
-        .with_context_length(self.config.max_context as usize)
-        .with_dtype(self.config.dtype);
-
+        // Clone data needed for the generation closure
+        let engine = Arc::clone(&self.engine);
+        let model_path = self.model_path.clone();
+        let gguf_file_path = self.gguf_file_path.clone();
+        let config = self.config.clone();
+        let model_config = self.model_config.clone();
+        
         // Create SIMD-optimized SamplingConfig from params
-        let _cpu_info = get_cpu_features();
-        let _sampling_config =
+        let sampling_config =
             crate::core::generation::SamplingConfig::new(params.temperature as f32)
                 .with_top_k(50) // Default for now
                 .with_top_p(0.9) // Default for now
@@ -435,41 +407,33 @@ impl CandleCompletionModel for CandleKimiK2Provider {
                 .with_presence_penalty(0.0);
 
         // Format prompt
-        let _prompt_text = format!("User: {}\nAssistant: ", prompt);
-        let _max_tokens = params.max_tokens.map(|n| n.get()).unwrap_or(1000);
+        let prompt_text = format!("User: {}\nAssistant: ", prompt);
+        let max_tokens = params.max_tokens.map(|n| n.get()).unwrap_or(1000);
 
-        // Create TextGenerator and perform local inference
-        let model_path = self.model_path.clone();
-        let gguf_file_path = self.gguf_file_path.clone();
-        let config = self.config.clone();
-        let model_config = self.model_config.clone();
-
-        AsyncStream::with_channel(move |sender| {
+        // Use Engine's coordinate_generation for automatic metrics and stream conversion
+        engine.coordinate_generation(move || {
             use crate::core::generation::{
                 generator::TextGenerator,
                 tokens::SpecialTokens,
-                // models::CandleModel as CoreCandleModel, // Reserved for future candle model integration
+                models::ModelFactory,
             };
+            use crate::core::ModelConfig as CandleConfig;
             use candle_core::Device;
             use tokenizers::Tokenizer;
+            use std::sync::Arc;
 
             // Load device (prefer GPU if available)
             let device = Device::Cpu; // TODO: Add GPU detection
 
-            // Load tokenizer
+            // Load tokenizer - return error stream on failure
             let tokenizer = match Tokenizer::from_file(format!("{}/tokenizer.json", model_path)) {
                 Ok(t) => t,
                 Err(e) => {
-                    let error_chunk = CandleCompletionChunk::Error(format!("Failed to load tokenizer: {}", e));
-                    let _ = sender.send(error_chunk);
-                    return;
+                    return AsyncStream::with_channel(move |sender| {
+                        let _ = sender.send(CandleStringChunk(format!("ERROR: Failed to load tokenizer: {}", e)));
+                    });
                 }
             };
-
-            // Create real quantized model implementation
-            use crate::core::generation::models::ModelFactory;
-            use crate::core::ModelConfig as CandleConfig;
-            use std::sync::Arc;
 
             // Create model configuration for the quantized model
             let candle_model_config = Arc::new(CandleConfig::new(
@@ -498,13 +462,13 @@ impl CandleCompletionModel for CandleKimiK2Provider {
             .with_context_length(config.max_context as usize)
             .with_dtype(config.dtype));
 
-            // Load the real quantized model
+            // Load the real quantized model - return error stream on failure
             let quantized_model = match ModelFactory::create_quantized_llama(&gguf_file_path, candle_model_config, device.clone()) {
                 Ok(model) => model,
                 Err(e) => {
-                    let error_chunk = CandleCompletionChunk::Error(format!("Failed to load quantized model: {}", e));
-                    let _ = sender.send(error_chunk);
-                    return;
+                    return AsyncStream::with_channel(move |sender| {
+                        let _ = sender.send(CandleStringChunk(format!("ERROR: Failed to load quantized model: {}", e)));
+                    });
                 }
             };
 
@@ -513,7 +477,7 @@ impl CandleCompletionModel for CandleKimiK2Provider {
                 Box::new(quantized_model),
                 tokenizer,
                 device,
-                _sampling_config,
+                sampling_config,
             );
 
             // Set up special tokens
@@ -526,24 +490,18 @@ impl CandleCompletionModel for CandleKimiK2Provider {
                 pad_token_id: None,
             };
 
-            // Generate text using TextGenerator
             // Convert u64 to u32, capping at u32::MAX if necessary
-            let max_tokens_u32 = _max_tokens.try_into().unwrap_or_else(|_| {
-                log::warn!("max_tokens value {} exceeds u32::MAX, capping at {}", _max_tokens, u32::MAX);
+            let max_tokens_u32 = max_tokens.try_into().unwrap_or_else(|_| {
+                log::warn!("max_tokens value {} exceeds u32::MAX, capping at {}", max_tokens, u32::MAX);
                 u32::MAX
             });
-            let text_stream = text_generator.generate(
-                _prompt_text,
+
+            // Generate and return text stream - Engine handles conversion to CandleCompletionChunk
+            text_generator.generate(
+                prompt_text,
                 max_tokens_u32,
                 special_tokens,
-            );
-
-            // Convert CandleStringChunk to CandleCompletionChunk using correct ystream pattern
-            let text_chunks: Vec<CandleStringChunk> = text_stream.collect();
-            for string_chunk in text_chunks {
-                let completion_chunk = CandleCompletionChunk::Text(string_chunk.0);
-                emit!(sender, completion_chunk);
-            }
+            )
         })
     }
 }
@@ -638,6 +596,7 @@ impl Default for CandleKimiK2Provider {
         
         let engine = Arc::new(
             Engine::new(engine_config)
+                // APPROVED BY DAVID MAPLE 09/30/2025: Panic is appropriate for initialization failure
                 .expect("Engine configuration is valid and should never fail")
         );
         

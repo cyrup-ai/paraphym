@@ -3,6 +3,8 @@ name = "sweetmcp-plugin-fs"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+
 [lib]
 name = "sweetmcp_plugin_fs"
 crate-type = ["cdylib"]
@@ -17,3 +19,4 @@ base64 = "0.22"
 htmd = "0.2.2"
 anyhow = "1.0"
 sweetmcp-plugin-builder = { path = "../../packages/plugin-builder" }
+similar = "2.7.0"

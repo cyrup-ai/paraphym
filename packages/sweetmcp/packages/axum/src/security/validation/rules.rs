@@ -21,7 +21,7 @@ pub trait ValidationRule: Send + Sync {
     fn severity(&self) -> ValidationSeverity;
 
     /// Check if rule applies to validation type
-    fn applies_to(&self, validation_type: ValidationType) -> bool {
+    fn applies_to(&self, _validation_type: ValidationType) -> bool {
         // Default implementation applies to all types
         true
     }
@@ -748,10 +748,12 @@ impl NumericValidationRule {
 impl ValidationRule for NumericValidationRule {
     fn validate(&self, input: &str) -> Result<(), ValidationError> {
         // Parse as number
-        let parsed_value = if self.allow_decimal {
-            input.parse::<f64>()
+        let parsed_value: Result<f64, Box<dyn std::error::Error>> = if self.allow_decimal {
+            input.parse::<f64>().map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
         } else {
-            input.parse::<i64>().map(|i| i as f64)
+            input.parse::<i64>()
+                .map(|i| i as f64)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
         };
 
         let value = match parsed_value {

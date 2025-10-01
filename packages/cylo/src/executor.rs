@@ -36,8 +36,8 @@ pub struct CyloExecutor {
     /// Performance optimization settings
     optimization_config: OptimizationConfig,
     
-    /// Cached platform capabilities
-    platform_cache: PlatformCache,
+    /// Cached platform capabilities (with interior mutability)
+    platform_cache: Arc<RwLock<PlatformCache>>,
     
     /// Execution statistics and metrics
     metrics: Arc<RwLock<ExecutionMetrics>>}
@@ -152,12 +152,12 @@ impl CyloExecutor {
             })
             .collect();
         
-        let platform_cache = PlatformCache {
+        let platform_cache = Arc::new(RwLock::new(PlatformCache {
             available_backends,
             capabilities_hash: Self::compute_capabilities_hash(&platform_info),
             cached_at: SystemTime::now(),
             cache_duration: Duration::from_secs(300), // 5 minutes
-        };
+        }));
         
         Self {
             routing_strategy: strategy,
@@ -293,19 +293,30 @@ impl CyloExecutor {
     /// 
     /// # Returns
     /// AsyncTask that resolves when cache is refreshed
-    pub fn refresh_platform_cache(&mut self) -> AsyncTask<CyloResult<()>> {
-        let current_time = SystemTime::now();
-        let cache_age = current_time.duration_since(self.platform_cache.cached_at)
-            .unwrap_or(Duration::from_secs(0));
-        
-        if cache_age < self.platform_cache.cache_duration {
-            return AsyncTaskBuilder::new().spawn(|| async { Ok(()) });
-        }
+    pub fn refresh_platform_cache(&self) -> AsyncTask<CyloResult<()>> {
+        let platform_cache = Arc::clone(&self.platform_cache);
         
         AsyncTaskBuilder::new()
             .spawn(move || async move {
+                // Check if cache needs refresh
+                let should_refresh = {
+                    let cache = platform_cache.read()
+                        .map_err(|e| CyloError::Other(format!("Cache lock poisoned: {}", e)))?;
+                    
+                    let current_time = SystemTime::now();
+                    let cache_age = current_time.duration_since(cache.cached_at)
+                        .unwrap_or(Duration::from_secs(0));
+                    
+                    cache_age >= cache.cache_duration
+                };
+                
+                if !should_refresh {
+                    return Ok(());
+                }
+                
+                // Detect current platform capabilities
                 let platform_info = detect_platform();
-                let available_backends = get_available_backends()
+                let available_backends: Vec<(String, u8)> = get_available_backends()
                     .into_iter()
                     .map(|name| {
                         let rating = platform_info.available_backends
@@ -313,12 +324,27 @@ impl CyloExecutor {
                             .find(|b| b.name == name)
                             .map(|b| b.performance_rating)
                             .unwrap_or(0);
-                        (name.to_string(), rating)
+                        (name, rating)
                     })
                     .collect();
                 
-                // Update cache (this would need &mut self in real implementation)
-                // For now, return success
+                let capabilities_hash = {
+                    use std::collections::hash_map::DefaultHasher;
+                    use std::hash::{Hash, Hasher};
+                    let mut hasher = DefaultHasher::new();
+                    platform_info.os.hash(&mut hasher);
+                    platform_info.arch.hash(&mut hasher);
+                    hasher.finish()
+                };
+                
+                // Update cache with write lock
+                let mut cache = platform_cache.write()
+                    .map_err(|e| CyloError::Other(format!("Cache lock poisoned: {}", e)))?;
+                
+                cache.available_backends = available_backends;
+                cache.capabilities_hash = capabilities_hash;
+                cache.cached_at = SystemTime::now();
+                
                 Ok(())
             })
     }
@@ -331,10 +357,12 @@ impl CyloExecutor {
     fn select_optimal_backend(
         strategy: &RoutingStrategy,
         preferences: &BackendPreferences, 
-        platform_cache: &PlatformCache,
+        platform_cache: &Arc<RwLock<PlatformCache>>,
         request: &ExecutionRequest
     ) -> CyloResult<String> {
-        let available = &platform_cache.available_backends;
+        let cache = platform_cache.read()
+            .map_err(|e| CyloError::Other(format!("Cache lock poisoned: {}", e)))?;
+        let available = &cache.available_backends;
         
         if available.is_empty() {
             return Err(CyloError::no_backend_available());

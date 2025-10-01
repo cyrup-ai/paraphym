@@ -176,10 +176,10 @@ impl Loader<PathBuf> for LoaderImpl<PathBuf> {
                 && let Ok(paths) = glob::glob(&p) {
                     for path in paths.filter_map(Result::ok) {
                         // Apply filter before sending
-                        if let Some(ref filter) = filter_fn {
-                            if !filter(&path) {
-                                continue;
-                            }
+                        if let Some(ref filter) = filter_fn
+                            && !filter(&path)
+                        {
+                            continue;
                         }
                         
                         let chunk = CandlePathChunk::from(path);

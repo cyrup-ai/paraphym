@@ -1,4 +1,5 @@
 pub mod model;
+pub mod persistence;
 pub mod service;
 
 // Re-export core service functions

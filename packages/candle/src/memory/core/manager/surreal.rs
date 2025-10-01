@@ -4,6 +4,7 @@
 
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use surrealdb::Surreal;
@@ -15,6 +16,8 @@ use crate::memory::primitives::{MemoryNode, MemoryRelationship};
 use crate::memory::schema::memory_schema::{MemoryMetadataSchema, MemoryNodeSchema};
 use crate::memory::schema::relationship_schema::RelationshipSchema;
 use crate::memory::utils::error::Error;
+use crate::memory::migration::{DataExporter, ExportFormat, MigrationManager, BuiltinMigrations, DataImporter, ImportFormat};
+use std::path::Path;
 
 /// Content structure for creating/updating memory nodes (without ID)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -272,6 +275,13 @@ pub struct SurrealDBMemoryManager {
     db: Surreal<Any>,
 }
 
+/// Data structure for memory export containing nodes and relationships
+#[derive(Debug, Serialize, Deserialize)]
+struct ExportData {
+    nodes: Vec<MemoryNode>,
+    relationships: Vec<MemoryRelationship>,
+}
+
 impl SurrealDBMemoryManager {
     /// Create a new SurrealDB memory manager
     pub fn new(db: Surreal<Any>) -> Self {
@@ -355,6 +365,174 @@ impl SurrealDBMemoryManager {
             Ok(_) => Ok(()),
             Err(e) => Err(Error::Database(format!("{:?}", e))),
         }
+    }
+
+    /// Run all pending schema migrations
+    ///
+    /// Executes V1, V2, V3, and any future migrations that haven't been applied yet.
+    /// Safe to call multiple times (migrations are idempotent).
+    ///
+    /// # Returns
+    /// Ok(()) if all migrations succeeded, Err if any migration failed
+    pub async fn run_migrations(&self) -> Result<()> {
+        tracing::info!("Initializing migration manager...");
+
+        // Create migration manager with shared database connection
+        let db_arc = Arc::new(self.db.clone());
+        let mut manager = MigrationManager::new(db_arc).await
+            .map_err(|e| Error::Other(format!("Failed to create migration manager: {}", e)))?;
+
+        // Add all builtin migrations
+        for migration in BuiltinMigrations::all() {
+            manager.add_migration(migration);
+        }
+
+        tracing::info!("Running schema migrations...");
+
+        // Run migrations (now async, not returning PendingMigration)
+        manager.migrate().await
+            .map_err(|e| Error::Other(format!("Migration execution failed: {}", e)))?;
+
+        tracing::info!("Schema migrations completed successfully");
+
+        Ok(())
+    }
+
+    /// Export all memories to a file in specified format
+    ///
+    /// Supports JSON and CSV formats. Binary format is not supported as it requires
+    /// bincode::Encode trait which MemoryNode and MemoryRelationship don't implement.
+    ///
+    /// # Arguments
+    /// * `path` - Path to export file
+    /// * `format` - Export format (Json or Csv; Binary will return error)
+    ///
+    /// # Returns
+    /// Total count of exported items (nodes + relationships)
+    ///
+    /// # Errors
+    /// Returns Error::Database if database queries fail
+    /// Returns Error::Migration if export operation fails
+    pub async fn export_memories(
+        &self,
+        path: &Path,
+        format: ExportFormat,
+    ) -> Result<usize> {
+        tracing::info!("Exporting memories to {:?} in {:?} format", path, format);
+
+        // Query all memory nodes from 'memory' table
+        let nodes_query = "SELECT * FROM memory";
+        let mut nodes_response = self.db.query(nodes_query).await
+            .map_err(|e| Error::Database(format!("Failed to query memory nodes: {}", e)))?;
+
+        let nodes: Vec<MemoryNode> = nodes_response.take(0)
+            .map_err(|e| Error::Database(format!("Failed to parse memory nodes: {}", e)))?;
+
+        // Query all relationships from 'memory_relationship' table
+        let rels_query = "SELECT * FROM memory_relationship";
+        let mut rels_response = self.db.query(rels_query).await
+            .map_err(|e| Error::Database(format!("Failed to query relationships: {}", e)))?;
+
+        let relationships: Vec<MemoryRelationship> = rels_response.take(0)
+            .map_err(|e| Error::Database(format!("Failed to parse relationships: {}", e)))?;
+
+        // Create export data structure
+        let export_data = ExportData {
+            nodes: nodes.clone(),
+            relationships: relationships.clone(),
+        };
+
+        // Convert to slice for DataExporter (it expects &[T])
+        let export_slice = std::slice::from_ref(&export_data);
+
+        // Use DataExporter to write to file
+        let exporter = DataExporter::new(format);
+        exporter.export_to_file(export_slice, path).await
+            .map_err(|e| Error::Migration(format!("Export failed: {}", e)))?;
+
+        let total = nodes.len() + relationships.len();
+        tracing::info!("Successfully exported {} items to {:?}", total, path);
+
+        Ok(total)
+    }
+
+    /// Import memories from a file in specified format
+    ///
+    /// Imports both memory nodes and relationships from a file created by export_memories().
+    /// The file must contain an ExportData structure with nodes and relationships arrays.
+    ///
+    /// # Arguments
+    /// * `path` - Path to import file
+    /// * `format` - Import format (Json, Csv, or Binary)
+    ///
+    /// # Returns
+    /// Total count of imported items (nodes + relationships)
+    ///
+    /// # Errors
+    /// Returns Error::Migration if import or deserialization fails
+    /// Returns Error::Database if database insertion fails
+    pub async fn import_memories(
+        &self,
+        path: &Path,
+        format: ImportFormat,
+    ) -> Result<usize> {
+        tracing::info!("Importing memories from {:?} in {:?} format", path, format);
+
+        // Use DataImporter to read from file
+        let importer = DataImporter::new();
+        let import_vec: Vec<ExportData> = match format {
+            ImportFormat::Json => importer.import_json(path).await
+                .map_err(|e| Error::Migration(format!("JSON import failed: {}", e)))?,
+            ImportFormat::Csv => importer.import_csv(path).await
+                .map_err(|e| Error::Migration(format!("CSV import failed: {}", e)))?,
+            ImportFormat::Binary => {
+                return Err(Error::Migration(
+                    "Binary import not supported - ExportData doesn't implement bincode::Decode".to_string()
+                ));
+            }
+        };
+
+        // Extract the single ExportData element (export creates array of 1 element)
+        let import_data = import_vec
+            .into_iter()
+            .next()
+            .ok_or_else(|| Error::Migration("Import file is empty".to_string()))?;
+
+        let mut inserted_count = 0;
+
+        // Insert memory nodes
+        for node in import_data.nodes {
+            let create_content = MemoryNodeCreateContent::from(&node);
+            let result: Option<MemoryNodeSchema> = self.db
+                .create(("memory", node.id.as_str()))
+                .content(create_content)
+                .await
+                .map_err(|e| Error::Database(format!("Failed to insert memory node {}: {}", node.id, e)))?;
+
+            match result {
+                Some(_) => inserted_count += 1,
+                None => return Err(Error::NotFound(format!("Failed to create memory node {}", node.id))),
+            }
+        }
+
+        // Insert relationships
+        for rel in import_data.relationships {
+            let create_content = RelationshipCreateContent::from(&rel);
+            let result: Option<RelationshipSchema> = self.db
+                .create(("memory_relationship", rel.id.as_str()))
+                .content(create_content)
+                .await
+                .map_err(|e| Error::Database(format!("Failed to insert relationship {}: {}", rel.id, e)))?;
+
+            match result {
+                Some(_) => inserted_count += 1,
+                None => return Err(Error::NotFound(format!("Failed to create relationship {}", rel.id))),
+            }
+        }
+
+        tracing::info!("Successfully imported {} items from {:?}", inserted_count, path);
+
+        Ok(inserted_count)
     }
 }
 

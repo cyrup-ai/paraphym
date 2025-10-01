@@ -155,12 +155,27 @@ pub async fn tools_call_handler(
     pm: PluginManager,        // Resource first
     request: CallToolRequest, // Request second
 ) -> HandlerResult<CallToolResult> {
+    let start_time = std::time::Instant::now();
+    
     // Use ToolService instead of calling functions directly
     let service = ToolService::new(pm);
-    let pending = service.call(request);
-
-    // Await the result
-    pending.await
+    let result = service.call(request.clone()).await;
+    
+    // Record statistics (non-blocking)
+    let duration_ms = start_time.elapsed().as_secs_f64() * 1000.0;
+    if let Ok(client) = crate::db::client::get_db_client() {
+        let persistence = crate::tool::persistence::ToolPersistenceService::new((*client).clone());
+        tokio::spawn(async move {
+            if let Err(e) = persistence.record_tool_call(
+                &request.params.name,
+                duration_ms,
+            ).await {
+                log::warn!("Failed to record tool statistics: {}", e);
+            }
+        });
+    }
+    
+    result
 }
 
 // Restore ToolService struct and impl

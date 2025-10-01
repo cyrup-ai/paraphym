@@ -528,8 +528,6 @@ pub mod processing {
 
 // Re-export commonly used Candle types (CandleMessageChunk and CandleMessageRole are used throughout the codebase)
 pub use error::CandleMessageError;
-// Alias for backward compatibility - some code expects CandleMimeType instead of CandleMediaType
-pub use media::CandleMediaType as CandleMimeType;
 pub use media::{
     CandleAudioMediaType, CandleDocumentMediaType, CandleImageMediaType, CandleMediaType,
     CandleVideoMediaType,

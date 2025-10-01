@@ -177,10 +177,19 @@ pub async fn prompts_get_handler(
 ) -> HandlerResult<PromptResult> {
     // Use PromptService instead of calling functions directly
     let service = PromptService::new(plugin_manager);
-    let pending = service.get(request);
-
-    // Await the result
-    pending.await
+    let result = service.get(request.clone()).await;
+    
+    // Record usage (non-blocking)
+    if let Ok(client) = crate::db::client::get_db_client() {
+        let persistence = crate::prompt::persistence::PromptPersistenceService::new((*client).clone());
+        tokio::spawn(async move {
+            if let Err(e) = persistence.record_prompt_use(&request.id).await {
+                log::warn!("Failed to record prompt usage: {}", e);
+            }
+        });
+    }
+    
+    result
 }
 
 // Restore PromptService struct and impl
