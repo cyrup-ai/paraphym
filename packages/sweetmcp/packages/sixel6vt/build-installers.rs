@@ -18,10 +18,9 @@
 
 use std::collections::HashMap;
 use std::env;
-use std::fs::{self, File};
-use std::io::Write;
+use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus};
+use std::process::Command;
 
 #[derive(Debug, Clone)]
 struct Target {
@@ -189,7 +188,7 @@ fn main() -> anyhow::Result<()> {
     
     // Build each target
     let mut build_results = HashMap::new();
-    for target in targets_to_build {
+    for target in &targets_to_build {
         println!("\n🔨 Building {}", target.display_name);
         match build_target(target, &ctx) {
             Ok(artifact_path) => {
@@ -238,16 +237,14 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn get_current_platform_targets() -> Vec<&'static Target> {
-    let current_target = format!("{}-{}", env::consts::ARCH, env::consts::OS);
-    
     TARGETS.iter()
         .filter(|t| {
-            match env::consts::OS {
+            (match env::consts::OS {
                 "macos" => t.name.starts_with("macos"),
                 "windows" => t.name.starts_with("windows"),
                 "linux" => t.name.starts_with("linux"),
                 _ => false,
-            } && match env::consts::ARCH {
+            }) && match env::consts::ARCH {
                 "x86_64" => t.name.contains("x86_64"),
                 "aarch64" => t.name.contains("aarch64"),
                 _ => false,
@@ -256,7 +253,7 @@ fn get_current_platform_targets() -> Vec<&'static Target> {
         .collect()
 }
 
-fn install_toolchains(targets: &[&Target], ctx: &BuildContext) -> anyhow::Result<()> {
+fn install_toolchains(targets: &[&Target], _ctx: &BuildContext) -> anyhow::Result<()> {
     println!("🔧 Installing required toolchains...");
     
     for target in targets {
@@ -356,7 +353,7 @@ fn create_installer(target: &Target, binary_path: &Path, ctx: &BuildContext) -> 
         InstallerType::Deb => create_debian_package(target, binary_path, ctx),
         InstallerType::AppImage => create_linux_appimage(target, binary_path, ctx),
         InstallerType::Dmg => create_macos_dmg(target, binary_path, ctx),
-        InstallerType::Nsis => create_windows_nsis(target, binary_path, ctx),
+        InstallerType::Nsis => create_windows_msi(target, binary_path, ctx),
         InstallerType::Rpm => create_rpm_package(target, binary_path, ctx),
     }
 }
@@ -404,6 +401,49 @@ fn create_macos_app_bundle(target: &Target, binary_path: &Path, ctx: &BuildConte
     let dmg_path = create_dmg(&bundle_path, ctx)?;
     
     Ok(dmg_path)
+}
+
+fn create_macos_dmg(target: &Target, binary_path: &Path, ctx: &BuildContext) -> anyhow::Result<PathBuf> {
+    let app_name = "PTY Terminal";
+    let bundle_name = format!("{}.app", app_name);
+    let bundle_path = ctx.dist_dir.join(&bundle_name);
+    
+    // Remove existing bundle
+    if bundle_path.exists() {
+        fs::remove_dir_all(&bundle_path)?;
+    }
+    
+    // Create bundle structure
+    let contents_dir = bundle_path.join("Contents");
+    let macos_dir = contents_dir.join("MacOS");
+    let resources_dir = contents_dir.join("Resources");
+    
+    fs::create_dir_all(&macos_dir)?;
+    fs::create_dir_all(&resources_dir)?;
+    
+    // Copy binary
+    let bundle_binary = macos_dir.join("rio-ext-test");
+    fs::copy(binary_path, &bundle_binary)?;
+    
+    // Make binary executable
+    Command::new("chmod")
+        .args(&["+x", &bundle_binary.to_string_lossy().to_string().as_str()])
+        .status()?;
+    
+    // Create Info.plist
+    let info_plist = create_info_plist(app_name, &ctx.version, target)?;
+    fs::write(contents_dir.join("Info.plist"), info_plist)?;
+    
+    // Copy icons
+    copy_app_icons(&resources_dir)?;
+    
+    // Sign the app bundle if signing is enabled
+    if ctx.sign_builds {
+        sign_app_bundle(&bundle_path, ctx)?;
+    }
+    
+    // Create DMG
+    create_dmg(&bundle_path, ctx)
 }
 
 fn create_windows_msi(target: &Target, binary_path: &Path, ctx: &BuildContext) -> anyhow::Result<PathBuf> {
@@ -477,7 +517,7 @@ fn create_linux_appimage(target: &Target, binary_path: &Path, ctx: &BuildContext
     let appimage_tool = download_appimagetool(ctx)?;
     
     let status = Command::new(&appimage_tool)
-        .args(&[&appdir.to_string_lossy(), &appimage_path.to_string_lossy()])
+        .args(&[appdir.to_string_lossy().to_string().as_str(), appimage_path.to_string_lossy().to_string().as_str()])
         .status()?;
     
     if !status.success() {
@@ -534,7 +574,7 @@ fn create_debian_package(target: &Target, binary_path: &Path, ctx: &BuildContext
     Ok(package_path)
 }
 
-fn create_rpm_package(target: &Target, binary_path: &Path, ctx: &BuildContext) -> anyhow::Result<PathBuf> {
+fn create_rpm_package(_target: &Target, _binary_path: &Path, _ctx: &BuildContext) -> anyhow::Result<PathBuf> {
     // Similar to Debian package but using rpmbuild
     // Implementation would be similar to create_debian_package but with RPM spec files
     // For brevity, returning a placeholder error
@@ -557,7 +597,7 @@ fn sign_macos_binary(binary_path: &Path, ctx: &BuildContext) -> anyhow::Result<(
     let signing_script = ctx.project_root.join("signing").join("macos-sign.sh");
     if signing_script.exists() {
         let status = Command::new("sh")
-            .args(&[&signing_script.to_string_lossy(), &binary_path.to_string_lossy()])
+            .args(&[signing_script.to_string_lossy().to_string(), binary_path.to_string_lossy().to_string()])
             .status()?;
         
         if !status.success() {
@@ -571,7 +611,7 @@ fn sign_windows_binary(binary_path: &Path, ctx: &BuildContext) -> anyhow::Result
     let signing_script = ctx.project_root.join("signing").join("windows-sign.ps1");
     if signing_script.exists() {
         let status = Command::new("powershell")
-            .args(&["-File", &signing_script.to_string_lossy(), &binary_path.to_string_lossy()])
+            .args(&["-File", &signing_script.to_string_lossy().to_string(), &binary_path.to_string_lossy().to_string()])
             .status()?;
         
         if !status.success() {
@@ -585,7 +625,7 @@ fn sign_app_bundle(bundle_path: &Path, ctx: &BuildContext) -> anyhow::Result<()>
     let signing_script = ctx.project_root.join("signing").join("macos-sign.sh");
     if signing_script.exists() {
         let status = Command::new("sh")
-            .args(&[&signing_script.to_string_lossy(), &bundle_path.to_string_lossy()])
+            .args(&[signing_script.to_string_lossy().to_string(), bundle_path.to_string_lossy().to_string()])
             .status()?;
         
         if !status.success() {
@@ -599,7 +639,7 @@ fn sign_windows_installer(installer_path: &Path, ctx: &BuildContext) -> anyhow::
     let signing_script = ctx.project_root.join("signing").join("windows-sign.ps1");
     if signing_script.exists() {
         let status = Command::new("powershell")
-            .args(&["-File", &signing_script.to_string_lossy(), &installer_path.to_string_lossy()])
+            .args(&["-File", &signing_script.to_string_lossy().to_string(), &installer_path.to_string_lossy().to_string()])
             .status()?;
         
         if !status.success() {

@@ -1,6 +1,8 @@
 use std::io::{self, Write};
 use clap::Parser;
 
+// Initialize Rustls crypto provider for HTTPS connections
+use rustls::crypto::aws_lc_rs;
 
 use paraphym_candle::providers::{kimi_k2::CandleKimiK2Provider, qwen3_coder::CandleQwen3CoderProvider};
 
@@ -37,9 +39,15 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize Rustls crypto provider for TLS/HTTPS connections
+    // This must happen before any HTTPS connections are made
+    aws_lc_rs::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     // Initialize Candle performance optimizations
     paraphym_candle::init_candle();
-    
+
     let args = Args::parse();
 
     println!(

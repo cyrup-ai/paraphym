@@ -178,6 +178,7 @@ serde_cbor = "0.11.2"
 md5 = "0.8.0"
 tokio = { version = "1.47.1", features = ["full"] }
 tokio-stream = "0.1.17"
+rustls = { version = "0.23", features = ["aws-lc-rs"], default-features = false }
 async-stream = "0.3.6"
 clap = { version = "4.5.48", features = ["derive"] }
 
