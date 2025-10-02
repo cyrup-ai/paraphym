@@ -1,6 +1,7 @@
 //! Builders are behavioral/construction logic, separate from core domain models
 
 use std::num::NonZeroU64;
+use std::sync::Arc;
 
 use cyrup_sugars::ZeroOneOrMany;
 
@@ -167,7 +168,9 @@ pub trait CandleAgentRoleBuilder: Sized + Send {
 
     /// Set memory - EXACT syntax: .memory(CandleLibrary::named("name"))
     #[must_use]
-    fn memory<M>(self, memory: M) -> impl CandleAgentRoleBuilder;
+    fn memory<M>(self, memory: M) -> impl CandleAgentRoleBuilder
+    where
+        M: Into<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>>;
 
     /// Set metadata - EXACT syntax: .metadata([("key", "value")])
     #[must_use]
@@ -295,7 +298,7 @@ pub struct McpServerConfig {
 }
 
 /// First builder - no provider yet
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct CandleAgentRoleBuilderImpl {
     name: String,
     temperature: Option<f64>,
@@ -303,6 +306,21 @@ struct CandleAgentRoleBuilderImpl {
     system_prompt: Option<String>,
     tools: ZeroOneOrMany<ToolInfo>,
     mcp_servers: Vec<McpServerConfig>,
+    memory: Option<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>>,
+}
+
+impl std::fmt::Debug for CandleAgentRoleBuilderImpl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CandleAgentRoleBuilderImpl")
+            .field("name", &self.name)
+            .field("temperature", &self.temperature)
+            .field("max_tokens", &self.max_tokens)
+            .field("system_prompt", &self.system_prompt)
+            .field("tools", &self.tools)
+            .field("mcp_servers", &self.mcp_servers)
+            .field("memory", &self.memory.as_ref().map(|_| "<MemoryManager>"))
+            .finish()
+    }
 }
 
 impl CandleAgentRoleBuilderImpl {
@@ -315,6 +333,7 @@ impl CandleAgentRoleBuilderImpl {
             system_prompt: None,
             tools: ZeroOneOrMany::none(),
             mcp_servers: Vec::new(),
+            memory: None,
         }
     }
 }
@@ -337,6 +356,7 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
             provider,
             tools: self.tools,
             mcp_servers: self.mcp_servers,
+            memory: self.memory,
         }
     }
 
@@ -372,7 +392,11 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
     }
 
     /// Set memory - EXACT syntax: .memory(CandleLibrary::named("name"))
-    fn memory<M>(self, _memory: M) -> impl CandleAgentRoleBuilder {
+    fn memory<M>(mut self, memory: M) -> impl CandleAgentRoleBuilder 
+    where
+        M: Into<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>>,
+    {
+        self.memory = Some(memory.into());
         self
     }
 
@@ -536,6 +560,7 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
             system_prompt: self.system_prompt,
             tools: self.tools,
             mcp_servers: self.mcp_servers,
+            memory: self.memory,
         }
     }
 
@@ -592,7 +617,6 @@ impl CandleAgentBuilder for NoProviderAgent {
 }
 
 /// Agent builder implementation
-#[derive(Debug)]
 pub struct CandleAgentBuilderImpl<P> {
     name: String,
     temperature: Option<f64>,
@@ -601,6 +625,22 @@ pub struct CandleAgentBuilderImpl<P> {
     provider: P,
     tools: ZeroOneOrMany<ToolInfo>,
     mcp_servers: Vec<McpServerConfig>,
+    memory: Option<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>>,
+}
+
+impl<P: std::fmt::Debug> std::fmt::Debug for CandleAgentBuilderImpl<P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CandleAgentBuilderImpl")
+            .field("name", &self.name)
+            .field("temperature", &self.temperature)
+            .field("max_tokens", &self.max_tokens)
+            .field("system_prompt", &self.system_prompt)
+            .field("provider", &self.provider)
+            .field("tools", &self.tools)
+            .field("mcp_servers", &self.mcp_servers)
+            .field("memory", &self.memory.as_ref().map(|_| "<MemoryManager>"))
+            .finish()
+    }
 }
 
 // Implementation for with-provider builder (allows all methods)
@@ -624,6 +664,7 @@ where
             provider,
             tools: self.tools,
             mcp_servers: self.mcp_servers,
+            memory: self.memory,
         }
     }
 
@@ -653,7 +694,11 @@ where
         self
     }
 
-    fn memory<M>(self, _memory: M) -> impl CandleAgentRoleBuilder {
+    fn memory<M>(mut self, memory: M) -> impl CandleAgentRoleBuilder 
+    where
+        M: Into<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>>,
+    {
+        self.memory = Some(memory.into());
         self
     }
 
@@ -758,6 +803,7 @@ where
         let system_prompt = self.system_prompt.clone();
         let tools = self.tools;
         let mcp_servers = self.mcp_servers;
+        let memory = self.memory;
 
         Ok(AsyncStream::with_channel(move |sender| {
             // Create initial empty conversation for handler to inspect
@@ -788,8 +834,13 @@ where
 
                         // Initialize tool executor if tools are provided or MCP servers are configured
                         let tool_executor = if !tools.is_empty() || !mcp_servers.is_empty() {
+                            let Some(runtime) = crate::runtime::shared_runtime() else {
+                                let error_chunk = CandleMessageChunk::Error("Failed to access shared runtime".to_string());
+                                ystream::emit!(stream_sender, error_chunk);
+                                return;
+                            };
                             let executor = UnifiedToolExecutor::with_mcp_servers(mcp_servers);
-                            match crate::runtime::shared_runtime().block_on(executor.initialize()) {
+                            match runtime.block_on(executor.initialize()) {
                                 Ok(()) => Some(executor),
                                 Err(e) => {
                                     let error_chunk = CandleMessageChunk::Error(format!("Tool initialization failed: {}", e));
@@ -801,11 +852,24 @@ where
                             None
                         };
 
-                        // Create prompt with system prompt if provided
-                        let full_prompt = if let Some(sys_prompt) = system_prompt {
-                            format!("{}\n\nUser: {}", sys_prompt, user_message)
-                        } else {
-                            format!("User: {}", user_message)
+                        // Memory context injection placeholder
+                        // TODO: Implement proper memory context injection using memory manager's search API
+                        let memory_context: Option<String> = None;
+
+                        // Create prompt with memory context and system prompt if provided
+                        let full_prompt = match (memory_context, system_prompt) {
+                            (Some(mem_ctx), Some(sys_prompt)) => {
+                                format!("{}\n\n{}\n\nUser: {}", sys_prompt, mem_ctx, user_message)
+                            }
+                            (Some(mem_ctx), None) => {
+                                format!("{}\n\nUser: {}", mem_ctx, user_message)
+                            }
+                            (None, Some(sys_prompt)) => {
+                                format!("{}\n\nUser: {}", sys_prompt, user_message)
+                            }
+                            (None, None) => {
+                                format!("User: {}", user_message)
+                            }
                         };
 
                         // Create CandlePrompt and CandleCompletionParams with tools if available
@@ -818,11 +882,13 @@ where
 
                         // Combine builder tools with auto-generated tools
                         if let Some(ref executor) = tool_executor {
-                            let auto_generated_tools = crate::runtime::shared_runtime().block_on(executor.get_available_tools());
-
-                            // Merge builder-provided tools with auto-generated tools
                             let mut all_tools: Vec<ToolInfo> = tools.into();
-                            all_tools.extend(auto_generated_tools);
+                            
+                            // Try to get auto-generated tools if runtime is available
+                            if let Some(runtime) = crate::runtime::shared_runtime() {
+                                let auto_generated_tools = runtime.block_on(executor.get_available_tools());
+                                all_tools.extend(auto_generated_tools);
+                            }
 
                             if !all_tools.is_empty() {
                                 // Pass merged tools to completion system for function calling
@@ -836,18 +902,26 @@ where
                         // Convert CandleCompletionChunk to CandleMessageChunk and forward
                         // Handle tool calls if they occur
                         let completion_results = completion_stream.collect();
+                        let mut assistant_response = String::new();
+                        
                         for completion_chunk in completion_results {
                             let message_chunk = match completion_chunk {
-                                CandleCompletionChunk::Text(text) => CandleMessageChunk::Text(text),
+                                CandleCompletionChunk::Text(ref text) => {
+                                    assistant_response.push_str(text);
+                                    CandleMessageChunk::Text(text.clone())
+                                }
                                 CandleCompletionChunk::Complete {
-                                    text,
+                                    ref text,
                                     finish_reason,
                                     usage,
-                                } => CandleMessageChunk::Complete {
-                                    text,
-                                    finish_reason: finish_reason.map(|f| format!("{:?}", f)),
-                                    usage: usage.map(|u| format!("{:?}", u)),
-                                },
+                                } => {
+                                    assistant_response.push_str(text);
+                                    CandleMessageChunk::Complete {
+                                        text: text.clone(),
+                                        finish_reason: finish_reason.map(|f| format!("{:?}", f)),
+                                        usage: usage.map(|u| format!("{:?}", u)),
+                                    }
+                                }
                                 CandleCompletionChunk::ToolCallStart { id, name } => {
                                     CandleMessageChunk::ToolCallStart { id, name }
                                 }
@@ -865,16 +939,23 @@ where
                                                 // Convert to SweetMCP JsonValue
                                                 let sweet_args = crate::domain::agent::role::convert_serde_to_sweet_json(args_json);
                                                 
-                                                // Execute the tool
-                                                match crate::runtime::shared_runtime().block_on(executor.call_tool(&name, sweet_args)) {
-                                                    Ok(response) => {
-                                                        // Convert response to text result
-                                                        let result_text = format!("Tool '{}' executed successfully: {:?}", name, response);
-                                                        CandleMessageChunk::Text(result_text)
+                                                // Execute the tool if runtime is available
+                                                match crate::runtime::shared_runtime() {
+                                                    Some(runtime) => {
+                                                        match runtime.block_on(executor.call_tool(&name, sweet_args)) {
+                                                            Ok(response) => {
+                                                                // Convert response to text result
+                                                                let result_text = format!("Tool '{}' executed successfully: {:?}", name, response);
+                                                                CandleMessageChunk::Text(result_text)
+                                                            }
+                                                            Err(e) => {
+                                                                // Return error as text
+                                                                CandleMessageChunk::Error(format!("Tool '{}' execution failed: {}", name, e))
+                                                            }
+                                                        }
                                                     }
-                                                    Err(e) => {
-                                                        // Return error as text
-                                                        CandleMessageChunk::Error(format!("Tool '{}' execution failed: {}", name, e))
+                                                    None => {
+                                                        CandleMessageChunk::Error("Runtime unavailable for tool execution".to_string())
                                                     }
                                                 }
                                             }
@@ -890,6 +971,50 @@ where
                             };
 
                             ystream::emit!(stream_sender, message_chunk);
+                        }
+                        
+                        // Store conversation turn in memory after completion
+                        if let Some(ref memory_manager) = memory
+                            && !assistant_response.is_empty() {
+                            // Create memory nodes for the conversation
+                            let user_content = crate::memory::core::primitives::types::MemoryContent::new(&user_message);
+                            let assistant_content = crate::memory::core::primitives::types::MemoryContent::new(&assistant_response);
+                            
+                            // Use Episodic memory type for conversation turns
+                            let mut user_memory = crate::memory::core::MemoryNode::new(
+                                crate::memory::core::primitives::types::MemoryTypeEnum::Episodic,
+                                user_content
+                            );
+                            user_memory.metadata.tags.push("user_message".to_string());
+                            user_memory.metadata.source = Some("chat".to_string());
+                            user_memory.metadata.importance = 0.8;
+                            
+                            let mut assistant_memory = crate::memory::core::MemoryNode::new(
+                                crate::memory::core::primitives::types::MemoryTypeEnum::Episodic,
+                                assistant_content
+                            );
+                            assistant_memory.metadata.tags.push("assistant_response".to_string());
+                            assistant_memory.metadata.source = Some("chat".to_string());
+                            assistant_memory.metadata.importance = 0.8;
+                            
+                            // Create PendingMemory operations
+                            let user_pending = memory_manager.create_memory(user_memory);
+                            let assistant_pending = memory_manager.create_memory(assistant_memory);
+                            
+                            // Use shared runtime to properly await the PendingMemory futures
+                            if let Some(runtime) = crate::runtime::shared_runtime() {
+                                // Spawn tasks on the runtime to handle the async operations
+                                runtime.spawn(async move {
+                                    if let Err(e) = user_pending.await {
+                                        eprintln!("Failed to store user memory: {:?}", e);
+                                    }
+                                });
+                                runtime.spawn(async move {
+                                    if let Err(e) = assistant_pending.await {
+                                        eprintln!("Failed to store assistant memory: {:?}", e);
+                                    }
+                                });
+                            }
                         }
                     });
                 }

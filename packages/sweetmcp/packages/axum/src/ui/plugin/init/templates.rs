@@ -387,6 +387,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 }
 
 /// Advanced template generator with additional scaffolding
+#[allow(dead_code)]
 pub struct AdvancedTemplateGenerator {
     /// Base template generator
     base_generator: TemplateGenerator,
@@ -396,6 +397,7 @@ pub struct AdvancedTemplateGenerator {
     plugin_dir: std::path::PathBuf,
 }
 
+#[allow(dead_code)]
 impl AdvancedTemplateGenerator {
     /// Create new advanced template generator
     pub fn new(template: PluginTemplate, plugin_dir: std::path::PathBuf) -> Self {

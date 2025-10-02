@@ -14,7 +14,6 @@ use candle_transformers::models::llama::LlamaConfig;
 use ystream::AsyncStream;
 // SIMD optimizations for high-performance inference
 use paraphym_simd::get_cpu_features;
-use progresshub::{ProgressHub, types::ZeroOneOrMany as ProgressHubZeroOneOrMany};
 use serde::{Deserialize, Serialize};
 
 use crate::core::{Engine, EngineConfig};
@@ -147,43 +146,32 @@ impl CandleQwen3CoderProvider {
     pub async fn with_config_async(
         config: CandleQwen3CoderConfig,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        // Download model using ProgressHub
-        let results = ProgressHub::builder()
-            .model("Qwen/Qwen2.5-Coder-32B-Instruct-GGUF")
-            .with_cli_progress()
-            .download()
-            .await?;
-
-        // Extract the model path from download results following ProgressHub example pattern
-        let (model_cache_dir, gguf_file_path) = if let Some(result) = results.into_iter().next() {
-            match &result.models {
-                ProgressHubZeroOneOrMany::One(model) => {
-                    // Extract model cache directory
-                    let cache_dir = model.model_cache_path.display().to_string();
-
-                    // Find GGUF file with zero allocation - prioritize largest file (model weights over tokenizer)
-                    let gguf_file = model
-                        .files
-                        .iter()
-                        .filter(|file| file.filename.ends_with(".gguf"))
-                        .max_by_key(|file| file.expected_size)
-                        .ok_or("No GGUF files found in downloaded model")?;
-
-                    let gguf_path = gguf_file.path.display().to_string();
-                    (cache_dir, gguf_path)
-                }
-                ProgressHubZeroOneOrMany::Zero => {
-                    return Err("No models were downloaded".into());
-                }
-                ProgressHubZeroOneOrMany::Many(_) => {
-                    return Err("Expected exactly one model, got multiple".into());
-                }
-            }
-        } else {
-            return Err("No download results returned".into());
-        };
-
-        Self::with_config_sync_gguf(model_cache_dir, gguf_file_path, config)
+        use crate::domain::model::download::DownloadProviderFactory;
+        
+        // Use factory to get download provider (works with both backends)
+        let downloader = DownloadProviderFactory::create_default()?;
+        
+        // Download model files with quantization
+        let result = downloader.download_model(
+            "Qwen/Qwen2.5-Coder-32B-Instruct-GGUF",
+            vec!["*.gguf".to_string(), "tokenizer.json".to_string()],
+            Some("Q4_K_M".to_string()), // Default quantization for GGUF
+        ).await?;
+        
+        // Find GGUF file from results
+        let gguf_file = result.files.iter()
+            .find(|f| f.extension().and_then(|s| s.to_str()) == Some("gguf"))
+            .ok_or_else(|| Box::<dyn std::error::Error + Send + Sync>::from("GGUF file not found in download"))?;
+        
+        Self::with_config_sync_gguf(
+            result.cache_dir.to_str()
+                .ok_or_else(|| Box::<dyn std::error::Error + Send + Sync>::from("Invalid cache directory"))?
+                .to_string(),
+            gguf_file.to_str()
+                .ok_or_else(|| Box::<dyn std::error::Error + Send + Sync>::from("Invalid GGUF file path"))?
+                .to_string(),
+            config,
+        )
     }
 
 

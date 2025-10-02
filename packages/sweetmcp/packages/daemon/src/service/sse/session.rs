@@ -368,7 +368,7 @@ mod tests {
         let client_info = create_test_client_info();
 
         // Create a session
-        let session = manager.create_session(client_info).await.unwrap();
+        let _session = manager.create_session(client_info).await.unwrap();
         assert_eq!(manager.session_count().await, 1);
 
         // Wait for expiry

@@ -11,9 +11,7 @@ pub struct ConsoleLogger {
 impl ConsoleLogger {
     /// Create a new console logger with automatic color detection
     pub fn new() -> Self {
-        Self {
-            color_choice: ColorChoice::Auto,
-        }
+        Self::default()
     }
     
     /// Create a console logger with specific color choice
@@ -46,5 +44,13 @@ impl ConsoleLogger {
         let _ = writeln!(&mut stderr, "✗ {}", message);
         let _ = stderr.reset();
         log::error!("{}", message);
+    }
+}
+
+impl Default for ConsoleLogger {
+    fn default() -> Self {
+        Self {
+            color_choice: ColorChoice::Auto,
+        }
     }
 }

@@ -3,18 +3,43 @@
 //! This module provides the core EdgeService struct and initialization logic
 //! with zero allocation fast paths and blazing-fast performance.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
+use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::time::Instant;
 
 use pingora_load_balancing::Backend;
 use tokio::sync::mpsc::Sender;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info};
 
 use crate::{
     auth::JwtAuth, config::Config, load::Load, metric_picker::MetricPicker,
     peer_discovery::PeerRegistry, rate_limit::AdvancedRateLimitManager,
     shutdown::ShutdownCoordinator,
 };
+
+/// Atomic metrics for thread-safe request tracking
+/// Pattern follows load.rs - lock-free operations with Ordering::Relaxed
+pub struct AtomicMetrics {
+    pub total_requests: AtomicU64,
+    pub successful_requests: AtomicU64,
+    pub failed_requests: AtomicU64,
+    pub active_connections: AtomicU64,
+    pub total_response_time_us: AtomicU64,  // Reserved for future use
+}
+
+impl AtomicMetrics {
+    pub fn new() -> Self {
+        Self {
+            total_requests: AtomicU64::new(0),
+            successful_requests: AtomicU64::new(0),
+            failed_requests: AtomicU64::new(0),
+            active_connections: AtomicU64::new(0),
+            total_response_time_us: AtomicU64::new(0),
+        }
+    }
+}
 
 /// EdgeService provides auth, overload protection, and routing functionality
 /// with zero allocation fast paths and blazing-fast performance
@@ -28,6 +53,12 @@ pub struct EdgeService {
     pub peer_registry: PeerRegistry,
     pub rate_limit_manager: Arc<AdvancedRateLimitManager>,
     pub shutdown_coordinator: Arc<ShutdownCoordinator>,
+    /// Maps backend SocketAddr to original upstream URL for TLS detection
+    pub upstream_urls: Arc<HashMap<SocketAddr, String>>,
+    /// Atomic metrics for request tracking
+    pub metrics: Arc<AtomicMetrics>,
+    /// Service start time for uptime calculation
+    pub start_time: Instant,
 }
 
 impl EdgeService {
@@ -37,37 +68,57 @@ impl EdgeService {
         bridge_tx: Sender<crate::mcp_bridge::BridgeMsg>,
         peer_registry: PeerRegistry,
     ) -> Self {
-        // Create Backend objects from upstream URLs with zero allocation fast path
-        let backends: BTreeSet<Backend> = cfg
-            .upstreams
-            .iter()
-            .filter_map(|url| {
-                // Parse URL to extract host:port with optimized parsing
-                match url.parse::<url::Url>() {
-                    Ok(parsed) => {
-                        if let Some(host) = parsed.host_str() {
-                            let port = parsed.port().unwrap_or(80);
-                            Backend::new(&format!("{}:{}", host, port)).ok()
-                        } else {
-                            None
+        // Parse URLs and build both backends and URL map
+        let mut backends = BTreeSet::new();
+        let mut url_map = HashMap::new();
+
+        for url in &cfg.upstreams {
+            match url::Url::parse(url) {
+                Ok(parsed) => {
+                    if let Some(host) = parsed.host_str() {
+                        // Determine port based on scheme
+                        let port = parsed.port().unwrap_or(
+                            if parsed.scheme() == "https" { 443 } else { 80 }
+                        );
+                        
+                        // Create backend address
+                        let addr_str = format!("{}:{}", host, port);
+                        if let Ok(backend) = Backend::new(&addr_str) {
+                            // Store backend
+                            backends.insert(backend.clone());
+                            
+                            // Map SocketAddr to original URL for TLS lookup
+                            if let Ok(sock_addr) = addr_str.parse::<SocketAddr>() {
+                                url_map.insert(sock_addr, url.clone());
+                            }
                         }
                     }
-                    Err(e) => {
-                        error!("Failed to parse upstream URL {}: {}", url, e);
-                        None
-                    }
                 }
-            })
-            .collect();
+                Err(e) => {
+                    error!("Failed to parse upstream URL {}: {}", url, e);
+                }
+            }
+        }
 
-        info!("Initialized EdgeService with {} backends", backends.len());
+        let upstream_urls = Arc::new(url_map);
+        info!("Initialized EdgeService with {} backends, {} URL mappings", 
+             backends.len(), upstream_urls.len());
 
         // Initialize components with optimized settings
-        let auth = JwtAuth::new(&cfg.jwt_secret);
-        let picker = Arc::new(MetricPicker::new(backends.clone()));
+        let auth = JwtAuth::new(cfg.jwt_secret.clone(), cfg.jwt_expiry);
+        let picker = Arc::new(MetricPicker::from_backends(&backends));
         let load = Arc::new(Load::new());
-        let rate_limit_manager = Arc::new(AdvancedRateLimitManager::new());
-        let shutdown_coordinator = Arc::new(ShutdownCoordinator::new());
+        let rate_limit_manager = Arc::new(AdvancedRateLimitManager::new(
+            cfg.rate_limit.per_ip_rps as f64,
+            cfg.rate_limit.burst_capacity,
+            60, // 60 second window
+        ));
+        let shutdown_coordinator = Arc::new(ShutdownCoordinator::new(
+            std::env::temp_dir().join("sweetmcp")
+        ));
+
+        let metrics = Arc::new(AtomicMetrics::new());
+        let start_time = Instant::now();
 
         Self {
             cfg,
@@ -78,6 +129,9 @@ impl EdgeService {
             peer_registry,
             rate_limit_manager,
             shutdown_coordinator,
+            upstream_urls,
+            metrics,
+            start_time,
         }
     }
 
@@ -114,6 +168,20 @@ impl EdgeService {
     /// Get shutdown coordinator
     pub fn shutdown_coordinator(&self) -> &Arc<ShutdownCoordinator> {
         &self.shutdown_coordinator
+    }
+
+    /// Extract TLS configuration from upstream URL
+    /// Returns (use_tls, sni_hostname)
+    pub fn get_tls_config(&self, addr: &SocketAddr) -> (bool, String) {
+        if let Some(url_str) = self.upstream_urls.get(addr) {
+            if let Ok(url) = url::Url::parse(url_str) {
+                let use_tls = url.scheme() == "https";
+                let sni = url.host_str().unwrap_or("").to_string();
+                return (use_tls, sni);
+            }
+        }
+        // Fallback: no TLS, no SNI
+        (false, String::new())
     }
 
     /// Check if service is properly initialized
@@ -186,8 +254,7 @@ impl EdgeService {
         // Use shutdown coordinator for graceful shutdown
         self.shutdown_coordinator
             .initiate_shutdown()
-            .await
-            .map_err(|e| EdgeServiceError::ShutdownError(e.to_string()))?;
+            .await;
 
         info!("EdgeService shutdown completed");
         Ok(())
@@ -205,6 +272,9 @@ impl EdgeService {
             peer_registry: self.peer_registry.clone(),
             rate_limit_manager: self.rate_limit_manager.clone(),
             shutdown_coordinator: self.shutdown_coordinator.clone(),
+            upstream_urls: self.upstream_urls.clone(),
+            metrics: self.metrics.clone(),
+            start_time: self.start_time,
         };
 
         temp_service.validate_config()?;
@@ -227,6 +297,9 @@ impl EdgeService {
             peer_registry: self.peer_registry.clone(),
             rate_limit_manager: self.rate_limit_manager.clone(),
             shutdown_coordinator: self.shutdown_coordinator.clone(),
+            upstream_urls: self.upstream_urls.clone(),
+            metrics: self.metrics.clone(),
+            start_time: self.start_time,
         }
     }
 }
@@ -264,6 +337,9 @@ pub enum EdgeServiceError {
     #[error("Backend error: {0}")]
     BackendError(String),
 
+    #[error("Network error: {0}")]
+    NetworkError(String),
+
     #[error("Shutdown error: {0}")]
     ShutdownError(String),
 
@@ -279,6 +355,7 @@ impl EdgeServiceError {
             EdgeServiceError::AuthenticationError(_) => true,
             EdgeServiceError::RateLimitError(_) => true,
             EdgeServiceError::BackendError(_) => true,
+            EdgeServiceError::NetworkError(_) => true,
             EdgeServiceError::ShutdownError(_) => false,
             EdgeServiceError::InternalError(_) => false,
         }
@@ -293,6 +370,7 @@ impl EdgeServiceError {
             EdgeServiceError::BackendError(_) => ErrorSeverity::Error,
             EdgeServiceError::ShutdownError(_) => ErrorSeverity::Critical,
             EdgeServiceError::InternalError(_) => ErrorSeverity::Critical,
+            EdgeServiceError::NetworkError(_) => ErrorSeverity::Error,
         }
     }
 }

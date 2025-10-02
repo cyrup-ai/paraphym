@@ -148,8 +148,8 @@ pub fn resources_list_stream(request: Option<ListResourcesRequest>) -> ResourceS
         };
 
         let response = db_client
-            .query_with_params::<Vec<NodeRow>>(&query, bindings)
-            .await; // Ensure type is Vec<NodeRow>
+            .query_with_params_vec::<NodeRow>(&query, bindings)
+            .await;
 
         #[derive(serde::Deserialize, Debug)]
         struct NodeRow {
@@ -384,8 +384,8 @@ pub fn resource_read_async(request: ReadResourceRequest) -> AsyncResource {
         };
 
         let response = db_client
-            .get::<NodeRow>("node", &thing_id.to_string())
-            .await; // Use client.get
+            .find_by_id::<NodeRow>("node", &thing_id.id.to_string())
+            .await;
 
         match response {
             Ok(Some(row)) => {

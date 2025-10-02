@@ -40,6 +40,74 @@ impl MessageChunk for ChannelResult {
     }
 }
 
+/// Result type for oneshot channel operations that carries the actual value
+#[derive(Debug, Clone)]
+pub enum OneshotResult<T> {
+    /// Successfully received value
+    Ok(T),
+    /// Channel error occurred
+    Err(String),
+}
+
+impl<T> OneshotResult<T> {
+    /// Extract the value, panicking if it's an error
+    ///
+    /// # Panics
+    ///
+    /// Panics if the result is an `Err` value
+    pub fn unwrap(self) -> T {
+        match self {
+            OneshotResult::Ok(value) => value,
+            OneshotResult::Err(err) => panic!("called `OneshotResult::unwrap()` on an `Err` value: {err}"),
+        }
+    }
+    
+    /// Extract the value or return a default
+    pub fn unwrap_or(self, default: T) -> T {
+        match self {
+            OneshotResult::Ok(value) => value,
+            OneshotResult::Err(_) => default,
+        }
+    }
+    
+    /// Convert to Option, discarding error message
+    pub fn ok(self) -> Option<T> {
+        match self {
+            OneshotResult::Ok(value) => Some(value),
+            OneshotResult::Err(_) => None,
+        }
+    }
+    
+    /// Check if this is an Ok result
+    pub fn is_ok(&self) -> bool {
+        matches!(self, OneshotResult::Ok(_))
+    }
+    
+    /// Check if this is an Err result  
+    pub fn is_err(&self) -> bool {
+        matches!(self, OneshotResult::Err(_))
+    }
+}
+
+impl<T: Clone> MessageChunk for OneshotResult<T> {
+    fn bad_chunk(error: String) -> Self {
+        OneshotResult::Err(error)
+    }
+    
+    fn error(&self) -> Option<&str> {
+        match self {
+            OneshotResult::Ok(_) => None,
+            OneshotResult::Err(err) => Some(err.as_str()),
+        }
+    }
+}
+
+impl<T: Clone> Default for OneshotResult<T> {
+    fn default() -> Self {
+        OneshotResult::Err("Default oneshot result".to_string())
+    }
+}
+
 
 /// A multi-producer, single-consumer channel for sending values between tasks
 pub struct Channel<T> {
@@ -144,7 +212,7 @@ impl<T> OneshotChannel<T> {
     }
 }
 
-impl<T: Send + 'static + MessageChunk + Default> OneshotChannel<T> {
+impl<T: Send + Clone + 'static> OneshotChannel<T> {
     /// Send a value through the channel
     ///
     /// # Errors
@@ -159,22 +227,14 @@ impl<T: Send + 'static + MessageChunk + Default> OneshotChannel<T> {
     }
 
     /// Receive the value from the channel
-    pub fn recv(self) -> AsyncStream<ChannelResult> {
+    pub fn recv(self) -> AsyncStream<OneshotResult<T>> {
         AsyncStream::with_channel(|stream_sender| {
             std::thread::spawn(move || {
-                if let Ok(_value) = self.receiver.recv() {
-                    // For oneshot channels, we need a different approach since T might not implement MessageChunk
-                    // This is a design issue - oneshot channels need to return the actual value
-                    // For now, signal success
-                    let result = ChannelResult {
-                        success: true,
-                        error_message: None,
-                    };
-                    let _ = stream_sender.send(result);
-                } else {
-                    let result = ChannelResult::bad_chunk("Channel closed".to_string());
-                    let _ = stream_sender.send(result);
-                }
+                let result = match self.receiver.recv() {
+                    Ok(value) => OneshotResult::Ok(value),
+                    Err(_) => OneshotResult::Err("Channel closed".to_string()),
+                };
+                let _ = stream_sender.send(result);
             });
         })
     }

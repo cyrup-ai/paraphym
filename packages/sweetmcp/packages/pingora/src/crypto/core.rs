@@ -4,6 +4,8 @@
 //! token handling with NaCl box encryption, zero allocation patterns, and
 //! blazing-fast performance.
 
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -11,9 +13,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::Result;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
-use sodiumoxide::crypto::{box_, sealedbox};
+use sodiumoxide::crypto::box_;
 use tokio::sync::RwLock;
-use tracing::{error, info};
+use tracing::info;
 
 pub const TOKEN_ROTATION_HOURS: u64 = 24;
 pub const TOKEN_VALIDITY_HOURS: u64 = 48; // Allow grace period for rotation
@@ -36,7 +38,7 @@ pub struct TokenManager {
     /// Previous keypair for decryption during rotation
     pub previous_keypair: Arc<RwLock<Option<TokenKeypair>>>,
     /// Revoked token identifiers with revocation timestamp
-    revoked_tokens: Arc<RwLock<HashMap<String, SystemTime>>>,
+    pub revoked_tokens: Arc<RwLock<HashMap<String, SystemTime>>>,
 }
 
 /// Cryptographic keypair for token operations
@@ -71,7 +73,7 @@ impl TokenManager {
     }
 
     /// Generate a new keypair
-    fn generate_keypair() -> Result<TokenKeypair> {
+    pub fn generate_keypair() -> Result<TokenKeypair> {
         let (public_key, secret_key) = box_::gen_keypair();
 
         // Generate deterministic key ID from public key
@@ -91,7 +93,7 @@ impl TokenManager {
         Ok(KeyInfo {
             key_id: current.key_id.clone(),
             created_at: current.created_at,
-            public_key_b64: BASE64.encode(&current.public_key.0),
+            public_key_b64: BASE64.encode(current.public_key.0),
         })
     }
 
@@ -102,7 +104,7 @@ impl TokenManager {
             Ok(Some(KeyInfo {
                 key_id: prev_keypair.key_id.clone(),
                 created_at: prev_keypair.created_at,
-                public_key_b64: BASE64.encode(&prev_keypair.public_key.0),
+                public_key_b64: BASE64.encode(prev_keypair.public_key.0),
             }))
         } else {
             Ok(None)
@@ -189,7 +191,7 @@ impl TokenManager {
         now.hash(&mut hasher);
         let hash = hasher.finish();
 
-        BASE64.encode(&hash.to_le_bytes())
+        BASE64.encode(hash.to_le_bytes())
     }
 
     /// Validate encrypted token structure

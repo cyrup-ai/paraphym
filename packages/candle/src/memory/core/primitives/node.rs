@@ -9,6 +9,7 @@ use cyrup_sugars::prelude::*;
 
 use super::metadata::MemoryMetadata;
 use super::types::{MemoryTypeEnum, MemoryContent};
+use crate::memory::monitoring::operations::OperationStatus;
 
 /// A memory node in the memory system
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,8 +26,13 @@ pub struct MemoryNode {
     pub updated_at: DateTime<Utc>,
     /// Embedding vector
     pub embedding: Option<Vec<f32>>,
+    /// Cognitive evaluation status (pending, in progress, complete)
+    pub evaluation_status: OperationStatus,
     /// Metadata associated with the memory
     pub metadata: MemoryMetadata,
+    /// Relevance score from vector similarity search (0.0 to 1.0)
+    /// Only populated when memory is retrieved via search operations
+    pub relevance_score: Option<f32>,
 }
 
 impl MemoryNode {
@@ -42,7 +48,9 @@ impl MemoryNode {
             created_at: now,
             updated_at: now,
             embedding: None,
+            evaluation_status: OperationStatus::Pending,
             metadata: MemoryMetadata::with_memory_type(memory_type),
+            relevance_score: None,
         }
     }
 
@@ -57,7 +65,9 @@ impl MemoryNode {
             created_at: now,
             updated_at: now,
             embedding: None,
+            evaluation_status: OperationStatus::Pending,
             metadata: MemoryMetadata::with_memory_type(memory_type),
+            relevance_score: None,
         }
     }
 
@@ -104,6 +114,17 @@ impl MemoryNode {
         self.metadata.last_accessed_at
     }
 
+    /// Get the cognitive evaluation status
+    pub fn evaluation_status(&self) -> &OperationStatus {
+        &self.evaluation_status
+    }
+
+    /// Set the cognitive evaluation status
+    pub fn set_evaluation_status(&mut self, status: OperationStatus) {
+        self.evaluation_status = status;
+        self.updated_at = Utc::now();
+    }
+
     /// Get base memory representation - returns a reference to self for now
     pub fn base_memory(&self) -> &Self {
         self
@@ -120,6 +141,7 @@ impl Default for MemoryNode {
             created_at: now,
             updated_at: now,
             embedding: None,
+            evaluation_status: OperationStatus::Pending,
             metadata: MemoryMetadata::default(),
         }
     }

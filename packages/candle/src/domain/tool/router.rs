@@ -166,7 +166,17 @@ impl SweetMcpRouter {
 
         // Spawn async work without blocking - sender is moved into spawned task
         AsyncStream::with_channel(move |sender| {
-            crate::runtime::shared_runtime().spawn(async move {
+            let Some(runtime) = crate::runtime::shared_runtime() else {
+                let error_value = Value::Object(
+                    [("error".to_string(), Value::String("Runtime unavailable for tool execution".to_string()))]
+                    .into_iter()
+                    .collect::<serde_json::Map<_, _>>()
+                );
+                ystream::emit!(sender, CandleJsonChunk(error_value));
+                return;
+            };
+            
+            runtime.spawn(async move {
                 match router.call_tool(&tool_name, args).await {
                     Ok(result) => {
                         ystream::emit!(sender, CandleJsonChunk(result));

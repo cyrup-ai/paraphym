@@ -1,6 +1,8 @@
 //! 1-minute load-average + inflight counter overload check.
 //! Lock-free implementation using atomic operations for blazing-fast performance.
 
+#![allow(dead_code)]
+
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use atomic_counter::{AtomicCounter, RelaxedCounter};
@@ -101,6 +103,12 @@ impl Load {
             total_requests: self.total_requests.get(),
             cpu_count: self.cpus,
         }
+    }
+
+    /// Record a request to a backend (increments counters)
+    #[inline]
+    pub fn record_request(&self, _backend: &pingora_load_balancing::Backend) {
+        self.inc();
     }
 }
 

@@ -384,6 +384,7 @@ impl EpisodicMemory {
                     created_at: episodic.base.metadata.created_at,
                     updated_at: episodic.base.updated_at,
                     embedding: None,
+                    evaluation_status: crate::memory::monitoring::operations::OperationStatus::Pending,
                     metadata,
                 };
 

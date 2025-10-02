@@ -1,8 +1,8 @@
-use serde_json::{json, Value};
+use serde_json::json;
 
 use super::parsers::{create_basic_schema_types, graphql_to_json_rpc_with_schema};
 use super::schema_introspection::SchemaIntrospector;
-use super::types::{GraphQLTypeInfo, GraphQLTypeKind};
+use super::types::GraphQLTypeKind;
 
 #[tokio::test]
 async fn test_graphql_to_json_rpc_with_fallback_schema() {
@@ -82,13 +82,13 @@ async fn test_fragment_resolution_with_schema_validation() {
 fn test_schema_introspector_with_custom_settings() {
     use std::time::Duration;
 
-    let introspector =
+    let _introspector =
         SchemaIntrospector::with_settings(Duration::from_secs(10), Duration::from_secs(1800))
             .expect("Failed to create introspector with custom settings");
 
     // Just verify it was created successfully - we can't easily test the internal settings
     // without exposing them, but the creation itself validates the settings work
-    assert!(true); // Placeholder assertion - creation success is the real test
+    // Note: Creation success is the real test - no assertion needed
 }
 
 #[test]

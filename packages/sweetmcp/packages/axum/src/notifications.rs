@@ -53,6 +53,12 @@ pub struct NotificationPayload {
     pub params: Value,
 }
 
+impl Default for NotificationRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NotificationRegistry {
     pub fn new() -> Self {
         Self {

@@ -5,6 +5,7 @@ pub mod crypto;
 pub mod dns_discovery;
 pub mod mdns_discovery;
 pub mod metrics;
+pub mod normalize;
 pub mod peer_discovery;
 pub mod rate_limit;
 pub mod shutdown;

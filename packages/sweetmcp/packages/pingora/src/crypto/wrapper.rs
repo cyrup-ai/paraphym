@@ -4,10 +4,12 @@
 //! encryption/decryption automatically with zero allocation patterns
 //! and blazing-fast performance.
 
+#![allow(dead_code)]
+
 use std::sync::Arc;
 
 use anyhow::Result;
-use tracing::{debug, warn};
+use tracing::debug;
 
 use crate::crypto::core::*;
 use crate::crypto::operations::*;
@@ -115,7 +117,7 @@ impl SecureDiscoveryToken {
 
     /// Check if token is empty
     pub fn is_empty(&self) -> bool {
-        self.raw_token.as_ref().map_or(true, |t| t.is_empty())
+        self.raw_token.as_ref().is_none_or(|t| t.is_empty())
     }
 
     /// Validate token format

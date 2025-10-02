@@ -5,11 +5,11 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use super::algorithms::{HybridAlgorithm, RateLimitAlgorithm, SlidingWindow, TokenBucket};
 
@@ -123,7 +123,7 @@ impl AdvancedRateLimitManager {
             }
         } else {
             // Create new endpoint limiter with fast limiter creation
-            let limiter = self.create_limiter_for_endpoint(endpoint);
+            let mut limiter = self.create_limiter_for_endpoint(endpoint);
             let mut requests_allowed = 0;
             for _ in 0..request_count {
                 if limiter.try_request() {
@@ -148,7 +148,7 @@ impl AdvancedRateLimitManager {
                     }
                 } else {
                     // Create new peer limiter with optimized peer limiter creation
-                    let limiter = self.create_limiter_for_peer(peer);
+                    let mut limiter = self.create_limiter_for_peer(peer);
                     let mut requests_allowed = 0;
                     for _ in 0..request_count {
                         if limiter.try_request() {
@@ -180,7 +180,7 @@ impl AdvancedRateLimitManager {
     /// Create rate limiter for specific endpoint with optimized creation
     fn create_limiter_for_endpoint(
         &self,
-        endpoint: &str,
+        _endpoint: &str,
     ) -> Box<dyn RateLimitAlgorithm + Send + Sync> {
         // Use endpoint-specific configuration if available, otherwise use global config
         match self.global_config.algorithm {
@@ -198,7 +198,7 @@ impl AdvancedRateLimitManager {
     }
 
     /// Create rate limiter for specific peer with optimized peer limiter creation
-    fn create_limiter_for_peer(&self, peer: &str) -> Box<dyn RateLimitAlgorithm + Send + Sync> {
+    fn create_limiter_for_peer(&self, _peer: &str) -> Box<dyn RateLimitAlgorithm + Send + Sync> {
         // Use peer-specific configuration if available, otherwise use global config
         match self.global_config.algorithm {
             RateLimitAlgorithmType::TokenBucket => {
@@ -220,8 +220,8 @@ impl AdvancedRateLimitManager {
             return; // Already running
         }
 
-        let endpoint_limiters = Arc::clone(&self.endpoint_limiters);
-        let peer_limiters = Arc::clone(&self.peer_limiters);
+        let endpoint_limiters: Arc<DashMap<String, Box<dyn RateLimitAlgorithm + Send + Sync>>> = Arc::clone(&self.endpoint_limiters);
+        let peer_limiters: Arc<DashMap<String, Box<dyn RateLimitAlgorithm + Send + Sync>>> = Arc::clone(&self.peer_limiters);
         let operational = Arc::clone(&self.operational);
 
         let handle = tokio::spawn(async move {
@@ -309,14 +309,14 @@ impl AdvancedRateLimitManager {
 
         // Remove inactive endpoint limiters
         self.endpoint_limiters.retain(|_, limiter| {
-            limiter.last_used().map_or(true, |last_used| {
+            limiter.last_used().is_none_or(|last_used| {
                 now.duration_since(last_used) < cleanup_threshold
             })
         });
 
         // Remove inactive peer limiters
         self.peer_limiters.retain(|_, limiter| {
-            limiter.last_used().map_or(true, |last_used| {
+            limiter.last_used().is_none_or(|last_used| {
                 now.duration_since(last_used) < cleanup_threshold
             })
         });
@@ -347,6 +347,16 @@ impl AdvancedRateLimitManager {
     /// Get current configuration with zero allocation access
     pub fn get_config(&self) -> &RateLimitConfig {
         &self.global_config
+    }
+
+    /// Check rate limit for a client ID (wrapper for check_request)
+    pub fn check_rate_limit(&self, client_id: &str, count: u32) -> bool {
+        self.check_request(client_id, None, count)
+    }
+
+    /// Check if the rate limiter is healthy
+    pub async fn is_healthy(&self) -> bool {
+        self.is_operational()
     }
 }
 

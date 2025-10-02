@@ -4,14 +4,21 @@ members = [
     "packages/simd",
     "packages/candle",
     "packages/cylo",
+    "packages/sweetmcp/packages/autoconfig",
+    "packages/sweetmcp/packages/axum",
     "packages/sweetmcp/packages/capnp-client",
+    "packages/sweetmcp/packages/daemon",
     "packages/sweetmcp/packages/graphql-client",
     "packages/sweetmcp/packages/json-client",
     "packages/sweetmcp/packages/mcp-client-traits",
+    "packages/sweetmcp/packages/pingora",
+    "packages/sweetmcp/packages/plugin-builder",
+    "packages/sweetmcp/packages/sse-client",
+    "packages/sweetmcp/packages/stdio-client",
     "packages/sweetmcp/packages/sweet-mcp-type",
     "packages/sweetmcp/packages/voice-tools",
 ]
-exclude = ["tmp/candle", "tmp/*", "forks/surrealdb", "packages/sweetmcp/packages/autoconfig", "packages/sweetmcp/packages/axum", "packages/sweetmcp/packages/daemon", "packages/sweetmcp/packages/pingora", "packages/sweetmcp/packages/plugin-builder", "packages/sweetmcp/packages/sixel6vt"]
+exclude = ["tmp/candle", "tmp/*", "forks/surrealdb", "packages/sweetmcp/packages/sixel6vt"]
 
 
 [workspace.package]
@@ -20,4 +27,7 @@ edition = "2024"
 license = "MIT"
 authors = ["CYRUP AI"]
 repository = "https://github.com/cyrup-ai/paraphym"
+
+[patch.crates-io]
+num-bigint-dig = { path = "tmp/num-bigint-dig" }
 

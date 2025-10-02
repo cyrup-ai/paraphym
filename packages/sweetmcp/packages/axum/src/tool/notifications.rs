@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::types::CancelledNotification;
 
 /// Tool-specific notification types and logic (e.g., progress, completion, errors).
-
+#[allow(dead_code)] // Used for tool progress notifications in MCP protocol
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolProgressNotification {
     pub tool_name: String,

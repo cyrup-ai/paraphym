@@ -3,23 +3,26 @@
 //! This module provides comprehensive distributed rate limiting coordination
 //! with zero allocation fast paths and blazing-fast performance.
 
+#![allow(dead_code)]
+
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicF64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
+use prometheus::core::{Atomic, AtomicF64};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 
-use super::algorithms::{AlgorithmState, RateLimitAlgorithmType, RateLimiter};
+use super::algorithms::{AlgorithmState, RateLimiter};
+use super::algorithms::RateLimitAlgorithmConfig;
 use super::limiter::{SlidingWindowConfig, TokenBucketConfig};
 
 /// Endpoint-specific rate limiting configuration with advanced settings
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EndpointRateConfig {
     /// Rate limiting algorithm to use
-    pub algorithm: RateLimitAlgorithmType,
+    pub algorithm: RateLimitAlgorithmConfig,
     /// Whether to apply per-peer rate limiting
     pub per_peer: bool,
     /// Multiplier for trusted peers (>1.0 allows more requests)
@@ -43,13 +46,13 @@ pub struct DistributedRateLimitManager {
 impl DistributedRateLimitManager {
     /// Create new distributed rate limiting manager with optimized initialization
     pub fn new() -> Self {
-        let mut endpoint_configs = DashMap::new();
+        let endpoint_configs = DashMap::new();
 
         // Configure default rate limits for common endpoints with production-ready limits
         endpoint_configs.insert(
             "/api/peers".to_string(),
             EndpointRateConfig {
-                algorithm: RateLimitAlgorithmType::TokenBucket(TokenBucketConfig {
+                algorithm: RateLimitAlgorithmConfig::TokenBucket(TokenBucketConfig {
                     capacity: 20,
                     refill_rate: 2.0, // 2 requests per second
                     initial_tokens: 20,
@@ -62,7 +65,7 @@ impl DistributedRateLimitManager {
         endpoint_configs.insert(
             "/api/register".to_string(),
             EndpointRateConfig {
-                algorithm: RateLimitAlgorithmType::SlidingWindow(SlidingWindowConfig {
+                algorithm: RateLimitAlgorithmConfig::SlidingWindow(SlidingWindowConfig {
                     window_size: 300, // 5 minutes
                     max_requests: 10, // 10 registrations per 5 minutes
                     sub_windows: 10,  // 30-second sub-windows
@@ -75,7 +78,7 @@ impl DistributedRateLimitManager {
         endpoint_configs.insert(
             "/health".to_string(),
             EndpointRateConfig {
-                algorithm: RateLimitAlgorithmType::TokenBucket(TokenBucketConfig {
+                algorithm: RateLimitAlgorithmConfig::TokenBucket(TokenBucketConfig {
                     capacity: 100,
                     refill_rate: 50.0, // High rate for health checks
                     initial_tokens: 100,
@@ -88,7 +91,7 @@ impl DistributedRateLimitManager {
         endpoint_configs.insert(
             "/metrics".to_string(),
             EndpointRateConfig {
-                algorithm: RateLimitAlgorithmType::TokenBucket(TokenBucketConfig {
+                algorithm: RateLimitAlgorithmConfig::TokenBucket(TokenBucketConfig {
                     capacity: 50,
                     refill_rate: 10.0, // Moderate rate for metrics
                     initial_tokens: 50,
@@ -121,7 +124,7 @@ impl DistributedRateLimitManager {
         };
 
         // Apply load-based adjustment using lock-free atomic operation
-        let load_multiplier = self.load_multiplier.load(Ordering::Relaxed);
+        let load_multiplier = self.load_multiplier.get();
         let adjusted_tokens = ((tokens as f64) / load_multiplier).max(1.0) as u32;
 
         if config.per_peer {
@@ -147,10 +150,10 @@ impl DistributedRateLimitManager {
         if !self.endpoint_limiters.contains_key(endpoint) {
             // Create new limiter if it doesn't exist
             let limiter = match &config.algorithm {
-                RateLimitAlgorithmType::TokenBucket(token_config) => RateLimiter::TokenBucket(
+                RateLimitAlgorithmConfig::TokenBucket(token_config) => RateLimiter::TokenBucket(
                     super::algorithms::TokenBucket::new(token_config.clone()),
                 ),
-                RateLimitAlgorithmType::SlidingWindow(window_config) => RateLimiter::SlidingWindow(
+                RateLimitAlgorithmConfig::SlidingWindow(window_config) => RateLimiter::SlidingWindow(
                     super::algorithms::SlidingWindow::new(window_config.clone()),
                 ),
             };
@@ -192,10 +195,10 @@ impl DistributedRateLimitManager {
             // Lock-free get or insert peer-specific limiter
             if !endpoint_limiters.contains_key(peer_ip) {
                 let limiter = match &config.algorithm {
-                    RateLimitAlgorithmType::TokenBucket(token_config) => RateLimiter::TokenBucket(
+                    RateLimitAlgorithmConfig::TokenBucket(token_config) => RateLimiter::TokenBucket(
                         super::algorithms::TokenBucket::new(token_config.clone()),
                     ),
-                    RateLimitAlgorithmType::SlidingWindow(window_config) => {
+                    RateLimitAlgorithmConfig::SlidingWindow(window_config) => {
                         RateLimiter::SlidingWindow(super::algorithms::SlidingWindow::new(
                             window_config.clone(),
                         ))
@@ -209,7 +212,7 @@ impl DistributedRateLimitManager {
                 let allowed = peer_entry.check_request(tokens);
 
                 if !allowed {
-                    crate::metrics::record_peer_rate_limit_rejection(endpoint, peer_ip);
+                    crate::metrics::record_rate_limit_rejection(endpoint);
                     warn!(
                         "Rate limit exceeded for peer {} on endpoint {}",
                         peer_ip, endpoint
@@ -229,16 +232,16 @@ impl DistributedRateLimitManager {
 
     /// Update load multiplier for dynamic rate adjustment with atomic update
     pub fn update_load_multiplier(&self, multiplier: f64) {
-        let clamped_multiplier = multiplier.max(0.1).min(10.0); // Clamp between 0.1 and 10.0
+        let clamped_multiplier = multiplier.clamp(0.1, 10.0); // Clamp between 0.1 and 10.0
         self.load_multiplier
-            .store(clamped_multiplier, Ordering::Relaxed);
+            .set(clamped_multiplier);
 
         debug!("Updated load multiplier to {:.2}", clamped_multiplier);
     }
 
     /// Get current load multiplier with zero allocation access
     pub fn get_load_multiplier(&self) -> f64 {
-        self.load_multiplier.load(Ordering::Relaxed)
+        self.load_multiplier.get()
     }
 
     /// Add or update endpoint configuration with optimized config management
@@ -285,7 +288,7 @@ impl DistributedRateLimitManager {
         // Lock-free access to load multiplier
         stats.insert(
             "load_multiplier".to_string(),
-            serde_json::json!(self.load_multiplier.load(Ordering::Relaxed)),
+            serde_json::json!(self.load_multiplier.get()),
         );
 
         // Add endpoint-specific statistics
@@ -303,8 +306,8 @@ impl DistributedRateLimitManager {
             endpoint_info.insert(
                 "algorithm",
                 serde_json::json!(match &config.algorithm {
-                    RateLimitAlgorithmType::TokenBucket(_) => "TokenBucket",
-                    RateLimitAlgorithmType::SlidingWindow(_) => "SlidingWindow",
+                    RateLimitAlgorithmConfig::TokenBucket(_) => "TokenBucket",
+                    RateLimitAlgorithmConfig::SlidingWindow(_) => "SlidingWindow",
                 }),
             );
 
@@ -358,7 +361,7 @@ impl DistributedRateLimitManager {
         // Collect endpoint limiter states
         for entry in self.endpoint_limiters.iter() {
             let endpoint = entry.key().clone();
-            let mut limiter = entry.value().clone();
+            let limiter = entry.value();
             endpoint_states.insert(endpoint, limiter.get_state());
         }
 
@@ -370,7 +373,7 @@ impl DistributedRateLimitManager {
             let mut endpoint_peer_states = HashMap::new();
             for peer_entry in peer_limiters.iter() {
                 let peer_ip = peer_entry.key().clone();
-                let mut limiter = peer_entry.value().clone();
+                let limiter = peer_entry.value();
                 endpoint_peer_states.insert(peer_ip, limiter.get_state());
             }
 
@@ -380,7 +383,7 @@ impl DistributedRateLimitManager {
         }
 
         DistributedRateLimitState {
-            load_multiplier: self.load_multiplier.load(Ordering::Relaxed),
+            load_multiplier: self.load_multiplier.get(),
             endpoint_states,
             peer_states,
             total_endpoints: self.endpoint_configs.len(),
@@ -392,8 +395,8 @@ impl DistributedRateLimitManager {
     /// Check if distributed manager is healthy with comprehensive health check
     pub fn is_healthy(&self) -> bool {
         // Check if load multiplier is within reasonable bounds
-        let load_multiplier = self.load_multiplier.load(Ordering::Relaxed);
-        if load_multiplier < 0.01 || load_multiplier > 100.0 {
+        let load_multiplier = self.load_multiplier.get();
+        if !(0.01..=100.0).contains(&load_multiplier) {
             return false;
         }
 
@@ -424,7 +427,7 @@ impl DistributedRateLimitManager {
         }
 
         // Reset load multiplier
-        self.load_multiplier.store(1.0, Ordering::Relaxed);
+        self.load_multiplier.set(1.0);
 
         info!("All rate limiters have been properly reset");
     }

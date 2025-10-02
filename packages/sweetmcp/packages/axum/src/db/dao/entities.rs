@@ -116,7 +116,7 @@ pub struct User {
 }
 
 /// User profile information
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UserProfile {
     pub first_name: Option<String>,
     pub last_name: Option<String>,
@@ -376,20 +376,6 @@ impl UserProfile {
         }
 
         filled_fields / total_fields
-    }
-}
-
-impl Default for UserProfile {
-    fn default() -> Self {
-        Self {
-            first_name: None,
-            last_name: None,
-            display_name: None,
-            bio: None,
-            avatar_url: None,
-            timezone: None,
-            locale: None,
-        }
     }
 }
 

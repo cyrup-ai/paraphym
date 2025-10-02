@@ -11,7 +11,7 @@ categories = ["science", "mathematics", "algorithms", "api-bindings"]
 
 
 [dependencies]
-bitflags = "2.9.4"
+bitflags = { version = "2.9.4", features = ["serde"] }
 paraphym_simd = { path = "../simd" }
 cylo = { path = "../cylo" }
 
@@ -26,7 +26,16 @@ shell-words = "1.1"
 quyc = { git = "https://github.com/cyrup-ai/quyc", branch = "main", package = "quyc" }  
 cyrup_sugars = { git = "https://github.com/cyrup-ai/cyrup-sugars", branch = "main", package = "cyrup_sugars", features = ["all"] }
 ystream = { git = "https://github.com/cyrup-ai/ystream", branch = "main", package = "ystream" }
-progresshub = { git = "https://github.com/cyrup-ai/progresshub", branch = "main", package = "progresshub" }
+progresshub = { git = "https://github.com/cyrup-ai/progresshub", branch = "main", package = "progresshub", optional = true }
+
+# Add hf-hub as optional dependency
+hf-hub = { version = "0.3", optional = true, default-features = false, features = ["online", "tokio"] }
+
+# async-trait needed for the download trait
+async-trait = "0.1"
+
+# For finding home directory
+dirs = "5.0"
 
 # SurrealDB and its features
 surrealdb = { path = "../../forks/surrealdb/crates/sdk", features = ["http", "protocol-http", "kv-surrealkv", "kv-mem"] }
@@ -39,7 +48,7 @@ async-channel = { version = "2.5.0" }
 anyhow = { version = "1.0.100" }
 
 # File watching for realtime context updates
-notify = "6.0"
+notify = "8.2"
 
 # Memory utilities (from memory package)
 memchr = { version = "2.7.6" }
@@ -50,8 +59,8 @@ mime_guess = "2.0"
 # Cognitive system dependencies (from memory package)
 ndarray = { version = "0.16.1" }
 nalgebra = { version = "0.34", features = ["serde-serialize"] }
-petgraph = { version = "0.8.2" }
-ordered-float = { version = "5.0.0" }
+petgraph = { version = "0.8.3" }
+ordered-float = { version = "5.1.0" }
 
 # Crypto/hashing (from memory package)
 sha2 = { version = "0.11.0-rc.2" }
@@ -60,7 +69,7 @@ sha2 = { version = "0.11.0-rc.2" }
 walkdir = { version = "2.5.0" }
 
 # Git operations
-git2 = { version = "0.19", default-features = false, features = ["https", "ssh"] }
+git2 = { version = "0.20", default-features = false, features = ["https", "ssh"] }
 
 # Complex numbers (from memory package)
 num-complex = { version = "0.4.6" }
@@ -71,7 +80,7 @@ hnsw = { version = "0.11.0", optional = true }
 instant-distance = { version = "0.6.1" }
 
 # HTTP API (from memory package)
-axum = { version = "0.8.5", optional = true }
+axum = { version = "0.8.6", optional = true }
 tower = { version = "0.5.2", optional = true }
 tower-http = { version = "0.6.6", features = ["cors", "trace"], optional = true }
 
@@ -111,7 +120,7 @@ symphonia = { version = "0.5.4", features = ["all"], optional = true }
 # Core dependencies
 serde = { version = "1.0.228", features = ["derive"] }
 schemars = { version = "1.0", features = ["derive"] }
-jsonschema = "0.24"
+jsonschema = "0.33"
 thiserror = "2.0.17"
 uuid = { version = "1.18.1", features = ["v4", "serde"] }
 serde_json = "1.0.145"
@@ -188,6 +197,10 @@ rustls = { version = "0.23", features = ["aws-lc-rs"], default-features = false 
 async-stream = "0.3.6"
 clap = { version = "4.5.48", features = ["derive"] }
 
+# HuggingFace Hub download dependencies
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], optional = true, default-features = false }
+globset = { version = "0.4", optional = true }
+
 [dev-dependencies]
 # Testing (from memory package)
 mockall = { version = "0.13.1" }
@@ -215,7 +228,8 @@ path = "src/lib.rs"
 
 
 [features]
-default = ["metal", "reqwest_unstable", "cognitive", "api"]
+# NOTE: Providers currently only implement ProgressHub backend. HF-Hub implementations needed.
+default = ["metal", "reqwest_unstable", "cognitive", "api", "download-hf-hub"]
 
 # --- Core build flavours ---
 desktop = ["dep:rayon"]
@@ -240,7 +254,9 @@ quantum-routing = ["cognitive"]
 evolution = ["cognitive"]
 full-cognitive = ["cognitive", "quantum-routing", "evolution"]
 
-# --- ProgressHub is always required (not optional) ---
+# --- Download backend features (can be used together, hf-hub is default) ---
+download-hf-hub = ["dep:hf-hub", "dep:reqwest", "dep:globset"]
+download-progresshub = ["dep:progresshub"]
 
 # --- Candle backend features ---
 cuda = [

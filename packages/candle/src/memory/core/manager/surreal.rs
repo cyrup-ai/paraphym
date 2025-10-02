@@ -13,7 +13,7 @@ use surrealdb::engine::any::Any;
 // Remove imports that conflict with local definitions
 use crate::memory::primitives::types::MemoryTypeEnum;
 use crate::memory::primitives::{MemoryNode, MemoryRelationship};
-use crate::memory::schema::memory_schema::{MemoryMetadataSchema, MemoryNodeSchema};
+use crate::memory::schema::memory_schema::{MemoryMetadataSchema, MemoryNodeSchema, ScoredMemoryNodeSchema};
 use crate::memory::schema::relationship_schema::RelationshipSchema;
 use crate::memory::utils::error::Error;
 use crate::memory::migration::{DataExporter, ExportFormat, MigrationManager, BuiltinMigrations, DataImporter, ImportFormat};
@@ -275,6 +275,12 @@ pub trait MemoryManager: Send + Sync + 'static {
 
     /// Search memories by vector similarity
     fn search_by_vector(&self, vector: Vec<f32>, limit: usize) -> MemoryStream;
+
+    /// Search memories by temporal ordering (recent first)
+    fn search_by_temporal(&self, query: &str, limit: usize) -> MemoryStream;
+
+    /// Search memories by pattern matching
+    fn search_by_pattern(&self, query: &str, limit: usize) -> MemoryStream;
 }
 
 /// SurrealDB implementation of the memory manager
@@ -292,6 +298,33 @@ struct ExportData {
 }
 
 impl SurrealDBMemoryManager {
+    /// Create a new SurrealDB memory manager from configuration
+    ///
+    /// This factory method initializes the manager from a MemoryConfig, connecting
+    /// to the database and setting up embedding support.
+    pub async fn with_config(config: crate::memory::utils::config::MemoryConfig) -> Result<Self> {
+        use surrealdb::engine::any::connect;
+
+        // Connect to database using connection string from config
+        let db = connect(&config.database.connection_string)
+            .await
+            .map_err(|e| Error::Database(format!("Failed to connect to database: {:?}", e)))?;
+
+        // Use namespace and database from config
+        db.use_ns(&config.database.namespace)
+            .use_db(&config.database.database)
+            .await
+            .map_err(|e| Error::Database(format!("Failed to use namespace/database: {:?}", e)))?;
+
+        // Create manager with embeddings
+        let manager = Self::with_embeddings(db).await?;
+
+        // Initialize tables and indexes
+        manager.initialize().await?;
+
+        Ok(manager)
+    }
+
     /// Create a new SurrealDB memory manager with embedding support
     ///
     /// This factory method initializes the manager with BERT embedding capabilities
@@ -363,6 +396,7 @@ impl SurrealDBMemoryManager {
             created_at: schema.metadata.created_at,
             updated_at: schema.metadata.last_accessed_at,
             embedding,
+            evaluation_status: crate::memory::monitoring::operations::OperationStatus::Pending,
             metadata,
         }
     }
@@ -583,8 +617,8 @@ impl MemoryManager for SurrealDBMemoryManager {
 
         tokio::spawn(async move {
             // Auto-generate embedding if missing and model is available
-            if memory.embedding.is_none() {
-                if let Some(ref model) = embedding_model {
+            if memory.embedding.is_none()
+                && let Some(ref model) = embedding_model {
                     // Extract text content for embedding
                     let content_text = memory.content.text.clone();
                     
@@ -601,7 +635,6 @@ impl MemoryManager for SurrealDBMemoryManager {
                         }
                     }
                 }
-            }
             
             // Continue with existing storage logic
             let memory_content = MemoryNodeCreateContent::from(&memory);
@@ -890,8 +923,91 @@ impl MemoryManager for SurrealDBMemoryManager {
 
             match db.query(&sql_query).await {
                 Ok(mut response) => {
-                    let results: Vec<MemoryNodeSchema> = response.take(0).unwrap_or_default();
+                    // Use ScoredMemoryNodeSchema to capture the score field
+                    let results: Vec<crate::memory::schema::memory_schema::ScoredMemoryNodeSchema> = 
+                        response.take(0).unwrap_or_default();
 
+                    for scored_schema in results {
+                        let mut memory = SurrealDBMemoryManager::from_schema(MemoryNodeSchema {
+                            id: scored_schema.id,
+                            content: scored_schema.content,
+                            memory_type: scored_schema.memory_type,
+                            metadata: scored_schema.metadata,
+                        });
+                        // Set the actual cosine similarity score
+                        memory.relevance_score = Some(scored_schema.score);
+                        
+                        if tx.send(Ok(memory)).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(Err(Error::Database(format!("{:?}", e)))).await;
+                }
+            }
+        });
+
+        MemoryStream::new(rx)
+    }
+
+    fn search_by_temporal(&self, query: &str, limit: usize) -> MemoryStream {
+        let db = self.db.clone();
+        let query = query.to_string();
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
+
+        tokio::spawn(async move {
+            // Query memories ordered by created_at descending (recent first)
+            let sql = format!(
+                "SELECT * FROM memory 
+                 WHERE content.text CONTAINS $query 
+                 ORDER BY created_at DESC 
+                 LIMIT {limit}"
+            );
+
+            match db.query(&sql).bind(("query", query)).await {
+                Ok(mut response) => {
+                    let results: Vec<MemoryNodeSchema> = response.take(0).unwrap_or_default();
+                    for schema in results {
+                        let memory = SurrealDBMemoryManager::from_schema(schema);
+                        if tx.send(Ok(memory)).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(Err(Error::Database(format!("{:?}", e)))).await;
+                }
+            }
+        });
+
+        MemoryStream::new(rx)
+    }
+
+    fn search_by_pattern(&self, query: &str, limit: usize) -> MemoryStream {
+        let db = self.db.clone();
+        let query = query.to_string();
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
+
+        tokio::spawn(async move {
+            // Pattern search using fuzzy matching and wildcards
+            // Uses SurrealDB's text search operators for pattern recognition
+            let pattern = format!("%{}%", query); // Wildcard pattern
+            let sql = format!(
+                "SELECT * FROM memory 
+                 WHERE content.text LIKE $pattern 
+                 OR metadata.keywords CONTAINS $query
+                 ORDER BY metadata.importance DESC
+                 LIMIT {limit}"
+            );
+
+            match db.query(&sql)
+                .bind(("pattern", pattern))
+                .bind(("query", query))
+                .await 
+            {
+                Ok(mut response) => {
+                    let results: Vec<MemoryNodeSchema> = response.take(0).unwrap_or_default();
                     for schema in results {
                         let memory = SurrealDBMemoryManager::from_schema(schema);
                         if tx.send(Ok(memory)).await.is_err() {
@@ -991,6 +1107,7 @@ impl SurrealDBMemoryManager {
     }
 
     /// Fetch multiple memories by their IDs efficiently
+    #[allow(dead_code)] // Utility method for batch memory retrieval
     async fn get_memories_by_ids(&self, ids: Vec<String>) -> Result<Vec<MemoryNode>> {
         // Use SurrealDB's batch select for efficiency
         let query = "SELECT * FROM memory WHERE id IN $ids";

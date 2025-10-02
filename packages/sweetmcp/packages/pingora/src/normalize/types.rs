@@ -4,9 +4,11 @@
 //! for protocol normalization with zero allocation patterns and
 //! blazing-fast performance.
 
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 
-use async_graphql::parser::types::{FragmentDefinition, TypeCondition};
+use async_graphql::parser::types::FragmentDefinition;
 use serde::{Deserialize, Serialize};
 
 /// Supported protocol types for normalization
@@ -199,6 +201,18 @@ impl ProtocolContext {
                 error_message: Some(error_msg.to_string()),
                 ..Default::default()
             },
+            graphql_context: None,
+        }
+    }
+}
+
+impl Default for ProtocolContext {
+    fn default() -> Self {
+        Self {
+            protocol: Proto::JsonRpc,
+            original_query: None,
+            request_id: uuid::Uuid::new_v4().to_string(),
+            metadata: ProtocolMetadata::default(),
             graphql_context: None,
         }
     }

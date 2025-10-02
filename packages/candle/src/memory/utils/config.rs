@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Main configuration for the memory system
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MemoryConfig {
     /// Database configuration
     pub database: DatabaseConfig,
@@ -219,7 +219,7 @@ impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
             db_type: DatabaseType::SurrealDB,
-            connection_string: "memory".to_string(),
+            connection_string: "surrealkv://./data/memory.db".to_string(),
             namespace: "paraphym".to_string(),
             database: "memory".to_string(),
             username: None,
@@ -291,3 +291,5 @@ impl Default for LoggingConfig {
         }
     }
 }
+
+

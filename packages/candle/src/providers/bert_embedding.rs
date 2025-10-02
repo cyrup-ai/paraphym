@@ -10,7 +10,6 @@ use std::sync::Mutex;
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::bert::{BertModel, Config, DTYPE};
-use progresshub::{ProgressHub, types::ZeroOneOrMany as ProgressHubZeroOneOrMany};
 use tokenizers::{Tokenizer, PaddingParams, TruncationParams};
 
 use crate::memory::utils::error::{Error as MemoryError, Result};
@@ -86,35 +85,28 @@ impl CandleBertEmbeddingProvider {
     }
 
     /// Create provider with custom configuration
-    pub async fn with_config(config: CandleBertConfig) -> Result<Self> { // Config parameter reserved for future use
-        {
-            // Download model using ProgressHub (following CandleKimiK2Provider pattern)
-            let results = ProgressHub::builder()
-                .model("sentence-transformers/all-MiniLM-L6-v2")
-                .with_cli_progress()
-                .download()
-                .await
-                .map_err(|e| MemoryError::ModelError(format!("ProgressHub download failed: {}", e)))?;
-
-            // Extract the model path from download results (following KimiK2 pattern lines 137-163)
-            let model_cache_dir = if let Some(result) = results.into_iter().next() {
-                match &result.models {
-                    ProgressHubZeroOneOrMany::One(model) => {
-                        model.model_cache_path.display().to_string()
-                    }
-                    ProgressHubZeroOneOrMany::Zero => {
-                        return Err(MemoryError::ModelError("No models were downloaded".to_string()));
-                    }
-                    ProgressHubZeroOneOrMany::Many(_) => {
-                        return Err(MemoryError::ModelError("Expected exactly one model, got multiple".to_string()));
-                    }
-                }
-            } else {
-                return Err(MemoryError::ModelError("No download results returned".to_string()));
-            };
-
-            Self::with_config_and_path(config, model_cache_dir).await
-        }
+    pub async fn with_config(config: CandleBertConfig) -> Result<Self> {
+        use crate::domain::model::download::DownloadProviderFactory;
+        
+        // Use factory to get download provider (works with both backends)
+        let downloader = DownloadProviderFactory::create_default()
+            .map_err(|e| MemoryError::ModelError(format!("Failed to create download provider: {}", e)))?;
+        
+        // Download model files
+        let result = downloader.download_model(
+            "sentence-transformers/all-MiniLM-L6-v2",
+            vec!["model.safetensors".to_string(), "tokenizer.json".to_string(), "config.json".to_string()],
+            None,
+        ).await
+        .map_err(|e| MemoryError::ModelError(format!("Model download failed: {}", e)))?;
+        
+        // Use result.cache_dir for model path
+        Self::with_config_and_path(
+            config,
+            result.cache_dir.to_str()
+                .ok_or_else(|| MemoryError::ModelError("Invalid cache directory".to_string()))?
+                .to_string()
+        ).await
     }
 
     /// Create provider with custom configuration and existing model path

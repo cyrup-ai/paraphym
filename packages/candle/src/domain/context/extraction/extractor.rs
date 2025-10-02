@@ -1,14 +1,13 @@
 use std::fmt;
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 use ystream::AsyncStream;
-// Removed unused import: futures_util::StreamExt
 use serde::de::DeserializeOwned;
 use cyrup_sugars::prelude::MessageChunk;
 
 use super::error::{ExtractionError, _ExtractionResult as ExtractionResult};
 use crate::domain::{
-    agent::types::CandleAgent as Agent,
     chat::message::types::CandleMessageRole as MessageRole,
     completion::{
         types::CandleCompletionParams as CompletionParams,
@@ -23,17 +22,11 @@ pub trait Extractor<T>: Send + Sync + fmt::Debug + Clone
 where
     T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + MessageChunk + 'static,
 {
-    /// Get the agent used for extraction
-    fn agent(&self) -> &Agent;
-
     /// Get the system prompt for extraction
     fn system_prompt(&self) -> Option<&str>;
 
     /// Extract structured data from text with comprehensive error handling
     fn extract_from(&self, text: &str) -> AsyncStream<T>;
-
-    /// Create new extractor with agent
-    fn new(agent: Agent) -> Self;
 
     /// Set system prompt for extraction guidance
     #[must_use]
@@ -41,30 +34,27 @@ where
 }
 
 /// Implementation of the Extractor trait
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ExtractorImpl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + 'static> {
-    agent: Agent,
+    provider: Arc<dyn CompletionModel>,
     system_prompt: Option<String>,
     _marker: PhantomData<T>,
+}
+
+impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + 'static> fmt::Debug for ExtractorImpl<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ExtractorImpl")
+            .field("provider", &"<dyn CompletionModel>")
+            .field("system_prompt", &self.system_prompt)
+            .finish()
+    }
 }
 
 impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static + MessageChunk> Extractor<T>
     for ExtractorImpl<T>
 {
-    fn agent(&self) -> &Agent {
-        &self.agent
-    }
-
     fn system_prompt(&self) -> Option<&str> {
         self.system_prompt.as_deref()
-    }
-
-    fn new(agent: Agent) -> Self {
-        Self {
-            agent,
-            system_prompt: None,
-            _marker: PhantomData,
-        }
     }
 
     fn with_system_prompt(mut self, prompt: impl Into<String>) -> Self {
@@ -73,19 +63,48 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static 
     }
 
     fn extract_from(&self, text: &str) -> AsyncStream<T> {
-        let _text = text.to_string();
+        let text = text.to_string();
+        let provider = Arc::clone(&self.provider);
+        let system_prompt = self.system_prompt.clone().unwrap_or_else(|| {
+            format!("Extract structured data from the following text. Return ONLY valid JSON matching the expected schema. Text: {}", text)
+        });
 
         AsyncStream::with_channel(move |sender| {
-            // TODO: Connect to execute_extraction method
-            // For now, send default result to maintain compilation
-            let default_result = T::default();
-            let _ = sender.send(default_result);
+            tokio::spawn(async move {
+                let completion_request = CompletionRequest::new(&text)
+                    .with_system_prompt(system_prompt);
+
+                match Self::execute_extraction(provider, completion_request, text).await {
+                    Ok(result) => {
+                        let _ = sender.send(result);
+                    }
+                    Err(_e) => {
+                        let _ = sender.send(T::default());
+                    }
+                }
+            });
         })
     }
 }
 
+impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static + MessageChunk> ExtractorImpl<T> {
+    /// Create new extractor with provider
+    pub fn new_with_provider(provider: Arc<dyn CompletionModel>) -> Self {
+        Self {
+            provider,
+            system_prompt: None,
+            _marker: PhantomData,
+        }
+    }
+
+    /// Get the provider reference
+    pub fn provider(&self) -> &Arc<dyn CompletionModel> {
+        &self.provider
+    }
+}
+
 impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + MessageChunk + 'static> ExtractorImpl<T> {
-    /// Execute extraction with agent (planned feature)
+    /// Execute extraction with provider
     ///
     /// # Errors
     ///
@@ -93,15 +112,12 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + MessageC
     /// - Model execution fails
     /// - Response parsing fails
     /// - Deserialization fails
-    ///
-    /// # Panics
-    /// Panics if `NonZeroU8::new(1)` fails (should never happen as 1 is always non-zero)
     pub async fn execute_extraction(
-        agent: Agent,
+        provider: Arc<dyn CompletionModel>,
         completion_request: CompletionRequest,
         _text_input: String,
     ) -> ExtractionResult<T> {
-        let model = AgentCompletionModel::new(agent);
+        let model = provider.as_ref();
         let prompt = Prompt {
             content: completion_request.system_prompt,
             role: MessageRole::System,
@@ -111,8 +127,8 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + MessageC
             max_tokens: completion_request
                 .max_tokens
                 .and_then(|t| std::num::NonZeroU64::new(t.get())),
-            // 1 is always non-zero
-            n: std::num::NonZeroU8::new(1).expect("1 is non-zero"),
+            // Use MIN which is guaranteed to be 1 for NonZeroU8
+            n: std::num::NonZeroU8::MIN,
             stream: true,
             tools: None,
             additional_params: None,
@@ -196,38 +212,4 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + MessageC
     }
 }
 
-/// Zero-allocation completion model wrapper for agents
-#[derive(Debug, Clone)]
-pub struct AgentCompletionModel {
-    agent: Agent,
-}
 
-impl AgentCompletionModel {
-    /// Create new completion model from agent
-    pub fn new(agent: Agent) -> Self {
-        Self { agent }
-    }
-}
-
-impl CompletionModel for AgentCompletionModel {
-    fn prompt<'a>(
-        &'a self,
-        prompt: Prompt,
-        _params: &'a CompletionParams,
-    ) -> ystream::AsyncStream<CandleCompletionChunk> {
-        let _agent = self.agent.clone();
-
-        AsyncStream::with_channel(move |sender| {
-            // Create a complete chunk with the prompt text
-            type Chunk = CandleCompletionChunk;
-            let chunk = Chunk::Complete {
-                text: format!("{prompt:?}"),
-                finish_reason: Some(FinishReason::Stop),
-                usage: None,
-            };
-
-            // Send the chunk directly (not wrapped in Result)
-            let _ = sender.try_send(chunk);
-        })
-    }
-}

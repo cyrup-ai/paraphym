@@ -4,16 +4,18 @@
 //! to extract real schema information from upstream GraphQL servers and cache
 //! it for fragment resolution.
 
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde::Deserialize;
+use serde_json::json;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use super::types::{GraphQLTypeInfo, GraphQLTypeKind};
 
@@ -356,13 +358,13 @@ impl SchemaIntrospector {
             .fields
             .as_ref()
             .map(|fields| fields.iter().map(|f| f.name.clone()).collect())
-            .unwrap_or_else(Vec::new);
+            .unwrap_or_default();
 
         let interfaces = type_data
             .interfaces
             .as_ref()
             .map(|interfaces| interfaces.iter().filter_map(|i| i.name.clone()).collect())
-            .unwrap_or_else(Vec::new);
+            .unwrap_or_default();
 
         let possible_types = type_data
             .possible_types
@@ -373,7 +375,7 @@ impl SchemaIntrospector {
                     .filter_map(|pt| pt.name.clone())
                     .collect()
             })
-            .unwrap_or_else(Vec::new);
+            .unwrap_or_default();
 
         Ok(GraphQLTypeInfo {
             name,

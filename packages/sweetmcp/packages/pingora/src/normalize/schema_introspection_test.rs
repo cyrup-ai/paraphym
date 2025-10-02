@@ -1,5 +1,5 @@
 use super::schema_introspection::SchemaIntrospector;
-use super::types::{GraphQLTypeInfo, GraphQLTypeKind};
+use super::types::GraphQLTypeKind;
 
 #[tokio::test]
 async fn test_schema_introspector_creation() {

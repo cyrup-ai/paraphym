@@ -237,18 +237,17 @@ impl ResourceManager for SurrealDbManager {
                 );
             }
 
-            if let Some(tags) = &req.tags {
-                if !tags.is_empty() {
-                    conditions.push("$tags CONTAINSANY tags".to_string());
-                    bindings.insert(
-                        "tags".to_string(),
-                        serde_json::Value::Array(
-                            tags.iter()
-                                .map(|t| serde_json::Value::String(t.clone()))
-                                .collect(),
-                        ),
-                    );
-                }
+            if let Some(tags) = &req.tags
+                && !tags.is_empty() {
+                conditions.push("$tags CONTAINSANY tags".to_string());
+                bindings.insert(
+                    "tags".to_string(),
+                    serde_json::Value::Array(
+                        tags.iter()
+                            .map(|t| serde_json::Value::String(t.clone()))
+                            .collect(),
+                    ),
+                );
             }
 
             if !conditions.is_empty() {
@@ -284,8 +283,8 @@ impl ResourceManager for SurrealDbManager {
             // Handle both cms:// scheme or path-based URIs
             let id = if uri_str.starts_with("cms://") {
                 uri_str.replace("cms://", "")
-            } else if uri_str.starts_with("/") {
-                uri_str[1..].to_string()
+            } else if let Some(stripped) = uri_str.strip_prefix("/") {
+                stripped.to_string()
             } else {
                 uri_str
             };
@@ -302,7 +301,7 @@ impl ResourceManager for SurrealDbManager {
             });
 
             match client
-                .query_with_params::<Vec<ResourceRow>>(&query, bindings)
+                .query_with_params::<Vec<ResourceRow>>(query, bindings)
                 .await
             {
                 Ok(rows) => {
@@ -352,7 +351,7 @@ impl ResourceManager for SurrealDbManager {
             "tags": tags
         });
 
-        self.resources_query_stream(&query, bindings)
+        self.resources_query_stream(query, bindings)
     }
 
     fn find_by_slug(&self, slug: String) -> AsyncResource {
@@ -373,7 +372,7 @@ impl ResourceManager for SurrealDbManager {
             });
 
             match client
-                .query_with_params::<Vec<ResourceRow>>(&query, bindings)
+                .query_with_params::<Vec<ResourceRow>>(query, bindings)
                 .await
             {
                 Ok(rows) => {

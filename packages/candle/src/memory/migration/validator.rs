@@ -152,17 +152,18 @@ impl SchemaValidator {
 
     /// Validate against schema
     pub fn validate(&self, data: &serde_json::Value) -> Result<()> {
-        match self.compiled.validate(data) {
-            Ok(_) => Ok(()),
-            Err(errors) => {
-                let error_messages: Vec<String> = errors
-                    .map(|e| format!("{}", e))
-                    .collect();
-                Err(MigrationError::ValidationFailed(format!(
-                    "Schema validation failed: {}",
-                    error_messages.join(", ")
-                )))
-            }
+        let error_messages: Vec<String> = self.compiled
+            .iter_errors(data)
+            .map(|e| format!("{}", e))
+            .collect();
+        
+        if error_messages.is_empty() {
+            Ok(())
+        } else {
+            Err(MigrationError::ValidationFailed(format!(
+                "Schema validation failed: {}",
+                error_messages.join(", ")
+            )))
         }
     }
 }

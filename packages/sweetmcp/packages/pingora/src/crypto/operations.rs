@@ -3,11 +3,13 @@
 //! This module provides token encryption, decryption, rotation, and revocation
 //! operations with zero allocation patterns and blazing-fast performance.
 
-use std::time::{SystemTime, UNIX_EPOCH};
+#![allow(dead_code)]
+
+use std::time::SystemTime;
 
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use sodiumoxide::crypto::{box_, sealedbox};
+use sodiumoxide::crypto::sealedbox;
 use tokio::time::interval;
 use tracing::{error, info};
 
@@ -44,8 +46,8 @@ impl TokenManager {
 
         // Try current keypair first
         let current = self.current_keypair.read().await;
-        if encrypted.key_id == current.key_id {
-            if let Ok(plaintext) =
+        if encrypted.key_id == current.key_id
+            && let Ok(plaintext) =
                 sealedbox::open(&ciphertext, &current.public_key, &current.secret_key)
             {
                 let token_data: TokenData = serde_json::from_slice(&plaintext)
@@ -62,33 +64,30 @@ impl TokenManager {
 
                 return Ok(token_data.token);
             }
-        }
 
         // Try previous keypair if current failed
         let previous = self.previous_keypair.read().await;
-        if let Some(prev_keypair) = previous.as_ref() {
-            if encrypted.key_id == prev_keypair.key_id {
-                if let Ok(plaintext) = sealedbox::open(
-                    &ciphertext,
-                    &prev_keypair.public_key,
-                    &prev_keypair.secret_key,
-                ) {
-                    let token_data: TokenData = serde_json::from_slice(&plaintext)
-                        .context("Failed to deserialize token data")?;
+        if let Some(prev_keypair) = previous.as_ref()
+            && encrypted.key_id == prev_keypair.key_id
+            && let Ok(plaintext) = sealedbox::open(
+                &ciphertext,
+                &prev_keypair.public_key,
+                &prev_keypair.secret_key,
+            ) {
+                let token_data: TokenData = serde_json::from_slice(&plaintext)
+                    .context("Failed to deserialize token data")?;
 
-                    // Validate token data
-                    if !token_data.is_valid() {
-                        return Err(anyhow::anyhow!("Invalid token data"));
-                    }
-
-                    if token_data.is_expired() {
-                        return Err(anyhow::anyhow!("Token data is expired"));
-                    }
-
-                    return Ok(token_data.token);
+                // Validate token data
+                if !token_data.is_valid() {
+                    return Err(anyhow::anyhow!("Invalid token data"));
                 }
+
+                if token_data.is_expired() {
+                    return Err(anyhow::anyhow!("Token data is expired"));
+                }
+
+                return Ok(token_data.token);
             }
-        }
 
         Err(anyhow::anyhow!("Failed to decrypt token"))
     }
@@ -104,31 +103,28 @@ impl TokenManager {
 
         // Try current keypair first
         let current = self.current_keypair.read().await;
-        if encrypted.key_id == current.key_id {
-            if let Ok(plaintext) =
+        if encrypted.key_id == current.key_id
+            && let Ok(plaintext) =
                 sealedbox::open(&ciphertext, &current.public_key, &current.secret_key)
             {
                 let token_data: TokenData = serde_json::from_slice(&plaintext)
                     .context("Failed to deserialize token data")?;
                 return Ok(token_data);
             }
-        }
 
         // Try previous keypair if current failed
         let previous = self.previous_keypair.read().await;
-        if let Some(prev_keypair) = previous.as_ref() {
-            if encrypted.key_id == prev_keypair.key_id {
-                if let Ok(plaintext) = sealedbox::open(
-                    &ciphertext,
-                    &prev_keypair.public_key,
-                    &prev_keypair.secret_key,
-                ) {
-                    let token_data: TokenData = serde_json::from_slice(&plaintext)
-                        .context("Failed to deserialize token data")?;
-                    return Ok(token_data);
-                }
+        if let Some(prev_keypair) = previous.as_ref()
+            && encrypted.key_id == prev_keypair.key_id
+            && let Ok(plaintext) = sealedbox::open(
+                &ciphertext,
+                &prev_keypair.public_key,
+                &prev_keypair.secret_key,
+            ) {
+                let token_data: TokenData = serde_json::from_slice(&plaintext)
+                    .context("Failed to deserialize token data")?;
+                return Ok(token_data);
             }
-        }
 
         Err(anyhow::anyhow!("Failed to extract token data"))
     }
@@ -145,7 +141,7 @@ impl TokenManager {
             let mut previous = self.previous_keypair.write().await;
             *previous = Some(TokenKeypair {
                 public_key: current.public_key,
-                secret_key: current.secret_key,
+                secret_key: current.secret_key.clone(),
                 key_id: current.key_id.clone(),
                 created_at: current.created_at,
             });
@@ -169,11 +165,10 @@ impl TokenManager {
             loop {
                 interval.tick().await;
 
-                if self.needs_rotation().await {
-                    if let Err(e) = self.rotate_keypair().await {
+                if self.needs_rotation().await
+                    && let Err(e) = self.rotate_keypair().await {
                         error!("Failed to rotate keypair: {}", e);
                     }
-                }
 
                 // Clean up old revocations (older than 7 days)
                 let max_age = std::time::Duration::from_secs(7 * 24 * 3600);
@@ -284,8 +279,8 @@ impl TokenManager {
 
         // Try with previous keypair
         let previous = self.previous_keypair.read().await;
-        if let Some(prev_keypair) = previous.as_ref() {
-            if encrypted.key_id == prev_keypair.key_id {
+        if let Some(prev_keypair) = previous.as_ref()
+            && encrypted.key_id == prev_keypair.key_id {
                 let ciphertext = match BASE64.decode(&encrypted.ciphertext) {
                     Ok(ct) => ct,
                     Err(_) => return false,
@@ -298,7 +293,6 @@ impl TokenManager {
                 )
                 .is_ok();
             }
-        }
 
         false
     }
@@ -328,7 +322,7 @@ impl TokenManager {
             key_id: encrypted.key_id.clone(),
             created_at: encrypted.created_at,
             issued_at: token_data.issued_at,
-            nonce: token_data.nonce,
+            nonce: token_data.nonce.clone(),
             is_expired: encrypted.is_expired(),
             age: encrypted.age(),
             token_age: token_data.age(),

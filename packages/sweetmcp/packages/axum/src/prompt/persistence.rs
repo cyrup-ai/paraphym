@@ -72,6 +72,7 @@ impl PromptPersistenceService {
     }
     
     /// Get total prompt count
+    #[allow(dead_code)] // Public API endpoint - will be wired to HTTP handler
     pub async fn count_prompts(&self) -> usize {
         let stream = self.dao.find().await;
         futures::pin_mut!(stream);

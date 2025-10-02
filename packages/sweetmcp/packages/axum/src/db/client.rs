@@ -48,9 +48,7 @@ impl DatabaseClient {
         };
 
         // Check for query errors
-        if let Err(e) = response.check().map_err(SurrealdbError::Database) {
-            return Err(e);
-        }
+        response.check().map_err(SurrealdbError::Database)?;
 
         let mut response = match self {
             DatabaseClient::SurrealKv(db) => db.query(query).await?,
@@ -58,10 +56,9 @@ impl DatabaseClient {
         };
 
         // Try to extract as Vec<T> first
-        if let Ok(mut results) = response.take::<Vec<T>>(0_usize) {
-            if !results.is_empty() {
-                return Ok(results.remove(0));
-            }
+        if let Ok(mut results) = response.take::<Vec<T>>(0_usize)
+            && !results.is_empty() {
+            return Ok(results.remove(0));
         }
 
         // Try to extract as Option<T>
@@ -140,10 +137,9 @@ impl DatabaseClient {
         };
 
         // Try to extract as Vec<T> first
-        if let Ok(mut results) = response.take::<Vec<T>>(0_usize) {
-            if !results.is_empty() {
-                return Ok(results.remove(0));
-            }
+        if let Ok(mut results) = response.take::<Vec<T>>(0_usize)
+            && !results.is_empty() {
+            return Ok(results.remove(0));
         }
 
         // Try to extract as Option<T>
@@ -200,6 +196,26 @@ impl DatabaseClient {
         let result = self.extract_result_with_params::<T>(query, params).await;
         let _duration = start.elapsed();
         result
+    }
+
+    /// Run a SQL query with parameters that returns a vector of results
+    /// This is optimized for SELECT queries that return multiple rows
+    pub async fn query_with_params_vec<T>(
+        &self,
+        query: &str,
+        params: impl Serialize + Clone + Send + 'static,
+    ) -> Result<Vec<T>>
+    where
+        T: DeserializeOwned,
+    {
+        // Run the query with parameters
+        let mut response = match self {
+            DatabaseClient::SurrealKv(db) => db.query(query).bind(params).await?,
+            DatabaseClient::RemoteHttp(db) => db.query(query).bind(params).await?,
+        };
+        
+        // Extract the vector result directly (check happens during take)
+        response.take::<Vec<T>>(0).map_err(SurrealdbError::from)
     }
 
     /// Create a new record
@@ -390,27 +406,25 @@ pub async fn connect_database(config: DatabaseConfig) -> Result<DatabaseClient> 
             // Connect to SurrealKV
             let db = Surreal::new::<SurrealKv>(path_str.as_str()).await?;
 
-            if let (Some(ns), Some(db_name)) = (&config.namespace, &config.database) {
-                if !ns.is_empty() && !db_name.is_empty() {
-                    db.use_ns(ns).use_db(db_name).await?;
-                }
+            if let (Some(ns), Some(db_name)) = (&config.namespace, &config.database)
+                && !ns.is_empty() && !db_name.is_empty() {
+                db.use_ns(ns).use_db(db_name).await?;
             }
 
             // Add authentication if provided
-            if let (Some(user), Some(pass)) = (&config.username, &config.password) {
-                if !user.is_empty() && !pass.is_empty() {
-                    db.signin(Root {
-                        username: user,
-                        password: pass,
-                    })
-                    .await
-                    .map_err(|e| {
-                        SurrealdbError::authentication(SurrealdbErrorContext::new(format!(
-                            "Authentication failed: {}",
-                            e
-                        )))
-                    })?;
-                }
+            if let (Some(user), Some(pass)) = (&config.username, &config.password)
+                && !user.is_empty() && !pass.is_empty() {
+                db.signin(Root {
+                    username: user,
+                    password: pass,
+                })
+                .await
+                .map_err(|e| {
+                    SurrealdbError::authentication(SurrealdbErrorContext::new(format!(
+                        "Authentication failed: {}",
+                        e
+                    )))
+                })?;
             }
 
             DatabaseClient::SurrealKv(db)
@@ -440,26 +454,24 @@ pub async fn connect_database(config: DatabaseConfig) -> Result<DatabaseClient> 
             let db = Surreal::new::<http::Http>(url_str.as_str()).await?;
 
             // Authenticate if credentials are provided
-            if let (Some(user), Some(pass)) = (&config.username, &config.password) {
-                if !user.is_empty() && !pass.is_empty() {
-                    db.signin(Root {
-                        username: user,
-                        password: pass,
-                    })
-                    .await
-                    .map_err(|e| {
-                        SurrealdbError::authentication(SurrealdbErrorContext::new(format!(
-                            "Authentication failed: {}",
-                            e
-                        )))
-                    })?;
-                }
+            if let (Some(user), Some(pass)) = (&config.username, &config.password)
+                && !user.is_empty() && !pass.is_empty() {
+                db.signin(Root {
+                    username: user,
+                    password: pass,
+                })
+                .await
+                .map_err(|e| {
+                    SurrealdbError::authentication(SurrealdbErrorContext::new(format!(
+                        "Authentication failed: {}",
+                        e
+                    )))
+                })?;
             }
 
-            if let (Some(ns), Some(db_name)) = (&config.namespace, &config.database) {
-                if !ns.is_empty() && !db_name.is_empty() {
-                    db.use_ns(ns).use_db(db_name).await?;
-                }
+            if let (Some(ns), Some(db_name)) = (&config.namespace, &config.database)
+                && !ns.is_empty() && !db_name.is_empty() {
+                db.use_ns(ns).use_db(db_name).await?;
             }
 
             DatabaseClient::RemoteHttp(db)

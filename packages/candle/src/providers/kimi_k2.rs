@@ -14,7 +14,6 @@ use candle_transformers::models::llama::LlamaConfig;
 use ystream::AsyncStream;
 // SIMD optimizations for high-performance inference
 use paraphym_simd::get_cpu_features;
-use progresshub::{ProgressHub, types::ZeroOneOrMany as ProgressHubZeroOneOrMany};
 
 use serde::{Deserialize, Serialize};
 
@@ -131,50 +130,41 @@ impl CandleKimiK2Provider {
     pub async fn with_config_async(
         config: CandleKimiK2Config,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        // Download model using ProgressHub
-        let results = ProgressHub::builder()
-            .model("unsloth/Kimi-K2-Instruct-GGUF")
-            .with_cli_progress()
-            .download()
-            .await?;
+        use crate::domain::model::download::DownloadProviderFactory;
 
-        // Extract the model path from download results following ProgressHub example pattern
-        let (model_cache_dir, gguf_file_path) = if let Some(result) = results.into_iter().next() {
-            match &result.models {
-                ProgressHubZeroOneOrMany::One(model) => {
-                    // Extract model cache directory
-                    let cache_dir = model.model_cache_path.display().to_string();
+        // Use factory to get download provider
+        let downloader = DownloadProviderFactory::create_default()?;
 
-                    // Find GGUF file with zero allocation - prioritize largest file (model weights over tokenizer)
-                    let gguf_file = model
-                        .files
-                        .iter()
-                        .filter(|file| file.filename.ends_with(".gguf"))
-                        .max_by_key(|file| file.expected_size)
-                        .ok_or("No GGUF files found in downloaded model")?;
+        // Download model files
+        let result = downloader.download_model(
+            "unsloth/Kimi-K2-Instruct-GGUF",
+            vec!["*.gguf".to_string(), "tokenizer.json".to_string()],
+            Some("Q4_K_M".to_string()), // Default quantization
+        ).await?;
 
-                    let gguf_path = gguf_file.path.display().to_string();
-                    (cache_dir, gguf_path)
-                }
-                ProgressHubZeroOneOrMany::Zero => {
-                    return Err("No models were downloaded".into());
-                }
-                ProgressHubZeroOneOrMany::Many(_) => {
-                    return Err("Expected exactly one model, got multiple".into());
-                }
-            }
-        } else {
-            return Err("No download results returned".into());
-        };
+        // Find GGUF file from results
+        let gguf_file = result.files.iter()
+            .find(|f| f.extension().and_then(|s| s.to_str()) == Some("gguf"))
+            .ok_or_else(|| Box::<dyn std::error::Error + Send + Sync>::from("GGUF file not found in download"))?;
 
-        Self::with_config_sync_gguf(model_cache_dir, gguf_file_path, config)
+        Self::with_config_sync_gguf(
+            result.cache_dir.to_str()
+                .ok_or_else(|| Box::<dyn std::error::Error + Send + Sync>::from("Invalid cache directory path"))?
+                .to_string(),
+            gguf_file.to_str()
+                .ok_or_else(|| Box::<dyn std::error::Error + Send + Sync>::from("Invalid GGUF file path"))?
+                .to_string(),
+            config,
+        )
     }
 
     /// Create default provider instance for builder pattern
-    /// Uses ProgressHub to download model if not already cached
+    /// Uses download provider to download model if not already cached
     pub fn default_for_builder() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let config = CandleKimiK2Config::default();
-        crate::runtime::shared_runtime().block_on(Self::with_config_async(config))
+        let runtime = crate::runtime::shared_runtime()
+            .ok_or("Runtime unavailable for provider initialization")?;
+        runtime.block_on(Self::with_config_async(config))
     }
 
     /// Create provider with custom configuration and existing model path

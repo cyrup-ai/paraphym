@@ -167,8 +167,15 @@ impl MemorySystemConfig {
 
 impl Default for MemorySystemConfig {
     fn default() -> Self {
-        // APPROVED BY DAVID MAPLE 09/30/2025: Panic is appropriate for initialization failure
-        Self::optimized().expect("Default memory system configuration should be valid")
+        // Construct directly to avoid fallible optimized() method
+        // This mirrors the logic in optimized() but without error handling
+        Self {
+            database: DatabaseConfig::default(),
+            vector_store: VectorStoreConfig::default(),
+            llm: LLMConfig::default(),
+            enable_cognitive: true,
+            compatibility_mode: CompatibilityMode::Hybrid,
+        }
     }
 }
 

@@ -4,13 +4,15 @@
 //! for GraphQL, Cap'n Proto, and other protocols with zero allocation
 //! patterns and blazing-fast performance.
 
+#![allow(dead_code)]
+
 use std::io::Cursor;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use async_graphql::parser::{parse_query, types::*};
 use async_graphql::{Name, Positioned};
 use async_graphql_value::Value as GraphQLValue;
-use base64;
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use capnp::{
     any_pointer, data, dynamic_list, dynamic_struct, dynamic_value, message::ReaderOptions,
     serialize, serialize_packed, text,
@@ -52,7 +54,7 @@ pub fn graphql_to_json_rpc_with_schema(
     let mut fragment_registry = FragmentRegistry::new();
     for (name, fragment) in &doc.fragments {
         fragment_registry
-            .register_fragment(name.to_string(), fragment.clone())
+            .register_fragment(name.to_string(), fragment.node.clone())
             .map_err(|e| anyhow::anyhow!("Fragment registration error: {}", e))?;
     }
 
@@ -61,7 +63,7 @@ pub fn graphql_to_json_rpc_with_schema(
 
     let (method, params) = match operation {
         Some((name, op)) => {
-            let method_name = if let Some(op_name) = operation_name {
+            let method_name = if let Some(op_name) = &operation_name {
                 op_name.as_str().unwrap_or("graphql_query").to_string()
             } else if let Some(name) = name {
                 name.to_string()
@@ -74,9 +76,9 @@ pub fn graphql_to_json_rpc_with_schema(
 
             // Determine root operation type from GraphQL operation
             let root_type = match op.node.ty {
-                async_graphql_parser::types::OperationType::Query => "Query",
-                async_graphql_parser::types::OperationType::Mutation => "Mutation",
-                async_graphql_parser::types::OperationType::Subscription => "Subscription",
+                OperationType::Query => "Query",
+                OperationType::Mutation => "Mutation",
+                OperationType::Subscription => "Subscription",
             };
 
             // Get schema information from upstream server if URL provided
@@ -174,7 +176,7 @@ pub fn graphql_to_json_rpc_with_schema(
 }
 
 /// Create basic GraphQL schema types (Query, Mutation, Subscription) as fallback
-fn create_basic_schema_types() -> std::collections::HashMap<String, GraphQLTypeInfo> {
+pub fn create_basic_schema_types() -> std::collections::HashMap<String, GraphQLTypeInfo> {
     let mut schema_types = std::collections::HashMap::new();
 
     // Add Query root type
@@ -235,7 +237,7 @@ fn extract_fields_with_fragments(
             Selection::InlineFragment(fragment) => {
                 // Validate type condition if present
                 if let Some(type_condition) = &fragment.node.type_condition {
-                    validate_type_condition(&type_condition.node, context)?;
+                    validate_type_condition(&type_condition.node.on.node, context)?;
                 }
 
                 extract_fields_with_fragments(&fragment.node.selection_set.node, fields, context)?;
@@ -254,16 +256,24 @@ fn extract_fields_with_fragments(
                     .fragment_registry
                     .validate_no_cycles(fragment_name)?;
 
-                // Get fragment definition
-                let fragment_def = context
-                    .fragment_registry
-                    .get_fragment(fragment_name)
-                    .ok_or_else(|| ConversionError::FragmentNotFound {
-                        name: fragment_name.to_string(),
-                    })?;
+                // Get fragment definition and clone what we need
+                let (type_condition_name, selection_set) = {
+                    let fragment_def = context
+                        .fragment_registry
+                        .get_fragment(fragment_name)
+                        .ok_or_else(|| ConversionError::FragmentNotFound {
+                            name: fragment_name.to_string(),
+                        })?;
+
+                    // Clone data we need before mutable borrows
+                    (
+                        fragment_def.type_condition.node.on.node.clone(),
+                        fragment_def.selection_set.node.clone(),
+                    )
+                };
 
                 // Validate fragment type condition
-                validate_type_condition(&fragment_def.node.type_condition.node, context)?;
+                validate_type_condition(&type_condition_name, context)?;
 
                 // Track resolution for cycle detection
                 context
@@ -275,7 +285,7 @@ fn extract_fields_with_fragments(
 
                 // Recursively resolve fragment
                 extract_fields_with_fragments(
-                    &fragment_def.node.selection_set.node,
+                    &selection_set,
                     &mut fragment_fields,
                     context,
                 )?;
@@ -414,7 +424,7 @@ fn is_reserved_graphql_type(name: &str) -> bool {
 /// Detect message format and parse Cap'n Proto binary message
 fn detect_and_parse_message(
     body: &[u8],
-) -> ConversionResult<capnp::message::Reader<capnp::serialize::SliceSegments>> {
+) -> ConversionResult<capnp::message::Reader<capnp::serialize::OwnedSegments>> {
     let reader_options = ReaderOptions::new();
 
     // Try packed format first (more common)
@@ -453,11 +463,19 @@ fn dynamic_value_to_json(value: dynamic_value::Reader) -> ConversionResult<Value
                 })?
                 .to_string(),
         )),
-        dynamic_value::Reader::Data(d) => Ok(Value::String(base64::encode(d))),
+        dynamic_value::Reader::Data(d) => Ok(Value::String(BASE64_STANDARD.encode(d))),
         dynamic_value::Reader::Struct(s) => convert_struct_to_json(s),
         dynamic_value::Reader::List(l) => convert_list_to_json(l),
         dynamic_value::Reader::Enum(e) => {
-            Ok(Value::String(format!("enum_{}", e.get_enumerant_index())))
+            match e.get_enumerant() {
+                Ok(Some(enumerant)) => {
+                    // Get the enumerant ordinal value for display
+                    let ordinal = enumerant.get_ordinal();
+                    Ok(Value::String(format!("enum_{}", ordinal)))
+                },
+                Ok(None) => Ok(Value::String("enum_unknown".to_string())),
+                Err(_) => Ok(Value::String("enum_error".to_string())),
+            }
         }
         dynamic_value::Reader::AnyPointer(ptr) => {
             // Try to decode AnyPointer as different possible types
@@ -473,18 +491,10 @@ fn dynamic_value_to_json(value: dynamic_value::Reader) -> ConversionResult<Value
                 }
                 // Try as data
                 else if let Ok(data) = ptr.get_as::<data::Reader>() {
-                    Ok(Value::String(base64::encode(data)))
+                    Ok(Value::String(BASE64_STANDARD.encode(data)))
                 }
-                // Try as struct (without schema)
-                else if let Ok(struct_reader) = ptr.reader.get_struct(None) {
-                    // Get basic struct info without schema
-                    Ok(json!({
-                        "any_pointer_struct": {
-                            "data_words": struct_reader.get_data_section_size(),
-                            "pointer_words": struct_reader.get_pointer_section_size()
-                        }
-                    }))
-                }
+                // Note: Cannot inspect struct without schema via public API
+                // The reader field is private in capnp::any_pointer::Reader
                 // Fallback - return size info
                 else {
                     match ptr.target_size() {
@@ -528,8 +538,10 @@ fn convert_struct_to_json(struct_reader: dynamic_struct::Reader) -> ConversionRe
                 ConversionError::CapnProtoError(format!("Failed to convert field name: {}", e))
             })?;
 
-        if struct_reader.has_field(&field) {
-            let field_value = struct_reader.get_field(&field).map_err(|e| {
+        if struct_reader.has(field).map_err(|e| {
+            ConversionError::CapnProtoError(format!("Failed to check field: {}", e))
+        })? {
+            let field_value = struct_reader.get(field).map_err(|e| {
                 ConversionError::CapnProtoError(format!("Failed to get field value: {}", e))
             })?;
             let json_value = dynamic_value_to_json(field_value)?;
@@ -659,11 +671,11 @@ pub fn graphql_from_json_rpc(ctx: &ProtocolContext, response: &Value) -> Convers
         "converted_from": "json-rpc"
     });
 
-    serde_json::to_vec(&graphql_response).map_err(|e| ConversionError::JsonError(e))
+    serde_json::to_vec(&graphql_response).map_err(ConversionError::JsonError)
 }
 
 /// Shape GraphQL response based on original query structure
-fn shape_graphql_response(result: &Value, original_query: &str) -> ConversionResult<Value> {
+pub fn shape_graphql_response(result: &Value, original_query: &str) -> ConversionResult<Value> {
     // Parse the original query to understand expected structure
     let doc = parse_query(original_query).map_err(|e| {
         ConversionError::GraphQLError(format!("Failed to parse original query: {}", e))
@@ -788,7 +800,7 @@ fn shape_response_to_selection_set(
 }
 
 /// Find field value in response data with flexible key matching
-fn find_field_value(data: &Value, field_name: &str) -> Option<&Value> {
+fn find_field_value<'a>(data: &'a Value, field_name: &str) -> Option<&'a Value> {
     match data {
         Value::Object(obj) => {
             // Try exact match first
@@ -855,7 +867,7 @@ fn camel_to_snake_case(camel_str: &str) -> String {
 }
 
 /// Convert JSON value to Cap'n Proto dynamic value using any_pointer::Builder
-fn json_to_capnp_value(json_val: &Value, builder: any_pointer::Builder) -> ConversionResult<()> {
+fn json_to_capnp_value(json_val: &Value, mut builder: any_pointer::Builder) -> ConversionResult<()> {
     match json_val {
         Value::Null => {
             // Set as void/null by clearing the builder
@@ -864,16 +876,22 @@ fn json_to_capnp_value(json_val: &Value, builder: any_pointer::Builder) -> Conve
         }
         Value::Bool(b) => {
             // Cap'n Proto doesn't have direct bool in any_pointer, store as text
-            builder.set_as_text(&b.to_string());
+            builder.set_as::<text::Owned>(&b.to_string()).map_err(|e| {
+                ConversionError::CapnProtoError(format!("Failed to set bool: {}", e))
+            })?;
             Ok(())
         }
         Value::Number(n) => {
             if let Some(i) = n.as_i64() {
                 // Store as text to preserve precision
-                builder.set_as_text(&i.to_string());
+                builder.set_as::<text::Owned>(&i.to_string()).map_err(|e| {
+                    ConversionError::CapnProtoError(format!("Failed to set number: {}", e))
+                })?;
             } else if let Some(f) = n.as_f64() {
                 // Store as text to preserve precision
-                builder.set_as_text(&f.to_string());
+                builder.set_as::<text::Owned>(&f.to_string()).map_err(|e| {
+                    ConversionError::CapnProtoError(format!("Failed to set number: {}", e))
+                })?;
             } else {
                 return Err(ConversionError::CapnProtoError(
                     "Invalid number format in JSON".to_string(),
@@ -882,7 +900,9 @@ fn json_to_capnp_value(json_val: &Value, builder: any_pointer::Builder) -> Conve
             Ok(())
         }
         Value::String(s) => {
-            builder.set_as_text(s);
+            builder.set_as::<text::Owned>(s).map_err(|e| {
+                ConversionError::CapnProtoError(format!("Failed to set string: {}", e))
+            })?;
             Ok(())
         }
         Value::Array(arr) => json_to_capnp_list(arr, builder),
@@ -893,7 +913,7 @@ fn json_to_capnp_value(json_val: &Value, builder: any_pointer::Builder) -> Conve
 /// Convert JSON object to Cap'n Proto struct using any_pointer::Builder
 fn json_to_capnp_struct(
     obj: &serde_json::Map<String, Value>,
-    builder: any_pointer::Builder,
+    mut builder: any_pointer::Builder,
 ) -> ConversionResult<()> {
     // Create a generic struct with data and pointer fields
     let mut data_fields = Vec::new();
@@ -917,18 +937,22 @@ fn json_to_capnp_struct(
         ConversionError::CapnProtoError(format!("Failed to serialize object to JSON: {}", e))
     })?;
 
-    builder.set_as_text(&json_repr);
+    builder.set_as::<text::Owned>(&json_repr).map_err(|e| {
+        ConversionError::CapnProtoError(format!("Failed to set object: {}", e))
+    })?;
     Ok(())
 }
 
 /// Convert JSON array to Cap'n Proto list using any_pointer::Builder  
-fn json_to_capnp_list(arr: &[Value], builder: any_pointer::Builder) -> ConversionResult<()> {
+fn json_to_capnp_list(arr: &[Value], mut builder: any_pointer::Builder) -> ConversionResult<()> {
     // Convert array to JSON string representation for consistency
     let json_repr = serde_json::to_string(arr).map_err(|e| {
         ConversionError::CapnProtoError(format!("Failed to serialize array to JSON: {}", e))
     })?;
 
-    builder.set_as_text(&json_repr);
+    builder.set_as::<text::Owned>(&json_repr).map_err(|e| {
+        ConversionError::CapnProtoError(format!("Failed to set array: {}", e))
+    })?;
     Ok(())
 }
 
@@ -1033,8 +1057,11 @@ fn json_to_graphql_value(value: &Value) -> ConversionResult<GraphQLValue> {
         Value::Number(n) => {
             if let Some(i) = n.as_i64() {
                 GraphQLValue::Number(async_graphql_value::Number::from(i))
+            } else if let Some(u) = n.as_u64() {
+                GraphQLValue::Number(async_graphql_value::Number::from(u as i64))
             } else if let Some(f) = n.as_f64() {
-                GraphQLValue::Number(async_graphql_value::Number::from(f))
+                // async_graphql_value::Number doesn't have From<f64>, need to use i64 representation
+                GraphQLValue::Number(async_graphql_value::Number::from(f as i64))
             } else {
                 return Err(ConversionError::GraphQLError(
                     "Invalid number format".to_string(),
@@ -1128,151 +1155,17 @@ pub fn parse_capnp_message(body: &[u8]) -> ConversionResult<Value> {
                         // Try to parse the actual data content
                         // First try as text
                         if let Ok(text) = root.get_as::<text::Reader>() {
-                            match text.to_str() {
-                                Ok(s) => return Ok(Value::String(s.to_string())),
-                                Err(_) => {}
-                            }
+                            if let Ok(s) = text.to_str() { return Ok(Value::String(s.to_string())) }
                         }
 
                         // Try as data blob
                         if let Ok(data) = root.get_as::<data::Reader>() {
-                            return Ok(Value::String(base64::encode(data)));
+                            return Ok(Value::String(BASE64_STANDARD.encode(data)));
                         }
 
-                        // Try as struct (most common case)
-                        if let Ok(struct_reader) = root.reader.get_struct(None) {
-                            // Parse as generic struct without schema
-                            let mut result = serde_json::Map::new();
-
-                            // Extract data fields by word offset
-                            let data_size = struct_reader.get_data_section_size();
-                            if data_size > 0 {
-                                let mut data_fields = serde_json::Map::new();
-
-                                // Read primitive data fields
-                                for i in 0..data_size as usize {
-                                    if i < 64 {
-                                        // Reasonable limit
-                                        let word_value =
-                                            struct_reader.get_data_field::<u64>(i as u32);
-                                        if word_value != 0 {
-                                            data_fields.insert(
-                                                format!("data_word_{}", i),
-                                                Value::Number(word_value.into()),
-                                            );
-                                        }
-                                    }
-                                }
-
-                                if !data_fields.is_empty() {
-                                    result.insert(
-                                        "data_fields".to_string(),
-                                        Value::Object(data_fields),
-                                    );
-                                }
-                            }
-
-                            // Extract pointer fields
-                            let pointer_count = struct_reader.get_pointer_section_size();
-                            if pointer_count > 0 {
-                                let mut pointer_fields = Vec::new();
-
-                                for i in 0..pointer_count as usize {
-                                    if i < 32 {
-                                        // Reasonable limit
-                                        let ptr = struct_reader.get_pointer_field(i as u16);
-                                        if !ptr.is_null() {
-                                            // Try to decode pointer content
-                                            if let Ok(text) = ptr.get_text(None) {
-                                                if let Ok(s) = text.to_str() {
-                                                    pointer_fields.push(json!({
-                                                        "index": i,
-                                                        "type": "text",
-                                                        "value": s
-                                                    }));
-                                                    continue;
-                                                }
-                                            }
-
-                                            if let Ok(data) = ptr.get_data(None) {
-                                                pointer_fields.push(json!({
-                                                    "index": i,
-                                                    "type": "data",
-                                                    "value": base64::encode(&data[..std::cmp::min(data.len(), 256)])
-                                                }));
-                                                continue;
-                                            }
-
-                                            if let Ok(nested_struct) = ptr.get_struct(None) {
-                                                pointer_fields.push(json!({
-                                                    "index": i,
-                                                    "type": "struct",
-                                                    "data_words": nested_struct.get_data_section_size(),
-                                                    "pointer_words": nested_struct.get_pointer_section_size()
-                                                }));
-                                                continue;
-                                            }
-
-                                            if let Ok(list) = ptr.get_list(
-                                                capnp::private::layout::ElementSize::Void,
-                                                None,
-                                            ) {
-                                                pointer_fields.push(json!({
-                                                    "index": i,
-                                                    "type": "list",
-                                                    "length": list.len()
-                                                }));
-                                                continue;
-                                            }
-
-                                            // Unknown pointer type
-                                            pointer_fields.push(json!({
-                                                "index": i,
-                                                "type": "unknown_pointer"
-                                            }));
-                                        }
-                                    }
-                                }
-
-                                if !pointer_fields.is_empty() {
-                                    result.insert(
-                                        "pointer_fields".to_string(),
-                                        Value::Array(pointer_fields),
-                                    );
-                                }
-                            }
-
-                            // Add metadata
-                            result.insert("_metadata".to_string(), json!({
-                                "type": "capnp_struct",
-                                "size": body.len(),
-                                "format": if is_packed_format(body) { "packed" } else { "unpacked" },
-                                "data_words": data_size,
-                                "pointer_words": pointer_count,
-                                "segments": message_reader.get_segments_for_output().len()
-                            }));
-
-                            return Ok(Value::Object(result));
-                        }
-
-                        // Try as list
-                        if let Ok(list) = root
-                            .reader
-                            .get_list(capnp::private::layout::ElementSize::Void, None)
-                        {
-                            return Ok(json!({
-                                "_metadata": {
-                                    "type": "capnp_list",
-                                    "size": body.len(),
-                                    "format": if is_packed_format(body) { "packed" } else { "unpacked" },
-                                    "length": list.len()
-                                },
-                                "list_info": {
-                                    "length": list.len(),
-                                    "element_size": "unknown"
-                                }
-                            }));
-                        }
+                        // Note: Cannot parse struct/list without schema via public capnp API
+                        // The reader field is private in capnp::any_pointer::Reader
+                        // get_segments_for_output() is also not available on Reader
 
                         // Fallback for non-null but unreadable root
                         Ok(json!({
@@ -1303,7 +1196,7 @@ pub fn parse_capnp_message(body: &[u8]) -> ConversionResult<Value> {
                             "format": if is_packed_format(body) { "packed" } else { "unpacked" },
                             "error": format!("Failed to get root: {}", e)
                         },
-                        "debug_data": base64::encode(&body[..std::cmp::min(body.len(), 256)])
+                        "debug_data": BASE64_STANDARD.encode(&body[..std::cmp::min(body.len(), 256)])
                     }))
                 }
             }
@@ -1315,7 +1208,7 @@ pub fn parse_capnp_message(body: &[u8]) -> ConversionResult<Value> {
                 "size": body.len(),
                 "format": if is_packed_format(body) { "packed" } else { "unpacked" },
                 "structured": false,
-                "data": base64::encode(&body[..std::cmp::min(body.len(), 256)]) // First 256 bytes for debugging
+                "data": BASE64_STANDARD.encode(&body[..std::cmp::min(body.len(), 256)]) // First 256 bytes for debugging
             }))
         }
     }
@@ -1331,7 +1224,7 @@ pub fn validate_capnp_format(body: &[u8]) -> ConversionResult<()> {
     }
 
     // Check 8-byte alignment for optimal performance
-    if body.as_ptr() as usize % 8 != 0 {
+    if !(body.as_ptr() as usize).is_multiple_of(8) {
         // Note: This is a performance warning, not a hard requirement with "unaligned" feature
         tracing::warn!("Cap'n Proto message buffer is not 8-byte aligned - may impact performance");
     }
@@ -1354,7 +1247,7 @@ pub fn validate_capnp_format(body: &[u8]) -> ConversionResult<()> {
     }
 
     // Calculate segment table size (each segment length is 4 bytes, padded to 8-byte boundary)
-    let segment_table_words = (segment_count + 1) / 2; // Round up to word boundary
+    let segment_table_words = segment_count.div_ceil(2); // Round up to word boundary
     let segment_table_bytes = segment_table_words * 8;
 
     if body.len() < segment_table_bytes {
@@ -1429,7 +1322,7 @@ pub fn extract_field_arguments(
 ) -> std::collections::HashMap<String, Value> {
     let mut args = std::collections::HashMap::new();
 
-    for (name, value) in &field.node.arguments {
+    for (name, value) in &field.arguments {
         // Convert GraphQL value to JSON value with variable resolution
         if let Ok(json_value) = graphql_value_to_json_with_variables(&value.node, variables) {
             args.insert(name.node.to_string(), json_value);
@@ -1440,17 +1333,17 @@ pub fn extract_field_arguments(
 }
 
 /// Convert GraphQL value to JSON value (legacy function for backward compatibility)
-fn graphql_value_to_json(value: &async_graphql::parser::types::Value) -> ConversionResult<Value> {
+fn graphql_value_to_json(value: &async_graphql_value::Value) -> ConversionResult<Value> {
     // Use empty variables context for backward compatibility
     graphql_value_to_json_with_variables(value, &Value::Object(serde_json::Map::new()))
 }
 
 /// Convert GraphQL value to JSON value with variable context
 fn graphql_value_to_json_with_variables(
-    value: &async_graphql::parser::types::Value,
+    value: &async_graphql_value::Value,
     variables: &Value,
 ) -> ConversionResult<Value> {
-    use async_graphql::parser::types::Value as GQLValue;
+    use async_graphql_value::Value as GQLValue;
 
     let json_value = match value {
         GQLValue::Variable(var_name) => {
@@ -1490,6 +1383,10 @@ fn graphql_value_to_json_with_variables(
                 );
             }
             Value::Object(json_object)
+        }
+        GQLValue::Binary(bytes) => {
+            // Convert binary data to base64 string
+            Value::String(BASE64_STANDARD.encode(bytes))
         }
     };
 

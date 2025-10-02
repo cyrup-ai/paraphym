@@ -4,14 +4,16 @@
 //! service initialization, operations, and builder pattern with zero allocation
 //! patterns and blazing-fast performance.
 
+#![allow(dead_code)]
+
 pub mod builder;
 pub mod operations;
+pub mod proxy_impl;
 pub mod service;
 
 // Re-export key types and functions for ergonomic usage
-pub use builder::{BuilderPreset, BuilderStatus, EdgeServiceBuilder};
-pub use operations::{HealthStatus, ServiceStatistics};
-pub use service::{EdgeService, EdgeServiceError, ErrorSeverity, ServiceMetrics, ServiceStatus};
+pub use builder::EdgeServiceBuilder;
+pub use service::{EdgeService, EdgeServiceError};
 
 /// Create a new EdgeService with default configuration
 pub fn edge_service(

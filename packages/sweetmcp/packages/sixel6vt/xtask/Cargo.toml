@@ -1,0 +1,10 @@
+[package]
+name = "xtask"
+version = "0.1.0"
+edition = "2021"
+
+# xtask is completely independent - NOT part of the workspace
+# This allows it to run before vendor/rio exists
+
+[dependencies]
+# No dependencies - completely standalone

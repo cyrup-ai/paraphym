@@ -1,4 +1,5 @@
 use std::io::{self, Write};
+use std::sync::Arc;
 use clap::Parser;
 
 // Initialize Rustls crypto provider for HTTPS connections
@@ -10,6 +11,12 @@ use paraphym_candle::{
     builders::{CandleFluentAi, CandleAgentRoleBuilder, CandleAgentBuilder},
     domain::{
         chat::CandleChatLoop,
+    },
+    memory::{
+        core::{
+            manager::surreal::{MemoryManager, SurrealDBMemoryManager},
+        },
+        utils::config::MemoryConfig,
     },
     CandleMessageChunk,
 };
@@ -37,14 +44,27 @@ struct Args {
     system_prompt: String,
 }
 
+/// Initialize the memory manager with kv-surrealkv persistence
+async fn init_memory_manager() -> Result<Arc<dyn MemoryManager>, Box<dyn std::error::Error>> {
+    // Create memory config with kv-surrealkv persistence
+    let mut config = MemoryConfig::default();
+    config.database.connection_string = "surrealkv://./data/agent_memory.db".to_string();
+
+    // Initialize the memory manager with kv-surrealkv backend
+    let manager = SurrealDBMemoryManager::with_config(config).await?;
+
+    println!("📚 Memory system initialized with kv-surrealkv persistence at ./data/agent_memory.db");
+
+    Ok(Arc::new(manager) as Arc<dyn MemoryManager>)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize Rustls crypto provider for TLS/HTTPS connections
     // This must happen before any HTTPS connections are made
-    // APPROVED BY DAVID MAPLE 09/30/2025: Panic is appropriate for crypto provider initialization failure
     aws_lc_rs::default_provider()
         .install_default()
-        .expect("Failed to install rustls crypto provider");
+        .map_err(|e| format!("Failed to install rustls crypto provider: {:?}", e))?;
 
     // Initialize Candle performance optimizations
     paraphym_candle::init_candle();
@@ -103,12 +123,16 @@ async fn run_chat(
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("✅ Provider ready! Starting chat...");
 
-    // Use the beautiful fluent API
+    // Initialize memory manager with kv-surrealkv persistence
+    let memory_manager = init_memory_manager().await?;
+
+    // Use the beautiful fluent API with memory support
     let _stream = CandleFluentAi::agent_role("helpful-assistant")
         .completion_provider(provider)
         .temperature(temperature)
         .max_tokens(max_tokens)
         .system_prompt(system_prompt)
+        .memory(memory_manager)
         .on_chunk(|chunk| {
             // Real-time streaming - print each token as it arrives
             match &chunk {
@@ -147,12 +171,16 @@ async fn run_chat_qwen(
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("✅ Provider ready! Starting chat...");
 
-    // Use the same fluent API as KimiK2
+    // Initialize memory manager with kv-surrealkv persistence
+    let memory_manager = init_memory_manager().await?;
+
+    // Use the same fluent API as KimiK2 with memory support
     let _stream = CandleFluentAi::agent_role("helpful-coder")
         .completion_provider(provider)
         .temperature(temperature)
         .max_tokens(max_tokens)
         .system_prompt(system_prompt)
+        .memory(memory_manager)
         .on_chunk(|chunk| {
             match &chunk {
                 CandleMessageChunk::Text(text) => print!("{}", text),

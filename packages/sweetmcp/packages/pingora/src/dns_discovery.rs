@@ -1,30 +1,30 @@
-//! DNS-based service discovery for SweetMCP using DoH (DNS over HTTPS)
+//! DNS-based service discovery for SweetMCP using DNS SRV records
 //!
 //! This module implements secure, zero-configuration service discovery using
-//! DNS SRV records - the industry standard approach used by Consul, Kubernetes, etc.
+//! DNS SRV records - the industry standard approach used by Consul, Kubernetes,
+//! etcd, and other distributed systems.
+//!
+//! ## DNS SRV Record Format
+//! ```text
+//! _service._proto.domain TTL class SRV priority weight port target
+//! _sweetmcp._tcp.example.com. 300 IN SRV 10 60 8443 node1.example.com.
+//! ```
 
-// Temporarily disable hickory-resolver until API compatibility is resolved
-// use hickory_resolver::config::{ResolverConfig, ResolverOpts, ResolveHosts};
-// use hickory_resolver::TokioResolver;
+use std::net::SocketAddr;
 use std::time::Duration;
 
+use hickory_resolver::TokioResolver;
 use tokio::time::interval;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::peer_discovery::PeerRegistry;
 
 const DISCOVERY_INTERVAL: Duration = Duration::from_secs(60);
-// DoH servers for future enhancement when hickory-resolver DoH API stabilizes
-// const DOH_SERVERS: &[&str] = &[
-//     "https://cloudflare-dns.com/dns-query",
-//     "https://dns.google/dns-query",
-//     "https://dns.quad9.net/dns-query",
-// ];
+const RESOLUTION_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// DNS-based discovery service using SRV records
-/// NOTE: Temporarily disabled due to hickory-resolver API compatibility issues
 pub struct DnsDiscovery {
-    // resolver: TokioResolver,  // Temporarily disabled
+    resolver: TokioResolver,
     service_name: String,
     registry: PeerRegistry,
 }
@@ -35,25 +35,41 @@ impl DnsDiscovery {
     /// # Arguments
     /// - `service_name`: The SRV service name (e.g., "_sweetmcp._tcp.example.com")
     /// - `registry`: The peer registry to update with discovered services
-    /// - `doh_server`: Reserved for future DoH support
-    pub fn new(service_name: String, registry: PeerRegistry, _doh_server: Option<&str>) -> Self {
-        // NOTE: Temporarily disabled due to hickory-resolver API compatibility issues
-        warn!("DNS discovery is temporarily disabled due to hickory-resolver API compatibility");
+    ///
+    /// # Example Service Names
+    /// - `_sweetmcp._tcp.local` - mDNS/local network
+    /// - `_sweetmcp._tcp.cluster.local` - Kubernetes cluster
+    /// - `_sweetmcp._tcp.consul` - Consul service mesh
+    /// - `_sweetmcp._tcp.example.com` - Custom domain
+    pub fn new(service_name: String, registry: PeerRegistry) -> Self {
+        // Create resolver with system configuration
+        // This automatically uses /etc/resolv.conf on Unix or registry on Windows
+        let builder = TokioResolver::builder_tokio()
+            .expect("Failed to read system DNS configuration");
+        
+        let resolver = builder.build();
+
+        info!(
+            "DNS discovery initialized for service: {}",
+            service_name
+        );
 
         Self {
-            // resolver,  // Temporarily disabled
+            resolver,
             service_name,
             registry,
         }
     }
 
     /// Start the DNS discovery service
+    ///
+    /// Performs initial discovery immediately, then polls at DISCOVERY_INTERVAL
     pub async fn run(self) {
         info!("Starting DNS discovery for service: {}", self.service_name);
 
         let mut discovery_interval = interval(DISCOVERY_INTERVAL);
 
-        // Discover immediately
+        // Discover immediately on startup
         self.discover_peers().await;
 
         loop {
@@ -62,33 +78,96 @@ impl DnsDiscovery {
         }
     }
 
+    /// Perform DNS SRV lookup and register discovered peers
     async fn discover_peers(&self) {
         debug!(
-            "DNS discovery is temporarily disabled - skipping lookup for: {}",
+            "Performing DNS SRV lookup for service: {}",
             self.service_name
         );
 
-        // NOTE: Temporarily disabled due to hickory-resolver API compatibility issues
-        // When re-enabled, this will perform DNS SRV lookups and populate the peer registry
+        // Perform SRV lookup with timeout
+        let lookup_result = tokio::time::timeout(
+            RESOLUTION_TIMEOUT,
+            self.resolver.srv_lookup(&self.service_name),
+        )
+        .await;
 
-        warn!(
-            "DNS discovery temporarily disabled - no peers discovered for {}",
-            self.service_name
-        );
+        match lookup_result {
+            Ok(Ok(srv_lookup)) => {
+                let srv_records: Vec<_> = srv_lookup.iter().collect();
+
+                if srv_records.is_empty() {
+                    warn!(
+                        "No SRV records found for service: {}",
+                        self.service_name
+                    );
+                    return;
+                }
+
+                info!(
+                    "Found {} SRV records for service: {}",
+                    srv_records.len(),
+                    self.service_name
+                );
+
+                // Resolve each SRV target with its specific port
+                for srv in &srv_records {
+                    let target = srv.target().to_string();
+                    let port = srv.port();
+                    
+                    match tokio::time::timeout(RESOLUTION_TIMEOUT, self.resolver.lookup_ip(&target)).await {
+                        Ok(Ok(lookup)) => {
+                            for ip in lookup.iter() {
+                                let addr = SocketAddr::new(ip, port);
+                                self.registry.add_peer(addr);
+                            }
+                        }
+                        Ok(Err(e)) => warn!("Failed to resolve {}: {}", target, e),
+                        Err(_) => warn!("Timeout resolving {}", target),
+                    }
+                }
+            }
+            Ok(Err(e)) => {
+                error!(
+                    "DNS SRV lookup failed for {}: {}",
+                    self.service_name, e
+                );
+            }
+            Err(_) => {
+                error!(
+                    "DNS SRV lookup timed out after {:?} for {}",
+                    RESOLUTION_TIMEOUT, self.service_name
+                );
+            }
+        }
     }
+
 }
 
 /// Check if we should use DNS discovery based on environment
+///
+/// # Environment Variables
+/// - `SWEETMCP_DNS_SERVICE`: Explicit DNS SRV service name to use
+/// - `SWEETMCP_DOMAIN`: Domain to construct SRV name (_sweetmcp._tcp.DOMAIN)
+///
+/// # Returns
+/// - `Some(service_name)` if DNS discovery should be enabled
+/// - `None` if DNS discovery should be disabled (use mDNS instead)
 pub fn should_use_dns_discovery() -> Option<String> {
     // Check for explicit DNS service name
     if let Ok(service) = std::env::var("SWEETMCP_DNS_SERVICE") {
+        info!("Using explicit DNS service name from SWEETMCP_DNS_SERVICE: {}", service);
         return Some(service);
     }
 
-    // Auto-detect based on domain
+    // Auto-construct from domain
     if let Ok(domain) = std::env::var("SWEETMCP_DOMAIN") {
-        return Some(format!("_sweetmcp._tcp.{}", domain));
+        let service_name = format!("_sweetmcp._tcp.{}", domain);
+        info!("Auto-constructed DNS service name: {}", service_name);
+        return Some(service_name);
     }
 
+    // No DNS configuration found
+    debug!("No DNS discovery configuration found, will use mDNS instead");
     None
 }

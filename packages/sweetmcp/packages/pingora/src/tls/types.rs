@@ -12,7 +12,7 @@ pub const PBKDF2_ITERATIONS: std::num::NonZeroU32 = match std::num::NonZeroU32::
     None => unreachable!(), // 600_000 is never zero
 };
 
-/// Certificate usage types for KeyUsage validation
+/// Certificate usage types for `KeyUsage` validation
 #[derive(Debug, Clone, Copy)]
 pub enum CertificateUsage {
     /// CA certificate usage
@@ -41,6 +41,10 @@ pub struct ParsedCertificate {
     pub subject_der: Vec<u8>,
     /// Raw DER-encoded public key for OCSP
     pub public_key_der: Vec<u8>,
+    /// Key algorithm name (RSA, ECDSA, Ed25519, Ed448, etc.)
+    pub key_algorithm: String,
+    /// Key size in bits (if determinable)
+    pub key_size: Option<u32>,
 }
 
 /// CRL cache entry for performance optimization
@@ -50,14 +54,8 @@ pub struct CrlCacheEntry {
     pub revoked_serials: HashSet<Vec<u8>>,
     pub cached_at: SystemTime,
     pub next_update: Option<SystemTime>,
-}
-
-/// CRL download and validation cache
-#[allow(dead_code)]
-#[derive(Clone)]
-pub struct CrlCache {
-    pub cache: std::sync::Arc<std::sync::RwLock<HashMap<String, CrlCacheEntry>>>,
-    pub http_client: reqwest::Client,
+    /// Raw CRL DER data for rustls verifier integration
+    pub crl_der: Vec<u8>,
 }
 
 /// Secure key material that zeroes on drop

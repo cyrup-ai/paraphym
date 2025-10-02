@@ -4,14 +4,14 @@ use std::collections::HashSet;
 use std::env;
 
 use super::errors::TlsError;
-use super::types::{SecureKeyMaterial, PBKDF2_ITERATIONS};
+use super::types::{PBKDF2_ITERATIONS, SecureKeyMaterial};
 
 /// Validate encryption passphrase from deployment environment
 fn validate_encryption_passphrase() -> Result<String, TlsError> {
     // Get encryption passphrase from environment variable
-    let passphrase = env::var("SWEETMCP_KEY_ENCRYPTION_PASSPHRASE").map_err(|_| {
+    let passphrase = env::var("CRYYPT_KEY_ENCRYPTION_PASSPHRASE").map_err(|_| {
         TlsError::KeyProtection(
-            "SWEETMCP_KEY_ENCRYPTION_PASSPHRASE environment variable not set".to_string(),
+            "CRYYPT_KEY_ENCRYPTION_PASSPHRASE environment variable not set".to_string(),
         )
     })?;
 
@@ -23,8 +23,8 @@ fn validate_encryption_passphrase() -> Result<String, TlsError> {
     }
 
     // Enhanced entropy validation - character class requirements
-    let has_lowercase = passphrase.chars().any(|c| c.is_lowercase());
-    let has_uppercase = passphrase.chars().any(|c| c.is_uppercase());
+    let has_lowercase = passphrase.chars().any(char::is_lowercase);
+    let has_uppercase = passphrase.chars().any(char::is_uppercase);
     let has_digit = passphrase.chars().any(|c| c.is_ascii_digit());
     let has_symbol = passphrase.chars().any(|c| !c.is_alphanumeric());
 
@@ -93,6 +93,15 @@ fn has_weak_patterns(passphrase: &str) -> bool {
 }
 
 /// Encrypt private key data using AES-256-GCM authenticated encryption
+///
+/// # Errors
+///
+/// Returns `TlsError` if:
+/// - Environment passphrase validation fails
+/// - Random salt or nonce generation fails
+/// - PBKDF2 key derivation fails
+/// - AES-256-GCM encryption fails
+/// - Memory allocation fails during encryption
 pub async fn encrypt_private_key(key_pem: &str) -> Result<Vec<u8>, TlsError> {
     use ring::{aead, pbkdf2, rand};
 
@@ -141,6 +150,15 @@ pub async fn encrypt_private_key(key_pem: &str) -> Result<Vec<u8>, TlsError> {
 }
 
 /// Decrypt private key data using AES-256-GCM authenticated encryption
+///
+/// # Errors
+///
+/// Returns `TlsError` if:
+/// - Encrypted data is too short or corrupted
+/// - Environment passphrase validation fails
+/// - PBKDF2 key derivation fails
+/// - AES-256-GCM decryption fails or authentication tag is invalid
+/// - Decrypted data is invalid or corrupted
 pub async fn decrypt_private_key(encrypted_data: &[u8]) -> Result<SecureKeyMaterial, TlsError> {
     use ring::{aead, pbkdf2};
 

@@ -321,7 +321,7 @@ impl MemorySafetyResult {
     pub fn add_violation(
         &mut self,
         violation: MemorySafetyViolation,
-    ) -> Result<(), MemorySafetyViolation> {
+    ) -> Result<(), Box<MemorySafetyViolation>> {
         if self.violations.try_push(violation).is_err() {
             // If we can't add more violations, create a capacity violation
             if let Some(capacity_violation) = MemorySafetyViolation::new(
@@ -332,7 +332,7 @@ impl MemorySafetyResult {
                 0,
                 MAX_SAFETY_VIOLATIONS,
             ) {
-                return Err(capacity_violation);
+                return Err(Box::new(capacity_violation));
             }
         }
         self.is_safe = false;

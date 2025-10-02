@@ -6,6 +6,8 @@ pub mod ops;
 pub mod primitives;
 pub mod schema;
 pub mod systems;
+pub mod cognitive_queue;
+pub mod cognitive_worker;
 
 #[cfg(test)]
 pub mod tests;
@@ -44,3 +46,10 @@ pub type MemoryType = MemoryTypeEnum;
 // Schema and systems
 pub use schema::*;
 pub use systems::*;
+// Cognitive queue exports
+pub use cognitive_queue::{
+    CognitiveProcessingQueue, 
+    CognitiveTask, 
+    CognitiveTaskType
+};
+pub use cognitive_worker::CognitiveWorker;

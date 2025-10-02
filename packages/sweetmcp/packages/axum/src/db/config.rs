@@ -29,17 +29,13 @@ impl std::error::Error for Error {}
 /// Storage engine for SurrealDB
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum StorageEngine {
     /// SurrealKV storage (recommended for local apps)
+    #[default]
     SurrealKv,
     /// HTTP connection to a remote SurrealDB server
     Http,
-}
-
-impl Default for StorageEngine {
-    fn default() -> Self {
-        Self::SurrealKv
-    }
 }
 
 impl std::fmt::Display for StorageEngine {
@@ -204,13 +200,11 @@ impl Default for MetricsConfig {
 impl DatabaseConfig {
     /// Ensures the database directory exists (for file-based storage)
     pub fn ensure_db_dir(&self) -> std::io::Result<()> {
-        if self.engine == StorageEngine::SurrealKv {
-            if let Some(path_str) = &self.path {
-                if let Some(parent) = Path::new(path_str).parent() {
-                    debug!("Ensuring database directory exists: {}", parent.display());
-                    std::fs::create_dir_all(parent)?;
-                }
-            }
+        if self.engine == StorageEngine::SurrealKv
+            && let Some(path_str) = &self.path
+            && let Some(parent) = Path::new(path_str).parent() {
+            debug!("Ensuring database directory exists: {}", parent.display());
+            std::fs::create_dir_all(parent)?;
         }
         Ok(())
     }
@@ -227,14 +221,12 @@ impl DatabaseConfig {
                 }
 
                 // Ensure directory exists since SurrealKV requires a valid directory
-                if let Some(path_str) = &self.path {
-                    if let Some(parent) = Path::new(path_str).parent() {
-                        if let Err(e) = std::fs::create_dir_all(parent) {
-                            let err_msg =
-                                format!("Failed to create directory for SurrealKV: {}", e);
-                            return Err(Error::validation(err_msg));
-                        }
-                    }
+                if let Some(path_str) = &self.path
+                    && let Some(parent) = Path::new(path_str).parent()
+                    && let Err(e) = std::fs::create_dir_all(parent) {
+                    let err_msg =
+                        format!("Failed to create directory for SurrealKV: {}", e);
+                    return Err(Error::validation(err_msg));
                 }
             }
             StorageEngine::Http => {
@@ -253,16 +245,14 @@ impl DatabaseConfig {
         }
 
         // Validate namespace and database names
-        if let Some(ns) = &self.namespace {
-            if ns.is_empty() {
-                return Err(Error::validation("Namespace cannot be empty"));
-            }
+        if let Some(ns) = &self.namespace
+            && ns.is_empty() {
+            return Err(Error::validation("Namespace cannot be empty"));
         }
 
-        if let Some(db) = &self.database {
-            if db.is_empty() {
-                return Err(Error::validation("Database cannot be empty"));
-            }
+        if let Some(db) = &self.database
+            && db.is_empty() {
+            return Err(Error::validation("Database cannot be empty"));
         }
 
         Ok(())

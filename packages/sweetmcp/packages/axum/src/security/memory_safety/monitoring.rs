@@ -432,7 +432,7 @@ impl MonitoringStats {
             score -= (0.8 - cache_hit_rate) * 0.2;
         }
 
-        score.max(0.0).min(1.0)
+        score.clamp(0.0, 1.0)
     }
 
     /// Get critical alert count
@@ -500,16 +500,16 @@ impl MonitoringReport {
     pub fn get_detailed_analysis(&self) -> String {
         let mut analysis = String::new();
 
-        analysis.push_str(&format!("=== Memory Safety Analysis Report ===\n"));
+        analysis.push_str("=== Memory Safety Analysis Report ===\n");
         analysis.push_str(&format!("Timestamp: {}\n", self.timestamp));
         analysis.push_str(&format!("Health Score: {:.2}\n", self.stats.health_score()));
         analysis.push_str(&format!(
             "Monitoring Enabled: {}\n",
             self.stats.monitoring_enabled
         ));
-        analysis.push_str(&format!("\n"));
+        analysis.push('\n');
 
-        analysis.push_str(&format!("=== Alert Summary ===\n"));
+        analysis.push_str("=== Alert Summary ===\n");
         analysis.push_str(&format!(
             "Total Active Alerts: {}\n",
             self.stats.active_alerts.len()
@@ -522,22 +522,22 @@ impl MonitoringReport {
             "High Severity Alerts: {}\n",
             self.stats.high_alert_count()
         ));
-        analysis.push_str(&format!("\n"));
+        analysis.push('\n');
 
         if !self.stats.active_alerts.is_empty() {
-            analysis.push_str(&format!("Active Alerts:\n"));
+            analysis.push_str("Active Alerts:\n");
             for alert in &self.stats.active_alerts {
                 analysis.push_str(&format!(
-                    "  - {} ({}): {}\n",
-                    format!("{:?}", alert),
-                    format!("{:?}", alert.severity()),
+                    "  - {:?} ({:?}): {}\n",
+                    alert,
+                    alert.severity(),
                     alert.description()
                 ));
             }
-            analysis.push_str(&format!("\n"));
+            analysis.push('\n');
         }
 
-        analysis.push_str(&format!("=== Performance Metrics ===\n"));
+        analysis.push_str("=== Performance Metrics ===\n");
         let metrics = &self.stats.validator_metrics;
         analysis.push_str(&format!(
             "Total Validations: {}\n",
@@ -555,24 +555,24 @@ impl MonitoringReport {
             "Tracked Allocations: {}\n",
             metrics.tracked_allocations
         ));
-        analysis.push_str(&format!("\n"));
+        analysis.push('\n');
 
         if !self.recent_violations.is_empty() {
-            analysis.push_str(&format!("=== Recent Violations ===\n"));
+            analysis.push_str("=== Recent Violations ===\n");
             for (i, violation) in self.recent_violations.iter().take(5).enumerate() {
                 analysis.push_str(&format!(
-                    "{}. {} ({}): {}\n",
+                    "{}. {:?} ({:?}): {}\n",
                     i + 1,
-                    format!("{:?}", violation.violation_type),
-                    format!("{:?}", violation.severity),
+                    violation.violation_type,
+                    violation.severity,
                     violation.message.as_str()
                 ));
             }
-            analysis.push_str(&format!("\n"));
+            analysis.push('\n');
         }
 
         if !self.recommendations.is_empty() {
-            analysis.push_str(&format!("=== Recommendations ===\n"));
+            analysis.push_str("=== Recommendations ===\n");
             for (i, recommendation) in self.recommendations.iter().enumerate() {
                 analysis.push_str(&format!("{}. {}\n", i + 1, recommendation));
             }

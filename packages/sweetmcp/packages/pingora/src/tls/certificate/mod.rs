@@ -13,12 +13,9 @@ pub mod validation;
 pub mod wildcard;
 
 // Re-export main certificate functions
-pub use generation::new;
+// generation::new re-export removed - not used
 // Re-export internal parsing function for use within certificate module
-pub use parser::parse_certificate_from_pem_internal;
-pub use parsing::{
-    parse_certificate_from_pem, validate_basic_constraints, validate_certificate_time,
-    validate_key_usage, verify_peer_certificate,
-};
-pub use validation::{validate_certificate_chain, verify_peer_certificate_comprehensive};
-pub use wildcard::generate_wildcard_certificate;
+pub use parser::parse_certificate_from_pem;
+pub use parsing::{validate_basic_constraints, validate_certificate_time, validate_key_usage};
+pub use validation::validate_certificate_chain;
+// wildcard function re-export removed - not used

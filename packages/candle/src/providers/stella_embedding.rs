@@ -12,7 +12,6 @@ use std::sync::Mutex;
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::stella_en_v5::{Config, EmbedDim, EmbeddingModel, ModelVariant};
-use progresshub::{ProgressHub, types::ZeroOneOrMany as ProgressHubZeroOneOrMany};
 use tokenizers::{Tokenizer, PaddingParams, PaddingDirection, PaddingStrategy, TruncationParams};
 
 use crate::memory::utils::error::{Error as MemoryError, Result};
@@ -152,32 +151,35 @@ impl StellaEmbeddingProvider {
 
     /// Create provider with custom configuration
     pub async fn with_config(config: StellaConfig) -> Result<Self> {
-        // Download model using ProgressHub
-        let results = ProgressHub::builder()
-            .model(config.repo_name())
-            .with_cli_progress()
-            .download()
-            .await
-            .map_err(|e| MemoryError::ModelError(format!("ProgressHub download failed: {}", e)))?;
-
-        // Extract the model path from download results
-        let model_cache_dir = if let Some(result) = results.into_iter().next() {
-            match &result.models {
-                ProgressHubZeroOneOrMany::One(model) => {
-                    model.model_cache_path.display().to_string()
-                }
-                ProgressHubZeroOneOrMany::Zero => {
-                    return Err(MemoryError::ModelError("No models were downloaded".to_string()));
-                }
-                ProgressHubZeroOneOrMany::Many(_) => {
-                    return Err(MemoryError::ModelError("Expected exactly one model, got multiple".to_string()));
-                }
-            }
-        } else {
-            return Err(MemoryError::ModelError("No download results returned".to_string()));
-        };
-
-        Self::with_config_and_path(config, model_cache_dir).await
+        use crate::domain::model::download::DownloadProviderFactory;
+        
+        // Validate dimension support before proceeding
+        StellaConfig::validate_dimension(config.dimension)?;
+        
+        // Use factory to get download provider (works with both backends)
+        let downloader = DownloadProviderFactory::create_default()
+            .map_err(|e| MemoryError::ModelError(format!("Failed to create download provider: {}", e)))?;
+        
+        // Download model files including dimension-specific embedding heads
+        let result = downloader.download_model(
+            config.repo_name(),
+            vec![
+                "*.safetensors".to_string(), 
+                "tokenizer.json".to_string(), 
+                "config.json".to_string(),
+                format!("{}/*", config.embed_head_dir()), // MRL projection heads
+            ],
+            None,
+        ).await
+        .map_err(|e| MemoryError::ModelError(format!("Model download failed: {}", e)))?;
+        
+        // Use result.cache_dir for model path
+        Self::with_config_and_path(
+            config,
+            result.cache_dir.to_str()
+                .ok_or_else(|| MemoryError::ModelError("Invalid cache directory".to_string()))?
+                .to_string()
+        ).await
     }
 
     /// Create provider with custom configuration and existing model path

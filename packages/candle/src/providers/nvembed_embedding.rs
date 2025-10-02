@@ -8,7 +8,6 @@ use std::sync::Mutex;
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::nvembed_v2::model::Model as NvEmbedModel;
-use progresshub::{ProgressHub, types::ZeroOneOrMany as ProgressHubZeroOneOrMany};
 use tokenizers::{Tokenizer, PaddingParams, TruncationParams};
 use crate::memory::utils::error::{Error as MemoryError, Result};
 use crate::memory::vector::embedding_model::EmbeddingModel as EmbeddingModelTrait;
@@ -123,27 +122,27 @@ impl CandleNvEmbedEmbeddingProvider {
     }
 
     pub async fn with_config(config: CandleNvEmbedConfig) -> Result<Self> {
-        // Download model using ProgressHub
-        let results = ProgressHub::builder()
-            .model("nvidia/NV-Embed-v2")
-            .with_cli_progress()
-            .download()
-            .await
-            .map_err(|e| MemoryError::ModelError(format!("ProgressHub download failed: {}", e)))?;
-
-        // Extract model path
-        let model_cache_dir = if let Some(result) = results.into_iter().next() {
-            match &result.models {
-                ProgressHubZeroOneOrMany::One(model) => {
-                    model.model_cache_path.display().to_string()
-                }
-                _ => return Err(MemoryError::ModelError("Invalid download result".to_string())),
-            }
-        } else {
-            return Err(MemoryError::ModelError("No download results".to_string()));
-        };
-
-        Self::with_config_and_path(config, model_cache_dir).await
+        use crate::domain::model::download::DownloadProviderFactory;
+        
+        // Use factory to get download provider (works with both backends)
+        let downloader = DownloadProviderFactory::create_default()
+            .map_err(|e| MemoryError::ModelError(format!("Failed to create download provider: {}", e)))?;
+        
+        // Download model files
+        let result = downloader.download_model(
+            "nvidia/NV-Embed-v2",
+            vec!["*.safetensors".to_string(), "tokenizer.json".to_string(), "config.json".to_string()],
+            None,
+        ).await
+        .map_err(|e| MemoryError::ModelError(format!("Model download failed: {}", e)))?;
+        
+        // Use result.cache_dir for model path
+        Self::with_config_and_path(
+            config,
+            result.cache_dir.to_str()
+                .ok_or_else(|| MemoryError::ModelError("Invalid cache directory".to_string()))?
+                .to_string()
+        ).await
     }
 
     pub async fn with_config_and_path(config: CandleNvEmbedConfig, model_path: String) -> Result<Self> {

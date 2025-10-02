@@ -279,6 +279,7 @@ tokenizer_files/
 
 # Temporary and Cache directories
 .tmp*/
+.task/*
 .tmpX*/
 Cache*/
 **/Cache/

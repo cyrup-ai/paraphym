@@ -506,7 +506,7 @@ mod tests {
             builder.required_string("input", "Test input").build()
         }
 
-        fn execute(args: Value) -> Result<CallToolResult, Error> {
+        fn execute(_args: Value) -> Result<CallToolResult, Error> {
             Ok(ContentBuilder::text("Test result"))
         }
     }

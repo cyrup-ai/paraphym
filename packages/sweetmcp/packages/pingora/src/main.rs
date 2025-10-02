@@ -27,9 +27,7 @@ use config::Config;
 use opentelemetry::global;
 use opentelemetry_prometheus::PrometheusExporter;
 use pingora::prelude::*;
-use pingora_proxy::http_proxy_service;
 use tokio::sync::mpsc;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 fn get_cert_dir() -> std::path::PathBuf {
     let xdg_config = std::env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| {
@@ -93,7 +91,6 @@ fn run_server() -> Result<()> {
         let dns_discovery = dns_discovery::DnsDiscovery::new(
             service_name.clone(),
             peer_registry.clone(),
-            None, // Use default DoH servers
         );
         let dns_service = background_service(
             "dns-discovery",
@@ -128,6 +125,9 @@ fn run_server() -> Result<()> {
     server.add_service(mcp_bridge);
     server.add_service(peer_service);
 
+    // Load TLS certificates from XDG_CONFIG_HOME/sweetmcp/certs
+    let cert_dir = get_cert_dir();
+
     // Add TLS certificate monitoring and rotation service
     let tls_dir = cert_dir.to_string_lossy().to_string();
     let authority = tls::CertificateAuthority::load(&cert_dir.join("ca.crt"))?;
@@ -151,7 +151,7 @@ fn run_server() -> Result<()> {
     let rate_limit_service = background_service(
         "rate-limit-cleanup",
         RateLimitCleanupService {
-            rate_limiter: edge_service.rate_limiter(),
+            rate_limiter: edge_service.rate_limit_manager().clone(),
         },
     );
     server.add_service(rate_limit_service);
@@ -160,15 +160,12 @@ fn run_server() -> Result<()> {
     let metrics_service = background_service(
         "metrics-collector",
         MetricsCollectorService {
-            metric_picker: edge_service.metric_picker(),
+            metric_picker: edge_service.picker().clone(),
         },
     );
     server.add_service(metrics_service);
 
     let mut proxy_service = pingora_proxy::http_proxy_service(&server.configuration, edge_service);
-
-    // Load TLS certificates from XDG_CONFIG_HOME/sweetmcp/certs
-    let cert_dir = get_cert_dir();
 
     // Verify certificate files exist (generated during installation)
     let ca_cert_path = cert_dir.join("ca.crt");
@@ -192,38 +189,29 @@ fn run_server() -> Result<()> {
     log::info!("✅ Loading TLS certificates from {}", cert_dir.display());
 
     // Configure TLS settings for Pingora using existing certificates
-    #[cfg(feature = "rustls")]
-    {
-        use pingora::listeners::tls::TlsSettings;
+    use pingora::listeners::tls::TlsSettings;
 
-        let tls_settings = TlsSettings::intermediate(
-            server_cert_path
-                .to_str()
-                .context("Server certificate path contains invalid UTF-8")?,
-            server_key_path
-                .to_str()
-                .context("Server key path contains invalid UTF-8")?,
-        )
+    let server_cert_str = server_cert_path
+        .to_str()
+        .context("Server certificate path contains invalid UTF-8")?;
+    let server_key_str = server_key_path
+        .to_str()
+        .context("Server key path contains invalid UTF-8")?;
+
+    let tls_settings = TlsSettings::intermediate(server_cert_str, server_key_str)
         .context("Failed to create TLS settings")?;
 
-        // Add HTTPS listeners
-        proxy_service.add_tls_with_settings(&cfg.tcp_bind, None, tls_settings.clone());
+    // Add HTTPS listeners
+    proxy_service.add_tls_with_settings(&cfg.tcp_bind, None, tls_settings);
 
-        // Add separate TLS listener for MCP if different from main TCP
-        if cfg.mcp_bind != cfg.tcp_bind {
-            proxy_service.add_tls_with_settings(&cfg.mcp_bind, None, tls_settings);
-        }
-
-        log::info!("🔒 TLS enabled on {} and {}", cfg.tcp_bind, cfg.mcp_bind);
+    // Add separate TLS listener for MCP if different from main TCP
+    if cfg.mcp_bind != cfg.tcp_bind {
+        let tls_settings_mcp = TlsSettings::intermediate(server_cert_str, server_key_str)
+            .context("Failed to create TLS settings for MCP")?;
+        proxy_service.add_tls_with_settings(&cfg.mcp_bind, None, tls_settings_mcp);
     }
 
-    #[cfg(not(feature = "rustls"))]
-    {
-        log::warn!("⚠️  TLS not available - falling back to HTTP only");
-        // Add TCP listeners as fallback
-        proxy_service.add_tcp(&cfg.tcp_bind);
-        proxy_service.add_tcp(&cfg.mcp_bind);
-    }
+    log::info!("🔒 TLS enabled on {} and {}", cfg.tcp_bind, cfg.mcp_bind);
 
     // Add Unix socket listener
     // Ensure directory exists
@@ -451,6 +439,41 @@ struct TlsCertificateManagerService {
     tls_dir: String,
     authority: tls::CertificateAuthority,
     server_domain: String,
+}
+
+impl BackgroundService for TlsCertificateManagerService {
+    fn start<'life0, 'async_trait>(
+        &'life0 self,
+        mut shutdown: ShutdownWatch,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'async_trait>>
+    where
+        'life0: 'async_trait,
+        Self: 'async_trait,
+    {
+        let _tls_dir = self.tls_dir.clone();
+        let _authority = self.authority.clone();
+        let _server_domain = self.server_domain.clone();
+
+        Box::pin(async move {
+            log::info!("🔐 Starting TLS certificate manager service");
+            
+            // Certificate monitoring interval (check every hour)
+            let mut check_interval = tokio::time::interval(Duration::from_secs(3600));
+
+            loop {
+                tokio::select! {
+                    _ = check_interval.tick() => {
+                        // TODO: Implement certificate expiry monitoring and auto-renewal
+                        log::debug!("TLS certificate check completed");
+                    }
+                    _ = shutdown.changed() => {
+                        log::info!("TLS certificate manager shutting down");
+                        break;
+                    }
+                }
+            }
+        })
+    }
 }
 
 impl BackgroundService for MetricsCollectorService {

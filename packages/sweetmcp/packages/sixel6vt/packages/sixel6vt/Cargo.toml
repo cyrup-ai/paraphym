@@ -1,0 +1,34 @@
+[package]
+name = "sixel6vt"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.98"
+chromiumoxide = { version = "0.7.0", features = ["tokio-runtime"] }
+chromiumoxide_cdp = "0.7.0"
+futures = "0.3.31"
+serde_json = "1.0.140"
+tempfile = "3.20.0"
+tokio = { version = "1.45", features = ["full"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["fmt"] }
+image = "0.25.6"
+
+# Rio terminal integration - using vendor directory after setup
+# Run `cargo run -p xtask -- setup` first to clone and prepare Rio
+rioterm = { path = "../../vendor/rio/frontends/rioterm" }
+rio-window = { path = "../../vendor/rio/rio-window", default-features = false }
+rio-backend = { path = "../../vendor/rio/rio-backend" }
+sugarloaf = { path = "../../vendor/rio/sugarloaf" }
+teletypewriter = { path = "../../vendor/rio/teletypewriter" }
+
+raw-window-handle = "0.6.2"
+base64 = "0.22.1"
+percent-encoding = "2.3.1"
+thiserror = "2.0.12"
+wgpu = "25.0.0"
+
+[[bin]]
+name = "sixel6vt"
+path = "src/main.rs"

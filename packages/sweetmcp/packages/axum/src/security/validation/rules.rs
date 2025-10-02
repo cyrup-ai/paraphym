@@ -12,7 +12,7 @@ use crate::security::validation::core::*;
 /// Validation rule trait for implementing custom validation logic
 pub trait ValidationRule: Send + Sync {
     /// Check if input passes this validation rule
-    fn validate(&self, input: &str) -> Result<(), ValidationError>;
+    fn validate(&self, input: &str) -> Result<(), Box<ValidationError>>;
 
     /// Get rule name for debugging
     fn rule_name(&self) -> &'static str;
@@ -37,12 +37,12 @@ pub trait ValidationRule: Send + Sync {
 pub struct EmailValidationRule;
 
 impl ValidationRule for EmailValidationRule {
-    fn validate(&self, input: &str) -> Result<(), ValidationError> {
+    fn validate(&self, input: &str) -> Result<(), Box<ValidationError>> {
         // SIMD-accelerated email validation
         let finder = memmem::Finder::new(b"@");
 
         if finder.find(input.as_bytes()).is_none() {
-            return Err(ValidationError::new(
+            return Err(Box::new(ValidationError::new(
                 "EMAIL_MISSING_AT_SYMBOL",
                 "Email must contain @ symbol",
                 ValidationSeverity::High,
@@ -58,12 +58,12 @@ impl ValidationRule for EmailValidationRule {
                     "unknown",
                 )
                 .unwrap()
-            })?);
+            })?));
         }
 
         // Check for multiple @ symbols
         if input.matches('@').count() != 1 {
-            return Err(ValidationError::new(
+            return Err(Box::new(ValidationError::new(
                 "EMAIL_MULTIPLE_AT_SYMBOLS",
                 "Email must contain exactly one @ symbol",
                 ValidationSeverity::High,
@@ -79,13 +79,13 @@ impl ValidationRule for EmailValidationRule {
                     "unknown",
                 )
                 .unwrap()
-            })?);
+            })?));
         }
 
         // Split at @ symbol
         let parts: Vec<&str> = input.split('@').collect();
         if parts.len() != 2 {
-            return Err(ValidationError::new(
+            return Err(Box::new(ValidationError::new(
                 "EMAIL_INVALID_FORMAT",
                 "Email format is invalid",
                 ValidationSeverity::High,
@@ -101,7 +101,7 @@ impl ValidationRule for EmailValidationRule {
                     "unknown",
                 )
                 .unwrap()
-            })?);
+            })?));
         }
 
         let local_part = parts[0];
@@ -109,7 +109,7 @@ impl ValidationRule for EmailValidationRule {
 
         // Validate local part
         if local_part.is_empty() || local_part.len() > 64 {
-            return Err(ValidationError::new(
+            return Err(Box::new(ValidationError::new(
                 "EMAIL_INVALID_LOCAL_PART",
                 "Email local part must be 1-64 characters",
                 ValidationSeverity::High,
@@ -125,12 +125,12 @@ impl ValidationRule for EmailValidationRule {
                     "unknown",
                 )
                 .unwrap()
-            })?);
+            })?));
         }
 
         // Validate domain part
         if domain_part.is_empty() || domain_part.len() > 253 {
-            return Err(ValidationError::new(
+            return Err(Box::new(ValidationError::new(
                 "EMAIL_INVALID_DOMAIN_PART",
                 "Email domain part must be 1-253 characters",
                 ValidationSeverity::High,
@@ -146,13 +146,13 @@ impl ValidationRule for EmailValidationRule {
                     "unknown",
                 )
                 .unwrap()
-            })?);
+            })?));
         }
 
         // Check for valid characters in local part
         for ch in local_part.chars() {
             if !ch.is_ascii_alphanumeric() && !matches!(ch, '.' | '_' | '-' | '+') {
-                return Err(ValidationError::new(
+                return Err(Box::new(ValidationError::new(
                     "EMAIL_INVALID_LOCAL_CHAR",
                     "Email local part contains invalid characters",
                     ValidationSeverity::High,
@@ -168,14 +168,14 @@ impl ValidationRule for EmailValidationRule {
                         "unknown",
                     )
                     .unwrap()
-                })?);
+                })?));
             }
         }
 
         // Check for valid characters in domain part
         for ch in domain_part.chars() {
             if !ch.is_ascii_alphanumeric() && !matches!(ch, '.' | '-') {
-                return Err(ValidationError::new(
+                return Err(Box::new(ValidationError::new(
                     "EMAIL_INVALID_DOMAIN_CHAR",
                     "Email domain part contains invalid characters",
                     ValidationSeverity::High,
@@ -191,13 +191,13 @@ impl ValidationRule for EmailValidationRule {
                         "unknown",
                     )
                     .unwrap()
-                })?);
+                })?));
             }
         }
 
         // Check for valid domain structure
         if !domain_part.contains('.') {
-            return Err(ValidationError::new(
+            return Err(Box::new(ValidationError::new(
                 "EMAIL_INVALID_DOMAIN_STRUCTURE",
                 "Email domain must contain at least one dot",
                 ValidationSeverity::High,
@@ -213,7 +213,7 @@ impl ValidationRule for EmailValidationRule {
                     "unknown",
                 )
                 .unwrap()
-            })?);
+            })?));
         }
 
         Ok(())
@@ -237,14 +237,14 @@ impl ValidationRule for EmailValidationRule {
 pub struct UrlValidationRule;
 
 impl ValidationRule for UrlValidationRule {
-    fn validate(&self, input: &str) -> Result<(), ValidationError> {
+    fn validate(&self, input: &str) -> Result<(), Box<ValidationError>> {
         // Parse URL using url crate for comprehensive validation
         match Url::parse(input) {
             Ok(url) => {
                 // Check for allowed schemes
                 let allowed_schemes = ["http", "https", "ftp", "ftps"];
                 if !allowed_schemes.contains(&url.scheme()) {
-                    return Err(ValidationError::new(
+                    return Err(Box::new(ValidationError::new(
                         "URL_INVALID_SCHEME",
                         "URL scheme not allowed",
                         ValidationSeverity::High,
@@ -260,12 +260,12 @@ impl ValidationRule for UrlValidationRule {
                             "unknown",
                         )
                         .unwrap()
-                    })?);
+                    })?));
                 }
 
                 // Check for valid host
                 if url.host().is_none() {
-                    return Err(ValidationError::new(
+                    return Err(Box::new(ValidationError::new(
                         "URL_MISSING_HOST",
                         "URL must have a valid host",
                         ValidationSeverity::High,
@@ -281,11 +281,11 @@ impl ValidationRule for UrlValidationRule {
                             "unknown",
                         )
                         .unwrap()
-                    })?);
+                    })?));
                 }
             }
             Err(_) => {
-                return Err(ValidationError::new(
+                return Err(Box::new(ValidationError::new(
                     "URL_PARSE_ERROR",
                     "URL format is invalid",
                     ValidationSeverity::High,
@@ -301,7 +301,7 @@ impl ValidationRule for UrlValidationRule {
                         "unknown",
                     )
                     .unwrap()
-                })?);
+                })?));
             }
         }
 
@@ -326,7 +326,7 @@ impl ValidationRule for UrlValidationRule {
 pub struct PathTraversalValidationRule;
 
 impl ValidationRule for PathTraversalValidationRule {
-    fn validate(&self, input: &str) -> Result<(), ValidationError> {
+    fn validate(&self, input: &str) -> Result<(), Box<ValidationError>> {
         // SIMD-accelerated path traversal pattern detection
         let traversal_patterns = [
             &b"../"[..],
@@ -340,7 +340,7 @@ impl ValidationRule for PathTraversalValidationRule {
         for pattern in &traversal_patterns {
             let finder = memmem::Finder::new(pattern);
             if finder.find(input.as_bytes()).is_some() {
-                return Err(ValidationError::new(
+                return Err(Box::new(ValidationError::new(
                     "PATH_TRAVERSAL_DETECTED",
                     "Path traversal pattern detected",
                     ValidationSeverity::Critical,
@@ -356,13 +356,13 @@ impl ValidationRule for PathTraversalValidationRule {
                         "unknown",
                     )
                     .unwrap()
-                })?);
+                })?));
             }
         }
 
         // Check for null bytes
         if input.contains('\0') {
-            return Err(ValidationError::new(
+            return Err(Box::new(ValidationError::new(
                 "PATH_NULL_BYTE_DETECTED",
                 "Null byte detected in path",
                 ValidationSeverity::Critical,
@@ -378,7 +378,7 @@ impl ValidationRule for PathTraversalValidationRule {
                     "unknown",
                 )
                 .unwrap()
-            })?);
+            })?));
         }
 
         Ok(())
@@ -402,7 +402,7 @@ impl ValidationRule for PathTraversalValidationRule {
 pub struct SqlInjectionValidationRule;
 
 impl ValidationRule for SqlInjectionValidationRule {
-    fn validate(&self, input: &str) -> Result<(), ValidationError> {
+    fn validate(&self, input: &str) -> Result<(), Box<ValidationError>> {
         // SIMD-accelerated SQL injection pattern detection
         let sql_patterns = [
             &b"' OR '1'='1"[..],
@@ -425,7 +425,7 @@ impl ValidationRule for SqlInjectionValidationRule {
         for pattern in &sql_patterns {
             let finder = memmem::Finder::new(pattern);
             if finder.find(input.to_uppercase().as_bytes()).is_some() {
-                return Err(ValidationError::new(
+                return Err(Box::new(ValidationError::new(
                     "SQL_INJECTION_DETECTED",
                     "SQL injection pattern detected",
                     ValidationSeverity::Critical,
@@ -441,7 +441,7 @@ impl ValidationRule for SqlInjectionValidationRule {
                         "unknown",
                     )
                     .unwrap()
-                })?);
+                })?));
             }
         }
 
@@ -466,7 +466,7 @@ impl ValidationRule for SqlInjectionValidationRule {
 pub struct XssValidationRule;
 
 impl ValidationRule for XssValidationRule {
-    fn validate(&self, input: &str) -> Result<(), ValidationError> {
+    fn validate(&self, input: &str) -> Result<(), Box<ValidationError>> {
         // SIMD-accelerated XSS pattern detection
         let xss_patterns = [
             &b"<script"[..],
@@ -490,7 +490,7 @@ impl ValidationRule for XssValidationRule {
         for pattern in &xss_patterns {
             let finder = memmem::Finder::new(pattern);
             if finder.find(input.to_lowercase().as_bytes()).is_some() {
-                return Err(ValidationError::new(
+                return Err(Box::new(ValidationError::new(
                     "XSS_PATTERN_DETECTED",
                     "XSS pattern detected",
                     ValidationSeverity::Critical,
@@ -506,7 +506,7 @@ impl ValidationRule for XssValidationRule {
                         "unknown",
                     )
                     .unwrap()
-                })?);
+                })?));
             }
         }
 
@@ -546,11 +546,11 @@ impl LengthValidationRule {
 }
 
 impl ValidationRule for LengthValidationRule {
-    fn validate(&self, input: &str) -> Result<(), ValidationError> {
+    fn validate(&self, input: &str) -> Result<(), Box<ValidationError>> {
         let length = input.len();
 
         if length < self.min_length {
-            return Err(ValidationError::new(
+            return Err(Box::new(ValidationError::new(
                 "LENGTH_TOO_SHORT",
                 "Input is too short",
                 ValidationSeverity::Medium,
@@ -566,11 +566,11 @@ impl ValidationRule for LengthValidationRule {
                     "unknown",
                 )
                 .unwrap()
-            })?);
+            })?));
         }
 
         if length > self.max_length {
-            return Err(ValidationError::new(
+            return Err(Box::new(ValidationError::new(
                 "LENGTH_TOO_LONG",
                 "Input is too long",
                 ValidationSeverity::Medium,
@@ -586,7 +586,7 @@ impl ValidationRule for LengthValidationRule {
                     "unknown",
                 )
                 .unwrap()
-            })?);
+            })?));
         }
 
         Ok(())
@@ -641,10 +641,10 @@ impl CharacterSetValidationRule {
 }
 
 impl ValidationRule for CharacterSetValidationRule {
-    fn validate(&self, input: &str) -> Result<(), ValidationError> {
+    fn validate(&self, input: &str) -> Result<(), Box<ValidationError>> {
         for ch in input.chars() {
             if ch.is_whitespace() && !self.allow_whitespace {
-                return Err(ValidationError::new(
+                return Err(Box::new(ValidationError::new(
                     "CHARSET_WHITESPACE_NOT_ALLOWED",
                     "Whitespace characters not allowed",
                     ValidationSeverity::Medium,
@@ -660,11 +660,11 @@ impl ValidationRule for CharacterSetValidationRule {
                         "unknown",
                     )
                     .unwrap()
-                })?);
+                })?));
             }
 
             if !ch.is_whitespace() && !self.allowed_chars.contains(ch) {
-                return Err(ValidationError::new(
+                return Err(Box::new(ValidationError::new(
                     "CHARSET_INVALID_CHARACTER",
                     "Invalid character in input",
                     ValidationSeverity::Medium,
@@ -680,7 +680,7 @@ impl ValidationRule for CharacterSetValidationRule {
                         "unknown",
                     )
                     .unwrap()
-                })?);
+                })?));
             }
         }
 
@@ -746,7 +746,7 @@ impl NumericValidationRule {
 }
 
 impl ValidationRule for NumericValidationRule {
-    fn validate(&self, input: &str) -> Result<(), ValidationError> {
+    fn validate(&self, input: &str) -> Result<(), Box<ValidationError>> {
         // Parse as number
         let parsed_value: Result<f64, Box<dyn std::error::Error>> = if self.allow_decimal {
             input.parse::<f64>().map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
@@ -759,7 +759,7 @@ impl ValidationRule for NumericValidationRule {
         let value = match parsed_value {
             Ok(v) => v,
             Err(_) => {
-                return Err(ValidationError::new(
+                return Err(Box::new(ValidationError::new(
                     "NUMERIC_PARSE_ERROR",
                     "Input is not a valid number",
                     ValidationSeverity::Medium,
@@ -775,13 +775,13 @@ impl ValidationRule for NumericValidationRule {
                         "unknown",
                     )
                     .unwrap()
-                })?);
+                })?));
             }
         };
 
         // Check negative values
         if !self.allow_negative && value < 0.0 {
-            return Err(ValidationError::new(
+            return Err(Box::new(ValidationError::new(
                 "NUMERIC_NEGATIVE_NOT_ALLOWED",
                 "Negative numbers not allowed",
                 ValidationSeverity::Medium,
@@ -797,53 +797,51 @@ impl ValidationRule for NumericValidationRule {
                     "unknown",
                 )
                 .unwrap()
-            })?);
+            })?));
         }
 
         // Check minimum value
-        if let Some(min) = self.min_value {
-            if value < min {
-                return Err(ValidationError::new(
-                    "NUMERIC_BELOW_MINIMUM",
-                    "Value is below minimum",
+        if let Some(min) = self.min_value
+            && value < min {
+            return Err(Box::new(ValidationError::new(
+                "NUMERIC_BELOW_MINIMUM",
+                "Value is below minimum",
+                ValidationSeverity::Medium,
+                "numeric",
+                input,
+            )
+            .ok_or_else(|| {
+                ValidationError::new(
+                    "NUMERIC_VALIDATION_ERROR",
+                    "Numeric validation failed",
                     ValidationSeverity::Medium,
                     "numeric",
-                    input,
+                    "unknown",
                 )
-                .ok_or_else(|| {
-                    ValidationError::new(
-                        "NUMERIC_VALIDATION_ERROR",
-                        "Numeric validation failed",
-                        ValidationSeverity::Medium,
-                        "numeric",
-                        "unknown",
-                    )
-                    .unwrap()
-                })?);
-            }
+                .unwrap()
+            })?));
         }
 
         // Check maximum value
-        if let Some(max) = self.max_value {
-            if value > max {
-                return Err(ValidationError::new(
-                    "NUMERIC_ABOVE_MAXIMUM",
-                    "Value is above maximum",
+        if let Some(max) = self.max_value
+            && value > max {
+            return Err(Box::new(ValidationError::new(
+                "NUMERIC_ABOVE_MAXIMUM",
+                "Value is above maximum",
+                ValidationSeverity::Medium,
+                "numeric",
+                input,
+            )
+            .ok_or_else(|| {
+                ValidationError::new(
+                    "NUMERIC_VALIDATION_ERROR",
+                    "Numeric validation failed",
                     ValidationSeverity::Medium,
                     "numeric",
-                    input,
+                    "unknown",
                 )
-                .ok_or_else(|| {
-                    ValidationError::new(
-                        "NUMERIC_VALIDATION_ERROR",
-                        "Numeric validation failed",
-                        ValidationSeverity::Medium,
-                        "numeric",
-                        "unknown",
-                    )
-                    .unwrap()
-                })?);
-            }
+                .unwrap()
+            })?));
         }
 
         Ok(())

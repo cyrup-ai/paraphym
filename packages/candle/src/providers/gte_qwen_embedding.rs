@@ -10,7 +10,6 @@ use std::sync::Mutex;
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::qwen2::{Config, Model};
-use progresshub::{ProgressHub, types::ZeroOneOrMany as ProgressHubZeroOneOrMany};
 use tokenizers::{Tokenizer, PaddingParams, TruncationParams};
 use crate::memory::utils::error::{Error as MemoryError, Result};
 use crate::memory::vector::embedding_model::EmbeddingModel as EmbeddingModelTrait;
@@ -87,30 +86,30 @@ impl CandleGteQwenEmbeddingProvider {
     }
 
     pub async fn with_config(config: CandleGteQwenConfig) -> Result<Self> {
+        use crate::domain::model::download::DownloadProviderFactory;
+        
         // Validate dimension support before proceeding
         CandleGteQwenConfig::validate_dimension(config.dimension)?;
         
-        // Download model using ProgressHub
-        let results = ProgressHub::builder()
-            .model("Alibaba-NLP/gte-Qwen2-1.5B-instruct")
-            .with_cli_progress()
-            .download()
-            .await
-            .map_err(|e| MemoryError::ModelError(format!("ProgressHub download failed: {}", e)))?;
-
-        // Extract model path
-        let model_cache_dir = if let Some(result) = results.into_iter().next() {
-            match &result.models {
-                ProgressHubZeroOneOrMany::One(model) => {
-                    model.model_cache_path.display().to_string()
-                }
-                _ => return Err(MemoryError::ModelError("Invalid download result".to_string())),
-            }
-        } else {
-            return Err(MemoryError::ModelError("No download results".to_string()));
-        };
-
-        Self::with_config_and_path(config, model_cache_dir).await
+        // Use factory to get download provider (works with both backends)
+        let downloader = DownloadProviderFactory::create_default()
+            .map_err(|e| MemoryError::ModelError(format!("Failed to create download provider: {}", e)))?;
+        
+        // Download model files (GTE-Qwen2 uses multiple safetensors with index.json)
+        let result = downloader.download_model(
+            "Alibaba-NLP/gte-Qwen2-1.5B-instruct",
+            vec!["*.safetensors".to_string(), "*.json".to_string()],
+            None,
+        ).await
+        .map_err(|e| MemoryError::ModelError(format!("Model download failed: {}", e)))?;
+        
+        // Use result.cache_dir for model path
+        Self::with_config_and_path(
+            config,
+            result.cache_dir.to_str()
+                .ok_or_else(|| MemoryError::ModelError("Invalid cache directory".to_string()))?
+                .to_string()
+        ).await
     }
 
     pub async fn with_config_and_path(config: CandleGteQwenConfig, model_path: String) -> Result<Self> {

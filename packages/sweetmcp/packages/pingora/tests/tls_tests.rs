@@ -3,9 +3,13 @@ mod certificate_parsing_tests {
     use std::time::SystemTime;
 
     use rcgen::{CertificateParams, DistinguishedName, DnType, SanType};
-    use sweetmcp::tls::Tls;
+    use sweetmcp::tls::certificate::parser::parse_certificate_from_pem;
+    use sweetmcp::tls::certificate::parsing::{validate_basic_constraints, validate_key_usage};
+    use sweetmcp::tls::errors::TlsError;
+    use sweetmcp::tls::types::CertificateUsage;
 
     // Generate a valid test certificate that mimics Let's Encrypt structure
+    #[allow(dead_code)]
     fn generate_test_certificate() -> String {
         let mut params = CertificateParams::default();
         params.distinguished_name = DistinguishedName::new();
@@ -26,6 +30,7 @@ mod certificate_parsing_tests {
     }
 
     // Create a real test certificate using rcgen that we know is valid
+    #[allow(dead_code)]
     fn get_test_certificate() -> String {
         let mut params = CertificateParams::default();
         params.distinguished_name = DistinguishedName::new();
@@ -100,13 +105,13 @@ RX4MzusreyKRGdvr2IN2gYCDPOgOiqp3YKkOnXV8/pya1KSGrT51fEYTdUrjJ6dr
     fn test_simple_parse() {
         // Minimal test to check if parse_certificate_from_pem is working
         let simple_cert = SELF_SIGNED_CERT;
-        let result = TlsManager::parse_certificate_from_pem(simple_cert);
+        let result = parse_certificate_from_pem(simple_cert);
         result.expect("Failed to parse simple certificate");
     }
 
     #[test]
     fn test_debug_example_cert() {
-        let result = TlsManager::parse_certificate_from_pem(EXAMPLE_CERT);
+        let result = parse_certificate_from_pem(EXAMPLE_CERT);
         match result {
             Ok(_parsed) => {
                 // Certificate parsed successfully
@@ -151,7 +156,7 @@ nLRbwHOoq7hHwg==
     #[test]
     fn test_parse_example_certificate() {
         // Test with the EXAMPLE_CERT we know is valid
-        let parsed = TlsManager::parse_certificate_from_pem(EXAMPLE_CERT)
+        let parsed = parse_certificate_from_pem(EXAMPLE_CERT)
             .expect("Failed to parse EXAMPLE_CERT");
 
         // Verify basic fields are populated
@@ -172,7 +177,7 @@ nLRbwHOoq7hHwg==
 
     #[test]
     fn test_parse_self_signed_certificate() {
-        let parsed = TlsManager::parse_certificate_from_pem(SELF_SIGNED_CERT)
+        let parsed = parse_certificate_from_pem(SELF_SIGNED_CERT)
             .expect("Failed to parse self-signed certificate");
 
         // Verify subject equals issuer (self-signed)
@@ -198,7 +203,7 @@ nLRbwHOoq7hHwg==
 
     #[test]
     fn test_parse_ca_certificate() {
-        let parsed = TlsManager::parse_certificate_from_pem(CA_CERT)
+        let parsed = parse_certificate_from_pem(CA_CERT)
             .expect("Failed to parse CA certificate");
 
         // Verify it's a CA
@@ -225,12 +230,12 @@ nLRbwHOoq7hHwg==
         let malformed =
             "-----BEGIN CERTIFICATE-----\nINVALID BASE64 DATA\n-----END CERTIFICATE-----";
 
-        let result = TlsManager::parse_certificate_from_pem(malformed);
+        let result = parse_certificate_from_pem(malformed);
         assert!(result.is_err());
 
         if let Err(e) = result {
             assert!(
-                matches!(e, sweetmcp::tls::TlsError::CertificateParsing(_)),
+                matches!(e, TlsError::CertificateParsing(_)),
                 "Expected CertificateParsing error, got: {:?}",
                 e
             );
@@ -240,7 +245,7 @@ nLRbwHOoq7hHwg==
     #[test]
     fn test_parse_empty_pem() {
         let empty = "";
-        let result = TlsManager::parse_certificate_from_pem(empty);
+        let result = parse_certificate_from_pem(empty);
         assert!(result.is_err());
     }
 
@@ -250,13 +255,13 @@ nLRbwHOoq7hHwg==
 MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7AhUozPaglNMP
 -----END PRIVATE KEY-----"#;
 
-        let result = TlsManager::parse_certificate_from_pem(private_key);
+        let result = parse_certificate_from_pem(private_key);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_certificate_time_validation() {
-        let parsed = TlsManager::parse_certificate_from_pem(EXAMPLE_CERT)
+        let parsed = parse_certificate_from_pem(EXAMPLE_CERT)
             .expect("Failed to parse certificate");
 
         // This cert was valid in 2022-2023
@@ -269,44 +274,44 @@ MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7AhUozPaglNMP
     #[test]
     fn test_basic_constraints_validation() {
         // Test CA certificate
-        let ca_parsed = TlsManager::parse_certificate_from_pem(CA_CERT)
+        let ca_parsed = parse_certificate_from_pem(CA_CERT)
             .expect("Failed to parse CA certificate");
-        assert!(TlsManager::validate_basic_constraints(&ca_parsed, true).is_ok());
-        assert!(TlsManager::validate_basic_constraints(&ca_parsed, false).is_err());
+        assert!(validate_basic_constraints(&ca_parsed, true).is_ok());
+        assert!(validate_basic_constraints(&ca_parsed, false).is_err());
 
         // Test end-entity certificate
-        let ee_parsed = TlsManager::parse_certificate_from_pem(EXAMPLE_CERT)
+        let ee_parsed = parse_certificate_from_pem(EXAMPLE_CERT)
             .expect("Failed to parse end-entity certificate");
-        assert!(TlsManager::validate_basic_constraints(&ee_parsed, false).is_ok());
-        assert!(TlsManager::validate_basic_constraints(&ee_parsed, true).is_err());
+        assert!(validate_basic_constraints(&ee_parsed, false).is_ok());
+        assert!(validate_basic_constraints(&ee_parsed, true).is_err());
     }
 
     #[test]
     fn test_key_usage_validation() {
         // Test server certificate
-        let server_parsed = TlsManager::parse_certificate_from_pem(EXAMPLE_CERT)
+        let server_parsed = parse_certificate_from_pem(EXAMPLE_CERT)
             .expect("Failed to parse server certificate");
         assert!(
-            TlsManager::validate_key_usage(&server_parsed, CertificateUsage::ServerAuth).is_ok()
+            validate_key_usage(&server_parsed, CertificateUsage::ServerAuth).is_ok()
         );
-        assert!(TlsManager::validate_key_usage(
+        assert!(validate_key_usage(
             &server_parsed,
             CertificateUsage::CertificateAuthority
         )
         .is_err());
 
         // Test CA certificate
-        let ca_parsed = TlsManager::parse_certificate_from_pem(CA_CERT)
+        let ca_parsed = parse_certificate_from_pem(CA_CERT)
             .expect("Failed to parse CA certificate");
         assert!(
-            TlsManager::validate_key_usage(&ca_parsed, CertificateUsage::CertificateAuthority)
+            validate_key_usage(&ca_parsed, CertificateUsage::CertificateAuthority)
                 .is_ok()
         );
     }
 
     #[test]
     fn test_san_extraction() {
-        let parsed = TlsManager::parse_certificate_from_pem(EXAMPLE_CERT)
+        let parsed = parse_certificate_from_pem(EXAMPLE_CERT)
             .expect("Failed to parse certificate");
 
         // Verify that the certificate has a Common Name
@@ -318,7 +323,7 @@ MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7AhUozPaglNMP
 
     #[test]
     fn test_extension_url_extraction() {
-        let parsed = TlsManager::parse_certificate_from_pem(EXAMPLE_CERT)
+        let _parsed = parse_certificate_from_pem(EXAMPLE_CERT)
             .expect("Failed to parse certificate");
 
         // The example cert is self-signed and may not have OCSP URLs
@@ -326,7 +331,7 @@ MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7AhUozPaglNMP
         // OCSP URLs may be empty for self-signed certs
 
         // Let's Encrypt CA cert should have CRL URLs
-        let ca_parsed = TlsManager::parse_certificate_from_pem(CA_CERT)
+        let ca_parsed = parse_certificate_from_pem(CA_CERT)
             .expect("Failed to parse CA certificate");
         assert!(!ca_parsed.crl_urls.is_empty());
         assert!(ca_parsed

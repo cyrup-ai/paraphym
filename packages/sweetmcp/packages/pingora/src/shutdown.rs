@@ -6,6 +6,8 @@
 //! - Discovery deregistration before shutdown
 //! - State preservation for fast recovery
 
+#![allow(dead_code)]
+
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

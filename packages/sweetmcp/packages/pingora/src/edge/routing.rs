@@ -3,6 +3,8 @@
 //! This module provides comprehensive request routing and upstream peer selection
 //! with zero allocation fast paths and blazing-fast performance.
 
+#![allow(dead_code)]
+
 use std::future::Future;
 use std::pin::Pin;
 
@@ -10,7 +12,6 @@ use pingora::upstreams::peer::HttpPeer;
 use pingora::Result;
 use pingora_proxy::Session;
 use rand::prelude::*;
-use tracing::{debug, error, info, warn};
 
 use super::core::{EdgeService, EdgeServiceError};
 

@@ -17,7 +17,7 @@ use crate::security::memory_safety::core::*;
 /// Memory safety rule trait for validation logic
 pub trait MemorySafetyRule: Send + Sync {
     /// Validate memory operation against this rule
-    fn validate(&self, operation: &MemoryOperation) -> Result<(), MemorySafetyViolation>;
+    fn validate(&self, operation: &MemoryOperation) -> Result<(), Box<MemorySafetyViolation>>;
 
     /// Get rule name for identification
     fn rule_name(&self) -> &'static str;
@@ -47,7 +47,7 @@ pub trait MemorySafetyRule: Send + Sync {
 pub struct BufferOverflowRule;
 
 impl MemorySafetyRule for BufferOverflowRule {
-    fn validate(&self, operation: &MemoryOperation) -> Result<(), MemorySafetyViolation> {
+    fn validate(&self, operation: &MemoryOperation) -> Result<(), Box<MemorySafetyViolation>> {
         // Check for buffer overflow conditions
         if matches!(
             operation.operation_type,
@@ -55,7 +55,7 @@ impl MemorySafetyRule for BufferOverflowRule {
         ) {
             // Check for integer overflow in size calculation
             if operation.address.checked_add(operation.size).is_none() {
-                return Err(MemorySafetyViolation::new(
+                return Err(Box::new(MemorySafetyViolation::new(
                     SafetyViolationType::BufferOverflow,
                     SafetyViolationSeverity::Critical,
                     "Buffer overflow - address + size overflow",
@@ -73,12 +73,12 @@ impl MemorySafetyRule for BufferOverflowRule {
                         0,
                     )
                     .unwrap()
-                })?);
+                })?));
             }
 
             // Check for zero-size operations that might indicate issues
             if operation.size == 0 {
-                return Err(MemorySafetyViolation::new(
+                return Err(Box::new(MemorySafetyViolation::new(
                     SafetyViolationType::InvalidMemoryAccess,
                     SafetyViolationSeverity::Medium,
                     "Zero-size memory operation detected",
@@ -96,13 +96,13 @@ impl MemorySafetyRule for BufferOverflowRule {
                         0,
                     )
                     .unwrap()
-                })?);
+                })?));
             }
 
             // Check for extremely large operations that might indicate overflow
             if operation.size > (1usize << 30) {
                 // 1GB limit
-                return Err(MemorySafetyViolation::new(
+                return Err(Box::new(MemorySafetyViolation::new(
                     SafetyViolationType::BufferOverflow,
                     SafetyViolationSeverity::High,
                     "Extremely large memory operation - potential overflow",
@@ -120,7 +120,7 @@ impl MemorySafetyRule for BufferOverflowRule {
                         0,
                     )
                     .unwrap()
-                })?);
+                })?));
             }
         }
 
@@ -141,7 +141,7 @@ impl MemorySafetyRule for BufferOverflowRule {
 pub struct UseAfterFreeRule;
 
 impl MemorySafetyRule for UseAfterFreeRule {
-    fn validate(&self, operation: &MemoryOperation) -> Result<(), MemorySafetyViolation> {
+    fn validate(&self, operation: &MemoryOperation) -> Result<(), Box<MemorySafetyViolation>> {
         // Check for use-after-free conditions
         if matches!(
             operation.operation_type,
@@ -149,7 +149,7 @@ impl MemorySafetyRule for UseAfterFreeRule {
         ) {
             // Check for null pointer dereference
             if operation.address == 0 {
-                return Err(MemorySafetyViolation::new(
+                return Err(Box::new(MemorySafetyViolation::new(
                     SafetyViolationType::NullPointerDereference,
                     SafetyViolationSeverity::Critical,
                     "Null pointer dereference detected",
@@ -167,12 +167,12 @@ impl MemorySafetyRule for UseAfterFreeRule {
                         0,
                     )
                     .unwrap()
-                })?);
+                })?));
             }
 
             // Check for suspicious address patterns (potential use-after-free)
             if operation.address < 0x1000 || operation.address > usize::MAX - 0x1000 {
-                return Err(MemorySafetyViolation::new(
+                return Err(Box::new(MemorySafetyViolation::new(
                     SafetyViolationType::UseAfterFree,
                     SafetyViolationSeverity::Critical,
                     "Suspicious memory address - potential use-after-free",
@@ -190,7 +190,7 @@ impl MemorySafetyRule for UseAfterFreeRule {
                         0,
                     )
                     .unwrap()
-                })?);
+                })?));
             }
         }
 
@@ -211,12 +211,12 @@ impl MemorySafetyRule for UseAfterFreeRule {
 pub struct IntegerOverflowRule;
 
 impl MemorySafetyRule for IntegerOverflowRule {
-    fn validate(&self, operation: &MemoryOperation) -> Result<(), MemorySafetyViolation> {
+    fn validate(&self, operation: &MemoryOperation) -> Result<(), Box<MemorySafetyViolation>> {
         // Check for integer overflow in pointer arithmetic
         if operation.operation_type == MemoryOperationType::PointerArithmetic {
             // Check for address + size overflow
             if operation.address.checked_add(operation.size).is_none() {
-                return Err(MemorySafetyViolation::new(
+                return Err(Box::new(MemorySafetyViolation::new(
                     SafetyViolationType::IntegerOverflow,
                     SafetyViolationSeverity::Critical,
                     "Integer overflow in pointer arithmetic",
@@ -234,7 +234,7 @@ impl MemorySafetyRule for IntegerOverflowRule {
                         0,
                     )
                     .unwrap()
-                })?);
+                })?));
             }
         }
 
@@ -340,7 +340,7 @@ impl MemorySafetyValidator {
             Ok(result) => result,
             Err(_) => {
                 self.failed_validations.fetch_add(1, Ordering::Relaxed);
-                return Err(MemorySafetyViolation::new(
+                return Err(*Box::new(MemorySafetyViolation::new(
                     SafetyViolationType::ResourceExhaustion,
                     SafetyViolationSeverity::High,
                     "Validation timeout exceeded",
@@ -358,7 +358,7 @@ impl MemorySafetyValidator {
                         0,
                     )
                     .unwrap()
-                })?);
+                })?));
             }
         };
 
@@ -399,13 +399,11 @@ impl MemorySafetyValidator {
 
         // Apply all relevant rules
         for rule in &self.rules {
-            if rule.applies_to(operation.operation_type) {
-                if let Err(violation) = rule.validate(operation) {
-                    if result.add_violation(violation).is_err() {
-                        // Maximum violations reached
-                        break;
-                    }
-                }
+            if rule.applies_to(operation.operation_type)
+                && let Err(boxed_violation) = rule.validate(operation)
+                && result.add_violation(*boxed_violation).is_err() {
+                // Maximum violations reached
+                break;
             }
         }
 
@@ -451,19 +449,17 @@ impl MemorySafetyValidator {
             .unwrap_or(0);
 
         for entry in self.allocations.iter() {
-            if entry.age_seconds() > self.config.memory_leak_threshold_seconds && entry.is_valid {
-                if let Some(violation) = MemorySafetyViolation::new(
+            if entry.age_seconds() > self.config.memory_leak_threshold_seconds && entry.is_valid
+                && let Some(violation) = MemorySafetyViolation::new(
                     SafetyViolationType::MemoryLeak,
                     SafetyViolationSeverity::High,
                     "Memory leak detected - allocation not freed",
                     "leak_scan",
                     entry.address,
                     entry.size,
-                ) {
-                    if result.add_violation(violation).is_err() {
-                        break;
-                    }
-                }
+                )
+                && result.add_violation(violation).is_err() {
+                break;
             }
         }
 

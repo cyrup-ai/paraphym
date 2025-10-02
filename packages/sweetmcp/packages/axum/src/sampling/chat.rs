@@ -193,6 +193,7 @@ pub struct McpSamplingParams {
 }
 
 // Helper function to translate OpenAI format to MCP format
+#[allow(dead_code)] // Future feature for OpenAI API compatibility
 fn translate_openai_to_mcp(request: &ChatRequest) -> McpSamplingParams {
     let messages = request
         .messages
@@ -233,16 +234,17 @@ fn translate_openai_to_mcp(request: &ChatRequest) -> McpSamplingParams {
             }),
         system_prompt: None,
         include_context: Some("thisServer".to_string()),
-        max_tokens: request.max_tokens.map(|n| n as u32),
+        max_tokens: request.max_tokens,
         temperature: request.temperature,
-        stop_sequences: request.stop.as_ref().and_then(|s| match s {
-            StopSequence::Single(seq) => Some(vec![seq.clone()]),
-            StopSequence::Multiple(seqs) => Some(seqs.clone()),
+        stop_sequences: request.stop.as_ref().map(|s| match s {
+            StopSequence::Single(seq) => vec![seq.clone()],
+            StopSequence::Multiple(seqs) => seqs.clone(),
         }),
     }
 }
 
 // Helper function to translate MCP response to OpenAI format
+#[allow(dead_code)] // Future feature for OpenAI API compatibility
 fn translate_mcp_to_openai(_mcp_response: &Value) -> Result<ChatResponse, anyhow::Error> {
     // This is a placeholder implementation - would need proper mapping
     // Generate a session token for conversation continuity

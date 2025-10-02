@@ -93,12 +93,12 @@ impl PeerRegistry {
                 poisoned.into_inner()
             }
         };
-        if peers.contains_key(&addr) {
-            false
-        } else {
+        if let std::collections::hash_map::Entry::Vacant(e) = peers.entry(addr) {
             info!("Discovered new peer: {}", addr);
-            peers.insert(addr, PeerInfo::new(addr));
+            e.insert(PeerInfo::new(addr));
             true
+        } else {
+            false
         }
     }
 
@@ -223,6 +223,7 @@ pub struct PeersResponse {
 
 /// Request body for /api/register endpoint
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct RegisterRequest {
     pub peer: String,
     pub build_id: String,

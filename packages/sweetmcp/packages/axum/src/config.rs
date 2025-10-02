@@ -252,16 +252,10 @@ impl Config {
         for segment in segments {
             current = if let Ok(index) = segment.parse::<usize>() {
                 // Numeric segment - try array indexing
-                match current.get(index) {
-                    Some(v) => v,
-                    None => return None,
-                }
+                current.get(index)?
             } else {
                 // String segment - try object key access
-                match current.get(segment) {
-                    Some(v) => v,
-                    None => return None,
-                }
+                current.get(segment)?
             };
         }
         

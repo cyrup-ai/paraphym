@@ -182,8 +182,8 @@ mcpServers:
 
         // Fast path: check if already configured
         if let YamlValue::Mapping(ref map) = config {
-            if let Some(YamlValue::Mapping(servers)) = map.get(&YamlValue::String("mcpServers".to_string())) {
-                if servers.contains_key(&YamlValue::String("sweetmcp".to_string())) {
+            if let Some(YamlValue::Mapping(servers)) = map.get(YamlValue::String("mcpServers".to_string())) {
+                if servers.contains_key(YamlValue::String("sweetmcp".to_string())) {
                     return Ok(existing.to_string());
                 }
             }
@@ -191,23 +191,21 @@ mcpServers:
 
         // Merge efficiently
         if let YamlValue::Mapping(ref mut map) = config {
-            if !map.contains_key(&YamlValue::String("mcpServers".to_string())) {
+            if !map.contains_key(YamlValue::String("mcpServers".to_string())) {
                 map.insert(
                     YamlValue::String("mcpServers".to_string()),
                     YamlValue::Mapping(serde_yaml::Mapping::new()),
                 );
             }
 
-            if let Some(YamlValue::Mapping(servers)) = map.get_mut(&YamlValue::String("mcpServers".to_string())) {
+            if let Some(YamlValue::Mapping(servers)) = map.get_mut(YamlValue::String("mcpServers".to_string())) {
                 if let YamlValue::Mapping(ref template_servers) = self.sweetmcp_config.yaml_template {
-                    if let Some(sweetmcp_config) = template_servers.get(&YamlValue::String("mcpServers".to_string())) {
-                        if let YamlValue::Mapping(ref sweetmcp_map) = sweetmcp_config {
-                            if let Some(sweetmcp_entry) = sweetmcp_map.get(&YamlValue::String("sweetmcp".to_string())) {
-                                servers.insert(
-                                    YamlValue::String("sweetmcp".to_string()),
-                                    sweetmcp_entry.clone(),
-                                );
-                            }
+                    if let Some(YamlValue::Mapping(ref sweetmcp_map)) = template_servers.get(YamlValue::String("mcpServers".to_string())) {
+                        if let Some(sweetmcp_entry) = sweetmcp_map.get(YamlValue::String("sweetmcp".to_string())) {
+                            servers.insert(
+                                YamlValue::String("sweetmcp".to_string()),
+                                sweetmcp_entry.clone(),
+                            );
                         }
                     }
                 }

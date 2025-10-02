@@ -3,12 +3,13 @@
 //! This module provides token validation, extraction, and authentication
 //! processing with zero allocation patterns and blazing-fast performance.
 
-use std::sync::Arc;
+#![allow(dead_code)]
 
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use bytes::Bytes;
 use pingora::http::Method;
 use pingora_proxy::Session;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use super::super::core::{EdgeService, EdgeServiceError};
 use super::core::*;
@@ -77,8 +78,8 @@ impl AuthHandler {
             ));
         }
 
-        // Decode header with fast base64 decoding
-        let header = Self::decode_jwt_part(parts[0]).map_err(|e| {
+        // Decode header with fast base64 decoding (validates header structure)
+        let _header = Self::decode_jwt_part(parts[0]).map_err(|e| {
             EdgeServiceError::AuthenticationError(format!("Invalid JWT header: {}", e))
         })?;
 
@@ -141,10 +142,7 @@ impl AuthHandler {
         service: &EdgeService,
         api_key: &str,
     ) -> Result<bool, EdgeServiceError> {
-        use hmac::{Hmac, Mac};
-        use sha2::Sha256;
-
-        type HmacSha256 = Hmac<Sha256>;
+        use ring::hmac;
 
         // Decode the API key
         let decoded = Self::decode_base64url(api_key).map_err(|e| {
@@ -167,18 +165,19 @@ impl AuthHandler {
         let expiration = parts[1];
         let provided_signature = parts[2];
 
-        // Create HMAC instance with JWT secret
-        let mut mac = HmacSha256::new_from_slice(service.cfg.auth.jwt_secret.as_bytes())
-            .map_err(|e| EdgeServiceError::AuthenticationError(format!("HMAC key error: {}", e)))?;
+        // Create HMAC key with JWT secret
+        let key = hmac::Key::new(hmac::HMAC_SHA256, service.cfg.auth.jwt_secret.as_ref());
+        let mut ctx = hmac::Context::with_key(&key);
 
         // Update with client_id and expiration
-        mac.update(client_id.as_bytes());
-        mac.update(b"|");
-        mac.update(expiration.as_bytes());
+        ctx.update(client_id.as_bytes());
+        ctx.update(b"|");
+        ctx.update(expiration.as_bytes());
 
         // Get expected signature
-        let expected_signature = mac.finalize().into_bytes();
-        let expected_b64 = base64_url::encode(&expected_signature);
+        let tag = ctx.sign();
+        let expected_signature = tag.as_ref();
+        let expected_b64 = base64_url::encode(expected_signature);
 
         // Constant-time comparison
         Ok(expected_b64 == provided_signature)
@@ -226,10 +225,7 @@ impl AuthHandler {
         client_id: &str,
         expiry_seconds: u64,
     ) -> Result<String, EdgeServiceError> {
-        use hmac::{Hmac, Mac};
-        use sha2::Sha256;
-
-        type HmacSha256 = Hmac<Sha256>;
+        use ring::hmac;
 
         // Calculate expiration timestamp
         let now = std::time::SystemTime::now()
@@ -238,18 +234,19 @@ impl AuthHandler {
             .as_secs();
         let expiration = now + expiry_seconds;
 
-        // Create HMAC instance with JWT secret
-        let mut mac = HmacSha256::new_from_slice(service.cfg.auth.jwt_secret.as_bytes())
-            .map_err(|e| EdgeServiceError::AuthenticationError(format!("HMAC key error: {}", e)))?;
+        // Create HMAC key with JWT secret
+        let key = hmac::Key::new(hmac::HMAC_SHA256, service.cfg.auth.jwt_secret.as_ref());
+        let mut ctx = hmac::Context::with_key(&key);
 
         // Update with client_id and expiration
-        mac.update(client_id.as_bytes());
-        mac.update(b"|");
-        mac.update(expiration.to_string().as_bytes());
+        ctx.update(client_id.as_bytes());
+        ctx.update(b"|");
+        ctx.update(expiration.to_string().as_bytes());
 
         // Get signature
-        let signature = mac.finalize().into_bytes();
-        let signature_b64 = base64_url::encode(&signature);
+        let tag = ctx.sign();
+        let signature = tag.as_ref();
+        let signature_b64 = base64_url::encode(signature);
 
         // Construct API key: client_id|expiration|signature
         let key_content = format!("{}|{}|{}", client_id, expiration, signature_b64);
@@ -296,7 +293,7 @@ impl AuthHandler {
         let standard_b64 = padded.replace('-', "+").replace('_', "/");
 
         // Decode base64
-        base64::decode(&standard_b64)
+        BASE64_STANDARD.decode(&standard_b64)
             .map_err(|e| {
                 EdgeServiceError::AuthenticationError(format!("Base64 decode error: {}", e))
             })
@@ -314,22 +311,20 @@ impl AuthHandler {
         payload: &str,
         signature: &str,
     ) -> Result<bool, EdgeServiceError> {
-        use hmac::{Hmac, Mac};
-        use sha2::Sha256;
+        use ring::hmac;
 
-        type HmacSha256 = Hmac<Sha256>;
-
-        // Create HMAC instance
-        let mut mac = HmacSha256::new_from_slice(service.cfg.auth.jwt_secret.as_bytes())
-            .map_err(|e| EdgeServiceError::AuthenticationError(format!("HMAC key error: {}", e)))?;
+        // Create HMAC key with JWT secret
+        let key = hmac::Key::new(hmac::HMAC_SHA256, service.cfg.auth.jwt_secret.as_ref());
+        let mut ctx = hmac::Context::with_key(&key);
 
         // Update with header and payload
-        mac.update(header.as_bytes());
-        mac.update(b".");
-        mac.update(payload.as_bytes());
+        ctx.update(header.as_bytes());
+        ctx.update(b".");
+        ctx.update(payload.as_bytes());
 
         // Get expected signature
-        let expected_signature = mac.finalize().into_bytes();
+        let tag = ctx.sign();
+        let expected_signature = tag.as_ref();
 
         // Decode provided signature
         let provided_signature = Self::decode_base64url(signature).map_err(|e| {
@@ -337,7 +332,7 @@ impl AuthHandler {
         })?;
 
         // Constant-time comparison
-        Ok(expected_signature.as_slice() == provided_signature.as_slice())
+        Ok(expected_signature == provided_signature.as_slice())
     }
 
     /// Decode base64url string
@@ -358,7 +353,7 @@ impl AuthHandler {
         let standard_b64 = padded.replace('-', "+").replace('_', "/");
 
         // Decode base64
-        base64::decode(&standard_b64).map_err(|e| {
+        BASE64_STANDARD.decode(&standard_b64).map_err(|e| {
             EdgeServiceError::AuthenticationError(format!("Base64url decode error: {}", e))
         })
     }

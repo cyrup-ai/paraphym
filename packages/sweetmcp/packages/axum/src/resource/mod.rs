@@ -24,7 +24,7 @@ pub async fn resources_list(
     let next_cursor = if resources.len() > limit {
         // Remove the extra item and create cursor from last returned item
         resources.pop();
-        resources.last().map(|r| create_cursor(r))
+        resources.last().map(create_cursor)
     } else {
         None
     };

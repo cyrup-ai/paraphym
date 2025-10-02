@@ -6,12 +6,43 @@ use anyhow::{Context, Result};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
+/// Authentication configuration
+#[derive(Clone, Debug)]
+pub struct AuthConfig {
+    /// JWT signing secret (32 bytes)
+    pub jwt_secret: Arc<[u8; 32]>,
+
+    /// Discovery token for peer authentication
+    pub discovery_token: String,
+
+    /// JWT token expiry in seconds
+    pub token_expiry_seconds: u64,
+
+    /// Require HTTPS for authentication
+    pub require_https: bool,
+}
+
+impl Default for AuthConfig {
+    fn default() -> Self {
+        Self {
+            jwt_secret: Arc::new([0u8; 32]),
+            discovery_token: String::new(),
+            token_expiry_seconds: 3600,
+            require_https: false,
+        }
+    }
+}
+
 /// Main configuration structure for SweetMCP Server
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
     /// JWT signing secret (32 bytes)
     #[serde(skip)]
     pub jwt_secret: Arc<[u8; 32]>,
+
+    /// Authentication configuration
+    #[serde(skip)]
+    pub auth: AuthConfig,
 
     /// Maximum concurrent in-flight requests
     pub inflight_max: u64,
@@ -61,6 +92,39 @@ pub struct RateLimitConfig {
 
     /// Burst capacity
     pub burst_capacity: u32,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        let secret = [0u8; 32];
+        let auth = AuthConfig {
+            jwt_secret: Arc::new(secret),
+            discovery_token: "dev-discovery-token".to_string(),
+            token_expiry_seconds: 3600,
+            require_https: false,
+        };
+
+        Self {
+            jwt_secret: Arc::new(secret),
+            auth,
+            inflight_max: 400,
+            upstreams: Vec::new(),
+            tcp_bind: "0.0.0.0:8443".to_string(),
+            mcp_bind: "0.0.0.0:33399".to_string(),
+            uds_path: "/tmp/sweetmcp.sock".to_string(),
+            workers: 4,
+            metrics_bind: "127.0.0.1:9090".to_string(),
+            jwt_expiry: Duration::from_secs(3600),
+            health_check_interval: Duration::from_secs(5),
+            circuit_breaker_threshold: 5,
+            request_timeout: Duration::from_secs(30),
+            rate_limit: RateLimitConfig {
+                per_user_rps: 100,
+                per_ip_rps: 1000,
+                burst_capacity: 50,
+            },
+        }
+    }
 }
 
 impl Config {
@@ -186,8 +250,26 @@ impl Config {
             burst_capacity,
         };
 
+        // Discovery token for peer authentication
+        let discovery_token = env::var("SWEETMCP_DISCOVERY_TOKEN")
+            .unwrap_or_else(|_| "dev-discovery-token".to_string());
+
+        // Require HTTPS (default to false in dev mode)
+        let require_https = env::var("SWEETMCP_REQUIRE_HTTPS")
+            .unwrap_or_else(|_| "false".to_string())
+            .parse()
+            .unwrap_or(false);
+
+        let auth = AuthConfig {
+            jwt_secret: Arc::new(secret),
+            discovery_token,
+            token_expiry_seconds: jwt_expiry.as_secs(),
+            require_https,
+        };
+
         Ok(Self {
             jwt_secret: Arc::new(secret),
+            auth,
             inflight_max,
             upstreams,
             tcp_bind,

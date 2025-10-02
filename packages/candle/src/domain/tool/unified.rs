@@ -217,7 +217,15 @@ impl UnifiedToolExecutor {
 
         // Spawn async work without blocking - sender is moved into spawned task
         AsyncStream::with_channel(move |sender| {
-            crate::runtime::shared_runtime().spawn(async move {
+            let Some(runtime) = crate::runtime::shared_runtime() else {
+                let error_value = Value::Object([
+                    ("error".to_string(), Value::String("Runtime unavailable for tool execution".to_string()))
+                ].into_iter().collect::<serde_json::Map<String, Value>>());
+                ystream::emit!(sender, CandleJsonChunk(error_value));
+                return;
+            };
+            
+            runtime.spawn(async move {
                 match executor.call_tool(&tool_name, args).await {
                     Ok(response) => {
                         // Convert Response to Value for ystream compatibility
@@ -276,14 +284,16 @@ impl UnifiedToolExecutor {
         use crate::domain::agent::role::convert_serde_to_sweet_json;
         
         // Get router through RwLock
-        let router_guard = crate::runtime::shared_runtime()
-            .block_on(self.native_router.read());
+        let runtime = crate::runtime::shared_runtime()
+            .ok_or_else(|| ToolError::Other(anyhow::anyhow!("Runtime unavailable")))?;
+        
+        let router_guard = runtime.block_on(self.native_router.read());
         
         let router = router_guard.as_ref()
             .ok_or_else(|| ToolError::Other(anyhow::anyhow!("Native router not initialized")))?;
 
         // BLOCKING CODE APPROVED BY DAVID ON 2025-01-29: Using shared_runtime().block_on() for router call
-        let result = crate::runtime::shared_runtime()
+        let result = runtime
             .block_on(router.call_tool(&tool_info.name, args))
             .map_err(|e| ToolError::CyloError(e.to_string()))?;
 

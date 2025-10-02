@@ -23,6 +23,14 @@ pub enum TlsError {
     CrlValidation(String),
     #[error("Network error during validation: {0}")]
     NetworkError(String),
+    #[error("Parse error: {0}")]
+    ParseError(String),
+    #[error("Internal error: {0}")]
+    Internal(String),
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("Certificate revoked: {0}")]
+    CertificateRevoked(String),
+    #[error("OCSP validation failed: {0}")]
+    OcspValidationFailed(String),
 }

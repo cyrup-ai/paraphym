@@ -3,10 +3,11 @@
 //! This module provides comprehensive rate limiting algorithms with zero allocation
 //! fast paths and blazing-fast performance.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+#![allow(dead_code)]
+
 use std::time::{Duration, Instant};
 
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use super::limiter::{SlidingWindowConfig, TokenBucketConfig};
 
@@ -29,6 +30,7 @@ pub trait RateLimitAlgorithm: Send + Sync {
 }
 
 /// Token bucket rate limiting algorithm with optimized token management
+#[derive(Debug)]
 pub struct TokenBucket {
     /// Current number of tokens with atomic access
     tokens: f64,
@@ -154,6 +156,7 @@ impl RateLimitAlgorithm for TokenBucket {
 }
 
 /// Sliding window rate limiting algorithm with optimized window management
+#[derive(Debug)]
 pub struct SlidingWindow {
     /// Time window duration
     window_size: Duration,
@@ -368,7 +371,7 @@ impl RateLimiter {
     }
 
     /// Get current algorithm state for monitoring
-    pub fn get_state(&mut self) -> AlgorithmState {
+    pub fn get_state(&self) -> AlgorithmState {
         match self {
             Self::TokenBucket(bucket) => bucket.get_state(),
             Self::SlidingWindow(window) => window.get_state(),
@@ -401,7 +404,7 @@ impl RateLimiter {
 }
 
 /// Rate limiting algorithm type enumeration with configuration
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum RateLimitAlgorithmConfig {
     TokenBucket(TokenBucketConfig),
     SlidingWindow(SlidingWindowConfig),

@@ -89,7 +89,7 @@ pub fn prompts_get_pending(
         };
 
         let mut env = Environment::new();
-        if let Err(_) = env.add_template(&prompt_id, &template_content) {
+        if env.add_template(&prompt_id, &template_content).is_err() {
             let _ = tx.send(Err(HandlerError::new(format!(
                 "Failed to load prompt template '{}'",
                 prompt_id

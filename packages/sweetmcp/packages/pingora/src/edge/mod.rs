@@ -8,7 +8,5 @@ pub mod core;
 pub mod routing;
 
 // Re-export key types and functions for backward compatibility
-pub use core::{EdgeService, EdgeServiceBuilder, EdgeServiceError, ServiceStats};
+pub use core::EdgeService;
 
-pub use auth::{AuthConfig, AuthContext, AuthHandler, AuthMethod, AuthResult, UserClaims};
-pub use routing::{RoutingContext, RoutingHandler, RoutingStrategy};

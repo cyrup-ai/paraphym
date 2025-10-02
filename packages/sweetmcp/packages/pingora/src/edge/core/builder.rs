@@ -121,9 +121,11 @@ impl EdgeServiceBuilder {
 
         // Create minimal configuration if not provided
         let cfg = self.cfg.unwrap_or_else(|| {
+            // Create a proper 32-byte secret for testing
+            let test_secret: [u8; 32] = *b"test_secret_exactly_32_bytes!!!!";
             Arc::new(Config {
                 upstreams: vec!["http://localhost:8080".to_string()],
-                jwt_secret: "test-secret".to_string(),
+                jwt_secret: Arc::new(test_secret),
                 ..Default::default()
             })
         });
@@ -249,7 +251,7 @@ impl EdgeServiceBuilder {
     }
 
     /// Apply configuration preset
-    pub fn with_preset(mut self, preset: BuilderPreset) -> Self {
+    pub fn with_preset(self, preset: BuilderPreset) -> Self {
         match preset {
             BuilderPreset::Development => {
                 debug!("Applying development preset");

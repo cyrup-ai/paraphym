@@ -1,5 +1,5 @@
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::thread;
 
@@ -33,9 +33,9 @@ impl PingoraService {
         // Create tokio runtime for TLS operations
         let rt = tokio::runtime::Runtime::new()?;
 
-        // Create cancellation token for graceful shutdown
-        let cancel_token = CancellationToken::new();
-        let shutdown_complete = Arc::new(AtomicBool::new(false));
+        // Create cancellation token for graceful shutdown (reserved for future implementation)
+        let _cancel_token = CancellationToken::new();
+        let _shutdown_complete = Arc::new(AtomicBool::new(false));
 
         let mut child: Option<Child> = None;
 

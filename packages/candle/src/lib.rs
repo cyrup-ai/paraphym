@@ -47,6 +47,8 @@ pub mod memory;
 pub mod runtime;
 /// Model system for provider and model enumeration
 pub mod model;
+/// Async stream utilities re-exporting ystream
+pub mod async_stream;
 
 // Essential Candle re-exports for public API (minimal set)
 // Domain types will be added as they become available
@@ -132,6 +134,10 @@ pub mod prelude {
             ystream::AsyncStream::with_channel(move |sender| {
                 match model_type {
                     CandleModels::KimiK2 => {
+                        // Clone values before moving into async closure
+                        let prompt_clone = prompt.clone();
+                        let params_clone = params.clone();
+                        
                         // Route to KimiK2Provider with async handling
                         ystream::spawn_task(|| async move {
                             // Create provider with default config
@@ -139,19 +145,23 @@ pub mod prelude {
                                 crate::providers::kimi_k2::CandleKimiK2Provider::new().await;
 
                             match provider_result {
-                                Ok(_provider) => {
-                                    // For now, return a placeholder until full inference is implemented
-                                    let chunk =
-                                        crate::domain::completion::CandleCompletionChunk::Text(
-                                            format!("KimiK2 completion: {}", prompt.content()),
-                                        );
-                                    let _ = sender.send(chunk);
+                                Ok(provider) => {
+                                    // Call real provider.prompt() method for inference
+                                    let completion_stream = provider.prompt(prompt_clone, &params_clone);
+                                    
+                                    // Stream all chunks from provider to outer sender
+                                    while let Some(chunk) = completion_stream.try_next() {
+                                        if sender.send(chunk).is_err() {
+                                            // Receiver dropped, exit gracefully
+                                            return;
+                                        }
+                                    }
                                 }
-                                Err(_err) => {
+                                Err(err) => {
                                     // Send error chunk if provider creation fails
                                     let error_chunk =
                                         crate::domain::completion::CandleCompletionChunk::Error(
-                                            "Failed to initialize KimiK2 provider".to_string(),
+                                            format!("Failed to initialize KimiK2 provider: {}", err)
                                         );
                                     let _ = sender.send(error_chunk);
                                 }

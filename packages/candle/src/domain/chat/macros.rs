@@ -23,7 +23,8 @@ use ystream::{handle_error, AsyncStream};
 use uuid::Uuid;
 use cyrup_sugars::prelude::MessageChunk;
 
-use crate::domain::chat::commands::ImmutableChatCommand;
+use crate::domain::chat::commands::{ImmutableChatCommand, execute_candle_command, CommandEvent};
+use crate::domain::chat::conversation::CandleStreamingConversation;
 // Removed unused import: crate::chat::formatting::MessageContent
 
 /// Macro action representing a single recorded operation
@@ -112,7 +113,7 @@ pub enum MacroPlaybackState {
 }
 
 /// Macro execution context with variable substitution
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct MacroExecutionContext {
     /// Variables available for substitution during execution
     pub variables: HashMap<String, String>,
@@ -124,6 +125,8 @@ pub struct MacroExecutionContext {
     pub current_action: usize,
     /// Stack of nested loop contexts
     pub loop_stack: Vec<LoopContext>,
+    /// Optional conversation for message sending
+    pub conversation: Option<Arc<RwLock<CandleStreamingConversation>>>,
 }
 
 impl Default for MacroExecutionContext {
@@ -134,8 +137,30 @@ impl Default for MacroExecutionContext {
             start_time: Utc::now(),
             current_action: 0,
             loop_stack: Vec::new(),
+            conversation: None,
         }
     }
+}
+
+/// Map message type string to appropriate conversation method
+fn send_message_to_conversation(
+    conversation: &Arc<RwLock<CandleStreamingConversation>>,
+    content: String,
+    message_type: &str,
+) -> Result<(), String> {
+    let mut conv = conversation
+        .write()
+        .map_err(|e| format!("Failed to acquire conversation lock: {e}"))?;
+    
+    let result = match message_type.to_lowercase().as_str() {
+        "assistant" => conv.add_assistant_message(content),
+        "system" => conv.add_system_message(content),
+        _ => conv.add_user_message(content), // Default to user (includes "user" case)
+    };
+    
+    result
+        .map(|_| ())
+        .map_err(|e| format!("Failed to add message to conversation: {e}"))
 }
 
 /// Loop execution context
@@ -528,6 +553,7 @@ impl MacroSystem {
         &self,
         macro_id: Uuid,
         variables: HashMap<String, String>,
+        conversation: Option<Arc<RwLock<CandleStreamingConversation>>>,
     ) -> Result<Uuid, MacroSystemError> {
         let macro_def = self
             .macros
@@ -543,6 +569,7 @@ impl MacroSystem {
             start_time: Utc::now(),
             current_action: 0,
             loop_stack: Vec::new(),
+            conversation,
         };
 
         let session = MacroPlaybackSession {
@@ -627,6 +654,7 @@ impl MacroSystem {
     }
 
     /// Execute a single macro action with streaming results - planned feature
+    #[allow(clippy::too_many_lines)]
     fn _execute_action(
         action: &MacroAction,
         context: &mut MacroExecutionContext,
@@ -644,16 +672,63 @@ impl MacroSystem {
                     ..
                 } => {
                     let resolved_content = resolve_variables_sync(content, &context_vars);
-                    // In a real implementation, this would send the message to the chat system
-                    println!(
-                        "Sending message: {resolved_content} (type: {message_type})"
-                    );
-                    Ok::<ActionExecutionResult, MacroSystemError>(ActionExecutionResult::Success)
+                    
+                    // Send message to conversation if available
+                    if let Some(ref conversation) = ctx.conversation {
+                        match send_message_to_conversation(conversation, resolved_content.clone(), message_type) {
+                            Ok(()) => {
+                                Ok::<ActionExecutionResult, MacroSystemError>(ActionExecutionResult::Success)
+                            }
+                            Err(e) => {
+                                Ok::<ActionExecutionResult, MacroSystemError>(
+                                    ActionExecutionResult::Error(format!("Message send failed: {e}"))
+                                )
+                            }
+                        }
+                    } else {
+                        // No conversation available - log warning and continue
+                        eprintln!("Warning: No conversation available for SendMessage action. Message: {resolved_content}");
+                        Ok::<ActionExecutionResult, MacroSystemError>(ActionExecutionResult::Success)
+                    }
                 }
                 MacroAction::ExecuteCommand { command, .. } => {
-                    // In a real implementation, this would execute the command
-                    println!("Executing command: {command:?}");
-                    Ok::<ActionExecutionResult, MacroSystemError>(ActionExecutionResult::Success)
+                    // Execute command using existing infrastructure
+                    let event_stream = execute_candle_command(command.clone());
+                    
+                    // Collect events synchronously
+                    let mut command_output = String::new();
+                    let mut result = ActionExecutionResult::Success;
+                    
+                    while let Some(event) = event_stream.try_next() {
+                        match event {
+                            CommandEvent::Output { content, .. } => {
+                                // Collect output for potential logging/debugging
+                                command_output.push_str(&content);
+                            }
+                            CommandEvent::Completed { .. } => {
+                                // Command succeeded
+                                result = ActionExecutionResult::Success;
+                            }
+                            CommandEvent::Failed { error, .. } => {
+                                // Command failed - capture error
+                                result = ActionExecutionResult::Error(format!("Command execution failed: {error}"));
+                                break; // Exit early on failure
+                            }
+                            CommandEvent::Cancelled { reason, .. } => {
+                                // Command was cancelled
+                                result = ActionExecutionResult::Error(format!("Command cancelled: {reason}"));
+                                break;
+                            }
+                            _ => {} // Ignore other events (Started, Progress, Warning, ResourceAlert)
+                        }
+                    }
+                    
+                    // Log output if command succeeded and produced output
+                    if !command_output.is_empty() && matches!(result, ActionExecutionResult::Success) {
+                        eprintln!("Command output: {command_output}");
+                    }
+                    
+                    Ok::<ActionExecutionResult, MacroSystemError>(result)
                 }
                 MacroAction::Wait { duration, .. } => Ok(ActionExecutionResult::Wait(*duration)),
                 MacroAction::SetVariable { name, value, .. } => {
@@ -1162,6 +1237,7 @@ impl MacroProcessor {
                     start_time,
                     current_action: 0,
                     loop_stack: Vec::new(),
+                    conversation: None,
                 };
 
                 let mut actions_executed = 0;
@@ -1350,16 +1426,59 @@ fn execute_action_sync(
             ..
         } => {
             let resolved_content = resolve_variables_sync(content, &context.variables);
-            // In a real implementation, this would send the message to the chat system
-            println!(
-                "Sending message: {resolved_content} (type: {message_type})"
-            );
-            Ok(ActionExecutionResult::Success)
+            
+            // Send message to conversation if available
+            if let Some(ref conversation) = context.conversation {
+                match send_message_to_conversation(conversation, resolved_content.clone(), message_type) {
+                    Ok(()) => Ok(ActionExecutionResult::Success),
+                    Err(e) => {
+                        Ok(ActionExecutionResult::Error(format!("Message send failed: {e}")))
+                    }
+                }
+            } else {
+                // No conversation available - log warning and continue
+                eprintln!("Warning: No conversation available for SendMessage action. Message: {resolved_content}");
+                Ok(ActionExecutionResult::Success)
+            }
         }
         MacroAction::ExecuteCommand { command, .. } => {
-            // In a real implementation, this would execute the command
-            println!("Executing command: {command:?}");
-            Ok(ActionExecutionResult::Success)
+            // Execute command using existing infrastructure
+            let event_stream = execute_candle_command(command.clone());
+            
+            // Collect events synchronously
+            let mut command_output = String::new();
+            let mut result = ActionExecutionResult::Success;
+            
+            while let Some(event) = event_stream.try_next() {
+                match event {
+                    CommandEvent::Output { content, .. } => {
+                        // Collect output for potential logging/debugging
+                        command_output.push_str(&content);
+                    }
+                    CommandEvent::Completed { .. } => {
+                        // Command succeeded
+                        result = ActionExecutionResult::Success;
+                    }
+                    CommandEvent::Failed { error, .. } => {
+                        // Command failed - capture error
+                        result = ActionExecutionResult::Error(format!("Command execution failed: {error}"));
+                        break; // Exit early on failure
+                    }
+                    CommandEvent::Cancelled { reason, .. } => {
+                        // Command was cancelled
+                        result = ActionExecutionResult::Error(format!("Command cancelled: {reason}"));
+                        break;
+                    }
+                    _ => {} // Ignore other events (Started, Progress, Warning, ResourceAlert)
+                }
+            }
+            
+            // Log output if command succeeded and produced output
+            if !command_output.is_empty() && matches!(result, ActionExecutionResult::Success) {
+                eprintln!("Command output: {command_output}");
+            }
+            
+            Ok(result)
         }
         MacroAction::Wait { duration, .. } => Ok(ActionExecutionResult::Wait(*duration)),
         MacroAction::SetVariable { name, value, .. } => {

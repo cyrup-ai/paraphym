@@ -3,6 +3,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use surrealdb::Surreal;
+use surrealdb::engine::any::Any;
 use tokio::sync::oneshot;
 use tokio::sync::{Mutex, RwLock};
 
@@ -13,6 +15,9 @@ use crate::memory::transaction::{
 
 /// Transaction manager for coordinating transactions
 pub struct TransactionManager {
+    /// Database connection
+    db: Arc<Surreal<Any>>,
+    
     /// Active transactions
     active_transactions: Arc<RwLock<HashMap<String, Arc<Mutex<TransactionImpl>>>>>,
 
@@ -113,8 +118,9 @@ enum TransactionAction {
 
 impl TransactionManager {
     /// Create a new transaction manager
-    pub fn new() -> Self {
+    pub fn new(db: Arc<Surreal<Any>>) -> Self {
         Self {
+            db,
             active_transactions: Arc::new(RwLock::new(HashMap::new())),
             transaction_log: Arc::new(Mutex::new(Vec::new())),
             lock_manager: Arc::new(LockManager::new()),
@@ -179,24 +185,58 @@ impl TransactionManager {
         // Change state
         tx.state = TransactionState::Committing;
 
-        // Apply all operations (in a real implementation)
-        // This is where we would persist changes to the database
+        // Execute operations and capture result
+        let commit_result = async {
+            let sdk_tx = self.db.transaction().await
+                .map_err(|e| TransactionError::DatabaseError(format!("BEGIN failed: {:?}", e)))?;
 
-        // Release all locks
+            for operation in &tx.operations {
+                match operation {
+                    Operation::Insert { table, id, data } => {
+                        sdk_tx.create::<Option<serde_json::Value>>((table.as_str(), id.as_str()))
+                            .content(data.clone())
+                            .await
+                            .map_err(|e| TransactionError::DatabaseError(format!("INSERT failed: {:?}", e)))?;
+                    }
+                    Operation::Update { table, id, data } => {
+                        sdk_tx.update::<Option<serde_json::Value>>((table.as_str(), id.as_str()))
+                            .content(data.clone())
+                            .await
+                            .map_err(|e| TransactionError::DatabaseError(format!("UPDATE failed: {:?}", e)))?;
+                    }
+                    Operation::Delete { table, id } => {
+                        sdk_tx.delete::<Option<serde_json::Value>>((table.as_str(), id.as_str()))
+                            .await
+                            .map_err(|e| TransactionError::DatabaseError(format!("DELETE failed: {:?}", e)))?;
+                    }
+                }
+            }
+
+            sdk_tx.commit().await
+                .map_err(|e| TransactionError::DatabaseError(format!("COMMIT failed: {:?}", e)))?;
+            
+            Ok::<(), TransactionError>(())
+        }.await;
+
+        // ALWAYS release locks regardless of success/failure
         let id_for_log = id.clone();
         for lock in &tx.locks {
-            self.lock_manager
-                .release_lock(&lock.resource, id.clone())
-                .await?;
+            let _ = self.lock_manager.release_lock(&lock.resource, id.clone()).await;
         }
 
-        // Mark as committed
-        tx.state = TransactionState::Committed;
-
-        // Log commit
-        self.log_action(id_for_log, TransactionAction::Commit).await;
-
-        Ok(())
+        // Now handle the result
+        match commit_result {
+            Ok(()) => {
+                tx.state = TransactionState::Committed;
+                self.log_action(id_for_log, TransactionAction::Commit).await;
+                Ok(())
+            }
+            Err(e) => {
+                tx.state = TransactionState::Aborted;
+                self.log_action(id_for_log, TransactionAction::Rollback).await;
+                Err(e)
+            }
+        }
     }
 
     /// Rollback a transaction
@@ -218,8 +258,8 @@ impl TransactionManager {
         // Change state
         tx.state = TransactionState::RollingBack;
 
-        // Undo all operations (in a real implementation)
-        // This is where we would revert changes
+        // No database rollback needed - operations are only executed during commit
+        // SDK transaction handles automatic rollback if commit fails
 
         // Release all locks
         let id_for_log = id.clone();
@@ -306,6 +346,77 @@ impl TransactionManager {
         Ok(())
     }
 
+    /// Add insert operation to transaction
+    pub async fn add_insert(
+        &self,
+        transaction_id: &str,
+        table: String,
+        id: String,
+        data: serde_json::Value,
+    ) -> Result<()> {
+        let transaction = self.get_transaction(transaction_id).await
+            .ok_or_else(|| TransactionError::InvalidState("Transaction not found".to_string()))?;
+        
+        let mut tx = transaction.lock().await;
+        
+        if tx.state != TransactionState::Active {
+            return Err(TransactionError::InvalidState(format!(
+                "Cannot add operation to transaction in state {:?}",
+                tx.state
+            )));
+        }
+        
+        tx.operations.push(Operation::Insert { table, id, data });
+        Ok(())
+    }
+
+    /// Add update operation to transaction
+    pub async fn add_update(
+        &self,
+        transaction_id: &str,
+        table: String,
+        id: String,
+        data: serde_json::Value,
+    ) -> Result<()> {
+        let transaction = self.get_transaction(transaction_id).await
+            .ok_or_else(|| TransactionError::InvalidState("Transaction not found".to_string()))?;
+        
+        let mut tx = transaction.lock().await;
+        
+        if tx.state != TransactionState::Active {
+            return Err(TransactionError::InvalidState(format!(
+                "Cannot add operation to transaction in state {:?}",
+                tx.state
+            )));
+        }
+        
+        tx.operations.push(Operation::Update { table, id, data });
+        Ok(())
+    }
+
+    /// Add delete operation to transaction
+    pub async fn add_delete(
+        &self,
+        transaction_id: &str,
+        table: String,
+        id: String,
+    ) -> Result<()> {
+        let transaction = self.get_transaction(transaction_id).await
+            .ok_or_else(|| TransactionError::InvalidState("Transaction not found".to_string()))?;
+        
+        let mut tx = transaction.lock().await;
+        
+        if tx.state != TransactionState::Active {
+            return Err(TransactionError::InvalidState(format!(
+                "Cannot add operation to transaction in state {:?}",
+                tx.state
+            )));
+        }
+        
+        tx.operations.push(Operation::Delete { table, id });
+        Ok(())
+    }
+
     /// Log a transaction action
     /// Get transaction history for debugging and monitoring
     pub async fn get_transaction_history(&self) -> Vec<String> {
@@ -350,7 +461,9 @@ impl TransactionManager {
 
 impl Default for TransactionManager {
     fn default() -> Self {
-        Self::new()
+        // NOTE: Default cannot provide a database connection
+        // Callers should use TransactionManager::new(db) instead
+        panic!("TransactionManager requires database connection. Use TransactionManager::new(db)")
     }
 }
 

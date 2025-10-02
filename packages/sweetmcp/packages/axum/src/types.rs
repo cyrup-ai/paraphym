@@ -182,6 +182,7 @@ pub struct ListPromptsRequest {
     pub filter: Option<String>,
 }
 
+#[allow(dead_code)] // MCP protocol response type
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListPromptsResult {
@@ -317,6 +318,7 @@ pub struct MetaParams {
     pub progress_token: String,
 }
 
+#[allow(dead_code)] // MCP protocol progress notification
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Progress {
@@ -333,6 +335,7 @@ pub struct SetLevelRequest {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct LoggingResponse {}
 
+#[allow(dead_code)] // MCP protocol logging notification
 #[derive(Debug, Deserialize, Serialize, RpcParams)]
 pub struct LoggingMessageNotification {
     pub level: String,

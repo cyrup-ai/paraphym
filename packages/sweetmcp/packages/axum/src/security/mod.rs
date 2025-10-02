@@ -18,5 +18,9 @@ pub use memory_safety::validation::*;
 pub use validation::{
     ValidationEngine, ValidationEngineMetrics, ValidationRule, ValidationResult
 };
-pub use validation::core::*;
+// Explicit export from validation::core to avoid conflict with memory_safety::core::ValidationSummary
+// Only export types that don't conflict - ValidationSummary intentionally omitted
+pub use validation::core::{
+    ValidationSeverity, ValidationError, ValidationType
+};
 pub use validation::rules::*;

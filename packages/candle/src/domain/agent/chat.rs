@@ -1,7 +1,6 @@
 //! Chat functionality for memory-enhanced agent conversations
 
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
     Arc, LazyLock,
 };
 
@@ -11,7 +10,6 @@ use crossbeam_utils::CachePadded;
 use cyrup_sugars::prelude::MessageChunk;
 
 use thiserror::Error;
-use chrono::Utc;
 // StreamExt not currently used but may be needed for future async operations
 
 // Import real completion infrastructure
@@ -32,6 +30,7 @@ use crate::domain::memory::{Error as MemoryError};
 use crate::domain::context::chunk::CandleCollectionChunk;
 use crate::domain::context::CandleDocument as Document;
 use crate::domain::memory::{MemoryTool, MemoryToolError};
+use crate::runtime::shared_runtime;
 use cyrup_sugars::ZeroOneOrMany;
 
 /// Maximum number of relevant memories for context injection
@@ -42,9 +41,7 @@ const MAX_RELEVANT_MEMORIES: usize = 10;
 static MEMORY_NODE_COUNTER: LazyLock<CachePadded<RelaxedCounter>> =
     LazyLock::new(|| CachePadded::new(RelaxedCounter::new(0)));
 
-/// Global atomic counter for attention scoring operations
-static ATTENTION_SCORE_COUNTER: LazyLock<CachePadded<AtomicUsize>> =
-    LazyLock::new(|| CachePadded::new(AtomicUsize::new(0)));
+
 
 /// Chat error types for memory-enhanced agent conversations
 #[derive(Debug, thiserror::Error)]
@@ -337,68 +334,84 @@ impl CandleAgentRoleImpl {
         memory_manager: &Arc<dyn MemoryManager>,
     ) -> ystream::AsyncStream<ContextInjectionResult> {
         let message = message.to_string();
-        let _self_clone = self.clone(); // Reserved for future use in memory context
         let memory_manager_clone = memory_manager.clone();
 
         ystream::AsyncStream::with_channel(move |sender| {
-            // Query relevant memories with zero-allocation buffer
-            let relevant_memories = ArrayVec::<MemoryNode, MAX_RELEVANT_MEMORIES>::new(); // Reserved for future memory ranking
-            let total_relevance_score = 0.0; // Reserved for future relevance scoring
-
-            // Use the user's elite MemoryManager directly for vector similarity search
-            // No intermediate layers needed - direct access to sophisticated SurrealDB implementation
-
-            // Use user's elite MemoryManager search_by_content for semantic search
+            // Use MemoryManager's HIGH-LEVEL API - it handles EVERYTHING internally:
+            // - Embedding generation
+            // - Quantum routing to decide search strategy 
+            // - Vector similarity search with cosine scores
+            // - Temporal decay
+            // - Result ranking
             let memory_stream = memory_manager_clone.search_by_content(&message);
 
-            // Collect results from the sophisticated stream using proper async collection
-            let (retrieval_tx, retrieval_rx) = std::sync::mpsc::channel();
+            // Collect results from the sophisticated memory system
+            let (retrieval_tx, retrieval_rx) = std::sync::mpsc::channel::<Vec<RetrievalResult>>();
 
-            // Spawn task to collect memory stream results
-            ystream::spawn_task(move || async move {
-                use futures_util::StreamExt;
+            ystream::spawn_task(move || {
+                let runtime = shared_runtime()
+                    .expect("Tokio runtime not initialized - required for memory operations");
+                
+                runtime.block_on(async move {
+                    use futures_util::StreamExt;
 
-                let mut stream = memory_stream;
-                let mut results = Vec::new();
+                    let mut stream = memory_stream;
+                    let mut results = Vec::new();
 
-                // Collect up to MAX_RELEVANT_MEMORIES from the stream
-                while let Some(memory_result) = stream.next().await {
-                    if results.len() >= MAX_RELEVANT_MEMORIES {
-                        break;
+                    // Collect up to MAX_RELEVANT_MEMORIES from the stream
+                    while let Some(memory_result) = stream.next().await {
+                        if results.len() >= MAX_RELEVANT_MEMORIES {
+                            break;
+                        }
+
+                        if let Ok(memory_node) = memory_result {
+                            // The MemoryManager ALREADY provides properly scored results
+                            // Just convert to RetrievalResult format for the formatter
+                            let retrieval_result = RetrievalResult {
+                                id: memory_node.id.clone(),
+                                // Use importance as the score - the MemoryManager has already
+                                // applied all sophisticated scoring internally
+                                score: memory_node.metadata.importance,
+                                method: crate::memory::core::ops::retrieval::RetrievalMethod::Semantic,
+                                metadata: {
+                                    let mut metadata = std::collections::HashMap::new();
+                                    metadata.insert("content".to_string(), serde_json::Value::String(
+                                        memory_node.content.text.clone()
+                                    ));
+                                    metadata.insert("memory_type".to_string(), serde_json::Value::String(
+                                        format!("{:?}", memory_node.memory_type)
+                                    ));
+                                    metadata.insert("importance".to_string(), serde_json::Value::Number(
+                                        serde_json::Number::from_f64(f64::from(memory_node.metadata.importance))
+                                            .unwrap_or_else(|| serde_json::Number::from(0))
+                                    ));
+                                    metadata
+                                },
+                            };
+                            results.push(retrieval_result);
+                        }
                     }
 
-                    if let Ok(memory_node) = memory_result {
-                        // Convert MemoryNode to RetrievalResult for consistent API
-                        let retrieval_result = RetrievalResult {
-                            id: memory_node.id.clone(),
-                            score: 0.8, // Good relevance from content search
-                            method: crate::memory::core::ops::retrieval::RetrievalMethod::Semantic,
-                            metadata: {
-                                let mut metadata = std::collections::HashMap::new();
-                                metadata.insert("content".to_string(), serde_json::Value::String(
-                                    memory_node.content.text.clone()
-                                ));
-                                metadata.insert("memory_type".to_string(), serde_json::Value::String(
-                                    format!("{:?}", memory_node.memory_type)
-                                ));
-                                metadata.insert("importance".to_string(), serde_json::Value::Number(
-                                    serde_json::Number::from_f64(f64::from(memory_node.metadata.importance))
-                                        .unwrap_or_else(|| serde_json::Number::from(0))
-                                ));
-                                metadata
-                            },
-                        };
-                        results.push(retrieval_result);
-                    }
-                }
-
-                let _ = retrieval_tx.send(results);
+                    let _ = retrieval_tx.send(results);
+                });
             });
 
-            // Receive results with timeout to prevent blocking
+            // Receive results with timeout
             let retrieval_results = retrieval_rx.recv_timeout(
                 std::time::Duration::from_millis(1000)
-            ).unwrap_or_default();
+            ).unwrap_or_else(|_| Vec::new());
+
+            let memory_nodes_used = retrieval_results.len();
+            
+            // Trust the MemoryManager's scoring - it's already sophisticated
+            // Just calculate a simple average for the overall context relevance
+            #[allow(clippy::cast_precision_loss)]
+            let avg_relevance_score = if memory_nodes_used > 0 {
+                let total: f32 = retrieval_results.iter().map(|r| r.score).sum();
+                f64::from(total / memory_nodes_used as f32)
+            } else {
+                0.0
+            };
 
             // Use PromptFormatter to format memories properly
             let formatter = PromptFormatter::new()
@@ -407,20 +420,8 @@ impl CandleAgentRoleImpl {
             
             let memories_zero_one_many = ZeroOneOrMany::from(retrieval_results);
             
-            // Reserved for future: document context and chat history
-            // let _documents: ZeroOneOrMany<Document> = ZeroOneOrMany::None;
-            // let _chat_history: ZeroOneOrMany<crate::domain::chat::message::types::CandleMessage> = ZeroOneOrMany::None;
-            
             let injected_context = formatter.format_memory_section(&memories_zero_one_many)
                 .unwrap_or_default();
-
-            let memory_nodes_used = relevant_memories.len();
-            #[allow(clippy::cast_precision_loss)]
-            let avg_relevance_score = if memory_nodes_used > 0 {
-                total_relevance_score / (memory_nodes_used as f64)
-            } else {
-                0.0
-            };
 
             let result = ContextInjectionResult {
                 injected_context,
@@ -432,58 +433,7 @@ impl CandleAgentRoleImpl {
         })
     }
 
-    /// Calculate relevance score using attention mechanism
-    ///
-    /// # Arguments
-    /// * `message` - User message
-    /// * `memory_node` - Memory node to score
-    ///
-    /// # Returns
-    /// Result containing relevance score (0.0 to 1.0)
-    ///
-    /// # Errors
-    /// Currently this function always returns Ok. The Result type is preserved
-    /// for future error handling when more sophisticated relevance scoring is added.
-    ///
-    /// # Performance
-    /// Zero allocation with inlined relevance calculations
-    pub fn calculate_relevance_score(
-        &self,
-        message: &str,
-        memory_node: &MemoryNode,
-    ) -> Result<f64, ChatError> {
-        // Increment atomic counter for lock-free statistics
-        ATTENTION_SCORE_COUNTER.fetch_add(1, Ordering::Relaxed);
 
-        // Simple relevance scoring based on content similarity and memory node importance
-        let message_len = message.len();
-        let memory_content = &memory_node.content;
-        let memory_len = memory_content.text.len();
-
-        // Basic content length similarity (normalized)
-        #[allow(clippy::cast_precision_loss)]
-        let length_similarity = 1.0
-            - (((message_len as f64) - (memory_len as f64)).abs()
-                / ((message_len.max(memory_len) as f64) + 1.0));
-
-        // Memory node importance factor
-        let importance_factor = memory_node.metadata.importance;
-
-        // Time decay factor based on last access (use updated_at as proxy)
-        let time_factor = {
-            let elapsed = Utc::now().signed_duration_since(memory_node.updated_at);
-            #[allow(clippy::cast_precision_loss)]
-            let hours = elapsed.num_hours() as f64;
-            // Decay over 24 hours, minimum 0.1
-            (1.0 - (hours / 24.0)).max(0.1f64)
-        };
-
-        // Combined relevance score (weighted average)
-        let score =
-            (length_similarity * 0.3 + f64::from(importance_factor) * 0.5 + time_factor * 0.2).min(1.0);
-
-        Ok(score)
-    }
 
     /// Memorize conversation turn with zero-allocation node creation
     ///

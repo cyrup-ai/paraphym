@@ -56,6 +56,17 @@ pub enum OperationType {
     DeleteRelationship,
     /// Batch operation
     BatchOperation,
+    
+    // Cognitive operation types:
+    /// Committee-based LLM evaluation of memory quality
+    CommitteeEvaluation,
+    /// Discovery of entangled/related memories via vector similarity
+    EntanglementDiscovery,
+    /// Quantum-inspired routing decision for memory retrieval
+    QuantumRouting,
+    /// Batch processing of multiple cognitive tasks
+    BatchCognitive,
+    
     /// Custom operation
     Custom(String),
 }

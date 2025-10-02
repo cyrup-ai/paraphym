@@ -2,11 +2,9 @@
 //!
 //! Tests the HybridAlgorithm integration and ensures proper rate limiting behavior.
 
-use std::time::Duration;
-
-use sweetmcp_pingora::rate_limit::{
-    AdvancedRateLimitManager, RateLimitAlgorithmType, RateLimitConfig, SlidingWindowConfig,
-    TokenBucketConfig,
+use sweetmcp::rate_limit::{
+    AdvancedRateLimitManager,
+    limiter::{RateLimitAlgorithmType, RateLimitConfig, SlidingWindowConfig, TokenBucketConfig},
 };
 
 #[tokio::test]

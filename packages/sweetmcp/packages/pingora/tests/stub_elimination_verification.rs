@@ -4,20 +4,20 @@
 //! with production-quality implementations.
 
 use serde_json::json;
-use sweetmcp_pingora::normalize::conversion::detect_protocol;
-use sweetmcp_pingora::normalize::types::{ConversionError, GraphQLContext};
+use sweetmcp::normalize::conversion::detect_protocol;
+use sweetmcp::normalize::types::GraphQLContext;
 
 /// Test Cap'n Proto binary detection (replaced stub)
 #[test]
 fn test_capnp_binary_detection() {
     // Test case 1: Invalid message (too short)
     let short_msg = vec![0u8; 4];
-    let detection = detect_protocol(&short_msg, None).expect("Detection should not fail");
+    let _detection = detect_protocol(&short_msg, None).expect("Detection should not fail");
     // Should not detect as Cap'n Proto due to length
 
     // Test case 2: Invalid segment count (zero)
     let zero_segments = vec![0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00]; // segment_count - 1 = u32::MAX
-    let detection = detect_protocol(&zero_segments, None).expect("Detection should not fail");
+    let _detection = detect_protocol(&zero_segments, None).expect("Detection should not fail");
     // Should not detect as Cap'n Proto due to invalid segment count
 
     // Test case 3: Valid-looking Cap'n Proto message
@@ -28,7 +28,7 @@ fn test_capnp_binary_detection() {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00,
     ];
-    let detection = detect_protocol(&valid_msg, None).expect("Detection should not fail");
+    let _detection = detect_protocol(&valid_msg, None).expect("Detection should not fail");
     // Should detect as Cap'n Proto with reasonable confidence
 
     println!("Cap'n Proto binary detection tests passed - stub successfully replaced");
@@ -38,7 +38,7 @@ fn test_capnp_binary_detection() {
 #[test]
 fn test_graphql_type_validation() {
     use async_graphql::Name;
-    use sweetmcp_pingora::normalize::parsers::validate_type_condition;
+    use sweetmcp::normalize::parsers::validate_type_condition;
 
     let context = GraphQLContext::new();
 
@@ -71,7 +71,7 @@ fn test_graphql_type_validation() {
 /// Test GraphQL response shaping (replaced stub)
 #[test]
 fn test_graphql_response_shaping() {
-    use sweetmcp_pingora::normalize::parsers::shape_graphql_response;
+    use sweetmcp::normalize::parsers::shape_graphql_response;
 
     // Test case 1: Simple field selection
     let query = r#"

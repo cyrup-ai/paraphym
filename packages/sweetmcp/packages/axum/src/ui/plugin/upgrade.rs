@@ -215,17 +215,17 @@ fn upgrade_plugin_dependencies(
     let mut upgraded = false;
 
     // Update dependency versions
-    for i in 0..lines.len() {
+    for line in &mut lines {
         for &(dep, ref ver) in latest_versions {
-            if lines[i].contains(&format!("{} = ", dep)) {
-                if dep == "serde" && lines[i].contains("features") {
-                    let current_ver = lines[i].clone();
+            if line.contains(&format!("{} = ", dep)) {
+                if dep == "serde" && line.contains("features") {
+                    let current_ver = line.clone();
                     if current_ver.contains(&format!("version = \"{}", ver)) {
                         // Already at latest version
                         continue;
                     }
 
-                    let new_line = lines[i].replace(
+                    let new_line = line.replace(
                         &format!("{} = {{ version = \"", dep),
                         &format!("{} = {{ version = \"{}\"", dep, ver),
                     );
@@ -233,23 +233,23 @@ fn upgrade_plugin_dependencies(
                     println!("  {} → {}", current_ver.red(), new_line.clone().green());
 
                     if !dry_run {
-                        lines[i] = new_line;
+                        *line = new_line;
                     }
                     upgraded = true;
                 } else {
-                    let current_ver = lines[i].clone();
+                    let current_ver = line.clone();
                     if current_ver.contains(&format!("{} = \"{}\"", dep, ver)) {
                         // Already at latest version
                         continue;
                     }
 
-                    let new_line = lines[i]
+                    let new_line = line
                         .replace(&format!("{} = \"", dep), &format!("{} = \"{}\"", dep, ver));
 
                     println!("  {} → {}", current_ver.red(), new_line.clone().green());
 
                     if !dry_run {
-                        lines[i] = new_line;
+                        *line = new_line;
                     }
                     upgraded = true;
                 }

@@ -20,6 +20,21 @@ pub struct MemoryNodeSchema {
     pub metadata: MemoryMetadataSchema,
 }
 
+/// Database schema for memory nodes with relevance score from vector search
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScoredMemoryNodeSchema {
+    /// Unique identifier
+    pub id: RecordId,
+    /// Content of the memory
+    pub content: String,
+    /// Type of memory
+    pub memory_type: MemoryTypeEnum,
+    /// Metadata associated with the memory
+    pub metadata: MemoryMetadataSchema,
+    /// Relevance score from vector similarity search (0.0 to 1.0)
+    pub score: f32,
+}
+
 /// Database schema for memory metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryMetadataSchema {

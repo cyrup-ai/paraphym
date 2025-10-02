@@ -1,5 +1,7 @@
 //! Sugora peer picker that selects the lowest `node_load1`.
 
+#![allow(dead_code)]
+
 use std::{
     collections::BTreeSet,
     sync::{
@@ -89,5 +91,23 @@ impl MetricPicker {
             .unwrap_or(0);
 
         Some(&self.backends[idx])
+    }
+
+    /// Pick backend (alias for pick for compatibility)
+    #[inline]
+    pub fn pick_backend(&self) -> Option<&Backend> {
+        self.pick()
+    }
+
+    /// Pick primary backend (returns first available backend)
+    #[inline]
+    pub fn pick_primary(&self) -> Option<&Backend> {
+        self.backends.first()
+    }
+
+    /// Pick backend using round-robin (simplified to lowest load for now)
+    #[inline]
+    pub fn pick_round_robin(&self) -> Option<&Backend> {
+        self.pick()
     }
 }

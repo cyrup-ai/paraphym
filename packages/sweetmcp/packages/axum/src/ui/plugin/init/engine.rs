@@ -162,6 +162,7 @@ impl PluginInitEngine {
 }
 
 /// Advanced plugin initialization engine with extended features
+#[allow(dead_code)]
 pub struct AdvancedPluginInitEngine {
     /// Base initialization engine
     base_engine: PluginInitEngine,
@@ -169,6 +170,7 @@ pub struct AdvancedPluginInitEngine {
     context: InitContext,
 }
 
+#[allow(dead_code)]
 impl AdvancedPluginInitEngine {
     /// Create new advanced plugin initialization engine
     pub fn new(args: InitArgs) -> Result<Self, Box<dyn std::error::Error>> {
@@ -362,6 +364,7 @@ pub fn init_plugin(args: &InitArgs) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Advanced plugin initialization function
+#[allow(dead_code)]
 pub fn init_plugin_advanced(args: &InitArgs) -> Result<(), Box<dyn std::error::Error>> {
     let engine = AdvancedPluginInitEngine::new(args.clone())?;
     let _result = engine.initialize_advanced()?;
@@ -369,6 +372,7 @@ pub fn init_plugin_advanced(args: &InitArgs) -> Result<(), Box<dyn std::error::E
 }
 
 /// Plugin initialization with custom template
+#[allow(dead_code)]
 pub fn init_plugin_with_template(
     args: &InitArgs,
     template: PluginTemplate,
@@ -381,6 +385,7 @@ pub fn init_plugin_with_template(
 }
 
 /// Batch plugin initialization for multiple plugins
+#[allow(dead_code)]
 pub fn init_multiple_plugins(
     plugin_configs: Vec<(InitArgs, Option<PluginTemplate>)>,
 ) -> Result<Vec<InitResult>, Box<dyn std::error::Error>> {
@@ -401,6 +406,7 @@ pub fn init_multiple_plugins(
 }
 
 /// Plugin initialization validation
+#[allow(dead_code)]
 pub fn validate_plugin_init(args: &InitArgs) -> Result<(), InitError> {
     // Validate plugin name
     PluginNameValidator::validate(&args.name)?;

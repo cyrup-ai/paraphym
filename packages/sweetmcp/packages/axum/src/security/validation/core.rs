@@ -171,7 +171,7 @@ impl ValidationResult {
     }
 
     /// Add validation error with capacity checking
-    pub fn add_error(&mut self, error: ValidationError) -> Result<(), ValidationError> {
+    pub fn add_error(&mut self, error: ValidationError) -> Result<(), Box<ValidationError>> {
         if self.errors.try_push(error).is_err() {
             // If we can't add more errors, create a capacity error
             if let Some(capacity_error) = ValidationError::new(
@@ -181,7 +181,7 @@ impl ValidationResult {
                 "capacity",
                 "too_many_errors",
             ) {
-                return Err(capacity_error);
+                return Err(Box::new(capacity_error));
             }
         }
         self.is_valid = false;
@@ -312,7 +312,7 @@ impl ValidationSummary {
         score -= self.low_errors as f64 * 0.05;
         score -= self.info_errors as f64 * 0.01;
 
-        score.max(0.0).min(1.0)
+        score.clamp(0.0, 1.0)
     }
 }
 

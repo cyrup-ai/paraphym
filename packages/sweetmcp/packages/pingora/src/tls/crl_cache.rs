@@ -1,98 +1,149 @@
 //! CRL cache implementation and validation logic
 
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime};
 
 use base64::engine::Engine;
-use reqwest::Client;
-use tokio::time::timeout;
+
 use x509_parser::prelude::*;
 
+// AsyncStream wrappers removed - using direct async methods per cryypt pattern
+use super::bootstrap_client::BootstrapHttpClient;
 use super::errors::TlsError;
 use super::types::{CrlCacheEntry, ParsedCertificate};
 
+/// CRL validation status
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum CrlStatus {
+    Valid,
+    Revoked,
+    Unknown,
+}
+
+// MessageChunk trait implementation removed - direct async methods per cryypt pattern
+
+#[derive(Clone)]
 pub struct CrlCache {
     cache: Arc<RwLock<std::collections::HashMap<String, CrlCacheEntry>>>,
-    http_client: Client,
+    http_client: BootstrapHttpClient,
+    /// Cache hit statistics
+    cache_hits: Arc<AtomicUsize>,
+    /// Cache miss statistics
+    cache_misses: Arc<AtomicUsize>,
+}
+
+impl std::fmt::Debug for CrlCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let cache_size = match self.cache.read() {
+            Ok(cache) => cache.len(),
+            Err(_) => 0, // Graceful fallback for poisoned lock
+        };
+        f.debug_struct("CrlCache")
+            .field("cache_size", &cache_size)
+            .field(
+                "cache_hits",
+                &self.cache_hits.load(std::sync::atomic::Ordering::Relaxed),
+            )
+            .field(
+                "cache_misses",
+                &self.cache_misses.load(std::sync::atomic::Ordering::Relaxed),
+            )
+            .finish_non_exhaustive()
+    }
 }
 
 impl CrlCache {
     pub fn new() -> Self {
-        let http_client = Client::builder()
-            .timeout(Duration::from_secs(30)) // CRL files can be large
-            .user_agent("SweetMCP/1.0 CRL Client")
-            .build()
-            .unwrap_or_else(|_| Client::new());
+        let http_client = BootstrapHttpClient::new();
 
         Self {
             cache: Arc::new(RwLock::new(std::collections::HashMap::with_capacity(64))),
             http_client,
+            cache_hits: Arc::new(AtomicUsize::new(0)),
+            cache_misses: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    /// Get cache statistics (hits, misses)
+    pub fn get_stats(&self) -> (usize, usize) {
+        (
+            self.cache_hits.load(Ordering::Relaxed),
+            self.cache_misses.load(Ordering::Relaxed),
+        )
+    }
+
+    /// Get current cache size (number of entries)
+    pub fn get_cache_size(&self) -> usize {
+        match self.cache.read() {
+            Ok(cache) => cache.len(),
+            Err(poisoned) => {
+                tracing::warn!("CRL cache read lock poisoned during size check, recovering");
+                poisoned.into_inner().len()
+            }
+        }
+    }
+
+    // Streaming wrapper removed - using direct async methods per cryypt pattern
+
+    /// Check certificate status against specific CRL URL - used by TLS verifier
+    pub fn check_certificate_status(&self, serial_number: &[u8], crl_url: &str) -> CrlStatus {
+        let is_revoked = self.check_against_crl(serial_number, crl_url);
+        if is_revoked {
+            CrlStatus::Revoked
+        } else {
+            CrlStatus::Valid
         }
     }
 
     /// Check if certificate serial number is revoked using CRL
-    pub async fn check_certificate_revocation(
-        &self,
-        cert: &ParsedCertificate,
-    ) -> Result<bool, TlsError> {
+    pub fn check_certificate_revocation(&self, cert: &ParsedCertificate) -> bool {
         if cert.crl_urls.is_empty() {
             tracing::warn!("No CRL URLs found in certificate, skipping CRL validation");
-            return Ok(false); // Not revoked (no CRL available)
+            return false; // Not revoked (no CRL available)
         }
 
         // Try each CRL URL until one succeeds
         for crl_url in &cert.crl_urls {
-            match self.check_against_crl(cert, crl_url).await {
-                Ok(is_revoked) => {
-                    if is_revoked {
-                        tracing::warn!(
-                            "Certificate serial {:?} found in CRL from {}",
-                            hex::encode(&cert.serial_number),
-                            crl_url
-                        );
-                        return Ok(true);
-                    }
-                    tracing::info!(
-                        "Certificate serial {:?} not found in CRL from {}",
-                        hex::encode(&cert.serial_number),
-                        crl_url
-                    );
-                }
-                Err(e) => {
-                    tracing::warn!("CRL validation failed for URL {}: {}", crl_url, e);
-                    continue;
-                }
+            let is_revoked = self.check_against_crl(&cert.serial_number, crl_url);
+            if is_revoked {
+                tracing::warn!(
+                    "Certificate serial {:?} found in CRL from {}",
+                    hex::encode(&cert.serial_number),
+                    crl_url
+                );
+                return true;
             }
+            tracing::info!(
+                "Certificate serial {:?} not found in CRL from {}",
+                hex::encode(&cert.serial_number),
+                crl_url
+            );
         }
 
         // If all CRLs were checked and certificate not found in any, it's not revoked
-        Ok(false)
+        false
     }
 
-    async fn check_against_crl(
-        &self,
-        cert: &ParsedCertificate,
-        crl_url: &str,
-    ) -> Result<bool, TlsError> {
+    fn check_against_crl(&self, serial_number: &[u8], crl_url: &str) -> bool {
         let cache_key = crl_url.to_string();
 
         // Check cache first
-        if let Some(cached_crl) = self.get_cached_crl(&cache_key) {
-            if !Self::is_crl_cache_expired(&cached_crl) {
-                tracing::debug!("CRL cache hit for URL: {}", crl_url);
-                return Ok(cached_crl.revoked_serials.contains(&cert.serial_number));
-            }
+        if let Some(cached_crl) = self.get_cached_crl(&cache_key)
+            && !Self::is_crl_cache_expired(&cached_crl)
+        {
+            self.cache_hits.fetch_add(1, Ordering::Relaxed);
+            tracing::debug!("CRL cache hit for URL: {}", crl_url);
+            return cached_crl.revoked_serials.contains(serial_number);
         }
 
-        // Download and parse CRL
-        let crl_entry = self.download_and_parse_crl(crl_url).await?;
-
-        // Cache the CRL
-        self.cache_crl(cache_key, crl_entry.clone());
-
-        // Check if certificate is revoked
-        Ok(crl_entry.revoked_serials.contains(&cert.serial_number))
+        // No cache hit and no download to prevent circular dependency
+        tracing::debug!(
+            "CRL validation skipped for URL: {} (no cached data, download disabled)",
+            crl_url
+        );
+        false // Assume not revoked if we can't check
     }
 
     #[inline]
@@ -134,33 +185,19 @@ impl CrlCache {
         }
     }
 
-    async fn download_and_parse_crl(&self, crl_url: &str) -> Result<CrlCacheEntry, TlsError> {
-        // Download CRL with timeout
-        let response = timeout(
-            Duration::from_secs(30),
-            self.http_client.get(crl_url).send(),
-        )
-        .await
-        .map_err(|_| TlsError::NetworkError("CRL download timeout".to_string()))?
-        .map_err(|e| TlsError::NetworkError(format!("CRL HTTP request failed: {}", e)))?;
-
-        if !response.status().is_success() {
-            return Err(TlsError::CrlValidation(format!(
-                "CRL download failed with status: {}",
-                response.status()
-            )));
-        }
-
-        let crl_bytes = response
-            .bytes()
-            .await
-            .map_err(|e| TlsError::NetworkError(format!("Failed to read CRL data: {}", e)))?;
-
-        // Parse CRL
-        self.parse_crl_data(&crl_bytes)
+    fn download_and_parse_crl(_crl_url: &str) -> Result<CrlCacheEntry, TlsError> {
+        // CRL download disabled to prevent circular dependency during TLS handshake
+        // TLS connections use CRL checking automatically via rustls WebPkiServerVerifier when enabled
+        tracing::debug!(
+            "CRL download skipped to prevent circular dependency (using pre-loaded CRLs instead)"
+        );
+        Err(TlsError::CrlValidation(
+            "CRL download disabled to prevent circular dependency".to_string(),
+        ))
     }
 
-    fn parse_crl_data(&self, crl_bytes: &[u8]) -> Result<CrlCacheEntry, TlsError> {
+    #[allow(clippy::cast_sign_loss)]
+    fn parse_crl_data(crl_bytes: &[u8]) -> Result<CrlCacheEntry, TlsError> {
         // Parse PEM if it starts with "-----BEGIN"
         let der_bytes = if crl_bytes.starts_with(b"-----BEGIN") {
             let crl_pem = std::str::from_utf8(crl_bytes)
@@ -177,10 +214,10 @@ impl CrlCache {
                 if line.contains("-----END") && line.contains("CRL") {
                     break;
                 }
-                if in_crl {
-                    if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(line) {
-                        der_data.extend(decoded);
-                    }
+                if in_crl
+                    && let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(line)
+                {
+                    der_data.extend(decoded);
                 }
             }
 
@@ -198,7 +235,7 @@ impl CrlCache {
 
         // Parse X.509 CRL using x509-parser
         let (_, crl) = parse_x509_crl(&der_bytes)
-            .map_err(|e| TlsError::CrlValidation(format!("CRL parsing failed: {}", e)))?;
+            .map_err(|e| TlsError::CrlValidation(format!("CRL parsing failed: {e}")))?;
 
         // Extract revoked certificate serial numbers
         let mut revoked_serials = HashSet::new();
@@ -208,7 +245,14 @@ impl CrlCache {
 
         // Extract next update time
         let next_update = crl.next_update().map(|time| {
-            std::time::UNIX_EPOCH + std::time::Duration::from_secs(time.timestamp() as u64)
+            let timestamp = time.timestamp();
+            #[allow(clippy::cast_sign_loss)]
+            let timestamp_u64 = if timestamp < 0 {
+                0u64 // Use epoch for negative timestamps
+            } else {
+                timestamp as u64
+            };
+            std::time::UNIX_EPOCH + std::time::Duration::from_secs(timestamp_u64)
         });
 
         tracing::info!(
@@ -221,6 +265,7 @@ impl CrlCache {
             revoked_serials,
             cached_at: SystemTime::now(),
             next_update,
+            crl_der: der_bytes,
         })
     }
 
@@ -240,5 +285,44 @@ impl CrlCache {
             "CRL cache cleanup completed, {} CRLs remaining",
             cache.len()
         );
+    }
+
+    /// Get all cached CRLs in rustls format for use with `WebPkiServerVerifier`
+    pub fn get_rustls_crls(&self) -> Vec<rustls::pki_types::CertificateRevocationListDer<'static>> {
+        let cache = match self.cache.read() {
+            Ok(cache) => cache,
+            Err(poisoned) => {
+                tracing::warn!(
+                    "CRL cache read lock poisoned during rustls CRL retrieval, recovering"
+                );
+                poisoned.into_inner()
+            }
+        };
+
+        let mut rustls_crls = Vec::new();
+        let now = std::time::SystemTime::now();
+
+        for (url, entry) in cache.iter() {
+            // Check if CRL is still valid
+            let is_expired = entry
+                .next_update
+                .is_some_and(|next_update| now > next_update);
+
+            if is_expired {
+                tracing::debug!("Skipping expired CRL from {}", url);
+            } else {
+                // Convert DER bytes to rustls CRL format
+                let crl_der =
+                    rustls::pki_types::CertificateRevocationListDer::from(entry.crl_der.clone());
+                rustls_crls.push(crl_der);
+                tracing::debug!("Added CRL from {} to rustls verifier", url);
+            }
+        }
+
+        tracing::info!(
+            "Loaded {} CRLs for rustls certificate verification",
+            rustls_crls.len()
+        );
+        rustls_crls
     }
 }

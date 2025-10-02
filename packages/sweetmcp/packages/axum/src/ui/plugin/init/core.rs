@@ -29,6 +29,7 @@ pub struct InitArgs {
 }
 
 /// Plugin initialization result
+#[allow(dead_code)] // Public API for plugin initialization system
 #[derive(Debug, Clone)]
 pub struct InitResult {
     /// Plugin name
@@ -61,6 +62,7 @@ impl InitResult {
     }
 
     /// Check if initialization was successful
+    #[allow(dead_code)]
     pub fn is_successful(&self) -> bool {
         !self.path.is_empty()
     }
@@ -99,6 +101,7 @@ impl PluginTemplate {
     }
 
     /// Get package name for this plugin
+    #[allow(dead_code)]
     pub fn package_name(&self) -> String {
         format!("mcp-plugin-{}", self.name)
     }
@@ -137,6 +140,7 @@ impl PluginDirectoryManager {
     }
 
     /// Check if plugin directory already exists
+    #[allow(dead_code)]
     pub fn plugin_exists(&self) -> bool {
         self.plugin_dir.exists()
     }
@@ -185,11 +189,13 @@ impl PluginDirectoryManager {
     }
 
     /// Get plugin directory path
+    #[allow(dead_code)]
     pub fn plugin_path(&self) -> &std::path::Path {
         &self.plugin_dir
     }
 
     /// Get plugins directory path
+    #[allow(dead_code)]
     pub fn plugins_path(&self) -> &std::path::Path {
         &self.plugins_dir
     }
@@ -318,6 +324,7 @@ impl Default for GitHubManager {
 
 /// Plugin initialization error types
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum InitError {
     /// Plugin directory already exists
     DirectoryExists(String),
@@ -395,6 +402,7 @@ impl PluginNameValidator {
     }
 
     /// Normalize plugin name
+    #[allow(dead_code)]
     pub fn normalize(name: &str) -> String {
         name.to_lowercase()
             .chars()

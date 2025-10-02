@@ -6,6 +6,14 @@ use std::time::{Duration, SystemTime};
 
 use super::authority::CertificateAuthority;
 
+// Type aliases for boxed errors to reduce Result size
+/// Boxed `CertificateAuthorityResponse` for use in Result types
+pub type BoxedCertificateAuthorityResponse = Box<CertificateAuthorityResponse>;
+/// Boxed `CertificateValidationResponse` for use in Result types
+pub type BoxedCertificateValidationResponse = Box<CertificateValidationResponse>;
+/// Boxed `CertificateGenerationResponse` for use in Result types
+pub type BoxedCertificateGenerationResponse = Box<CertificateGenerationResponse>;
+
 /// Response from certificate authority operations
 #[derive(Debug)]
 pub struct CertificateAuthorityResponse {
@@ -17,10 +25,12 @@ pub struct CertificateAuthorityResponse {
 }
 
 impl CertificateAuthorityResponse {
+    #[must_use]
     pub fn authority(&self) -> Option<&CertificateAuthority> {
         self.authority.as_ref()
     }
 
+    #[must_use]
     pub fn was_successful(&self) -> bool {
         self.success
     }
@@ -32,6 +42,8 @@ pub enum CaOperation {
     Loaded,
     LoadFailed,
     CreateFailed,
+    Stored,
+    StoreFailed,
 }
 
 /// Response from certificate validation operations
@@ -45,27 +57,31 @@ pub struct CertificateValidationResponse {
 }
 
 impl CertificateValidationResponse {
+    #[must_use]
     pub fn has_warnings(&self) -> bool {
         self.issues
             .iter()
             .any(|i| matches!(i.severity, IssueSeverity::Warning))
     }
 
+    #[must_use]
     pub fn has_errors(&self) -> bool {
         self.issues
             .iter()
             .any(|i| matches!(i.severity, IssueSeverity::Error))
     }
 
+    #[must_use]
     pub fn error_summary(&self) -> String {
         self.issues
             .iter()
             .filter(|i| matches!(i.severity, IssueSeverity::Error))
-            .map(|i| &i.message)
+            .map(|i| i.message.as_str())
             .collect::<Vec<_>>()
             .join("; ")
     }
 
+    #[must_use]
     pub fn detailed_report(&self) -> String {
         format!(
             "Certificate Validation Report\n\
@@ -119,7 +135,7 @@ pub struct ValidationSummary {
     pub crl_status: Option<CheckResult>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum CheckResult {
     Passed,
     Failed(String),
@@ -127,7 +143,7 @@ pub enum CheckResult {
     Skipped,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ValidationIssue {
     pub severity: IssueSeverity,
     pub category: IssueCategory,
@@ -135,14 +151,14 @@ pub struct ValidationIssue {
     pub suggestion: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum IssueSeverity {
     Error,
     Warning,
     Info,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum IssueCategory {
     Parsing,
     Expiry,

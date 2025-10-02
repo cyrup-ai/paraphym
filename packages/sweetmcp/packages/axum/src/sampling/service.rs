@@ -134,8 +134,8 @@ pub fn sampling_create_message_pending(request: CreateMessageRequest) -> AsyncSa
                     }
                     if let Some(u) = usage {
                         actual_usage = Some(CompletionUsage {
-                            prompt_tokens: u.prompt_tokens(),
-                            completion_tokens: u.completion_tokens(),
+                            prompt_tokens: u.input_tokens,
+                            completion_tokens: u.output_tokens,
                             total_tokens: u.total_tokens,
                         });
                     }
@@ -270,8 +270,8 @@ pub fn sampling_create_message_stream(request: CreateMessageRequest) -> Sampling
                         model: model_name,
                         stop_reason: finish_reason.map(|r| format!("{:?}", r)),
                         usage: usage.map(|u| CompletionUsage {
-                            prompt_tokens: u.prompt_tokens(),
-                            completion_tokens: u.completion_tokens(),
+                            prompt_tokens: u.input_tokens,
+                            completion_tokens: u.output_tokens,
                             total_tokens: u.total_tokens,
                         }),
                     };

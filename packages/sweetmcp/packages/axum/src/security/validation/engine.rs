@@ -184,13 +184,11 @@ impl ValidationEngine {
 
         // Apply all relevant rules
         for rule in &self.rules {
-            if rule.applies_to(validation_type) {
-                if let Err(error) = rule.validate(input) {
-                    if result.add_error(error).is_err() {
-                        // Maximum errors reached
-                        break;
-                    }
-                }
+            if rule.applies_to(validation_type)
+                && let Err(error) = rule.validate(input)
+                && result.add_error(*error).is_err() {
+                // Maximum errors reached
+                break;
             }
         }
 
@@ -244,8 +242,8 @@ impl ValidationEngine {
         let mut result = self.validate(json, ValidationType::Json).await?;
 
         // Additional JSON parsing validation
-        if serde_json::from_str::<serde_json::Value>(json).is_err() {
-            if let Some(error) = ValidationError::new(
+        if serde_json::from_str::<serde_json::Value>(json).is_err()
+            && let Some(error) = ValidationError::new(
                 "JSON_PARSE_ERROR",
                 "Invalid JSON format",
                 ValidationSeverity::High,
@@ -254,7 +252,6 @@ impl ValidationEngine {
             ) {
                 let _ = result.add_error(error);
             }
-        }
 
         Ok(result)
     }
@@ -277,12 +274,11 @@ impl ValidationEngine {
 
         // Apply custom rules
         for rule in custom_rules {
-            if let Err(error) = rule.validate(input) {
-                if result.add_error(error).is_err() {
+            if let Err(error) = rule.validate(input)
+                && result.add_error(*error).is_err() {
                     // Maximum errors reached
                     break;
                 }
-            }
         }
 
         // Update metrics

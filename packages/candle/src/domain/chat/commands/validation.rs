@@ -10,24 +10,21 @@ use regex::Regex;
 use super::types::ImmutableChatCommand;
 
 // Static compiled regexes for security validation - initialized once on first access
-// These patterns are compile-time constants and guaranteed to be valid
+// Returns None if pattern compilation fails
 
 /// Regex for detecting command injection patterns: `[;&|$()]` including backtick
-static COMMAND_INJECTION_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"[;&|`$()]")
-        .expect("Command injection regex pattern is a compile-time constant and must be valid")
+static COMMAND_INJECTION_REGEX: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    Regex::new(r"[;&|`$()]").ok()
 });
 
 /// Regex for detecting path traversal patterns: ../
-static PATH_TRAVERSAL_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\.\.[\\/]")
-        .expect("Path traversal regex pattern is a compile-time constant and must be valid")
+static PATH_TRAVERSAL_REGEX: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    Regex::new(r"\.\.[\\/]").ok()
 });
 
 /// Regex for detecting script injection patterns: <script>
-static SCRIPT_INJECTION_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"<script[^>]*>")
-        .expect("Script injection regex pattern is a compile-time constant and must be valid")
+static SCRIPT_INJECTION_REGEX: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    Regex::new(r"<script[^>]*>").ok()
 });
 
 /// Command validator with comprehensive validation rules
@@ -69,11 +66,14 @@ impl CommandValidator {
                 "html".to_string(),
                 "pdf".to_string(),
             ],
-            blocked_patterns: vec![
-                COMMAND_INJECTION_REGEX.clone(),
-                PATH_TRAVERSAL_REGEX.clone(),
-                SCRIPT_INJECTION_REGEX.clone(),
-            ],
+            blocked_patterns: [
+                &*COMMAND_INJECTION_REGEX,
+                &*PATH_TRAVERSAL_REGEX,
+                &*SCRIPT_INJECTION_REGEX,
+            ]
+            .iter()
+            .filter_map(|opt| opt.as_ref().map(|r| (*r).clone()))
+            .collect(),
         }
     }
 
@@ -503,7 +503,10 @@ impl CommandValidator {
 
         // Config keys should be alphanumeric with dots and underscores
         let config_key_regex = Regex::new(r"^[a-zA-Z0-9._-]+$")
-            .expect("Config key regex should be valid");
+            .map_err(|e| ValidationError::SecurityViolation {
+                parameter: "key".to_string(),
+                detail: format!("Regex compilation error: {e}"),
+            })?;
         if !config_key_regex.is_match(key) {
             return Err(ValidationError::InvalidParameterFormat {
                 parameter: "key".to_string(),
@@ -527,7 +530,10 @@ impl CommandValidator {
 
         // Names should be alphanumeric with underscores and hyphens
         let name_regex = Regex::new(r"^[a-zA-Z0-9_-]+$")
-            .expect("Name validation regex should be valid");
+            .map_err(|e| ValidationError::SecurityViolation {
+                parameter: param_name.to_string(),
+                detail: format!("Regex compilation error: {e}"),
+            })?;
         if !name_regex.is_match(name) {
             return Err(ValidationError::InvalidParameterFormat {
                 parameter: "param_name".to_string(),
@@ -552,7 +558,10 @@ impl CommandValidator {
 
         // Check for script injection attempts
         let script_regex = Regex::new(r"<script[^>]*>.*?</script>")
-            .expect("Script injection detection regex should be valid");
+            .map_err(|e| ValidationError::SecurityViolation {
+                parameter: name.to_string(),
+                detail: format!("Regex compilation error: {e}"),
+            })?;
         if script_regex.is_match(content) {
             return Err(ValidationError::SecurityViolation {
                 parameter: name.to_string(),

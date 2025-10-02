@@ -4,14 +4,9 @@
 //! authentication and authorization with zero allocation patterns and
 //! blazing-fast performance.
 
-use std::sync::Arc;
+#![allow(dead_code)]
 
-use bytes::Bytes;
-use pingora::http::Method;
-use pingora_proxy::Session;
-use tracing::{debug, error, info, warn};
 
-use super::super::core::{EdgeService, EdgeServiceError};
 
 /// Authentication handler with optimized token validation
 pub struct AuthHandler;

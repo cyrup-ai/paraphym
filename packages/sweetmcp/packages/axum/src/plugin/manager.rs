@@ -323,17 +323,16 @@ pub async fn load_plugins(
                 // Lock-free operation using DashMap
                 for tool in &parsed.tools {
                     log::info!("Saving tool {}/{} to cache", plugin_name, tool.name);
-                    if let Some(existing_plugin) = manager.tool_to_plugin.get(&tool.name) {
-                        if existing_plugin.value() != &plugin_name {
-                            log::error!(
-                                "Tool name collision detected: '{}' is provided by both '{}' and '{}' plugins. Skipping tool from '{}'.",
-                                tool.name,
-                                existing_plugin.value(),
-                                plugin_name,
-                                plugin_name
-                            );
-                            continue;
-                        }
+                    if let Some(existing_plugin) = manager.tool_to_plugin.get(&tool.name)
+                        && existing_plugin.value() != &plugin_name {
+                        log::error!(
+                            "Tool name collision detected: '{}' is provided by both '{}' and '{}' plugins. Skipping tool from '{}'.",
+                            tool.name,
+                            existing_plugin.value(),
+                            plugin_name,
+                            plugin_name
+                        );
+                        continue;
                     }
                     manager
                         .tool_to_plugin

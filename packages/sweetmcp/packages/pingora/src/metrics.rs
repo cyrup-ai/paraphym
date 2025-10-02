@@ -1,5 +1,7 @@
 //! Metrics for SweetMCP discovery and operations
 
+#![allow(dead_code)]
+
 use once_cell::sync::Lazy;
 use prometheus::{
     register_counter_vec, register_histogram_vec, register_int_gauge, register_int_gauge_vec,

@@ -8,6 +8,7 @@ use super::parsing::{
     parse_certificate_from_pem, validate_basic_constraints, validate_certificate_time,
     validate_key_usage, verify_peer_certificate,
 };
+// parser function import removed - not used
 use crate::tls::errors::TlsError;
 use crate::tls::types::{CertificateUsage, ParsedCertificate};
 
@@ -66,13 +67,16 @@ pub async fn validate_certificate_chain(
         if cert.issuer != issuer.subject {
             return Err(TlsError::CertificateValidation(format!(
                 "Certificate chain broken: certificate {} issuer does not match certificate {} subject",
-                i, i + 1
+                i,
+                i + 1
             )));
         }
     }
 
     // Verify the root certificate matches our CA
-    let root_cert = chain_certs.last().unwrap();
+    let root_cert = chain_certs
+        .last()
+        .ok_or_else(|| TlsError::CertificateValidation("Empty certificate chain".to_string()))?;
     let ca_cert_parsed = parse_certificate_from_der(ca_cert.as_ref())?;
 
     if root_cert.subject != ca_cert_parsed.subject {
@@ -87,18 +91,19 @@ pub async fn validate_certificate_chain(
 
 /// Parse certificate from DER format
 fn parse_certificate_from_der(der_data: &[u8]) -> Result<ParsedCertificate, TlsError> {
-    use x509_cert::Certificate;
+    use x509_cert::{Certificate, der::Decode};
 
     let cert = Certificate::from_der(der_data).map_err(|e| {
-        TlsError::CertificateParsing(format!("Failed to parse DER certificate: {}", e))
+        TlsError::CertificateParsing(format!("Failed to parse DER certificate: {e}"))
     })?;
 
-    super::certificate_parsing_impl::parse_x509_certificate(&cert)
+    // Convert X509 certificate to ParsedCertificate format
+    super::parser::parse_x509_certificate_from_der_internal(&cert)
 }
 
 /// Verify peer certificate with comprehensive revocation checking (OCSP + CRL + Chain)
 pub async fn verify_peer_certificate_comprehensive(
-    tls_manager: &crate::tls::tls_config::TlsManager,
+    tls_manager: &crate::tls::tls_manager::TlsManager,
     cert_pem: &str,
     expected_hostname: &str,
     full_chain_pem: Option<&str>,
@@ -108,7 +113,7 @@ pub async fn verify_peer_certificate_comprehensive(
     verify_peer_certificate(cert_pem, expected_hostname)?;
 
     // Step 2: OCSP validation if possible
-    match tls_manager.validate_certificate_ocsp(cert_pem, None).await {
+    match tls_manager.validate_certificate_ocsp(cert_pem, None) {
         Ok(()) => info!("OCSP validation passed"),
         Err(e) => warn!(
             "OCSP validation failed: {}, continuing with other checks",

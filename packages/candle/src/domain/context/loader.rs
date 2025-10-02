@@ -83,13 +83,8 @@ where
 
 /// Implementation of the Loader trait for `PathBuf`
 pub struct LoaderImpl<T: Send + Sync + fmt::Debug + Clone + 'static> {
-    #[allow(dead_code)] // TODO: Use for file glob pattern matching and directory traversal
     pattern: Option<String>,
-    #[allow(dead_code)] // TODO: Use for recursive directory loading configuration
     recursive: bool,
-    #[allow(dead_code)] // TODO: Use for custom file iteration and processing
-    iterator: Option<Box<dyn Iterator<Item = T> + Send + Sync>>,
-    #[allow(dead_code)] // TODO: Use for file filtering and selection criteria
     filter_fn: Option<FilterFn<T>>,
 }
 
@@ -103,7 +98,6 @@ impl<T: Send + Sync + fmt::Debug + Clone + 'static> std::fmt::Debug for LoaderIm
         f.debug_struct("LoaderImpl")
             .field("pattern", &self.pattern)
             .field("recursive", &self.recursive)
-            .field("iterator", &"<opaque>")
             .field("filter_fn", &"<function>")
             .finish()
     }
@@ -114,8 +108,7 @@ impl<T: Send + Sync + fmt::Debug + Clone + 'static> Clone for LoaderImpl<T> {
         Self {
             pattern: self.pattern.clone(),
             recursive: self.recursive,
-            iterator: None,  // Can't clone trait objects
-            filter_fn: None, // Can't clone function pointers
+            filter_fn: self.filter_fn.clone(),
         }
     }
 }
@@ -134,11 +127,19 @@ impl Loader<PathBuf> for LoaderImpl<PathBuf> {
         PathBuf: ystream::NotResult,
     {
         let pattern = self.pattern.clone();
+        let recursive = self.recursive;
         let filter_fn = self.filter_fn.clone();
+        
         ystream::spawn_task(move || {
             let mut results: Vec<PathBuf> = match pattern {
                 Some(p) => {
-                    match glob::glob(&p) {
+                    let glob_pattern = if recursive && !p.contains("**") {
+                        format!("**/{p}")
+                    } else {
+                        p
+                    };
+                    
+                    match glob::glob(&glob_pattern) {
                         Ok(paths) => paths.filter_map(Result::ok).collect(),
                         Err(_) => Vec::new(), // Return empty on pattern error
                     }
@@ -169,11 +170,18 @@ impl Loader<PathBuf> for LoaderImpl<PathBuf> {
 
     fn stream_files(&self) -> AsyncStream<CandlePathChunk> {
         let pattern = self.pattern.clone();
+        let recursive = self.recursive;
         let filter_fn = self.filter_fn.clone();
 
         AsyncStream::with_channel(move |sender| {
-            if let Some(p) = pattern
-                && let Ok(paths) = glob::glob(&p) {
+            if let Some(p) = pattern {
+                let glob_pattern = if recursive && !p.contains("**") {
+                    format!("**/{p}")
+                } else {
+                    p
+                };
+                
+                if let Ok(paths) = glob::glob(&glob_pattern) {
                     for path in paths.filter_map(Result::ok) {
                         // Apply filter before sending
                         if let Some(ref filter) = filter_fn
@@ -188,6 +196,7 @@ impl Loader<PathBuf> for LoaderImpl<PathBuf> {
                         }
                     }
                 }
+            }
         })
     }
 
@@ -225,7 +234,6 @@ impl Loader<PathBuf> for LoaderImpl<PathBuf> {
         Self {
             pattern: Some(pattern.into()),
             recursive: false,
-            iterator: None,
             filter_fn: None,
         }
     }
@@ -246,18 +254,7 @@ impl Loader<PathBuf> for LoaderImpl<PathBuf> {
 
 // Generic implementation for other types
 impl<T: Send + Sync + fmt::Debug + Clone + 'static> LoaderImpl<T> {
-    /// Create loader with custom iterator
-    pub fn with_iterator<I>(iterator: I) -> Self
-    where
-        I: Iterator<Item = T> + Send + Sync + 'static,
-    {
-        Self {
-            pattern: None,
-            recursive: false,
-            iterator: Some(Box::new(iterator)),
-            filter_fn: None,
-        }
-    }
+    // Iterator functionality removed - use pattern-based loading instead
 }
 
 // Builder implementations moved to paraphym/src/builders/loader.rs

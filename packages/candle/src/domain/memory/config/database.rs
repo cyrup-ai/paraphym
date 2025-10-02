@@ -434,11 +434,12 @@ impl DatabaseConfig {
                 if conn_str == "memory"
                     || conn_str.starts_with("ws://")
                     || conn_str.starts_with("wss://")
+                    || conn_str.starts_with("surrealkv://")
                 {
                     Ok(())
                 } else {
                     Err(MemoryError::validation(
-                        "SurrealDB connection string must be 'memory' or start with 'ws://' or 'wss://'",
+                        "SurrealDB connection string must be 'memory' or start with 'ws://', 'wss://', or 'surrealkv://'",
                     ))
                 }
             }
@@ -512,7 +513,7 @@ impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
             db_type: DatabaseType::SurrealDB,
-            connection_string: "memory".to_string(),
+            connection_string: "surrealkv://./data/memory.db".to_string(),
             namespace: "paraphym".to_string(),
             database: "memory".to_string(),
             username: None,

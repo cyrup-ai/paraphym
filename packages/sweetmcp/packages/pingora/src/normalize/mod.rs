@@ -4,6 +4,8 @@
 //! for converting GraphQL, JSON-RPC, Cap'n Proto, and MCP Streamable HTTP
 //! protocols with zero allocation patterns and blazing-fast performance.
 
+#![allow(dead_code)]
+
 pub mod conversion;
 pub mod parsers;
 pub mod schema_introspection;
@@ -17,17 +19,11 @@ mod integration_test;
 
 // Re-export key types and functions for ergonomic usage
 pub use conversion::{
-    create_error_response, detect_protocol, from_json_rpc, to_json_rpc, to_json_rpc_with_headers,
-    validate_json_rpc,
-};
-pub use parsers::{
-    capnp_from_json_rpc, capnp_to_json_rpc, create_graphql_error, extract_operation_name,
-    extract_operation_type, graphql_from_json_rpc, graphql_to_json_rpc, parse_capnp_message,
-    parse_graphql_variables, validate_capnp_format, validate_graphql_query,
+    detect_protocol, from_json_rpc, to_json_rpc_with_headers,
 };
 pub use types::{
-    ConversionError, ConversionOptions, ConversionResult, DetectionMethod, ErrorSeverity, Proto,
-    ProtocolContext, ProtocolDetection, ProtocolMetadata,
+    ConversionResult, Proto,
+    ProtocolContext,
 };
 
 /// Convenience function to normalize any protocol to JSON-RPC

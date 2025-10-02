@@ -200,7 +200,7 @@ impl JwtAuth {
         claims
             .roles
             .iter()
-            .any(|role| Role::from_str(role).map_or(false, |r| r == *required_role))
+            .any(|role| Role::from_str(role).is_some_and(|r| r == *required_role))
     }
 
     /// Check if claims have required permission
@@ -208,7 +208,7 @@ impl JwtAuth {
         claims
             .permissions
             .iter()
-            .any(|perm| Permission::from_str(perm).map_or(false, |p| p == *required_permission))
+            .any(|perm| Permission::from_str(perm).is_some_and(|p| p == *required_permission))
     }
 
     /// Check if claims have any of the required permissions
@@ -242,6 +242,37 @@ impl JwtAuth {
                 Permission::HealthAccess,
             ],
             Role::ReadOnly => vec![Permission::HealthAccess, Permission::MetricsAccess],
+        }
+    }
+
+    /// Validate a JWT token string (wrapper for verify)
+    pub fn validate_token(&self, token: &str) -> Result<bool> {
+        let auth_header = if token.starts_with("Bearer ") {
+            token.to_string()
+        } else {
+            format!("Bearer {}", token)
+        };
+        
+        match self.verify(&auth_header) {
+            Ok(_) => Ok(true),
+            Err(_) => Ok(false),
+        }
+    }
+
+    /// Check if the JWT authentication system is healthy
+    pub fn is_healthy(&self) -> bool {
+        // JWT auth is stateless, so it's always healthy if initialized
+        true
+    }
+}
+
+impl Clone for JwtAuth {
+    fn clone(&self) -> Self {
+        Self {
+            encoding_key: self.encoding_key.clone(),
+            decoding_key: self.decoding_key.clone(),
+            validation: self.validation.clone(),
+            expiry_duration: self.expiry_duration,
         }
     }
 }

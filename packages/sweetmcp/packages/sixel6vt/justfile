@@ -1,0 +1,63 @@
+# sixel6vt - Terminal with sixel graphics support
+
+# Default recipe - show help
+default:
+    @just --list
+
+# Initial setup - clone Rio and convert to library
+setup:
+    @echo "🚀 Running initial setup..."
+    cargo run -p xtask -- setup
+
+# Clean vendor directory
+clean:
+    @echo "🧹 Cleaning vendor directory..."
+    cargo run -p xtask -- clean
+
+# Build the project
+build: 
+    @echo "🔨 Building sixel6vt..."
+    cargo build -p sixel6vt
+
+# Build release version
+release:
+    @echo "🔨 Building sixel6vt (release)..."
+    cargo build -p sixel6vt --release
+
+# Run the application  
+run:
+    @echo "🚀 Running sixel6vt..."
+    @if [ ! -d "vendor/rio" ]; then \
+        echo "❌ vendor/rio not found. Running setup first..."; \
+        cargo run -C xtask -- setup; \
+    fi
+    cargo run -p sixel6vt
+
+# Full workflow - setup and build
+init: setup build
+    @echo "✅ Initialization complete!"
+
+# Check if vendor/rio exists
+check-vendor:
+    @if [ ! -d "vendor/rio" ]; then \
+        echo "❌ vendor/rio not found. Run 'just setup' first."; \
+        exit 1; \
+    else \
+        echo "✅ vendor/rio exists"; \
+    fi
+
+# Run tests
+test:
+    cargo test -p sixel6vt
+
+# Format code
+fmt:
+    cargo fmt --all
+
+# Check code
+check:
+    cargo check -p sixel6vt
+
+# Full clean including cargo artifacts
+clean-all: clean
+    cargo clean

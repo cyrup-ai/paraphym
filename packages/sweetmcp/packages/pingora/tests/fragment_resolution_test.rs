@@ -1,8 +1,8 @@
-use async_graphql::parser::{parse_query, types::*};
-use serde_json::{json, Value};
-use sweetmcp_pingora::normalize::{
+use async_graphql::parser::parse_query;
+use serde_json::json;
+use sweetmcp::normalize::{
     parsers::graphql_to_json_rpc,
-    types::{ConversionError, FragmentCache, FragmentRegistry, GraphQLContext},
+    types::{FragmentRegistry, GraphQLContext},
 };
 
 #[tokio::test]
@@ -195,7 +195,7 @@ async fn test_fragment_cache_performance() {
     for (name, fragment) in &doc.fragments {
         context
             .fragment_registry
-            .register_fragment(name.to_string(), fragment.clone())
+            .register_fragment(name.to_string(), fragment.node.clone())
             .unwrap();
     }
 
@@ -238,7 +238,7 @@ async fn test_fragment_registry_operations() {
 
     // Register the fragment
     for (name, fragment) in &doc.fragments {
-        let result = registry.register_fragment(name.to_string(), fragment.clone());
+        let result = registry.register_fragment(name.to_string(), fragment.node.clone());
         assert!(result.is_ok());
     }
 
@@ -253,7 +253,7 @@ async fn test_fragment_registry_operations() {
 
     // Test duplicate registration
     for (name, fragment) in &doc.fragments {
-        let result = registry.register_fragment(name.to_string(), fragment.clone());
+        let result = registry.register_fragment(name.to_string(), fragment.node.clone());
         assert!(result.is_err());
     }
 }

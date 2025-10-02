@@ -4,15 +4,16 @@
 //! protocols to JSON-RPC with zero allocation patterns and blazing-fast
 //! performance.
 
+#![allow(dead_code)]
+
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use sweetmcp_axum::JSONRPC_VERSION;
-use tracing::{debug, warn};
+use tracing::debug;
 use uuid::Uuid;
 
 use super::types::{
     ConversionError, ConversionResult, DetectionMethod, Proto, ProtocolContext, ProtocolDetection,
-    ProtocolMetadata,
 };
 
 /// Normalize incoming protocol to JSON-RPC for cyrup-mcp-api
@@ -103,8 +104,8 @@ pub fn detect_protocol(
 /// Detect protocol from HTTP headers
 fn detect_from_headers(header: &pingora::http::RequestHeader) -> Option<ProtocolDetection> {
     // Check Content-Type header
-    if let Some(content_type) = header.headers.get("content-type") {
-        if let Ok(ct_str) = content_type.to_str() {
+    if let Some(content_type) = header.headers.get("content-type")
+        && let Ok(ct_str) = content_type.to_str() {
             if ct_str.contains("application/graphql") {
                 return Some(ProtocolDetection::new(
                     Proto::GraphQL,
@@ -120,11 +121,10 @@ fn detect_from_headers(header: &pingora::http::RequestHeader) -> Option<Protocol
                 ));
             }
         }
-    }
 
     // Check User-Agent
-    if let Some(user_agent) = header.headers.get("user-agent") {
-        if let Ok(ua_str) = user_agent.to_str() {
+    if let Some(user_agent) = header.headers.get("user-agent")
+        && let Ok(ua_str) = user_agent.to_str() {
             if ua_str.contains("GraphQL") {
                 return Some(ProtocolDetection::new(
                     Proto::GraphQL,
@@ -140,7 +140,6 @@ fn detect_from_headers(header: &pingora::http::RequestHeader) -> Option<Protocol
                 ));
             }
         }
-    }
 
     // Check URL path
     let path = header.uri.path();
@@ -172,7 +171,7 @@ fn handle_json_rpc(body: &[u8], request_id: String) -> Result<(ProtocolContext, 
         .and_then(|m| m.as_str())
         .ok_or_else(|| anyhow::anyhow!("JSON-RPC missing method"))?;
 
-    let id = v
+    let _id = v
         .get("id")
         .cloned()
         .unwrap_or_else(|| json!(request_id.clone()));
@@ -276,8 +275,8 @@ fn is_capnp_binary(body: &[u8]) -> bool {
     }
 
     // Calculate minimum required message size
-    // Segment table size: (segment_count + 1) / 2 * 8 bytes (rounded up to word boundary)
-    let segment_table_words = (segment_count + 1) / 2;
+    // Segment table size: segment_count.div_ceil(2) * 8 bytes (rounded up to word boundary)
+    let segment_table_words = segment_count.div_ceil(2);
     let segment_table_bytes = segment_table_words * 8;
 
     // Add first segment content size (in bytes, segments are measured in words)
@@ -361,11 +360,11 @@ pub fn from_json_rpc(
     match ctx.protocol {
         Proto::JsonRpc => {
             // Pass through unchanged
-            serde_json::to_vec(json_rpc_response).map_err(|e| ConversionError::JsonError(e))
+            serde_json::to_vec(json_rpc_response).map_err(ConversionError::JsonError)
         }
         Proto::McpStreamableHttp => {
             // MCP Streamable HTTP uses standard JSON-RPC format
-            serde_json::to_vec(json_rpc_response).map_err(|e| ConversionError::JsonError(e))
+            serde_json::to_vec(json_rpc_response).map_err(ConversionError::JsonError)
         }
         Proto::GraphQL => super::parsers::graphql_from_json_rpc(ctx, json_rpc_response),
         Proto::Capnp => super::parsers::capnp_from_json_rpc(ctx, json_rpc_response),

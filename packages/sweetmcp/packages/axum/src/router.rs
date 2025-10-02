@@ -26,7 +26,6 @@ use crate::{
 };
 
 /// Build the JSON-RPC router with all registered handlers
-
 fn build_rpc_router(plugin_manager: PluginManager) -> RpcRouter {
     // Use the provided PluginManager directly (lock-free implementation)
 
@@ -159,7 +158,6 @@ async fn run_stdio_server(plugin_manager: PluginManager) -> Result<()> {
     info!("Ready to process JSON-RPC messages");
 
     while let Some(line) = lines.next_line().await? {
-        let line = line;
         debug!("Received: {}", line);
 
         if !line.is_empty() {
@@ -170,14 +168,12 @@ async fn run_stdio_server(plugin_manager: PluginManager) -> Result<()> {
                     if let Some(method) = json_value.get("method") {
                         if method == "notifications/initialized" {
                             notifications_initialized();
-                        } else if method == "notifications/cancelled" {
-                            if let Some(params_value) = json_value.get("params") {
-                                if let Ok(cancel_params) =
-                                    serde_json::from_value(params_value.clone())
-                                {
-                                    notifications_cancelled(cancel_params);
-                                }
-                            }
+                        } else if method == "notifications/cancelled"
+                            && let Some(params_value) = json_value.get("params")
+                            && let Ok(cancel_params) =
+                                serde_json::from_value(params_value.clone())
+                        {
+                            notifications_cancelled(cancel_params);
                         }
                     }
                 } else {
@@ -288,9 +284,9 @@ async fn handle_http_connection(
     if let Some(body_start) = request_data.find("\r\n\r\n") {
         let body = &request_data[body_start + 4..];
 
-        if !body.trim().is_empty() {
-            if let Ok(json_value) = serde_json::from_str::<Value>(body) {
-                if let Ok(mut rpc_request) = Request::from_value(json_value) {
+        if !body.trim().is_empty()
+            && let Ok(json_value) = serde_json::from_str::<Value>(body)
+            && let Ok(mut rpc_request) = Request::from_value(json_value) {
                     // Ensure params exist for ping method
                     if rpc_request.method == "ping" && rpc_request.params.is_none() {
                         rpc_request.params = Some(json!({}));
@@ -329,8 +325,6 @@ async fn handle_http_connection(
                     stream.write_all(response.as_bytes()).await?;
                     stream.flush().await?;
                     return Ok(());
-                }
-            }
         }
     }
 
@@ -471,14 +465,12 @@ async fn handle_socket_connection(stream: UnixStream, plugin_manager: PluginMana
                     if let Some(method) = json_value.get("method") {
                         if method == "notifications/initialized" {
                             notifications_initialized();
-                        } else if method == "notifications/cancelled" {
-                            if let Some(params_value) = json_value.get("params") {
-                                if let Ok(cancel_params) =
-                                    serde_json::from_value(params_value.clone())
-                                {
-                                    notifications_cancelled(cancel_params);
-                                }
-                            }
+                        } else if method == "notifications/cancelled"
+                            && let Some(params_value) = json_value.get("params")
+                            && let Ok(cancel_params) =
+                                serde_json::from_value(params_value.clone())
+                        {
+                            notifications_cancelled(cancel_params);
                         }
                     }
                 } else {

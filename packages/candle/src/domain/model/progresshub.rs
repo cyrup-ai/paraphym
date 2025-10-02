@@ -1,4 +1,4 @@
-//! ProgressHub model trait for enforcing model download patterns
+//! `ProgressHub` model trait for enforcing model download patterns
 //!
 //! This trait ensures all models (text generation and embedding) follow
 //! consistent patterns for model discovery, downloading, and initialization.
@@ -11,21 +11,21 @@ use std::error::Error;
 pub enum ModelFormat {
     /// GGUF quantized format
     Gguf,
-    /// SafeTensors format
+    /// `SafeTensors` format
     SafeTensors,
-    /// PyTorch format
+    /// `PyTorch` format
     PyTorch,
 }
 
-/// Base trait for all models that use ProgressHub for downloading
+/// Base trait for all models that use `ProgressHub` for downloading
 ///
 /// This trait enforces:
-/// - HuggingFace model ID declaration
+/// - `HuggingFace` model ID declaration
 /// - Required files specification
 /// - Model format declaration
 /// - Consistent initialization patterns
 pub trait ProgressHubModel: Send + Sync + 'static {
-    /// HuggingFace model identifier (e.g., "unsloth/Kimi-K2-Instruct-GGUF")
+    /// `HuggingFace` model identifier (e.g., "unsloth/Kimi-K2-Instruct-GGUF")
     fn model_id() -> &'static str
     where
         Self: Sized;
@@ -36,12 +36,12 @@ pub trait ProgressHubModel: Send + Sync + 'static {
     where
         Self: Sized;
 
-    /// Model format (GGUF, SafeTensors, etc.)
+    /// Model format (GGUF, `SafeTensors`, etc.)
     fn model_format() -> ModelFormat
     where
         Self: Sized;
 
-    /// Download and initialize using ProgressHub
+    /// Download and initialize using `ProgressHub`
     ///
     /// # Errors
     /// Returns error if download fails or model initialization fails
@@ -56,14 +56,14 @@ pub trait ProgressHubModel: Send + Sync + 'static {
                 .download()
                 .await?;
 
-            Self::from_downloaded_model(results.into())
+            Self::from_downloaded_model(results)
         }
     }
 
-    /// Initialize from downloaded ProgressHub results
+    /// Initialize from downloaded `ProgressHub` results
     ///
     /// # Arguments
-    /// * `results` - ProgressHub download results containing model files
+    /// * `results` - `ProgressHub` download results containing model files
     ///
     /// # Errors
     /// Returns error if required files are missing or model initialization fails
@@ -77,7 +77,7 @@ pub trait ProgressHubModel: Send + Sync + 'static {
     ///
     /// BLOCKING CODE APPROVED: 2025-01-20 by @maintainer
     /// Rationale: Builder patterns require synchronous initialization. Using
-    /// shared_runtime().block_on() is the correct pattern for bridging async
+    /// `shared_runtime().block_on()` is the correct pattern for bridging async
     /// operations in sync builder contexts. This is intentional production code.
     ///
     /// # Errors
@@ -87,6 +87,8 @@ pub trait ProgressHubModel: Send + Sync + 'static {
         Self: Sized,
     {
         // BLOCKING CODE APPROVED: See trait-level documentation
-        crate::runtime::shared_runtime().block_on(Self::new())
+        crate::runtime::shared_runtime()
+            .ok_or_else(|| Box::<dyn Error + Send + Sync>::from("Runtime unavailable"))?
+            .block_on(Self::new())
     }
 }

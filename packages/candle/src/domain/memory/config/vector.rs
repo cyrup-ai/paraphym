@@ -883,9 +883,25 @@ impl VectorStoreConfig {
 impl Default for VectorStoreConfig {
     fn default() -> Self {
         let embedding_config = EmbeddingConfig::default();
-        // Use the embedding config's dimension instead of hardcoding 1536
-        // This ensures dimension always matches and validation cannot fail
-        Self::new(VectorStoreType::Memory, embedding_config.clone(), embedding_config.dimension)
-            .expect("Default vector store configuration with matching dimensions must be valid")
+        let dimension = embedding_config.dimension;
+        let store_type = VectorStoreType::Memory;
+
+        // Construct directly to avoid fallible new() method
+        // This mirrors the logic in new() but without validation since we control the inputs
+        Self {
+            store_type,
+            embedding_config,
+            dimension,
+            distance_metric: DistanceMetric::Cosine,
+            index_config: IndexConfig::optimized(
+                store_type.recommended_index_type(),
+                dimension,
+                10000,
+            ),
+            simd_config: SimdConfig::optimized(),
+            connection_config: None,
+            performance_config: PerformanceConfig::optimized(store_type),
+            memory_config: MemoryConfig::default(),
+        }
     }
 }

@@ -40,12 +40,14 @@ pub struct DocumentExtractor<T>
 where
     T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static,
 {
+    provider: Option<std::sync::Arc<dyn crate::domain::completion::traits::CandleCompletionModel>>,
     _phantom: std::marker::PhantomData<T>,
 }
 
 impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static> Default for DocumentExtractor<T> {
     fn default() -> Self {
         Self {
+            provider: None,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -54,12 +56,55 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static>
 impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static> Extractor<T> for DocumentExtractor<T> {
     fn extract(&self, text: &str) -> AsyncStream<ExtractionResult<T>> {
         let text = text.to_string();
+        let provider = self.provider.clone();
+        
         AsyncStream::with_channel(move |sender| {
             std::thread::spawn(move || {
-                // Simple text-based extraction logic
-                // In a real implementation, this would use NLP or AI models
-                let result = T::default(); // Placeholder extraction
-                let _ = sender.send(Ok(result));
+                if let Some(provider) = provider {
+                    let prompt = crate::domain::prompt::CandlePrompt::new(
+                        format!("Extract structured data from: {}", text)
+                    );
+                    let params = crate::domain::completion::types::CandleCompletionParams {
+                        temperature: 0.2,
+                        max_tokens: std::num::NonZeroU64::new(2000),
+                        n: match std::num::NonZeroU8::new(1) {
+                            Some(n) => n,
+                            None => {
+                                let _ = sender.send(Err(ExtractionError::ConfigError("Invalid completion parameter".to_string())));
+                                return;
+                            }
+                        },
+                        stream: true,
+                        tools: None,
+                        additional_params: None,
+                    };
+                    
+                    let mut stream = provider.prompt(prompt, &params);
+                    let mut accumulated = String::new();
+                    
+                    while let Some(chunk) = stream.try_next() {
+                        use crate::domain::context::chunk::CandleCompletionChunk;
+                        match chunk {
+                            CandleCompletionChunk::Text(text) => accumulated.push_str(&text),
+                            CandleCompletionChunk::Complete { text, .. } => {
+                                accumulated.push_str(&text);
+                                break;
+                            }
+                            CandleCompletionChunk::Error(e) => {
+                                let _ = sender.send(Err(ExtractionError::ModelError(e)));
+                                return;
+                            }
+                            _ => {}
+                        }
+                    }
+                    
+                    match serde_json::from_str::<T>(&accumulated) {
+                        Ok(result) => { let _ = sender.send(Ok(result)); }
+                        Err(e) => { let _ = sender.send(Err(ExtractionError::SerializationError(e.to_string()))); }
+                    }
+                } else {
+                    let _ = sender.send(Err(ExtractionError::ConfigError("No provider configured".to_string())));
+                }
             });
         })
     }
@@ -97,18 +142,35 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static>
                 let params = CompletionParams {
                     temperature: completion_request.temperature.unwrap_or(0.2),
                     max_tokens: completion_request.max_tokens.and_then(|t| std::num::NonZeroU64::new(t as u64)),
-                    // SAFETY: 1 is mathematically guaranteed to be non-zero
-                    n: unsafe { std::num::NonZeroU8::new_unchecked(1) },
+                    n: std::num::NonZeroU8::MIN,
                     stream: true};
                 let mut stream = model.prompt(prompt, &params);
 
-                // Process the streaming response
+                let mut full_response = String::new();
+
                 while let Some(chunk) = stream.try_next() {
-                    // In a real implementation, this would accumulate chunks and parse the final result
-                    // For now, return a default result
-                    let result = T::default();
-                    let _ = sender.send(Ok(result));
-                    break; // Only send one result for this example
+                    use crate::domain::context::chunk::CandleCompletionChunk;
+                    match chunk {
+                        CandleCompletionChunk::Text(text) => {
+                            full_response.push_str(&text);
+                        }
+                        CandleCompletionChunk::Complete { text, finish_reason, .. } => {
+                            full_response.push_str(&text);
+                            if finish_reason == Some(crate::domain::context::chunk::FinishReason::Stop) {
+                                break;
+                            }
+                        }
+                        CandleCompletionChunk::Error(e) => {
+                            let _ = sender.send(Err(ExtractionError::ModelError(e)));
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
+
+                match serde_json::from_str::<T>(&full_response) {
+                    Ok(result) => { let _ = sender.send(Ok(result)); }
+                    Err(e) => { let _ = sender.send(Err(ExtractionError::SerializationError(e.to_string()))); }
                 }
             });
         })
@@ -143,9 +205,14 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static>
         let text = text.to_string();
         AsyncStream::with_channel(move |sender| {
             std::thread::spawn(move || {
-                // Simple extraction implementation
-                let result = T::default();
-                let _ = sender.send(Ok(result));
+                let agent = crate::domain::agent::Agent::default();
+                let completion_request = CompletionRequest::new(&text);
+                
+                let mut extraction_stream = Self::execute_extraction(agent, completion_request, text);
+                
+                while let Some(result) = extraction_stream.try_next() {
+                    let _ = sender.send(result);
+                }
             });
         })
     }

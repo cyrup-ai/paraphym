@@ -14,6 +14,8 @@ use sigstore::{
 use tar::Archive;
 
 // Docker manifest format v2
+// Used for JSON deserialization from Docker registry API
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 struct DockerManifest {
     #[serde(rename = "schemaVersion")]
@@ -24,6 +26,7 @@ struct DockerManifest {
     layers: Vec<DockerManifestLayer>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 struct DockerManifestConfig {
     #[serde(rename = "mediaType")]
@@ -32,6 +35,7 @@ struct DockerManifestConfig {
     digest: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 struct DockerManifestLayer {
     #[serde(rename = "mediaType")]
