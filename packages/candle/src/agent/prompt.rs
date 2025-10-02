@@ -8,7 +8,6 @@
 // • Zero allocation using crossbeam lock-free structures
 // ============================================================================
 
-#![allow(dead_code)] // remove once all call‑sites are migrated
 
 use ystream::AsyncStream;
 

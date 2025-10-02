@@ -141,7 +141,9 @@ impl ResponseFormatter {
         );
         json_output.insert("message".to_string(), Value::String(output.content.clone()));
 
-        // Note: CommandOutput doesn't have a data field, so we'll skip this for now
+        if let Some(ref data) = output.data {
+            json_output.insert("data".to_string(), data.clone());
+        }
 
         if self.include_metrics {
             let mut metrics = Map::new();

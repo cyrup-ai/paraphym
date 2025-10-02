@@ -660,10 +660,13 @@ impl CandleStreamingContextProcessor {
     fn load_file_document(
         context: &CandleImmutableFileContext,
     ) -> Document {
+        const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024; // 100MB default
+        const LARGE_FILE_WARNING_THRESHOLD: u64 = 10 * 1024 * 1024; // 10MB
+        
         let file_path = Path::new(&context.path);
         
         // Validate path exists and is a file
-        let _metadata = match std::fs::metadata(file_path) {
+        let metadata = match std::fs::metadata(file_path) {
             Ok(meta) => {
                 if !meta.is_file() {
                     log::error!(
@@ -679,6 +682,25 @@ impl CandleStreamingContextProcessor {
                 return Document::bad_chunk(format!("Failed to access file: {e}"));
             }
         };
+        
+        // Check file size limits to prevent OOM
+        if metadata.len() > MAX_FILE_SIZE {
+            log::error!(
+                "File exceeds size limit: {} bytes (max: {} bytes)",
+                metadata.len(),
+                MAX_FILE_SIZE
+            );
+            return Document::bad_chunk(format!(
+                "File too large: {} bytes (max {} bytes)",
+                metadata.len(),
+                MAX_FILE_SIZE
+            ));
+        }
+        
+        // Warn for large files
+        if metadata.len() > LARGE_FILE_WARNING_THRESHOLD {
+            log::warn!("Reading large file: {} bytes", metadata.len());
+        }
         
         // Detect MIME type and derive format/media type
         let mime_guess = mime_guess::from_path(file_path);
@@ -705,7 +727,7 @@ impl CandleStreamingContextProcessor {
                         crate::domain::context::CandleContentFormat::Xml,
                         crate::domain::context::CandleDocumentMediaType::Xml
                     ),
-                    "application/x-yaml" | "text/yaml" => (
+                    "application/x-yaml" | "text/yaml" | "text/x-yaml" => (
                         crate::domain::context::CandleContentFormat::Yaml,
                         crate::domain::context::CandleDocumentMediaType::Yaml
                     ),
@@ -717,6 +739,10 @@ impl CandleStreamingContextProcessor {
                         crate::domain::context::CandleContentFormat::Base64,
                         crate::domain::context::CandleDocumentMediaType::PDF
                     ),
+                    "text/plain" => {
+                        // For text/plain, use extension-based detection for better accuracy
+                        Self::detect_format_from_extension(file_path)
+                    },
                     _ if mime_str.starts_with("text/") => (
                         crate::domain::context::CandleContentFormat::Text,
                         crate::domain::context::CandleDocumentMediaType::TXT
@@ -785,12 +811,17 @@ impl CandleStreamingContextProcessor {
         }
     }
     
-    /// Helper function to detect format from file extension
+    /// Helper function to detect format from file extension (case-insensitive)
     #[inline]
     fn detect_format_from_extension(
         path: &Path
     ) -> (crate::domain::context::CandleContentFormat, crate::domain::context::CandleDocumentMediaType) {
-        match path.extension().and_then(|ext| ext.to_str()) {
+        // Convert extension to lowercase for case-insensitive matching
+        let ext_lower = path.extension()
+            .and_then(|ext| ext.to_str())
+            .map(|s| s.to_lowercase());
+        
+        match ext_lower.as_deref() {
             Some("html" | "htm") => (
                 crate::domain::context::CandleContentFormat::Html,
                 crate::domain::context::CandleDocumentMediaType::Html
@@ -1461,5 +1492,291 @@ impl CandleContext<CandleGithub> {
                 }
             });
         })
+    }
+}
+
+
+// ============================================================================
+// UNIT TESTS
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::context::{CandleContentFormat, CandleDocumentMediaType};
+    use std::io::Write;
+    use std::time::SystemTime;
+    use tempfile::{NamedTempFile, TempDir};
+    use base64::{Engine as _, engine::general_purpose};
+
+    /// Helper function to create a test file context
+    fn create_test_context(path: String) -> CandleImmutableFileContext {
+        CandleImmutableFileContext {
+            path,
+            content_hash: "test_hash_123".to_string(),
+            size_bytes: 0,
+            modified: SystemTime::now(),
+            memory_integration: None,
+        }
+    }
+
+    #[test]
+    fn test_load_text_file() {
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        let test_content = "Hello, this is a test text file!";
+        temp_file.write_all(test_content.as_bytes()).expect("Failed to write");
+        temp_file.flush().expect("Failed to flush");
+
+        let path = temp_file.path().to_string_lossy().to_string();
+        let context = create_test_context(path);
+        let document = CandleStreamingContextProcessor::load_file_document(&context);
+
+        assert_eq!(document.data, test_content);
+        assert!(matches!(document.format, Some(CandleContentFormat::Text)));
+        assert!(document.error().is_none());
+    }
+
+    #[test]
+    fn test_load_json_file() {
+        let mut temp_file = NamedTempFile::with_suffix(".json").expect("Failed to create temp file");
+        let test_content = r#"{"key": "value", "number": 42}"#;
+        temp_file.write_all(test_content.as_bytes()).expect("Failed to write");
+        temp_file.flush().expect("Failed to flush");
+
+        let path = temp_file.path().to_string_lossy().to_string();
+        let context = create_test_context(path);
+        let document = CandleStreamingContextProcessor::load_file_document(&context);
+
+        assert_eq!(document.data, test_content);
+        assert!(matches!(document.format, Some(CandleContentFormat::Json)));
+        assert!(matches!(document.media_type, Some(CandleDocumentMediaType::Json)));
+        assert!(document.error().is_none());
+    }
+
+    #[test]
+    fn test_load_html_file() {
+        let mut temp_file = NamedTempFile::with_suffix(".html").expect("Failed to create temp file");
+        let test_content = "<html><body><h1>Test</h1></body></html>";
+        temp_file.write_all(test_content.as_bytes()).expect("Failed to write");
+        temp_file.flush().expect("Failed to flush");
+
+        let path = temp_file.path().to_string_lossy().to_string();
+        let context = create_test_context(path);
+        let document = CandleStreamingContextProcessor::load_file_document(&context);
+
+        assert_eq!(document.data, test_content);
+        assert!(matches!(document.format, Some(CandleContentFormat::Html)));
+        assert!(matches!(document.media_type, Some(CandleDocumentMediaType::Html)));
+        assert!(document.error().is_none());
+    }
+
+    #[test]
+    fn test_load_markdown_file() {
+        let mut temp_file = NamedTempFile::with_suffix(".md").expect("Failed to create temp file");
+        let test_content = "# Heading\n\nThis is **markdown** content.";
+        temp_file.write_all(test_content.as_bytes()).expect("Failed to write");
+        temp_file.flush().expect("Failed to flush");
+
+        let path = temp_file.path().to_string_lossy().to_string();
+        let context = create_test_context(path);
+        let document = CandleStreamingContextProcessor::load_file_document(&context);
+
+        assert_eq!(document.data, test_content);
+        assert!(matches!(document.format, Some(CandleContentFormat::Markdown)));
+        assert!(matches!(document.media_type, Some(CandleDocumentMediaType::Markdown)));
+        assert!(document.error().is_none());
+    }
+
+    #[test]
+    fn test_load_binary_file() {
+        let mut temp_file = NamedTempFile::with_suffix(".pdf").expect("Failed to create temp file");
+        let binary_data: Vec<u8> = vec![0x25, 0x50, 0x44, 0x46, 0x2D];
+        temp_file.write_all(&binary_data).expect("Failed to write");
+        temp_file.flush().expect("Failed to flush");
+
+        let path = temp_file.path().to_string_lossy().to_string();
+        let context = create_test_context(path);
+        let document = CandleStreamingContextProcessor::load_file_document(&context);
+
+        let expected_base64 = general_purpose::STANDARD.encode(&binary_data);
+        assert_eq!(document.data, expected_base64);
+        assert!(matches!(document.format, Some(CandleContentFormat::Base64)));
+        assert!(matches!(document.media_type, Some(CandleDocumentMediaType::PDF)));
+        assert!(document.error().is_none());
+    }
+
+    #[test]
+    fn test_utf8_fallback() {
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        let invalid_utf8: Vec<u8> = vec![0xFF, 0xFE, 0xFD, 0x80, 0x81];
+        temp_file.write_all(&invalid_utf8).expect("Failed to write");
+        temp_file.flush().expect("Failed to flush");
+
+        let path = temp_file.path().to_string_lossy().to_string();
+        let context = create_test_context(path);
+        let document = CandleStreamingContextProcessor::load_file_document(&context);
+
+        let expected_base64 = general_purpose::STANDARD.encode(&invalid_utf8);
+        assert_eq!(document.data, expected_base64);
+        assert!(matches!(document.format, Some(CandleContentFormat::Base64)));
+        assert!(document.error().is_none());
+    }
+
+    #[test]
+    fn test_missing_file() {
+        let context = create_test_context("/path/to/nonexistent/file.txt".to_string());
+        let document = CandleStreamingContextProcessor::load_file_document(&context);
+
+        assert!(document.error().is_some());
+        assert!(document.data.starts_with("ERROR: Failed to access file"));
+    }
+
+    #[test]
+    fn test_directory_not_file() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let path = temp_dir.path().to_string_lossy().to_string();
+        let context = create_test_context(path);
+        let document = CandleStreamingContextProcessor::load_file_document(&context);
+
+        assert!(document.error().is_some());
+        assert!(document.data.contains("Path is not a file"));
+    }
+
+    #[test]
+    fn test_extension_fallback() {
+        let mut temp_file = NamedTempFile::with_suffix(".custom").expect("Failed to create temp file");
+        let test_content = "Custom file content";
+        temp_file.write_all(test_content.as_bytes()).expect("Failed to write");
+        temp_file.flush().expect("Failed to flush");
+
+        let path = temp_file.path().to_string_lossy().to_string();
+        let context = create_test_context(path);
+        let document = CandleStreamingContextProcessor::load_file_document(&context);
+
+        assert_eq!(document.data, test_content);
+        assert!(matches!(document.format, Some(CandleContentFormat::Text)));
+        assert!(document.error().is_none());
+    }
+
+    #[test]
+    fn test_metadata_preservation() {
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        let test_content = "Test content for metadata";
+        temp_file.write_all(test_content.as_bytes()).expect("Failed to write");
+        temp_file.flush().expect("Failed to flush");
+
+        let path = temp_file.path().to_string_lossy().to_string();
+        let test_hash = "test_hash_456";
+        let test_size = test_content.len() as u64;
+        
+        let context = CandleImmutableFileContext {
+            path: path.clone(),
+            content_hash: test_hash.to_string(),
+            size_bytes: test_size,
+            modified: SystemTime::now(),
+            memory_integration: None,
+        };
+
+        let document = CandleStreamingContextProcessor::load_file_document(&context);
+
+        assert!(document.additional_props.contains_key("path"));
+        assert!(document.additional_props.contains_key("hash"));
+        assert!(document.additional_props.contains_key("size"));
+        assert!(document.additional_props.contains_key("id"));
+        
+        if let Some(serde_json::Value::String(stored_path)) = document.additional_props.get("path") {
+            assert_eq!(stored_path, &path);
+        } else {
+            panic!("Path not found in metadata");
+        }
+        
+        if let Some(serde_json::Value::String(stored_hash)) = document.additional_props.get("hash") {
+            assert_eq!(stored_hash, test_hash);
+        } else {
+            panic!("Hash not found in metadata");
+        }
+    }
+
+    #[test]
+    fn test_csv_file() {
+        let mut temp_file = NamedTempFile::with_suffix(".csv").expect("Failed to create temp file");
+        let test_content = "name,age,city\nAlice,30,NYC\nBob,25,LA";
+        temp_file.write_all(test_content.as_bytes()).expect("Failed to write");
+        temp_file.flush().expect("Failed to flush");
+
+        let path = temp_file.path().to_string_lossy().to_string();
+        let context = create_test_context(path);
+        let document = CandleStreamingContextProcessor::load_file_document(&context);
+
+        assert_eq!(document.data, test_content);
+        assert!(matches!(document.format, Some(CandleContentFormat::Csv)));
+        assert!(matches!(document.media_type, Some(CandleDocumentMediaType::Csv)));
+        assert!(document.error().is_none());
+    }
+
+    #[test]
+    fn test_xml_file() {
+        let mut temp_file = NamedTempFile::with_suffix(".xml").expect("Failed to create temp file");
+        let test_content = r#"<?xml version="1.0"?><root><item>Test</item></root>"#;
+        temp_file.write_all(test_content.as_bytes()).expect("Failed to write");
+        temp_file.flush().expect("Failed to flush");
+
+        let path = temp_file.path().to_string_lossy().to_string();
+        let context = create_test_context(path);
+        let document = CandleStreamingContextProcessor::load_file_document(&context);
+
+        assert_eq!(document.data, test_content);
+        assert!(matches!(document.format, Some(CandleContentFormat::Xml)));
+        assert!(matches!(document.media_type, Some(CandleDocumentMediaType::Xml)));
+        assert!(document.error().is_none());
+    }
+
+    #[test]
+    fn test_yaml_file() {
+        let mut temp_file = NamedTempFile::with_suffix(".yaml").expect("Failed to create temp file");
+        let test_content = "key: value\nlist:\n  - item1\n  - item2";
+        temp_file.write_all(test_content.as_bytes()).expect("Failed to write");
+        temp_file.flush().expect("Failed to flush");
+
+        let path = temp_file.path().to_string_lossy().to_string();
+        let context = create_test_context(path);
+        let document = CandleStreamingContextProcessor::load_file_document(&context);
+
+        assert_eq!(document.data, test_content);
+        assert!(matches!(document.format, Some(CandleContentFormat::Yaml)));
+        assert!(matches!(document.media_type, Some(CandleDocumentMediaType::Yaml)));
+        assert!(document.error().is_none());
+    }
+
+    #[test]
+    fn test_image_file() {
+        let mut temp_file = NamedTempFile::with_suffix(".png").expect("Failed to create temp file");
+        let png_header: Vec<u8> = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        temp_file.write_all(&png_header).expect("Failed to write");
+        temp_file.flush().expect("Failed to flush");
+
+        let path = temp_file.path().to_string_lossy().to_string();
+        let context = create_test_context(path);
+        let document = CandleStreamingContextProcessor::load_file_document(&context);
+
+        let expected_base64 = general_purpose::STANDARD.encode(&png_header);
+        assert_eq!(document.data, expected_base64);
+        assert!(matches!(document.format, Some(CandleContentFormat::Base64)));
+        assert!(matches!(document.media_type, Some(CandleDocumentMediaType::Image)));
+        assert!(document.error().is_none());
+    }
+
+    #[test]
+    fn test_file_size_limit() {
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        temp_file.write_all(b"small content").expect("Failed to write");
+        temp_file.flush().expect("Failed to flush");
+
+        let path = temp_file.path().to_string_lossy().to_string();
+        let context = create_test_context(path);
+        let document = CandleStreamingContextProcessor::load_file_document(&context);
+        
+        assert!(document.error().is_none());
+        assert_eq!(document.data, "small content");
     }
 }

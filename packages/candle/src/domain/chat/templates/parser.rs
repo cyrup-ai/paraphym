@@ -428,12 +428,7 @@ impl TemplateParser {
     ) -> TemplateResult<TemplateAst> {
         let trimmed = content.trim();
 
-        // Check for function calls
-        if trimmed.contains('(') && trimmed.contains(')') {
-            return self.parse_function_call(trimmed, depth);
-        }
-
-        // Check for expressions
+        // Check for expressions first (before function calls)
         if self.config.allow_expressions
             && (trimmed.contains('+')
                 || trimmed.contains('-')
@@ -452,6 +447,11 @@ impl TemplateParser {
                 || trimmed.contains(" or "))
         {
             return self.parse_expression(trimmed, depth);
+        }
+
+        // Check for function calls
+        if trimmed.contains('(') && trimmed.contains(')') {
+            return self.parse_function_call(trimmed, depth);
         }
 
         // Simple variable
@@ -803,7 +803,7 @@ pub fn validate_template(content: &str) -> TemplateResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::chat::templates::core::{CompiledTemplate, TemplateContext};
+    use crate::domain::chat::templates::core::{TemplateContext, CompiledTemplate};
 
     #[test]
     fn test_simple_variable_parsing() {
@@ -840,12 +840,10 @@ mod tests {
     #[test]
     fn test_subtraction_associativity() {
         let parser = TemplateParser::new();
-        let compiler = TemplateCompiler::new();
         let context = TemplateContext::new();
         
         let ast = parser.parse("{{ 10 - 3 - 2 }}").unwrap();
-        let template = compiler.compile_from_ast(ast).unwrap();
-        let result = template.render(&context).unwrap();
+        let result = CompiledTemplate::render_ast(&ast, &context).unwrap();
         
         assert_eq!(result.trim(), "5", "10 - 3 - 2 should be left-associative: (10-3)-2 = 5");
     }
@@ -853,12 +851,10 @@ mod tests {
     #[test]
     fn test_division_associativity() {
         let parser = TemplateParser::new();
-        let compiler = TemplateCompiler::new();
         let context = TemplateContext::new();
         
         let ast = parser.parse("{{ 20 / 4 / 2 }}").unwrap();
-        let template = compiler.compile_from_ast(ast).unwrap();
-        let result = template.render(&context).unwrap();
+        let result = CompiledTemplate::render_ast(&ast, &context).unwrap();
         
         assert_eq!(result.trim(), "2.5", "20 / 4 / 2 should be left-associative: (20/4)/2 = 2.5");
     }
@@ -866,12 +862,10 @@ mod tests {
     #[test]
     fn test_modulo_associativity() {
         let parser = TemplateParser::new();
-        let compiler = TemplateCompiler::new();
         let context = TemplateContext::new();
         
         let ast = parser.parse("{{ 17 % 5 % 2 }}").unwrap();
-        let template = compiler.compile_from_ast(ast).unwrap();
-        let result = template.render(&context).unwrap();
+        let result = CompiledTemplate::render_ast(&ast, &context).unwrap();
         
         assert_eq!(result.trim(), "0", "17 % 5 % 2 should be left-associative: (17%5)%2 = 0");
     }
@@ -879,12 +873,10 @@ mod tests {
     #[test]
     fn test_precedence_with_associativity() {
         let parser = TemplateParser::new();
-        let compiler = TemplateCompiler::new();
         let context = TemplateContext::new();
         
         let ast = parser.parse("{{ 10 - 2 * 3 }}").unwrap();
-        let template = compiler.compile_from_ast(ast).unwrap();
-        let result = template.render(&context).unwrap();
+        let result = CompiledTemplate::render_ast(&ast, &context).unwrap();
         
         assert_eq!(result.trim(), "4", "10 - 2 * 3 should respect precedence: 10 - (2*3) = 4");
     }
@@ -892,12 +884,10 @@ mod tests {
     #[test]
     fn test_parentheses_override_associativity() {
         let parser = TemplateParser::new();
-        let compiler = TemplateCompiler::new();
         let context = TemplateContext::new();
         
         let ast = parser.parse("{{ 10 - (3 - 2) }}").unwrap();
-        let template = compiler.compile_from_ast(ast).unwrap();
-        let result = template.render(&context).unwrap();
+        let result = CompiledTemplate::render_ast(&ast, &context).unwrap();
         
         assert_eq!(result.trim(), "9", "10 - (3 - 2) should respect parentheses: 10 - 1 = 9");
     }

@@ -1,6 +1,5 @@
 //! Softmax benchmarks with various value ranges
 
-#![allow(clippy::redundant_pattern_matching)]
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::hint::black_box;

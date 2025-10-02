@@ -3,7 +3,6 @@
 //! This module provides token validation, extraction, and authentication
 //! processing with zero allocation patterns and blazing-fast performance.
 
-#![allow(dead_code)]
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use bytes::Bytes;

@@ -4,7 +4,6 @@
 //! service initialization, operations, and builder pattern with zero allocation
 //! patterns and blazing-fast performance.
 
-#![allow(dead_code)]
 
 pub mod builder;
 pub mod operations;

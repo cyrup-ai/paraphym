@@ -209,7 +209,7 @@ impl TemplateCompiler {
             description: String::from("Test template"),
             author: String::from("test"),
             version: String::from("1.0.0"),
-            category: TemplateCategory::Chat,
+            category: TemplateCategory::default(),
             tags: Vec::new(),
             created_at: 0,
             modified_at: 0,

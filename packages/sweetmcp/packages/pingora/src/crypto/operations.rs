@@ -3,7 +3,6 @@
 //! This module provides token encryption, decryption, rotation, and revocation
 //! operations with zero allocation patterns and blazing-fast performance.
 
-#![allow(dead_code)]
 
 use std::time::SystemTime;
 

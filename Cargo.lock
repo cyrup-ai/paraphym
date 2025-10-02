@@ -16163,6 +16163,9 @@ dependencies = [
  "url",
  "users",
  "uuid",
+ "walkdir",
+ "watchexec",
+ "watchexec-events",
 ]
 
 [[package]]

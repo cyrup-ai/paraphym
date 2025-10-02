@@ -1006,12 +1006,20 @@ where
                                 // Spawn tasks on the runtime to handle the async operations
                                 runtime.spawn(async move {
                                     if let Err(e) = user_pending.await {
-                                        eprintln!("Failed to store user memory: {:?}", e);
+                                        tracing::error!(
+                                            error = ?e,
+                                            memory_type = "user",
+                                            "Failed to store memory to database"
+                                        );
                                     }
                                 });
                                 runtime.spawn(async move {
                                     if let Err(e) = assistant_pending.await {
-                                        eprintln!("Failed to store assistant memory: {:?}", e);
+                                        tracing::error!(
+                                            error = ?e,
+                                            memory_type = "assistant",
+                                            "Failed to store memory to database"
+                                        );
                                     }
                                 });
                             }

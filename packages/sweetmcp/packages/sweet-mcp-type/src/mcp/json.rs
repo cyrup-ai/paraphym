@@ -6,7 +6,6 @@
 //  * #[inline(always)] on hot paths
 //=========================================================================
 
-#![allow(clippy::inline_always)]
 
 use smallvec::SmallVec;
 use simd_json::{to_owned_value, value::owned::Value as JsonValue, StaticNode};

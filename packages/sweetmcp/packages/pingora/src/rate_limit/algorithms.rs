@@ -3,7 +3,6 @@
 //! This module provides comprehensive rate limiting algorithms with zero allocation
 //! fast paths and blazing-fast performance.
 
-#![allow(dead_code)]
 
 use std::time::{Duration, Instant};
 

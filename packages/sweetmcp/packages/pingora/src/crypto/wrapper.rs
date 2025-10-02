@@ -4,7 +4,6 @@
 //! encryption/decryption automatically with zero allocation patterns
 //! and blazing-fast performance.
 
-#![allow(dead_code)]
 
 use std::sync::Arc;
 

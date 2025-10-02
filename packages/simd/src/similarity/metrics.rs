@@ -72,7 +72,7 @@ impl SimilarityMetricsSnapshot {
 ///
 /// Increments counters on creation and can be used for timing if extended.
 pub struct MetricsGuard<'a> {
-    metrics: &'a SimilarityMetrics,
+    _metrics: &'a SimilarityMetrics,
 }
 
 impl<'a> MetricsGuard<'a> {
@@ -81,7 +81,7 @@ impl<'a> MetricsGuard<'a> {
     pub fn new(metrics: &'a SimilarityMetrics, elements: usize) -> Self {
         metrics.increment_calculations();
         metrics.add_elements(elements as u64);
-        Self { metrics }
+        Self { _metrics: metrics }
     }
 }
 

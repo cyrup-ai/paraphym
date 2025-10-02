@@ -6,6 +6,7 @@
 
 use crate::resource::cms::resource_dao::core::*;
 use crate::types::*;
+use dashmap::DashMap;
 use std::fmt::Write;
 use arrayvec::ArrayString;
 use tokio::sync::oneshot;
@@ -185,8 +186,8 @@ pub struct ResourceDao {
     db_client: Option<crate::db::DatabaseClient>,
     /// Configuration
     config: ResourceDaoConfig,
-    /// Cache for resources
-    cache: std::collections::HashMap<String, ResourceCacheEntry>,
+    /// Cache for resources (DashMap provides interior mutability)
+    cache: DashMap<String, ResourceCacheEntry>,
 }
 
 impl ResourceDao {
@@ -195,7 +196,7 @@ impl ResourceDao {
         Self {
             db_client: None,
             config,
-            cache: std::collections::HashMap::new(),
+            cache: DashMap::new(),
         }
     }
 
@@ -226,8 +227,12 @@ impl ResourceDao {
                 
                 // Cache the result if caching is enabled
                 if self.config.enable_caching {
-                    // Note: This would need proper mutable access in a real implementation
-                    // For now, we'll just return the resource
+                    let cache_key = uri.to_string();
+                    let cache_entry = ResourceCacheEntry::new(
+                        resource.clone(),
+                        self.config.cache_ttl_seconds
+                    );
+                    self.cache.insert(cache_key, cache_entry);
                 }
 
                 Ok(Some(resource))
@@ -265,7 +270,7 @@ impl ResourceDao {
             Ok(_) => {
                 // Invalidate cache entry if caching is enabled
                 if self.config.enable_caching {
-                    // Note: This would need proper mutable access in a real implementation
+                    self.cache.remove(&resource.uri.to_string());
                 }
 
                 Ok(resource.clone())
@@ -287,7 +292,7 @@ impl ResourceDao {
             Ok(_) => {
                 // Invalidate cache entry if caching is enabled
                 if self.config.enable_caching {
-                    // Note: This would need proper mutable access in a real implementation
+                    self.cache.remove(&uri.to_string());
                 }
 
                 Ok(true)
@@ -369,8 +374,8 @@ impl ResourceDao {
     /// Get cache statistics
     pub fn get_cache_stats(&self) -> CacheStats {
         let total_entries = self.cache.len();
-        let expired_entries = self.cache.values()
-            .filter(|entry| entry.is_expired())
+        let expired_entries = self.cache.iter()
+            .filter(|entry| entry.value().is_expired())
             .count();
 
         CacheStats {

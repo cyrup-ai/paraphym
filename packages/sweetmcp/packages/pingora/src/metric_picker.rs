@@ -1,11 +1,10 @@
 //! Sugora peer picker that selects the lowest `node_load1`.
 
-#![allow(dead_code)]
 
 use std::{
     collections::BTreeSet,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
         Arc,
     },
 };
@@ -17,6 +16,7 @@ use pingora_load_balancing::Backend;
 pub struct MetricPicker {
     backends: Vec<Backend>,
     load_values: Vec<Arc<AtomicU64>>, // f64 bits representation
+    round_robin_counter: AtomicUsize,
 }
 
 impl MetricPicker {
@@ -31,6 +31,7 @@ impl MetricPicker {
         Self {
             backends: backends_vec,
             load_values,
+            round_robin_counter: AtomicUsize::new(0),
         }
     }
 
@@ -105,9 +106,19 @@ impl MetricPicker {
         self.backends.first()
     }
 
-    /// Pick backend using round-robin (simplified to lowest load for now)
+    /// Pick backend using round-robin rotation
     #[inline]
     pub fn pick_round_robin(&self) -> Option<&Backend> {
-        self.pick()
+        if self.backends.is_empty() {
+            return None;
+        }
+        
+        // Atomically increment and get previous value
+        let counter = self.round_robin_counter.fetch_add(1, Ordering::Relaxed);
+        
+        // Wrap around using modulo
+        let idx = counter % self.backends.len();
+        
+        Some(&self.backends[idx])
     }
 }

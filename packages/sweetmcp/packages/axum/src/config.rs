@@ -172,6 +172,41 @@ pub fn parse_config<T: serde::de::DeserializeOwned>(content: &str, file_path: &P
     parse_config_from_str(content)
 }
 
+/// Root configuration entry
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RootEntry {
+    pub name: String,
+    pub url: String,
+}
+
+/// Filesystem scanning configuration for roots
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RootScanConfig {
+    /// Paths to scan for roots
+    pub paths: Vec<String>,
+    
+    /// Marker files that indicate a root (e.g., .git, package.json)
+    pub markers: Vec<String>,
+    
+    /// Maximum directory depth to scan
+    #[serde(default = "default_max_depth")]
+    pub max_depth: usize,
+}
+
+fn default_max_depth() -> usize { 3 }
+
+/// Root configuration
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct RootsConfig {
+    /// Static roots defined in config
+    #[serde(default)]
+    pub static_roots: Vec<RootEntry>,
+    
+    /// Filesystem scanning configuration
+    #[serde(default)]
+    pub scan: Option<RootScanConfig>,
+}
+
 /// Represents the top-level configuration structure.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
@@ -181,6 +216,10 @@ pub struct Config {
     /// Database configuration (optional).
     #[serde(default)]
     pub database: Option<DatabaseConfig>,
+    
+    /// Root configuration
+    #[serde(default)]
+    pub roots: RootsConfig,
 }
 
 /// Represents the configuration for a single plugin.

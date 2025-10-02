@@ -4,9 +4,6 @@
 //  Core MCP types & shared helpers for JSON/TOML (zero-Serde).
 //  Inlined and allocator-optimized for minimal heap churn.
 //=========================================================================
-#![allow(clippy::needless_return)]
-#![allow(clippy::too_many_arguments)]
-#![allow(clippy::upper_case_acronyms)]
 
 use std::collections::HashMap;
 use std::str::FromStr;

@@ -1,7 +1,6 @@
 //! 1-minute load-average + inflight counter overload check.
 //! Lock-free implementation using atomic operations for blazing-fast performance.
 
-#![allow(dead_code)]
 
 use std::sync::atomic::{AtomicU64, Ordering};
 

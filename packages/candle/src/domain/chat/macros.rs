@@ -1611,10 +1611,9 @@ impl MacroProcessor {
             let macro_id = *macro_id;
             AsyncStream::with_channel(move |sender| {
                 std::thread::spawn(move || {
-                    // Error handling via on_chunk pattern - for now just return default
                     let default_result = MacroExecutionResult {
                         success: false,
-                        message: String::from("Macro not found"),
+                        message: format!("Macro not found: {:?}", macro_id),
                         actions_executed: 0,
                         execution_duration: Duration::from_secs(0),
                         modified_variables: HashMap::new(),
@@ -1673,6 +1672,7 @@ impl MacroProcessor {
                 let mut actions_executed = 0;
                 let modified_variables = HashMap::new();
                 let mut performance = MacroPerformanceMetrics::default();
+                let mut error_message: Option<String> = None;
 
                 let success = loop {
                     if context.current_action >= macro_def.actions.len() {
@@ -1695,10 +1695,26 @@ impl MacroProcessor {
                             actions_executed += 1;
                             context.current_action = index;
                         }
-                        Ok(ActionExecutionResult::Error(_error)) => {
+                        Ok(ActionExecutionResult::Error(error)) => {
+                            error_message = Some(format!(
+                                "Action {} failed: {}", 
+                                context.current_action, 
+                                error
+                            ));
+                            if let Some(ref msg) = error_message {
+                                eprintln!("Macro execution error: {msg}");
+                            }
                             break false;
                         }
-                        Err(_e) => {
+                        Err(e) => {
+                            error_message = Some(format!(
+                                "System error at action {}: {}", 
+                                context.current_action, 
+                                e
+                            ));
+                            if let Some(ref msg) = error_message {
+                                eprintln!("Macro system error: {msg}");
+                            }
                             break false;
                         }
                     }
@@ -1729,7 +1745,7 @@ impl MacroProcessor {
                     message: if success {
                         String::from("Execution successful")
                     } else {
-                        String::from("Execution failed")
+                        error_message.unwrap_or_else(|| String::from("Execution failed"))
                     },
                     actions_executed,
                     execution_duration,

@@ -4,7 +4,6 @@
 //! token handling with NaCl box encryption, zero allocation patterns, and
 //! blazing-fast performance.
 
-#![allow(dead_code)]
 
 use std::collections::HashMap;
 use std::sync::Arc;

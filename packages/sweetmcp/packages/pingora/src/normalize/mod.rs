@@ -4,7 +4,6 @@
 //! for converting GraphQL, JSON-RPC, Cap'n Proto, and MCP Streamable HTTP
 //! protocols with zero allocation patterns and blazing-fast performance.
 
-#![allow(dead_code)]
 
 pub mod conversion;
 pub mod parsers;

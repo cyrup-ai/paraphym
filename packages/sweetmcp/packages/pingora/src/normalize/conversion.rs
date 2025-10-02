@@ -4,7 +4,6 @@
 //! protocols to JSON-RPC with zero allocation patterns and blazing-fast
 //! performance.
 
-#![allow(dead_code)]
 
 use anyhow::{Context, Result};
 use serde_json::{json, Value};

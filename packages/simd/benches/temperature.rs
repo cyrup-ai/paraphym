@@ -1,6 +1,5 @@
 //! Temperature scaling benchmarks
 
-#![allow(clippy::useless_vec)]
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::hint::black_box;

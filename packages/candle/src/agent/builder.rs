@@ -23,7 +23,6 @@
 // `AsyncStream` downstream.
 // ============================================================================
 
-#![allow(clippy::module_name_repetitions)]
 
 use core::marker::PhantomData;
 use ystream::AsyncStream;

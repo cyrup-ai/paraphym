@@ -3,7 +3,6 @@
 //! This module provides a fluent, secure-by-default certificate management API.
 //! All internal complexity is hidden behind the builder interface.
 
-#![allow(dead_code)]
 
 // Internal modules - not exposed publicly
 pub(crate) mod bootstrap_client;

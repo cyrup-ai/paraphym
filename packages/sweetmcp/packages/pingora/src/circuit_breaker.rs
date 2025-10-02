@@ -6,7 +6,6 @@
 //! - Half-open state testing
 //! - Metrics emission for state changes
 
-#![allow(dead_code)]
 
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;

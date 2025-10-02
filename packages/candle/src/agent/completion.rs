@@ -2,7 +2,6 @@
 // src/completion.rs
 // ---
 
-#![allow(clippy::needless_doctest_main)] // suppress until examples are split
 
 //! **LLM Agent – request assembly & streaming glue**
 //!

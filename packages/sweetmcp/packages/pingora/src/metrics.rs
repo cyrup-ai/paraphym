@@ -1,6 +1,5 @@
 //! Metrics for SweetMCP discovery and operations
 
-#![allow(dead_code)]
 
 use once_cell::sync::Lazy;
 use prometheus::{

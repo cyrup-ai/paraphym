@@ -63,7 +63,9 @@ async-recursion = "1.1.1"
 libc = "0.2.176"
 glob = "0.3.3"
 crossbeam-channel = "0.5.15"
-
+walkdir = "2.5.0"
+watchexec = "8.0.1"
+watchexec-events = "6.0.0"
 
 # Zero-allocation performance optimizations
 arrayvec = { version = "0.7", features = ["serde"] }  # Fixed-size arrays without heap allocation

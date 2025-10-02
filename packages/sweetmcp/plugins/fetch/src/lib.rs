@@ -22,6 +22,11 @@ use sweetmcp_plugin_builder::{CallToolResult, Content, ContentType, Ready};
 #[cfg(not(target_family = "wasm"))]
 use syntect::{highlighting::ThemeSet, html::highlighted_html_for_string, parsing::SyntaxSet};
 
+// HTML parsing imports
+use html5ever::parse_document;
+use html5ever::tendril::TendrilSink;
+use markup5ever_rcdom::{Node, NodeData, RcDom};
+
 // use async_trait::async_trait;
 use crate::hyper::HyperFetcher;
 
@@ -495,28 +500,48 @@ fn extract_title(html: &str) -> String {
     }
 }
 
-// Extract text content from HTML
+/// Extract text content from HTML using proper HTML5 parser
 fn extract_text_content(html: &str) -> String {
-    // Simple text extraction - in a real implementation this would be more robust
+    // Parse HTML into DOM tree using html5ever
+    let mut bytes = html.as_bytes();
+    let dom_result = parse_document(RcDom::default(), Default::default())
+        .from_utf8()
+        .read_from(&mut bytes);
+    
     let mut text = String::new();
-    let mut in_tag = false;
+    
+    // Handle parse result - if parsing fails, return empty string
+    if let Ok(dom) = dom_result {
+        extract_text_from_node(&dom.document, &mut text);
+    }
+    
+    // Clean up whitespace - join all text with single spaces
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
 
-    for c in html.chars() {
-        match c {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => text.push(c),
-            _ => {}
+/// Recursively extract text from DOM nodes, skipping script/style tags
+fn extract_text_from_node(node: &Node, text: &mut String) {
+    match &node.data {
+        NodeData::Text { contents } => {
+            // Text nodes: append content (entities already decoded by parser)
+            text.push_str(&contents.borrow());
+        }
+        NodeData::Element { name, .. } => {
+            // Element nodes: skip script and style tags
+            let tag_name = name.local.as_ref();
+            if tag_name != "script" && tag_name != "style" {
+                for child in node.children.borrow().iter() {
+                    extract_text_from_node(child, text);
+                }
+            }
+        }
+        _ => {
+            // Document, Comment, Doctype, etc: recurse to children
+            for child in node.children.borrow().iter() {
+                extract_text_from_node(child, text);
+            }
         }
     }
-
-    // Clean up whitespace
-    text = text.replace('\n', " ");
-    while text.contains("  ") {
-        text = text.replace("  ", " ");
-    }
-
-    text.trim().to_string()
 }
 
 // Apply syntax highlighting to content (native only)
@@ -547,8 +572,22 @@ fn apply_syntax_highlighting(
             Ok(html)
         }
         ContentFormat::Markdown => {
-            // Simple markdown highlighting (in a real implementation this would be more sophisticated)
-            Ok(content.to_string())
+            let ss = SyntaxSet::load_defaults_newlines();
+            let ts = ThemeSet::load_defaults();
+
+            let syntax = ss
+                .find_syntax_by_extension("md")
+                .ok_or_else(|| Error::msg("Failed to find Markdown syntax"))?;
+
+            let theme = match theme_name {
+                Some(name) if ts.themes.contains_key(name) => &ts.themes[name],
+                _ => &ts.themes["base16-ocean.dark"], // Default theme
+            };
+
+            let html = highlighted_html_for_string(content, &ss, syntax, theme)
+                .map_err(|e| Error::msg(format!("Failed to highlight Markdown: {}", e)))?;
+
+            Ok(html)
         }
         ContentFormat::Txt => Ok(content.to_string()),
     }

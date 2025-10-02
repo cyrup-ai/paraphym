@@ -4,14 +4,10 @@
 //! All domain logic, message types, and business objects are defined here with Candle prefixes
 //! to ensure complete independence from the main paraphym domain package.
 
-#![allow(missing_docs)]
 #![warn(rustdoc::missing_crate_level_docs)]
 #![forbid(unsafe_code)]
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
-#![allow(clippy::module_name_repetitions)]
-#![allow(clippy::must_use_candidate)]
-#![allow(clippy::cast_possible_truncation)]
 
 // Core modules and submodules
 pub mod additional_types;

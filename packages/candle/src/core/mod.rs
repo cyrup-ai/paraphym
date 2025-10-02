@@ -189,6 +189,9 @@ where
 
 // Re-export commonly used types
 // REMOVED: pub use futures::stream::Stream; - ALL FUTURES ELIMINATED!
+/// GPU device detection utilities
+pub mod device_util;
+
 /// Core engine for completion processing
 pub mod engine;
 

@@ -1,5 +1,3 @@
-#![allow(non_snake_case)]
-#![allow(unused_macros)]
 use extism_pdk::*;
 
 #[allow(unused)]

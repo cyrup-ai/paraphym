@@ -62,6 +62,10 @@ pub struct CandleQwen3CoderConfig {
     use_kv_cache: bool,
     /// Data type for model weights (F16, BF16, F32)
     dtype: DType,
+    /// Top-k sampling parameter (None = disabled)
+    pub top_k: Option<usize>,
+    /// Top-p nucleus sampling parameter (None = disabled)
+    pub top_p: Option<f64>,
 }
 
 impl Default for CandleQwen3CoderConfig {
@@ -73,6 +77,8 @@ impl Default for CandleQwen3CoderConfig {
             vocab_size: 152064, // Qwen3 vocabulary size
             use_kv_cache: true,
             dtype: DType::F16,
+            top_k: Some(50),
+            top_p: Some(0.9),
         }
     }
 }
@@ -120,6 +126,20 @@ impl CandleQwen3CoderConfig {
     #[inline]
     pub fn with_kv_cache(mut self, use_cache: bool) -> Self {
         self.use_kv_cache = use_cache;
+        self
+    }
+
+    /// Set top-k sampling parameter
+    #[inline]
+    pub fn with_top_k(mut self, top_k: Option<usize>) -> Self {
+        self.top_k = top_k;
+        self
+    }
+
+    /// Set top-p nucleus sampling parameter
+    #[inline]
+    pub fn with_top_p(mut self, top_p: Option<f64>) -> Self {
+        self.top_p = top_p;
         self
     }
 }
@@ -463,13 +483,36 @@ impl CandleCompletionModel for CandleQwen3CoderProvider {
         let model_config = self.model_config.clone();
         
         // Create SIMD-optimized SamplingConfig from params
-        let sampling_config =
-            crate::core::generation::SamplingConfig::new(params.temperature as f32)
-                .with_top_k(50) // Default for now
-                .with_top_p(0.9) // Default for now
-                .with_repetition_penalty(1.0)
-                .with_frequency_penalty(0.0)
-                .with_presence_penalty(0.0);
+        // Extract top_k and top_p with priority: params > config > None
+        // This allows runtime override via additional_params while respecting config defaults
+        let top_k = params.additional_params
+            .as_ref()
+            .and_then(|p| p.get("top_k"))
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize)
+            .or(config.top_k);
+
+        let top_p = params.additional_params
+            .as_ref()
+            .and_then(|p| p.get("top_p"))
+            .and_then(|v| v.as_f64())
+            .or(config.top_p);
+
+        // Build sampling config with extracted parameters
+        let mut sampling_config = 
+            crate::core::generation::SamplingConfig::new(params.temperature as f32);
+
+        if let Some(k) = top_k {
+            sampling_config = sampling_config.with_top_k(k);
+        }
+        if let Some(p) = top_p {
+            sampling_config = sampling_config.with_top_p(p);
+        }
+
+        sampling_config = sampling_config
+            .with_repetition_penalty(1.0)
+            .with_frequency_penalty(0.0)
+            .with_presence_penalty(0.0);
 
         // Format prompt
         let prompt_text = format!("User: {}\nAssistant: ", prompt);
@@ -488,7 +531,11 @@ impl CandleCompletionModel for CandleQwen3CoderProvider {
             use std::sync::Arc;
 
             // Load device (prefer GPU if available)
-            let device = Device::Cpu; // TODO: Add GPU detection
+            let device = crate::core::device_util::detect_best_device()
+                .unwrap_or_else(|e| {
+                    log::warn!("Device detection failed: {}. Using CPU.", e);
+                    Device::Cpu
+                });
 
             // Load tokenizer - return error stream on failure
             let tokenizer = match Tokenizer::from_file(format!("{}/tokenizer.json", model_path)) {

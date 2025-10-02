@@ -150,8 +150,6 @@ fn inject_lib_rs(rioterm_path: &Path) -> Result<()> {
 
     let mut lib_content = String::from(
         r#"//! Rioterm library interface
-#![allow(dead_code)]
-#![allow(unused_imports)]
 
 // Re-export rio_backend modules that internal modules depend on
 // These match the imports in main.rs that make them available at crate root

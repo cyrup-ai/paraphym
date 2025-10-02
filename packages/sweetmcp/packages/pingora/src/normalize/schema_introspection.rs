@@ -4,7 +4,6 @@
 //! to extract real schema information from upstream GraphQL servers and cache
 //! it for fragment resolution.
 
-#![allow(dead_code)]
 
 use std::collections::HashMap;
 use std::sync::Arc;

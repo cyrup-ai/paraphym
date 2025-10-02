@@ -4,7 +4,6 @@
 //! authentication and authorization with zero allocation patterns and
 //! blazing-fast performance.
 
-#![allow(dead_code)]
 
 
 

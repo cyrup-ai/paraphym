@@ -23,6 +23,7 @@ use surrealdb::engine::any::Any;
 use surrealdb::Surreal;
 use tokio::sync::oneshot;
 pub use validator::*;
+use sha2::{Digest, Sha256};
 
 /// Result type for migration operations
 pub type Result<T> = std::result::Result<T, MigrationError>;
@@ -92,6 +93,10 @@ pub trait Migration: Send + Sync {
     /// Get the migration name
     fn name(&self) -> &str;
 
+    /// Return canonical content representation for checksum calculation
+    /// This should include all SQL statements in deterministic order
+    fn content(&self) -> String;
+
     /// Apply the migration
     fn up(&self, db: Arc<Surreal<Any>>) -> PendingMigration;
 
@@ -137,8 +142,37 @@ impl MigrationManager {
         for migration in &self.migrations {
             let version = migration.version();
             
-            // Skip if already applied
+            // Calculate SHA256 checksum from version, name, and content
+            let content_to_hash = format!(
+                "version:{}\nname:{}\ncontent:{}",
+                version,
+                migration.name(),
+                migration.content()
+            );
+            let digest = Sha256::digest(content_to_hash.as_bytes());
+            let checksum = digest
+                .iter()
+                .map(|b| format!("{:02x}", b))
+                .collect::<String>();
+            
+            // If migration was previously applied, verify checksum hasn't changed
             if self.tracker.is_applied(version) {
+                if let Some(existing_record) = self.tracker.applied_migrations()
+                    .iter()
+                    .find(|r| r.version == version) 
+                {
+                    if existing_record.checksum != checksum {
+                        return Err(MigrationError::ValidationFailed(
+                            format!(
+                                "Migration v{} ({}) checksum mismatch: expected {}, found {}. Migration code may have been tampered with.",
+                                version,
+                                migration.name(),
+                                existing_record.checksum,
+                                checksum
+                            )
+                        ));
+                    }
+                }
                 tracing::debug!(
                     "Migration v{} ({}) already applied, skipping",
                     version,
@@ -155,9 +189,6 @@ impl MigrationManager {
             
             // Execute migration (await the PendingMigration)
             migration.up(Arc::clone(&self.db)).await?;
-            
-            // Calculate checksum (simple version-based for now)
-            let checksum = format!("v{}", version);
             
             // Record in database
             let record = MigrationRecord {

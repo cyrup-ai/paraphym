@@ -148,6 +148,14 @@ impl Migration for V1InitialSchema {
         "initial_schema"
     }
 
+    fn content(&self) -> String {
+        [
+            "DEFINE TABLE IF NOT EXISTS memory SCHEMALESS",
+            "DEFINE TABLE IF NOT EXISTS memory_relationship SCHEMALESS",
+            "DEFINE INDEX IF NOT EXISTS memory_type_idx ON TABLE memory COLUMNS memory_type",
+        ].join("\n")
+    }
+
     fn up(&self, db: Arc<Surreal<Any>>) -> PendingMigration {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
@@ -247,6 +255,10 @@ impl Migration for V2AddVectorIndex {
         "add_vector_index"
     }
 
+    fn content(&self) -> String {
+        "DEFINE INDEX IF NOT EXISTS memory_embedding_idx ON TABLE memory COLUMNS metadata.embedding MTREE DIMENSION 384 DIST COSINE TYPE F32".to_string()
+    }
+
     fn up(&self, db: Arc<Surreal<Any>>) -> PendingMigration {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
@@ -301,6 +313,13 @@ impl Migration for V3AddRelationshipStrength {
 
     fn name(&self) -> &str {
         "add_relationship_strength"
+    }
+
+    fn content(&self) -> String {
+        [
+            "DEFINE INDEX IF NOT EXISTS relationship_strength_idx ON TABLE memory_relationship COLUMNS strength",
+            "UPDATE memory_relationship SET strength = 0.5 WHERE strength IS NULL",
+        ].join("\n")
     }
 
     fn up(&self, db: Arc<Surreal<Any>>) -> PendingMigration {

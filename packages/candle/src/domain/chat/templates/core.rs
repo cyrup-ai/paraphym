@@ -385,6 +385,11 @@ impl CompiledTemplate {
         Self::render_ast(&self.ast, context)
     }
 
+    /// Render AST node to string
+    ///
+    /// # Errors
+    ///
+    /// Returns `TemplateError` if rendering fails
     pub fn render_ast(ast: &TemplateAst, context: &TemplateContext) -> TemplateResult<String> {
         match ast {
             TemplateAst::Text(text) => Ok(text.clone()),

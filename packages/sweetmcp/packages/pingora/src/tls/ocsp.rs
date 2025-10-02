@@ -1,6 +1,5 @@
 //! OCSP (Online Certificate Status Protocol) validation module
 
-#![allow(dead_code)]
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};

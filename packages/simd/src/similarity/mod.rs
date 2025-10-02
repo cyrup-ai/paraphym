@@ -3,7 +3,6 @@
 //! This module provides optimized implementations of common similarity metrics
 //! with automatic selection of the best available implementation at runtime.
 
-#![allow(dead_code)] // Temporary until all implementations are added
 
 pub mod metrics;
 mod scalar;

@@ -1126,8 +1126,11 @@ impl CandleConfigurationManager {
                 let last_save_nanos = manager.last_persistence.load(Ordering::Acquire);
                 let elapsed_secs = (now_nanos - last_save_nanos) / 1_000_000_000;
 
-                // Default auto-save interval for streaming operation
-                let auto_save_interval = 300; // 5 minutes default
+                // Access persistence to get actual auto_save_interval
+                let persistence = manager.persistence
+                    .read()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                let auto_save_interval = persistence.auto_save_interval;
 
                 if elapsed_secs >= auto_save_interval {
                     // Update timestamp atomically before saving
@@ -1193,11 +1196,15 @@ impl CandleConfigurationManager {
     /// Synchronous implementation of `save_to_file` for streams-only architecture
     fn save_to_file_sync(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let config = self.get_config();
-        // Access persistence without async - this may need to be refactored for true sync access
-        // For now, use defaults
-        let format = "json"; // Default format
-        let compression = false; // Default no compression
-        let config_file_path = "./config.json"; // Default path
+        
+        // Access persistence configuration synchronously
+        let persistence = self.persistence
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        
+        let format = persistence.format.as_str();
+        let compression = persistence.compression;
+        let config_file_path = persistence.config_file_path.as_str();
 
         let serialized = match format {
             "json" => serde_json::to_string_pretty(&*config)?,
