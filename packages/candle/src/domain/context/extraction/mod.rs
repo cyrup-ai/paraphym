@@ -9,7 +9,7 @@ mod model;
 
 // Re-export the main types
 pub use error::ExtractionError;
-pub use extractor::{AgentCompletionModel, Extractor, ExtractorImpl};
+pub use extractor::{Extractor, ExtractorImpl};
 pub use model::{ExtractionConfig, ExtractionRequest, ExtractionResult};
 
 /// Result type for extraction operations

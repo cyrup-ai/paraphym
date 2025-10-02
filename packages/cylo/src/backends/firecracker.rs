@@ -12,7 +12,7 @@
 // ============================================================================
 
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -471,6 +471,30 @@ impl FireCrackerApiClient {
     }
 }
 
+/// SSH authentication methods for VM access
+#[derive(Debug, Clone)]
+enum SshAuth {
+    /// Agent-based authentication
+    Agent,
+    /// Key-based authentication with path to private key
+    Key(PathBuf),
+    /// Password authentication
+    Password(String),
+}
+
+/// SSH configuration for VM communication
+#[derive(Debug, Clone)]
+struct SshConfig {
+    /// SSH host (VM IP address)
+    host: String,
+    /// SSH port
+    port: u16,
+    /// SSH username
+    username: String,
+    /// SSH authentication method
+    auth: SshAuth,
+}
+
 /// VM instance information
 #[derive(Debug, Clone)]
 struct VMInstance {
@@ -492,6 +516,9 @@ struct VMInstance {
 
     /// Creation timestamp
     created_at: SystemTime,
+
+    /// SSH configuration for guest access
+    ssh_config: Option<SshConfig>,
 }
 
 impl FireCrackerBackend {
@@ -621,6 +648,11 @@ impl FireCrackerBackend {
             fc_config.vcpu_count = vcpu_count.parse().unwrap_or(1);
         }
 
+        // Network configuration for SSH access
+        if let Some(network_enabled) = config.backend_specific.get("network_enabled") {
+            fc_config.network_enabled = network_enabled.parse().unwrap_or(false);
+        }
+
         Ok(fc_config)
     }
 
@@ -677,10 +709,14 @@ impl FireCrackerBackend {
     ///
     /// # Arguments
     /// * `request` - Execution request
+    /// * `backend_config` - Backend configuration for SSH setup
     ///
     /// # Returns
     /// VM instance information
-    fn create_vm_instance(request: &ExecutionRequest) -> BackendResult<VMInstance> {
+    fn create_vm_instance(
+        request: &ExecutionRequest,
+        backend_config: &BackendConfig,
+    ) -> BackendResult<VMInstance> {
         let vm_id = format!(
             "cylo-{}-{}",
             uuid::Uuid::new_v4().simple(),
@@ -690,12 +726,51 @@ impl FireCrackerBackend {
         let socket_path = std::env::temp_dir().join(format!("{}.sock", vm_id));
         let config_path = std::env::temp_dir().join(format!("{}.json", vm_id));
 
+        // Build SSH config from backend_specific
+        let ssh_config = if backend_config.backend_specific.contains_key("ssh_host") {
+            let host = backend_config
+                .backend_specific
+                .get("ssh_host")
+                .cloned()
+                .unwrap_or_else(|| "172.16.0.2".to_string());
+            let port = backend_config
+                .backend_specific
+                .get("ssh_port")
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(22);
+            let username = backend_config
+                .backend_specific
+                .get("ssh_username")
+                .cloned()
+                .unwrap_or_else(|| "root".to_string());
+
+            let auth = if let Some(key_path) = backend_config.backend_specific.get("ssh_key_path")
+            {
+                SshAuth::Key(PathBuf::from(key_path))
+            } else if let Some(password) = backend_config.backend_specific.get("ssh_password") {
+                SshAuth::Password(password.clone())
+            } else {
+                SshAuth::Agent
+            };
+
+            Some(SshConfig {
+                host,
+                port,
+                username,
+                auth,
+            })
+        } else {
+            None
+        };
+
         Ok(VMInstance {
             vm_id,
             socket_path,
             config_path,
             pid: None,
+            api_client: None,
             created_at: SystemTime::now(),
+            ssh_config,
         })
     }
 
@@ -861,6 +936,40 @@ impl FireCrackerBackend {
                     details: format!("Rootfs configuration failed: {}", e),
                 })?;
 
+            // Configure network interface (if network enabled)
+            if fc_config.network_enabled {
+                let network_config = serde_json::json!({
+                    "iface_id": "eth0",
+                    "host_dev_name": "tap0",
+                    "guest_mac": "AA:FC:00:00:00:01",
+                    "allow_mmds_requests": true
+                });
+
+                let network_request = HttpRequest::put(
+                    &format!(
+                        "http://unix:{}/network-interfaces/eth0",
+                        vm_with_pid.socket_path.display()
+                    ),
+                    serde_json::to_vec(&network_config).map_err(|e| {
+                        BackendError::ConfigurationFailed {
+                            details: format!("Failed to serialize network config: {}", e),
+                        }
+                    })?,
+                )
+                .map_err(|e| BackendError::ConfigurationFailed {
+                    details: format!("Failed to create network request: {}", e),
+                })?
+                .header("Content-Type", "application/json");
+
+                api_client
+                    .http_client
+                    .send(network_request)
+                    .await
+                    .map_err(|e| BackendError::ConfigurationFailed {
+                        details: format!("Network configuration failed: {}", e),
+                    })?;
+            }
+
             // Start VM instance
             api_client.start_vm().await?;
 
@@ -888,11 +997,88 @@ impl FireCrackerBackend {
                 tokio::time::sleep(Duration::from_millis(1000)).await;
             }
 
+            // Wait for SSH to be ready (after VM is Running)
+            if let Some(ssh_cfg) = &vm_with_pid.ssh_config {
+                for attempt in 0..30 {
+                    let addr_str = format!("{}:{}", ssh_cfg.host, ssh_cfg.port);
+                    if let Ok(addr) = addr_str.parse::<std::net::SocketAddr>() {
+                        if let Ok(tcp) = std::net::TcpStream::connect_timeout(
+                            &addr,
+                            Duration::from_secs(1),
+                        ) {
+                            drop(tcp);
+                            break;
+                        }
+                    }
+                    if attempt == 29 {
+                        return Err(BackendError::StartupFailed {
+                            details: "SSH not available within timeout".to_string(),
+                        });
+                    }
+                    tokio::time::sleep(Duration::from_millis(1000)).await;
+                }
+            }
+
             // Store API client in VM instance for future use
             vm_with_pid.api_client = Some(api_client);
 
             Ok(vm_with_pid)
         })
+    }
+
+    /// Create SSH session to VM
+    ///
+    /// # Arguments
+    /// * `ssh_config` - SSH configuration
+    ///
+    /// # Returns
+    /// SSH session or error
+    fn create_ssh_session(ssh_config: &SshConfig) -> BackendResult<ssh2::Session> {
+        let tcp = std::net::TcpStream::connect(format!("{}:{}", ssh_config.host, ssh_config.port))
+            .map_err(|e| BackendError::ProcessFailed {
+                details: format!("TCP connection failed: {}", e),
+            })?;
+
+        let mut session = ssh2::Session::new().map_err(|e| BackendError::ProcessFailed {
+            details: format!("SSH session creation failed: {}", e),
+        })?;
+
+        session.set_tcp_stream(tcp);
+        session.handshake().map_err(|e| BackendError::ProcessFailed {
+            details: format!("SSH handshake failed: {}", e),
+        })?;
+
+        match &ssh_config.auth {
+            SshAuth::Agent => {
+                session.userauth_agent(&ssh_config.username).map_err(|e| {
+                    BackendError::ProcessFailed {
+                        details: format!("SSH agent auth failed: {}", e),
+                    }
+                })?;
+            }
+            SshAuth::Key(key_path) => {
+                session
+                    .userauth_pubkey_file(&ssh_config.username, None, key_path, None)
+                    .map_err(|e| BackendError::ProcessFailed {
+                        details: format!("SSH key auth failed: {}", e),
+                    })?;
+            }
+            SshAuth::Password(password) => {
+                session
+                    .userauth_password(&ssh_config.username, password)
+                    .map_err(|e| BackendError::ProcessFailed {
+                        details: format!("SSH password auth failed: {}", e),
+                    })?;
+            }
+        }
+
+        if !session.authenticated() {
+            return Err(BackendError::ProcessFailed {
+                details: "SSH authentication failed".to_string(),
+            });
+        }
+
+        Ok(session)
     }
 
     /// Execute code in FireCracker VM
@@ -913,41 +1099,182 @@ impl FireCrackerBackend {
             // Prepare execution script
             let exec_script = Self::prepare_execution_script(&request)?;
 
-            // In a real implementation, we would:
-            // 1. Use FireCracker API to send execution commands
-            // 2. Monitor execution via VM console or agent
-            // 3. Collect resource usage statistics
-            //
-            // For this implementation, we simulate the execution
+            // Get SSH config or return error
+            let ssh_config = vm.ssh_config.ok_or_else(|| BackendError::ConfigurationFailed {
+                details: "SSH configuration not available for VM".to_string(),
+            })?;
 
-            // Simulate execution time
-            let execution_duration = Duration::from_millis(100);
-            tokio::time::sleep(execution_duration).await;
+            // Create temporary script file on host
+            let script_path = format!("/tmp/exec-{}.sh", vm.vm_id);
+            let guest_script_path = format!("/tmp/exec-{}.sh", vm.vm_id);
+
+            fs::write(&script_path, &exec_script).map_err(|e| BackendError::FileSystemFailed {
+                details: format!("Failed to write script: {}", e),
+            })?;
+
+            // Copy script to VM via SCP
+            tokio::task::spawn_blocking({
+                let ssh_cfg = ssh_config.clone();
+                let script = script_path.clone();
+                let guest_script = guest_script_path.clone();
+                move || -> BackendResult<()> {
+                    let session = Self::create_ssh_session(&ssh_cfg)?;
+                    let metadata = fs::metadata(&script).map_err(|e| {
+                        BackendError::FileSystemFailed {
+                            details: format!("Failed to read script metadata: {}", e),
+                        }
+                    })?;
+
+                    let mut local_file = std::fs::File::open(&script).map_err(|e| {
+                        BackendError::FileSystemFailed {
+                            details: format!("Failed to open script: {}", e),
+                        }
+                    })?;
+
+                    let mut remote_file = session
+                        .scp_send(Path::new(&guest_script), 0o755, metadata.len(), None)
+                        .map_err(|e| BackendError::ProcessFailed {
+                            details: format!("SCP failed: {}", e),
+                        })?;
+
+                    std::io::copy(&mut local_file, &mut remote_file).map_err(|e| {
+                        BackendError::ProcessFailed {
+                            details: format!("File copy failed: {}", e),
+                        }
+                    })?;
+
+                    remote_file.send_eof().map_err(|e| BackendError::ProcessFailed {
+                        details: format!("EOF failed: {}", e),
+                    })?;
+                    remote_file
+                        .wait_close()
+                        .map_err(|e| BackendError::ProcessFailed {
+                            details: format!("Wait close failed: {}", e),
+                        })?;
+
+                    Ok(())
+                }
+            })
+            .await
+            .map_err(|e| BackendError::ProcessFailed {
+                details: format!("Task join failed: {}", e),
+            })??;
+
+            // Execute script in VM via SSH
+            let (exit_code, stdout, stderr) = tokio::task::spawn_blocking({
+                let ssh_cfg = ssh_config.clone();
+                let guest_script = guest_script_path.clone();
+                move || -> BackendResult<(i32, String, String)> {
+                    let session = Self::create_ssh_session(&ssh_cfg)?;
+                    let mut channel = session.channel_session().map_err(|e| {
+                        BackendError::ProcessFailed {
+                            details: format!("Failed to create channel: {}", e),
+                        }
+                    })?;
+
+                    channel
+                        .exec(&format!("bash {}", guest_script))
+                        .map_err(|e| BackendError::ProcessFailed {
+                            details: format!("Exec failed: {}", e),
+                        })?;
+
+                    let mut stdout = String::new();
+                    channel.read_to_string(&mut stdout).map_err(|e| {
+                        BackendError::ProcessFailed {
+                            details: format!("Read stdout failed: {}", e),
+                        }
+                    })?;
+
+                    let mut stderr = String::new();
+                    channel.stderr().read_to_string(&mut stderr).map_err(|e| {
+                        BackendError::ProcessFailed {
+                            details: format!("Read stderr failed: {}", e),
+                        }
+                    })?;
+
+                    channel
+                        .wait_close()
+                        .map_err(|e| BackendError::ProcessFailed {
+                            details: format!("Wait close failed: {}", e),
+                        })?;
+
+                    let exit_code = channel.exit_status().map_err(|e| {
+                        BackendError::ProcessFailed {
+                            details: format!("Get exit status failed: {}", e),
+                        }
+                    })?;
+
+                    Ok((exit_code, stdout, stderr))
+                }
+            })
+            .await
+            .map_err(|e| BackendError::ProcessFailed {
+                details: format!("Task join failed: {}", e),
+            })??;
+
+            // Cleanup temp script
+            let _ = fs::remove_file(&script_path);
+
+            // Collect resource metrics from VM
+            let resource_usage = if let Some(ref api_client) = vm.api_client {
+                match api_client.get_vm_metrics().await {
+                    Ok(metrics) => ResourceUsage {
+                        peak_memory: metrics
+                            .get("memory_usage_bytes")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0),
+                        cpu_time_ms: metrics
+                            .get("cpu_usage_us")
+                            .and_then(|v| v.as_u64())
+                            .map(|us| us / 1000)
+                            .unwrap_or(0),
+                        process_count: 1,
+                        disk_bytes_written: metrics
+                            .get("disk_write_bytes")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0),
+                        disk_bytes_read: metrics
+                            .get("disk_read_bytes")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0),
+                        network_bytes_sent: 0,
+                        network_bytes_received: 0,
+                    },
+                    Err(_) => ResourceUsage {
+                        peak_memory: 0,
+                        cpu_time_ms: 0,
+                        process_count: 1,
+                        disk_bytes_written: 0,
+                        disk_bytes_read: 0,
+                        network_bytes_sent: 0,
+                        network_bytes_received: 0,
+                    },
+                }
+            } else {
+                ResourceUsage {
+                    peak_memory: 0,
+                    cpu_time_ms: 0,
+                    process_count: 1,
+                    disk_bytes_written: 0,
+                    disk_bytes_read: 0,
+                    network_bytes_sent: 0,
+                    network_bytes_received: 0,
+                }
+            };
 
             let duration = start_time.elapsed();
 
-            // Simulate successful execution
-            let resource_usage = ResourceUsage {
-                peak_memory: 50 * 1024 * 1024, // 50MB
-                cpu_time_ms: execution_duration.as_millis() as u64,
-                process_count: 1,
-                disk_bytes_written: 1024,
-                disk_bytes_read: 2048,
-                network_bytes_sent: 0,
-                network_bytes_received: 0,
-            };
-
             Ok(ExecutionResult {
-                exit_code: 0,
-                stdout: format!("Executed {} code in FireCracker VM", request.language),
-                stderr: String::new(),
+                exit_code,
+                stdout,
+                stderr,
                 duration,
                 resource_usage,
                 metadata: {
-                    let mut meta = HashMap::new();
+                    let mut meta = std::collections::HashMap::new();
                     meta.insert("backend".to_string(), "FireCracker".to_string());
                     meta.insert("vm_id".to_string(), vm.vm_id.clone());
-                    meta.insert("image".to_string(), "simulated".to_string());
+                    meta.insert("execution_method".to_string(), "SSH".to_string());
                     meta
                 },
             })
@@ -1052,11 +1379,12 @@ impl FireCrackerBackend {
 impl ExecutionBackend for FireCrackerBackend {
     fn execute_code(&self, request: ExecutionRequest) -> AsyncTask<ExecutionResult> {
         let fc_config = self.firecracker_config.clone();
+        let backend_config = self.config.clone();
         let backend_name = self.backend_type();
 
         AsyncTaskBuilder::new().spawn(move || async move {
             // Create VM instance
-            let vm = match Self::create_vm_instance(&request) {
+            let vm = match Self::create_vm_instance(&request, &backend_config) {
                 Ok(vm) => vm,
                 Err(e) => {
                     return ExecutionResult::failure(
@@ -1227,7 +1555,8 @@ mod tests {
     #[test]
     fn vm_instance_creation() {
         let request = ExecutionRequest::new("test", "python");
-        let vm = FireCrackerBackend::create_vm_instance(&request).unwrap();
+        let backend_config = BackendConfig::default();
+        let vm = FireCrackerBackend::create_vm_instance(&request, &backend_config).unwrap();
 
         assert!(vm.vm_id.starts_with("cylo-"));
         assert!(vm.socket_path.to_string_lossy().contains(&vm.vm_id));

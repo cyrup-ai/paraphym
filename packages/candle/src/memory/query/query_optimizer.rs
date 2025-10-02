@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::memory::query::index_aware_query::{IndexInfo, IndexType};
 use crate::memory::query::{QueryPlan, QueryStep, QueryType, Result};
 
 /// Query optimizer
@@ -16,6 +17,9 @@ pub struct QueryOptimizer {
 
     /// Statistics
     stats: QueryStatistics,
+
+    /// Available indexes for optimization
+    available_indexes: HashMap<String, IndexInfo>,
 }
 
 /// Cost model for query operations
@@ -66,6 +70,7 @@ impl QueryOptimizer {
             cost_model: CostModel::default(),
             rules: Self::default_rules(),
             stats: QueryStatistics::default(),
+            available_indexes: HashMap::new(),
         }
     }
 
@@ -84,12 +89,52 @@ impl QueryOptimizer {
         self.stats = stats;
     }
 
+    /// Register an available index
+    pub fn register_index(&mut self, index: IndexInfo) {
+        self.available_indexes.insert(index.name.clone(), index);
+    }
+
+    /// Get available indexes
+    pub fn available_indexes(&self) -> &HashMap<String, IndexInfo> {
+        &self.available_indexes
+    }
+
+    /// Find suitable index for query fields
+    pub fn find_suitable_index(
+        &self,
+        query_type: QueryType,
+        fields: &[String],
+    ) -> Option<&IndexInfo> {
+        self.available_indexes.values().find(|&index| self.can_use_index_for_query(index, query_type, fields))
+    }
+
+    /// Check if index can serve query (adapted from IndexAwareQueryPlanner)
+    fn can_use_index_for_query(
+        &self,
+        index: &IndexInfo,
+        query_type: QueryType,
+        fields: &[String],
+    ) -> bool {
+        match query_type {
+            QueryType::Exact => {
+                fields.iter().all(|field| index.fields.contains(field))
+                    && matches!(index.index_type, IndexType::BTree | IndexType::Hash)
+            }
+            QueryType::FullText => {
+                matches!(index.index_type, IndexType::FullText)
+                    && fields.iter().any(|field| index.fields.contains(field))
+            }
+            QueryType::Similarity => matches!(index.index_type, IndexType::Vector),
+            _ => false,
+        }
+    }
+
     /// Optimize a query plan
     pub fn optimize(&self, mut plan: QueryPlan) -> Result<QueryPlan> {
         // Apply optimization rules
         for rule in &self.rules {
             if rule.applicable(&plan) {
-                plan = rule.apply(plan)?;
+                plan = rule.apply(plan, self)?;
             }
         }
 
@@ -148,8 +193,8 @@ pub trait OptimizationRule: Send + Sync {
     /// Check if the rule is applicable
     fn applicable(&self, plan: &QueryPlan) -> bool;
 
-    /// Apply the optimization rule
-    fn apply(&self, plan: QueryPlan) -> Result<QueryPlan>;
+    /// Apply the optimization rule with access to optimizer context
+    fn apply(&self, plan: QueryPlan, optimizer: &QueryOptimizer) -> Result<QueryPlan>;
 
     /// Get rule name
     fn name(&self) -> &str;
@@ -164,7 +209,7 @@ impl OptimizationRule for PushDownFilterRule {
         plan.steps.iter().any(|step| step.name == "Filter Results")
     }
 
-    fn apply(&self, mut plan: QueryPlan) -> Result<QueryPlan> {
+    fn apply(&self, mut plan: QueryPlan, _optimizer: &QueryOptimizer) -> Result<QueryPlan> {
         // Find filter step
         if let Some(filter_pos) = plan.steps.iter().position(|s| s.name == "Filter Results") {
             // Move filter earlier if possible
@@ -190,9 +235,45 @@ impl OptimizationRule for UseIndexRule {
         plan.steps.iter().any(|step| step.name == "Full Scan") && !plan.use_index
     }
 
-    fn apply(&self, plan: QueryPlan) -> Result<QueryPlan> {
-        // This would check available indexes and replace full scan with index scan
-        // For now, just mark that we checked
+    fn apply(&self, mut plan: QueryPlan, optimizer: &QueryOptimizer) -> Result<QueryPlan> {
+        // Find suitable index for the query
+        if let Some(index) = optimizer.find_suitable_index(plan.query_type, &plan.query_fields) {
+            // Calculate costs for comparison
+            let full_scan_cost = optimizer
+                .cost_model
+                .factors
+                .get("full_scan")
+                .copied()
+                .unwrap_or(100.0);
+
+            let index_scan_cost = optimizer
+                .cost_model
+                .factors
+                .get("index_scan")
+                .copied()
+                .unwrap_or(10.0);
+
+            // Cost-based decision: use index if cheaper
+            if index_scan_cost < full_scan_cost {
+                // Replace Full Scan steps with Index Lookup
+                for step in &mut plan.steps {
+                    if step.name == "Full Scan" {
+                        step.name = "Index Lookup".to_string();
+                        step.description = format!(
+                            "Use index '{}' ({:?}) for efficient lookup",
+                            index.name, index.index_type
+                        );
+                        step.cost = index_scan_cost;
+                    }
+                }
+
+                // Update plan metadata
+                plan.use_index = true;
+                plan.index_name = Some(index.name.clone());
+                plan.cost = plan.steps.iter().map(|s| s.cost).sum();
+            }
+        }
+
         Ok(plan)
     }
 
@@ -211,7 +292,7 @@ impl OptimizationRule for ParallelizationRule {
             .any(|step| !step.parallel && self.can_parallelize(step))
     }
 
-    fn apply(&self, mut plan: QueryPlan) -> Result<QueryPlan> {
+    fn apply(&self, mut plan: QueryPlan, _optimizer: &QueryOptimizer) -> Result<QueryPlan> {
         for step in &mut plan.steps {
             if !step.parallel && self.can_parallelize(step) {
                 step.parallel = true;
@@ -244,7 +325,7 @@ impl OptimizationRule for CacheRule {
         plan.cost > 50.0 // Only cache expensive queries
     }
 
-    fn apply(&self, mut plan: QueryPlan) -> Result<QueryPlan> {
+    fn apply(&self, mut plan: QueryPlan, _optimizer: &QueryOptimizer) -> Result<QueryPlan> {
         // Add cache check step at the beginning
         plan.steps.insert(
             0,

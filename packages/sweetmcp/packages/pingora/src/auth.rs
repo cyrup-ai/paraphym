@@ -1,6 +1,6 @@
 //! JWT Authentication and RBAC for SweetMCP Server
 
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{collections::HashSet, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
@@ -61,14 +61,18 @@ impl Role {
             Role::ReadOnly => "readonly",
         }
     }
+}
 
-    pub fn from_str(s: &str) -> Option<Self> {
+impl FromStr for Role {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "admin" => Some(Role::Admin),
-            "user" => Some(Role::User),
-            "service" => Some(Role::Service),
-            "readonly" => Some(Role::ReadOnly),
-            _ => None,
+            "admin" => Ok(Role::Admin),
+            "user" => Ok(Role::User),
+            "service" => Ok(Role::Service),
+            "readonly" => Ok(Role::ReadOnly),
+            _ => Err(format!("Invalid role: {}", s)),
         }
     }
 }
@@ -76,6 +80,7 @@ impl Role {
 /// Available permissions for fine-grained access control
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[allow(dead_code)]
+#[allow(clippy::enum_variant_names)]
 pub enum Permission {
     /// Access to MCP tools
     ToolsAccess,
@@ -108,16 +113,20 @@ impl Permission {
             Permission::HealthAccess => "health:access",
         }
     }
+}
 
-    pub fn from_str(s: &str) -> Option<Self> {
+impl FromStr for Permission {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "tools:access" => Some(Permission::ToolsAccess),
-            "resources:access" => Some(Permission::ResourcesAccess),
-            "prompts:access" => Some(Permission::PromptsAccess),
-            "admin:access" => Some(Permission::AdminAccess),
-            "metrics:access" => Some(Permission::MetricsAccess),
-            "health:access" => Some(Permission::HealthAccess),
-            _ => None,
+            "tools:access" => Ok(Permission::ToolsAccess),
+            "resources:access" => Ok(Permission::ResourcesAccess),
+            "prompts:access" => Ok(Permission::PromptsAccess),
+            "admin:access" => Ok(Permission::AdminAccess),
+            "metrics:access" => Ok(Permission::MetricsAccess),
+            "health:access" => Ok(Permission::HealthAccess),
+            _ => Err(format!("Invalid permission: {}", s)),
         }
     }
 }
@@ -200,7 +209,7 @@ impl JwtAuth {
         claims
             .roles
             .iter()
-            .any(|role| Role::from_str(role).is_some_and(|r| r == *required_role))
+            .any(|role| Role::from_str(role).is_ok_and(|r| r == *required_role))
     }
 
     /// Check if claims have required permission
@@ -208,7 +217,7 @@ impl JwtAuth {
         claims
             .permissions
             .iter()
-            .any(|perm| Permission::from_str(perm).is_some_and(|p| p == *required_permission))
+            .any(|perm| Permission::from_str(perm).is_ok_and(|p| p == *required_permission))
     }
 
     /// Check if claims have any of the required permissions
@@ -294,13 +303,13 @@ impl AuthContext {
         let roles: HashSet<Role> = claims
             .roles
             .iter()
-            .filter_map(|r| Role::from_str(r))
+            .filter_map(|r| Role::from_str(r).ok())
             .collect();
 
         let permissions: HashSet<Permission> = claims
             .permissions
             .iter()
-            .filter_map(|p| Permission::from_str(p))
+            .filter_map(|p| Permission::from_str(p).ok())
             .collect();
 
         Self {

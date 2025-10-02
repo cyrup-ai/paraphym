@@ -6,7 +6,7 @@
 
 #![allow(dead_code)]
 
-use std::collections::HashMap;
+use std::{collections::HashMap, str::FromStr};
 
 use async_graphql::parser::types::FragmentDefinition;
 use serde::{Deserialize, Serialize};
@@ -45,16 +45,7 @@ impl Proto {
         }
     }
 
-    /// Parse protocol from string
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s.to_lowercase().as_str() {
-            "graphql" => Some(Proto::GraphQL),
-            "json-rpc" | "jsonrpc" => Some(Proto::JsonRpc),
-            "capnp" | "capnproto" => Some(Proto::Capnp),
-            "mcp-streamable-http" | "mcp" => Some(Proto::McpStreamableHttp),
-            _ => None,
-        }
-    }
+
 
     /// Get default content type for protocol
     pub fn default_content_type(&self) -> &'static str {
@@ -69,6 +60,20 @@ impl Proto {
     /// Check if protocol requires special handling
     pub fn requires_special_handling(&self) -> bool {
         matches!(self, Proto::GraphQL | Proto::Capnp)
+    }
+}
+
+impl FromStr for Proto {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "graphql" => Ok(Proto::GraphQL),
+            "json-rpc" | "jsonrpc" => Ok(Proto::JsonRpc),
+            "capnp" | "capnproto" => Ok(Proto::Capnp),
+            "mcp-streamable-http" | "mcp" => Ok(Proto::McpStreamableHttp),
+            _ => Err(format!("Invalid protocol: {}", s)),
+        }
     }
 }
 
@@ -527,6 +532,12 @@ pub struct FragmentRegistry {
     resolution_stack: Vec<String>, // For circular dependency detection
 }
 
+impl Default for FragmentRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FragmentRegistry {
     /// Create a new fragment registry
     pub fn new() -> Self {
@@ -603,6 +614,12 @@ pub struct FragmentCache {
     resolved_fields: HashMap<String, Vec<String>>,
     cache_hits: u64,
     cache_misses: u64,
+}
+
+impl Default for FragmentCache {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl FragmentCache {
@@ -682,6 +699,12 @@ pub enum GraphQLTypeKind {
     Scalar,
     Enum,
     InputObject,
+}
+
+impl Default for GraphQLContext {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl GraphQLContext {

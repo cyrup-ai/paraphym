@@ -66,7 +66,7 @@ pub fn sign(config: &SigningConfig) -> Result<()> {
 /// Verify a signed binary on macOS
 pub fn verify(binary_path: &Path) -> Result<bool> {
     let output = Command::new("codesign")
-        .args(&[
+        .args([
             "--verify",
             "--deep",
             "--strict",
@@ -109,7 +109,7 @@ fn notarize(config: &SigningConfig) -> Result<()> {
     let zip_path = config.binary_path.with_extension("zip");
 
     let output = Command::new("ditto")
-        .args(&[
+        .args([
             "-c",
             "-k",
             "--keepParent",
@@ -174,7 +174,7 @@ fn notarize(config: &SigningConfig) -> Result<()> {
 /// Staple the notarization ticket to the binary
 fn staple_ticket(binary_path: &Path) -> Result<()> {
     let output = Command::new("xcrun")
-        .args(&["stapler", "staple", binary_path.to_str().unwrap()])
+        .args(["stapler", "staple", binary_path.to_str().unwrap()])
         .output()
         .context("Failed to staple notarization ticket")?;
 
@@ -196,7 +196,7 @@ pub fn import_certificate(cert_path: &Path, password: Option<&str>) -> Result<St
 
     // Create keychain
     let output = Command::new("security")
-        .args(&["create-keychain", "-p", keychain_password, &keychain_name])
+        .args(["create-keychain", "-p", keychain_password, &keychain_name])
         .output()
         .context("Failed to create temporary keychain")?;
 
@@ -209,7 +209,7 @@ pub fn import_certificate(cert_path: &Path, password: Option<&str>) -> Result<St
 
     // Set keychain settings
     Command::new("security")
-        .args(&["set-keychain-settings", "-t", "3600", "-u", &keychain_name])
+        .args(["set-keychain-settings", "-t", "3600", "-u", &keychain_name])
         .output()
         .context("Failed to set keychain settings")?;
 
@@ -238,7 +238,7 @@ pub fn import_certificate(cert_path: &Path, password: Option<&str>) -> Result<St
     if !output.status.success() {
         // Clean up keychain
         let _ = Command::new("security")
-            .args(&["delete-keychain", &keychain_name])
+            .args(["delete-keychain", &keychain_name])
             .output();
 
         bail!(
@@ -249,14 +249,14 @@ pub fn import_certificate(cert_path: &Path, password: Option<&str>) -> Result<St
 
     // Find the signing identity
     let output = Command::new("security")
-        .args(&["find-identity", "-v", "-p", "codesigning", &keychain_name])
+        .args(["find-identity", "-v", "-p", "codesigning", &keychain_name])
         .output()
         .context("Failed to find signing identity")?;
 
     if !output.status.success() {
         // Clean up keychain
         let _ = Command::new("security")
-            .args(&["delete-keychain", &keychain_name])
+            .args(["delete-keychain", &keychain_name])
             .output();
 
         bail!(
@@ -288,7 +288,7 @@ pub fn import_certificate(cert_path: &Path, password: Option<&str>) -> Result<St
 pub fn cleanup_keychain() -> Result<()> {
     if let Ok(keychain_name) = env::var("SWEETMCP_TEMP_KEYCHAIN") {
         let _ = Command::new("security")
-            .args(&["delete-keychain", &keychain_name])
+            .args(["delete-keychain", &keychain_name])
             .output();
 
         env::remove_var("SWEETMCP_TEMP_KEYCHAIN");

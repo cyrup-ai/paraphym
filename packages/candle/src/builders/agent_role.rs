@@ -301,7 +301,7 @@ pub struct McpServerConfig {
 #[derive(Clone)]
 struct CandleAgentRoleBuilderImpl {
     name: String,
-    temperature: Option<f64>,
+    temperature: f64,
     max_tokens: Option<u64>,
     system_prompt: Option<String>,
     tools: ZeroOneOrMany<ToolInfo>,
@@ -328,7 +328,7 @@ impl CandleAgentRoleBuilderImpl {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
-            temperature: None,
+            temperature: 0.7,  // Default temperature to 0.7
             max_tokens: None,
             system_prompt: None,
             tools: ZeroOneOrMany::none(),
@@ -370,7 +370,7 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
 
     /// Set temperature - EXACT syntax: .temperature(1.0)
     fn temperature(mut self, temp: f64) -> impl CandleAgentRoleBuilder {
-        self.temperature = Some(temp);
+        self.temperature = temp;
         self
     }
 
@@ -619,7 +619,7 @@ impl CandleAgentBuilder for NoProviderAgent {
 /// Agent builder implementation
 pub struct CandleAgentBuilderImpl<P> {
     name: String,
-    temperature: Option<f64>,
+    temperature: f64,
     max_tokens: Option<u64>,
     system_prompt: Option<String>,
     provider: P,
@@ -676,7 +676,7 @@ where
     }
 
     fn temperature(mut self, temp: f64) -> impl CandleAgentRoleBuilder {
-        self.temperature = Some(temp);
+        self.temperature = temp;
         self
     }
 
@@ -798,7 +798,7 @@ where
         F: FnOnce(&CandleAgentConversation) -> CandleChatLoop + Send + 'static,
     {
         let provider = self.provider;
-        let temperature = self.temperature.unwrap_or(0.7);
+        let temperature = self.temperature;
         let max_tokens = self.max_tokens.unwrap_or(1000);
         let system_prompt = self.system_prompt.clone();
         let tools = self.tools;
@@ -1040,7 +1040,7 @@ where
 
     fn chat_with_message(self, message: impl Into<String>) -> AsyncStream<CandleMessageChunk> {
         let provider = self.provider;
-        let temperature = self.temperature.unwrap_or(0.7);
+        let temperature = self.temperature;
         let max_tokens = self.max_tokens.unwrap_or(1000);
         let system_prompt = self.system_prompt.clone();
         let user_message = message.into();

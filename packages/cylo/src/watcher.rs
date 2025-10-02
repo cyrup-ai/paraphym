@@ -1,14 +1,44 @@
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
 use tokio::runtime::Runtime;
 use tracing::{error, info};
+use watchexec::Watchexec;
+use watchexec_events::{Event, Tag, Source};
 
 use crate::error::StorageError;
 use crate::state::PipelineEvent;
 
-// A simplified file watcher implementation without using watchexec
+/// Process a watchexec event and send file change notifications
+fn process_event(event: &Event, tx: &mpsc::Sender<PipelineEvent>, _base_path: &PathBuf) {
+    // Filter for filesystem events only
+    let is_filesystem = event.tags.iter().any(|tag| {
+        matches!(tag, Tag::Source(Source::Filesystem))
+    });
+    
+    if !is_filesystem {
+        return;
+    }
+    
+    // Extract all changed paths from the event
+    for tag in &event.tags {
+        if let Tag::Path { path, file_type } = tag {
+            // Log detailed change information
+            let type_str = file_type.as_ref()
+                .map(|ft| format!("{:?}", ft))
+                .unwrap_or_else(|| "unknown".to_string());
+            
+            info!("File changed: {} (type: {})", path.display(), type_str);
+            
+            // Send specific file path that changed
+            if let Err(e) = tx.send(PipelineEvent::FileChanged(path.clone())) {
+                error!("Failed to send file change event: {}", e);
+            }
+        }
+    }
+}
+
+// Event-based file watcher using watchexec
 pub fn watch_directory(path: PathBuf, tx: mpsc::Sender<PipelineEvent>) -> Result<(), StorageError> {
     info!("Starting file watcher for directory: {}", path.display());
 
@@ -23,55 +53,42 @@ pub fn watch_directory(path: PathBuf, tx: mpsc::Sender<PipelineEvent>) -> Result
             path_to_watch.display()
         );
 
-        // Create tokio runtime for future compatibility with watchexec
+        // Create tokio runtime for watchexec
         match Runtime::new() {
-            Ok(_rt) => {
-                // Simple polling implementation that periodically checks for changes
-                // This is a temporary solution until we properly integrate watchexec
-
-                info!("Using simplified polling watcher (watchexec integration pending)");
-
-                // Send initial notification
-                if let Err(e) = tx_clone.send(PipelineEvent::FileChanged(path_to_watch.clone())) {
-                    error!("Failed to send initial file event: {}", e);
-                }
-
-                // Poll for changes every 5 seconds
-                // In a real implementation, we would use watchexec to get actual file events
-                let mut previous_time = std::fs::metadata(&path_to_watch)
-                    .ok()
-                    .and_then(|m| m.modified().ok());
-
-                loop {
-                    // Sleep for a while before checking again
-                    thread::sleep(Duration::from_secs(5));
-
-                    // Check if the directory has been modified
-                    if let Ok(metadata) = std::fs::metadata(&path_to_watch) {
-                        if let Ok(modified_time) = metadata.modified() {
-                            if let Some(prev) = previous_time {
-                                if modified_time > prev {
-                                    info!("Directory changed: {}", path_to_watch.display());
-
-                                    // Send notification about the change
-                                    if let Err(e) = tx_clone
-                                        .send(PipelineEvent::FileChanged(path_to_watch.clone()))
-                                    {
-                                        error!("Failed to send file change event: {}", e);
-                                        break;
-                                    }
-
-                                    // Update previous time
-                                    previous_time = Some(modified_time);
-                                }
-                            } else {
-                                previous_time = Some(modified_time);
+            Ok(rt) => {
+                rt.block_on(async {
+                    // Initialize watchexec with event handler
+                    match Watchexec::new(move |mut action| {
+                        // Process filesystem events
+                        for event in action.events.iter() {
+                            process_event(event, &tx_clone, &path_to_watch);
+                        }
+                        
+                        // Handle shutdown signals
+                        if action.signals().next().is_some() {
+                            info!("Received shutdown signal, stopping file watcher");
+                            action.quit();
+                        }
+                        
+                        action
+                    }) {
+                        Ok(wx) => {
+                            // Configure path to watch
+                            wx.config.pathset([path_to_watch.clone()]);
+                            
+                            // Start watchexec main loop
+                            info!("Event-based file watcher started for {}", path_to_watch.display());
+                            match wx.main().await {
+                                Ok(_) => info!("File watcher completed successfully"),
+                                Err(e) => error!("File watcher error: {}", e),
                             }
                         }
+                        Err(e) => error!("Failed to initialize watchexec: {}", e),
                     }
-                }
+                });
             }
-            Err(e) => error!("Failed to create runtime: {}", e)}
+            Err(e) => error!("Failed to create runtime: {}", e),
+        }
 
         info!("File watcher thread exited");
     });

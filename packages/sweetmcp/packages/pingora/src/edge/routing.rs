@@ -125,8 +125,8 @@ impl RoutingHandler {
         }
 
         // Check Content-Type header for MCP protocols with optimized header checking
-        if let Some(content_type) = req_header.headers.get("content-type") {
-            if let Ok(content_type_str) = content_type.to_str() {
+        if let Some(content_type) = req_header.headers.get("content-type")
+            && let Ok(content_type_str) = content_type.to_str() {
                 let content_type_lower = content_type_str.to_lowercase();
 
                 // JSON-RPC (most common MCP transport) with fast string matching
@@ -149,7 +149,6 @@ impl RoutingHandler {
                     return true;
                 }
             }
-        }
 
         // Check for MCP-specific headers with zero allocation header checking
         if req_header.headers.get("x-mcp-version").is_some() {
@@ -169,8 +168,8 @@ impl RoutingHandler {
             pingora::http::Method::POST | pingora::http::Method::GET
         ) {
             // Check User-Agent for MCP clients with optimized user agent checking
-            if let Some(user_agent) = req_header.headers.get("user-agent") {
-                if let Ok(ua_str) = user_agent.to_str() {
+            if let Some(user_agent) = req_header.headers.get("user-agent")
+                && let Ok(ua_str) = user_agent.to_str() {
                     let ua_lower = ua_str.to_lowercase();
                     if ua_lower.contains("mcp")
                         || ua_lower.contains("model-context-protocol")
@@ -180,7 +179,6 @@ impl RoutingHandler {
                         return true;
                     }
                 }
-            }
         }
 
         false
@@ -262,7 +260,7 @@ impl RoutingHandler {
                     .req_header_mut()
                     .insert_header("x-polygate-hop", "1")
                     .map_err(|e| {
-                        EdgeServiceError::NetworkError(format!("Failed to add hop header: {}", e))
+                        EdgeServiceError::Network(format!("Failed to add hop header: {}", e))
                     })?;
 
                 return Ok(Box::new(HttpPeer::new(
@@ -279,7 +277,7 @@ impl RoutingHandler {
                 .req_header_mut()
                 .insert_header("x-polygate-hop", "1")
                 .map_err(|e| {
-                    EdgeServiceError::NetworkError(format!("Failed to add hop header: {}", e))
+                    EdgeServiceError::Network(format!("Failed to add hop header: {}", e))
                 })?;
 
             match &backend.addr {
@@ -320,7 +318,7 @@ impl RoutingHandler {
                 .req_header_mut()
                 .insert_header("x-polygate-hop", "1")
                 .map_err(|e| {
-                    EdgeServiceError::NetworkError(format!("Failed to add hop header: {}", e))
+                    EdgeServiceError::Network(format!("Failed to add hop header: {}", e))
                 })?;
 
             match &backend.addr {
@@ -358,7 +356,7 @@ impl RoutingHandler {
                 .req_header_mut()
                 .insert_header("x-polygate-hop", "1")
                 .map_err(|e| {
-                    EdgeServiceError::NetworkError(format!("Failed to add hop header: {}", e))
+                    EdgeServiceError::Network(format!("Failed to add hop header: {}", e))
                 })?;
 
             match &backend.addr {

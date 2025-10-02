@@ -385,7 +385,7 @@ impl CompiledTemplate {
         Self::render_ast(&self.ast, context)
     }
 
-    fn render_ast(ast: &TemplateAst, context: &TemplateContext) -> TemplateResult<String> {
+    pub fn render_ast(ast: &TemplateAst, context: &TemplateContext) -> TemplateResult<String> {
         match ast {
             TemplateAst::Text(text) => Ok(text.clone()),
             TemplateAst::Variable(name) => {
@@ -430,7 +430,203 @@ impl CompiledTemplate {
                     Ok(String::new())
                 }
             }
-            _ => Ok(String::new()), // TODO: Implement other AST node types
+            TemplateAst::Expression { operator, operands } => {
+                Self::evaluate_expression(operator, operands, context)
+            }
+            TemplateAst::Loop { variable, iterable, body } => {
+                Self::render_loop(variable, iterable, body, context)
+            }
+            TemplateAst::Function { name, args } => {
+                Self::call_function(name, args, context)
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn evaluate_expression(
+        operator: &str,
+        operands: &[TemplateAst],
+        context: &TemplateContext,
+    ) -> TemplateResult<String> {
+        if operands.len() != 2 {
+            return Err(TemplateError::RenderError {
+                message: "Binary operators require exactly 2 operands".to_string(),
+            });
+        }
+
+        let left = Self::render_ast(&operands[0], context)?;
+        let right = Self::render_ast(&operands[1], context)?;
+
+        match operator {
+            "+" => {
+                // Try numeric addition first
+                if let (Ok(l), Ok(r)) = (left.parse::<f64>(), right.parse::<f64>()) {
+                    Ok((l + r).to_string())
+                } else {
+                    // String concatenation fallback
+                    Ok(format!("{left}{right}"))
+                }
+            }
+            "-" => {
+                let l = left.parse::<f64>().map_err(|_| TemplateError::RenderError {
+                    message: format!("Cannot subtract non-numeric value: {left}"),
+                })?;
+                let r = right.parse::<f64>().map_err(|_| TemplateError::RenderError {
+                    message: format!("Cannot subtract non-numeric value: {right}"),
+                })?;
+                Ok((l - r).to_string())
+            }
+            "*" => {
+                let l = left.parse::<f64>().map_err(|_| TemplateError::RenderError {
+                    message: format!("Cannot multiply non-numeric value: {left}"),
+                })?;
+                let r = right.parse::<f64>().map_err(|_| TemplateError::RenderError {
+                    message: format!("Cannot multiply non-numeric value: {right}"),
+                })?;
+                Ok((l * r).to_string())
+            }
+            "/" => {
+                let l = left.parse::<f64>().map_err(|_| TemplateError::RenderError {
+                    message: format!("Cannot divide non-numeric value: {left}"),
+                })?;
+                let r = right.parse::<f64>().map_err(|_| TemplateError::RenderError {
+                    message: format!("Cannot divide non-numeric value: {right}"),
+                })?;
+                if r == 0.0 {
+                    return Err(TemplateError::RenderError {
+                        message: "Division by zero".to_string(),
+                    });
+                }
+                Ok((l / r).to_string())
+            }
+            "%" => {
+                let l = left.parse::<f64>().map_err(|_| TemplateError::RenderError {
+                    message: format!("Cannot modulo non-numeric value: {left}"),
+                })?;
+                let r = right.parse::<f64>().map_err(|_| TemplateError::RenderError {
+                    message: format!("Cannot modulo non-numeric value: {right}"),
+                })?;
+                if r == 0.0 {
+                    return Err(TemplateError::RenderError {
+                        message: "Modulo by zero".to_string(),
+                    });
+                }
+                Ok((l % r).to_string())
+            }
+            "==" => Ok((left == right).to_string()),
+            "!=" => Ok((left != right).to_string()),
+            "<" => {
+                if let (Ok(l), Ok(r)) = (left.parse::<f64>(), right.parse::<f64>()) {
+                    Ok((l < r).to_string())
+                } else {
+                    Ok((left < right).to_string())
+                }
+            }
+            ">" => {
+                if let (Ok(l), Ok(r)) = (left.parse::<f64>(), right.parse::<f64>()) {
+                    Ok((l > r).to_string())
+                } else {
+                    Ok((left > right).to_string())
+                }
+            }
+            "<=" => {
+                if let (Ok(l), Ok(r)) = (left.parse::<f64>(), right.parse::<f64>()) {
+                    Ok((l <= r).to_string())
+                } else {
+                    Ok((left <= right).to_string())
+                }
+            }
+            ">=" => {
+                if let (Ok(l), Ok(r)) = (left.parse::<f64>(), right.parse::<f64>()) {
+                    Ok((l >= r).to_string())
+                } else {
+                    Ok((left >= right).to_string())
+                }
+            }
+            "&&" | "and" => {
+                let l_bool = !left.is_empty() && left != "false" && left != "0";
+                let r_bool = !right.is_empty() && right != "false" && right != "0";
+                Ok((l_bool && r_bool).to_string())
+            }
+            "||" | "or" => {
+                let l_bool = !left.is_empty() && left != "false" && left != "0";
+                let r_bool = !right.is_empty() && right != "false" && right != "0";
+                Ok((l_bool || r_bool).to_string())
+            }
+            _ => Err(TemplateError::RenderError {
+                message: format!("Unknown operator: {operator}"),
+            }),
+        }
+    }
+
+    fn render_loop(
+        variable: &str,
+        iterable: &TemplateAst,
+        body: &TemplateAst,
+        context: &TemplateContext,
+    ) -> TemplateResult<String> {
+        // Get the iterable value
+        let iterable_value = Self::render_ast(iterable, context)?;
+
+        // Get collection from context
+        let collection = context.get_variable(&iterable_value)
+            .ok_or_else(|| TemplateError::VariableError {
+                message: format!("Loop iterable '{iterable_value}' not found"),
+            })?;
+
+        let mut result = String::new();
+
+        match collection {
+            TemplateValue::Array(items) => {
+                for item in items {
+                    // Create new context with loop variable
+                    let mut loop_context = context.clone();
+                    loop_context.set_variable(variable, item.clone());
+
+                    // Render body with loop context
+                    let rendered = Self::render_ast(body, &loop_context)?;
+                    result.push_str(&rendered);
+                }
+            }
+            _ => {
+                return Err(TemplateError::RenderError {
+                    message: "Loop iterable must be an array".to_string(),
+                });
+            }
+        }
+
+        Ok(result)
+    }
+
+    fn call_function(
+        name: &str,
+        args: &[TemplateAst],
+        context: &TemplateContext,
+    ) -> TemplateResult<String> {
+        // Get function from context
+        let func = context.functions.get(name)
+            .ok_or_else(|| TemplateError::RenderError {
+                message: format!("Function '{name}' not found"),
+            })?;
+
+        // Evaluate arguments
+        let mut arg_values = Vec::new();
+        for arg in args {
+            let rendered = Self::render_ast(arg, context)?;
+            arg_values.push(TemplateValue::String(rendered));
+        }
+
+        // Call function
+        let result = func(&arg_values)?;
+
+        // Convert result to string
+        match result {
+            TemplateValue::String(s) => Ok(s),
+            TemplateValue::Number(n) => Ok(n.to_string()),
+            TemplateValue::Boolean(b) => Ok(b.to_string()),
+            TemplateValue::Array(arr) => Ok(format!("[{} items]", arr.len())),
+            TemplateValue::Object(obj) => Ok(format!("{{{}keys}}", obj.len())),
+            TemplateValue::Null => Ok(String::new()),
         }
     }
 }

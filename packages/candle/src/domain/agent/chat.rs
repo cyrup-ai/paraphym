@@ -1,12 +1,8 @@
 //! Chat functionality for memory-enhanced agent conversations
 
-use std::sync::{
-    Arc, LazyLock,
-};
+use std::sync::Arc;
 
 use arrayvec::ArrayVec;
-use atomic_counter::RelaxedCounter;
-use crossbeam_utils::CachePadded;
 use cyrup_sugars::prelude::MessageChunk;
 
 use thiserror::Error;
@@ -14,7 +10,7 @@ use thiserror::Error;
 
 // Import real completion infrastructure
 // Removed unused import: use tokio_stream::StreamExt;
-use crate::domain::agent::role::CandleAgentRoleImpl;
+use crate::domain::agent::role::{CandleAgentRole, CandleAgentRoleImpl};
 use crate::domain::completion::PromptFormatter;
 use crate::domain::completion::traits::CandleCompletionModel;
 use crate::domain::prompt::CandlePrompt;
@@ -35,13 +31,6 @@ use cyrup_sugars::ZeroOneOrMany;
 
 /// Maximum number of relevant memories for context injection
 const MAX_RELEVANT_MEMORIES: usize = 10;
-
-/// Global atomic counter for memory node creation
-#[allow(dead_code)] // TODO: Implement in memory node creation system
-static MEMORY_NODE_COUNTER: LazyLock<CachePadded<RelaxedCounter>> =
-    LazyLock::new(|| CachePadded::new(RelaxedCounter::new(0)));
-
-
 
 /// Chat error types for memory-enhanced agent conversations
 #[derive(Debug, thiserror::Error)]
@@ -178,14 +167,23 @@ impl CandleAgentRoleImpl {
             .with_max_memory_length(Some(2000))
             .with_max_context_length(Some(4000));
 
-        // Format prompt with clear sectioning for LLM understanding
-        let full_prompt = formatter.format_prompt(memories, documents, chat_history, message);
+        // Format prompt with system prompt AND clear sectioning for LLM understanding
+        let full_prompt = formatter.format_prompt(
+            self.system_prompt(),  // Pass system prompt to formatter
+            memories,
+            documents,
+            chat_history,
+            message
+        );
 
         // Create CandlePrompt and CandleCompletionParams
         let candle_prompt = CandlePrompt::new(full_prompt);
+        let temp = self.temperature();
         let candle_params = CandleCompletionParams {
-            temperature: 0.7,
-            max_tokens: NonZeroU64::new(1000),
+            temperature: temp,
+            max_tokens: self.max_tokens()
+                .and_then(NonZeroU64::new)
+                .or_else(|| NonZeroU64::new(1000)),
             n: match NonZeroU8::new(1) {
                 Some(n) => n,
                 None => return Err(ChatError::System("Invalid completion parameter".to_string())),
@@ -198,15 +196,27 @@ impl CandleAgentRoleImpl {
         // Call provider directly - provider handles Engine orchestration internally
         let completion_stream = provider.prompt(candle_prompt, &candle_params);
 
-        // Process CandleCompletionChunk stream with proper pattern matching
-        if let Some(completion_chunk) = completion_stream.try_next() {
-            match completion_chunk {
-                CandleCompletionChunk::Text(text) | CandleCompletionChunk::Complete { text, .. } => Ok(text),
-                CandleCompletionChunk::Error(error) => Err(ChatError::System(error)),
-                _ => Err(ChatError::System("Unexpected chunk type".to_string())),
+        // Collect all chunks from the stream (blocking collection)
+        let chunks = completion_stream.collect();
+
+        // Combine text from all chunks
+        let mut complete_text = String::new();
+        for chunk in chunks {
+            match chunk {
+                CandleCompletionChunk::Text(text) => complete_text.push_str(&text),
+                CandleCompletionChunk::Complete { text, .. } => {
+                    complete_text.push_str(&text);
+                    break; // Stop on completion marker
+                }
+                CandleCompletionChunk::Error(error) => return Err(ChatError::System(error)),
+                _ => {} // Ignore other chunk types
             }
-        } else {
+        }
+
+        if complete_text.is_empty() {
             Err(ChatError::System("No response from completion stream".to_string()))
+        } else {
+            Ok(complete_text)
         }
     }
 
@@ -226,18 +236,34 @@ impl CandleAgentRoleImpl {
         let provider = self.get_completion_provider()
             .map_err(|e| ChatError::System(format!("Provider error: {e}")))?;
 
-        // Create prompt with context
-        let full_prompt = if context.is_empty() {
-            message.to_string()
-        } else {
-            format!("Context: {context}\n\nUser: {message}")
+        // Build prompt with system prompt, context, and user message
+        let full_prompt = match (self.system_prompt(), context.is_empty()) {
+            (Some(sys_prompt), false) => {
+                // System prompt + context + user message
+                format!("{sys_prompt}\n\nContext: {context}\n\nUser: {message}")
+            }
+            (Some(sys_prompt), true) => {
+                // System prompt + user message (no context)
+                format!("{sys_prompt}\n\nUser: {message}")
+            }
+            (None, false) => {
+                // No system prompt, but has context
+                format!("Context: {context}\n\nUser: {message}")
+            }
+            (None, true) => {
+                // No system prompt, no context - just user message
+                message.to_string()
+            }
         };
 
-        // Create CandlePrompt and CandleCompletionParams
+        // Create CandlePrompt with proper role
         let candle_prompt = CandlePrompt::new(full_prompt);
+        let temp = self.temperature();
         let candle_params = CandleCompletionParams {
-            temperature: 0.7,
-            max_tokens: NonZeroU64::new(1000),
+            temperature: temp,
+            max_tokens: self.max_tokens()
+                .and_then(NonZeroU64::new)
+                .or_else(|| NonZeroU64::new(1000)),
             n: match NonZeroU8::new(1) {
                 Some(n) => n,
                 None => return Err(ChatError::System("Invalid completion parameter".to_string())),
@@ -250,15 +276,27 @@ impl CandleAgentRoleImpl {
         // Call provider directly - provider handles Engine orchestration internally
         let completion_stream = provider.prompt(candle_prompt, &candle_params);
 
-        // Process CandleCompletionChunk stream with proper pattern matching
-        if let Some(completion_chunk) = completion_stream.try_next() {
-            match completion_chunk {
-                CandleCompletionChunk::Text(text) | CandleCompletionChunk::Complete { text, .. } => Ok(text),
-                CandleCompletionChunk::Error(error) => Err(ChatError::System(error)),
-                _ => Err(ChatError::System("Unexpected chunk type".to_string())),
+        // Collect all chunks from the stream (blocking collection)
+        let chunks = completion_stream.collect();
+
+        // Combine text from all chunks
+        let mut complete_text = String::new();
+        for chunk in chunks {
+            match chunk {
+                CandleCompletionChunk::Text(text) => complete_text.push_str(&text),
+                CandleCompletionChunk::Complete { text, .. } => {
+                    complete_text.push_str(&text);
+                    break; // Stop on completion marker
+                }
+                CandleCompletionChunk::Error(error) => return Err(ChatError::System(error)),
+                _ => {} // Ignore other chunk types
             }
-        } else {
+        }
+
+        if complete_text.is_empty() {
             Err(ChatError::System("No response from completion stream".to_string()))
+        } else {
+            Ok(complete_text)
         }
     }
 
@@ -365,13 +403,13 @@ impl CandleAgentRoleImpl {
                         }
 
                         if let Ok(memory_node) = memory_result {
-                            // The MemoryManager ALREADY provides properly scored results
-                            // Just convert to RetrievalResult format for the formatter
+                            // Use the ACTUAL relevance_score from vector search, or fall back to importance
+                            let score = memory_node.relevance_score
+                                .unwrap_or(memory_node.metadata.importance);
+                            
                             let retrieval_result = RetrievalResult {
                                 id: memory_node.id.clone(),
-                                // Use importance as the score - the MemoryManager has already
-                                // applied all sophisticated scoring internally
-                                score: memory_node.metadata.importance,
+                                score, // Now using the actual cosine similarity score!
                                 method: crate::memory::core::ops::retrieval::RetrievalMethod::Semantic,
                                 metadata: {
                                     let mut metadata = std::collections::HashMap::new();
@@ -385,6 +423,13 @@ impl CandleAgentRoleImpl {
                                         serde_json::Number::from_f64(f64::from(memory_node.metadata.importance))
                                             .unwrap_or_else(|| serde_json::Number::from(0))
                                     ));
+                                    // Also include the relevance score in metadata
+                                    if let Some(relevance) = memory_node.relevance_score {
+                                        metadata.insert("relevance_score".to_string(), serde_json::Value::Number(
+                                            serde_json::Number::from_f64(f64::from(relevance))
+                                                .unwrap_or_else(|| serde_json::Number::from(0))
+                                        ));
+                                    }
                                     metadata
                                 },
                             };
@@ -466,9 +511,15 @@ impl CandleAgentRoleImpl {
                 MemoryContent::text(&user_message),
             );
 
-            // Store user memory with zero-allocation error handling - PURE STREAMING
-            let _store_stream = memory_tool_clone.memory().create_memory(user_memory.clone());
-            // Fire-and-forget storage operation - no need to consume stream
+            // Store user memory - spawn task to execute the PendingMemory future
+            let user_pending = memory_tool_clone.memory().create_memory(user_memory.clone());
+            if let Some(runtime) = crate::runtime::shared_runtime() {
+                runtime.spawn(async move {
+                    if let Err(e) = user_pending.await {
+                        eprintln!("Failed to store user memory: {e:?}");
+                    }
+                });
+            }
 
             if memorized_nodes.try_push(user_memory).is_ok() {
                 // Create memory node for assistant response
@@ -477,9 +528,15 @@ impl CandleAgentRoleImpl {
                     MemoryContent::text(&assistant_response),
                 );
 
-                // Store assistant memory with zero-allocation error handling - PURE STREAMING
-                let _store_stream = memory_tool_clone.memory().create_memory(assistant_memory.clone());
-                // Fire-and-forget storage operation - no need to consume stream
+                // Store assistant memory - spawn task to execute the PendingMemory future
+                let assistant_pending = memory_tool_clone.memory().create_memory(assistant_memory.clone());
+                if let Some(runtime) = crate::runtime::shared_runtime() {
+                    runtime.spawn(async move {
+                        if let Err(e) = assistant_pending.await {
+                            eprintln!("Failed to store assistant memory: {e:?}");
+                        }
+                    });
+                }
 
                 if memorized_nodes.try_push(assistant_memory).is_ok() {
                     // Create contextual memory node linking the conversation
@@ -490,14 +547,20 @@ impl CandleAgentRoleImpl {
                         )),
                     );
 
-                    // Store context memory with zero-allocation error handling - PURE STREAMING
-                    let _store_stream = memory_tool_clone.memory().create_memory(context_memory.clone());
-                    // Fire-and-forget storage operation - no need to consume stream
+                    // Store context memory - spawn task to execute the PendingMemory future
+                    let context_pending = memory_tool_clone.memory().create_memory(context_memory.clone());
+                    if let Some(runtime) = crate::runtime::shared_runtime() {
+                        runtime.spawn(async move {
+                            if let Err(e) = context_pending.await {
+                                eprintln!("Failed to store context memory: {e:?}");
+                            }
+                        });
+                    }
 
                     if memorized_nodes.try_push(context_memory).is_ok() {
-                        let _ = sender.send(CandleCollectionChunk { 
-                            items: memorized_nodes, 
-                            error_message: None 
+                        let _ = sender.send(CandleCollectionChunk {
+                            items: memorized_nodes,
+                            error_message: None
                         });
                     }
                 }

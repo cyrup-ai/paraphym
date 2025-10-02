@@ -32,6 +32,10 @@ use uuid::Uuid;
 
 use crate::domain::context::CandleDocument as Document;
 
+// Additional imports for file reading implementation  
+use base64::{Engine as _, engine::general_purpose};
+use mime_guess;
+
 // Macros now imported from ystream - removed local definitions
 
 /// Marker types for `CandleContext`
@@ -650,37 +654,211 @@ impl CandleStreamingContextProcessor {
         Ok(())
     }
 
-    /// Load file document
+    /// Load file document with production-quality file reading
+    #[inline]
+    #[allow(clippy::too_many_lines)]
     fn load_file_document(
         context: &CandleImmutableFileContext,
     ) -> Document {
-        // Implementation would read file and create Document
-        // For now, create a basic document structure
+        let file_path = Path::new(&context.path);
+        
+        // Validate path exists and is a file
+        let _metadata = match std::fs::metadata(file_path) {
+            Ok(meta) => {
+                if !meta.is_file() {
+                    log::error!(
+                        "File context validation failed: Path is not a file: {}",
+                        context.path
+                    );
+                    return Document::bad_chunk(format!("Path is not a file: {}", context.path));
+                }
+                meta
+            }
+            Err(e) => {
+                log::error!("Failed to read file metadata: {e}");
+                return Document::bad_chunk(format!("Failed to access file: {e}"));
+            }
+        };
+        
+        // Detect MIME type and derive format/media type
+        let mime_guess = mime_guess::from_path(file_path);
+        let mime_type = mime_guess.first();
+        
+        // Determine format and media type based on MIME or extension
+        let (format, media_type) = match mime_type {
+            Some(mime) => {
+                let mime_str = mime.as_ref();
+                match mime_str {
+                    "text/html" => (
+                        crate::domain::context::CandleContentFormat::Html,
+                        crate::domain::context::CandleDocumentMediaType::Html
+                    ),
+                    "text/markdown" | "text/x-markdown" => (
+                        crate::domain::context::CandleContentFormat::Markdown,
+                        crate::domain::context::CandleDocumentMediaType::Markdown
+                    ),
+                    "application/json" => (
+                        crate::domain::context::CandleContentFormat::Json,
+                        crate::domain::context::CandleDocumentMediaType::Json
+                    ),
+                    "application/xml" | "text/xml" => (
+                        crate::domain::context::CandleContentFormat::Xml,
+                        crate::domain::context::CandleDocumentMediaType::Xml
+                    ),
+                    "application/x-yaml" | "text/yaml" => (
+                        crate::domain::context::CandleContentFormat::Yaml,
+                        crate::domain::context::CandleDocumentMediaType::Yaml
+                    ),
+                    "text/csv" => (
+                        crate::domain::context::CandleContentFormat::Csv,
+                        crate::domain::context::CandleDocumentMediaType::Csv
+                    ),
+                    "application/pdf" => (
+                        crate::domain::context::CandleContentFormat::Base64,
+                        crate::domain::context::CandleDocumentMediaType::PDF
+                    ),
+                    _ if mime_str.starts_with("text/") => (
+                        crate::domain::context::CandleContentFormat::Text,
+                        crate::domain::context::CandleDocumentMediaType::TXT
+                    ),
+                    _ if mime_str.starts_with("image/") => (
+                        crate::domain::context::CandleContentFormat::Base64,
+                        crate::domain::context::CandleDocumentMediaType::Image
+                    ),
+                    _ => {
+                        // Fall back to extension-based detection
+                        Self::detect_format_from_extension(file_path)
+                    }
+                }
+            }
+            None => Self::detect_format_from_extension(file_path)
+        };
+        
+        // Read file content - try UTF-8 first for text formats
+        let data = match format {
+            crate::domain::context::CandleContentFormat::Base64 => {
+                // Binary file - read as bytes and encode
+                match std::fs::read(file_path) {
+                    Ok(bytes) => general_purpose::STANDARD.encode(&bytes),
+                    Err(e) => {
+                        log::error!("Failed to read binary file: {e}");
+                        return Document::bad_chunk(format!("Failed to read file: {e}"));
+                    }
+                }
+            }
+            _ => {
+                // Try to read as UTF-8 text first
+                match std::fs::read_to_string(file_path) {
+                    Ok(text) => text,
+                    Err(_) => {
+                        // If UTF-8 fails, try as binary
+                        match std::fs::read(file_path) {
+                            Ok(bytes) => {
+                                // Successfully read as binary, encode it
+                                log::warn!(
+                                    "File is not valid UTF-8, encoding as base64: {}",
+                                    context.path
+                                );
+                                return Document {
+                                    data: general_purpose::STANDARD.encode(&bytes),
+                                    format: Some(crate::domain::context::CandleContentFormat::Base64),
+                                    media_type: Some(media_type),
+                                    additional_props: Self::build_metadata_props(context),
+                                };
+                            }
+                            Err(read_err) => {
+                                log::error!("Failed to read file as text or binary: {read_err}");
+                                return Document::bad_chunk(format!("Failed to read file: {read_err}"));
+                            }
+                        }
+                    }
+                }
+            }
+        };
+        
+        // Create the document with actual content
         Document {
-            data: format!("Content from file: {}", context.path),
-            format: Some(crate::domain::context::CandleContentFormat::Text),
-            media_type: Some(crate::domain::context::CandleDocumentMediaType::TXT),
-            additional_props: {
-                let mut props = HashMap::new();
-                props.insert(
-                    "id".to_string(),
-                    serde_json::Value::String(Uuid::new_v4().to_string()),
-                );
-                props.insert(
-                    "path".to_string(),
-                    serde_json::Value::String(context.path.clone()),
-                );
-                props.insert(
-                    "size".to_string(),
-                    serde_json::Value::String(context.size_bytes.to_string()),
-                );
-                props.insert(
-                    "hash".to_string(),
-                    serde_json::Value::String(context.content_hash.clone()),
-                );
-                props
-            },
+            data,
+            format: Some(format),
+            media_type: Some(media_type),
+            additional_props: Self::build_metadata_props(context),
         }
+    }
+    
+    /// Helper function to detect format from file extension
+    #[inline]
+    fn detect_format_from_extension(
+        path: &Path
+    ) -> (crate::domain::context::CandleContentFormat, crate::domain::context::CandleDocumentMediaType) {
+        match path.extension().and_then(|ext| ext.to_str()) {
+            Some("html" | "htm") => (
+                crate::domain::context::CandleContentFormat::Html,
+                crate::domain::context::CandleDocumentMediaType::Html
+            ),
+            Some("md" | "markdown") => (
+                crate::domain::context::CandleContentFormat::Markdown,
+                crate::domain::context::CandleDocumentMediaType::Markdown
+            ),
+            Some("json") => (
+                crate::domain::context::CandleContentFormat::Json,
+                crate::domain::context::CandleDocumentMediaType::Json
+            ),
+            Some("xml") => (
+                crate::domain::context::CandleContentFormat::Xml,
+                crate::domain::context::CandleDocumentMediaType::Xml
+            ),
+            Some("yaml" | "yml") => (
+                crate::domain::context::CandleContentFormat::Yaml,
+                crate::domain::context::CandleDocumentMediaType::Yaml
+            ),
+            Some("csv") => (
+                crate::domain::context::CandleContentFormat::Csv,
+                crate::domain::context::CandleDocumentMediaType::Csv
+            ),
+            Some("pdf") => (
+                crate::domain::context::CandleContentFormat::Base64,
+                crate::domain::context::CandleDocumentMediaType::PDF
+            ),
+            Some("doc" | "docx") => (
+                crate::domain::context::CandleContentFormat::Base64,
+                crate::domain::context::CandleDocumentMediaType::DOCX
+            ),
+            Some("jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp") => (
+                crate::domain::context::CandleContentFormat::Base64,
+                crate::domain::context::CandleDocumentMediaType::Image
+            ),
+            Some("txt" | "text" | "log") => (
+                crate::domain::context::CandleContentFormat::Text,
+                crate::domain::context::CandleDocumentMediaType::TXT
+            ),
+            _ => (
+                crate::domain::context::CandleContentFormat::Text,
+                crate::domain::context::CandleDocumentMediaType::PlainText
+            )
+        }
+    }
+    
+    /// Build metadata properties `HashMap`
+    #[inline]
+    fn build_metadata_props(context: &CandleImmutableFileContext) -> HashMap<String, serde_json::Value> {
+        let mut props = HashMap::with_capacity(4);
+        props.insert(
+            "id".to_string(),
+            serde_json::Value::String(Uuid::new_v4().to_string()),
+        );
+        props.insert(
+            "path".to_string(),
+            serde_json::Value::String(context.path.clone()),
+        );
+        props.insert(
+            "size".to_string(),
+            serde_json::Value::String(context.size_bytes.to_string()),
+        );
+        props.insert(
+            "hash".to_string(),
+            serde_json::Value::String(context.content_hash.clone()),
+        );
+        props
     }
 
     /// Get processor statistics
@@ -803,12 +981,49 @@ impl CandleContext<CandleFile> {
     /// Load single file - EXACT syntax: `CandleContext`<CandleFile>`::of("/path/to/file.txt`")
     #[inline]
     pub fn of(path: impl AsRef<Path>) -> Self {
-        let path_str = path.as_ref().to_string_lossy().to_string();
+        use std::io::Read;
+        use sha2::{Sha256, Digest};
+
+        let path_ref = path.as_ref();
+        let path_str = path_ref.to_string_lossy().to_string();
+
+        // Read file metadata and content to compute hash
+        let (size_bytes, modified, content_hash) = match std::fs::metadata(path_ref) {
+            Ok(metadata) => {
+                let size = metadata.len();
+                let modified_time = metadata.modified().unwrap_or_else(|_| SystemTime::now());
+
+                // Compute content hash
+                let hash = match std::fs::File::open(path_ref) {
+                    Ok(mut file) => {
+                        let mut hasher = Sha256::new();
+                        let mut buffer = vec![0u8; 8192];
+                        loop {
+                            match file.read(&mut buffer) {
+                                Ok(0) | Err(_) => break,
+                                Ok(n) => hasher.update(&buffer[..n]),
+                            }
+                        }
+                        let result = hasher.finalize();
+                        result.iter().fold(String::with_capacity(result.len() * 2), |mut s, b| {
+                            use std::fmt::Write;
+                            let _ = write!(&mut s, "{b:02x}");
+                            s
+                        })
+                    }
+                    Err(_) => String::new(),
+                };
+
+                (size, modified_time, hash)
+            }
+            Err(_) => (0, SystemTime::now(), String::new()),
+        };
+
         let file_context = CandleImmutableFileContext {
             path: path_str,
-            content_hash: String::new(), // Would be computed from file content
-            size_bytes: 0,               // Would be read from file metadata
-            modified: SystemTime::now(),
+            content_hash,
+            size_bytes,
+            modified,
             memory_integration: None,
         };
         Self::new(CandleContextSourceType::File(file_context))

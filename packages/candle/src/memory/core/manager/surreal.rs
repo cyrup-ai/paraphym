@@ -13,7 +13,7 @@ use surrealdb::engine::any::Any;
 // Remove imports that conflict with local definitions
 use crate::memory::primitives::types::MemoryTypeEnum;
 use crate::memory::primitives::{MemoryNode, MemoryRelationship};
-use crate::memory::schema::memory_schema::{MemoryMetadataSchema, MemoryNodeSchema, ScoredMemoryNodeSchema};
+use crate::memory::schema::memory_schema::{MemoryMetadataSchema, MemoryNodeSchema};
 use crate::memory::schema::relationship_schema::RelationshipSchema;
 use crate::memory::utils::error::Error;
 use crate::memory::migration::{DataExporter, ExportFormat, MigrationManager, BuiltinMigrations, DataImporter, ImportFormat};
@@ -398,6 +398,7 @@ impl SurrealDBMemoryManager {
             embedding,
             evaluation_status: crate::memory::monitoring::operations::OperationStatus::Pending,
             metadata,
+            relevance_score: None, // Will be populated during search operations
         }
     }
 
@@ -923,22 +924,24 @@ impl MemoryManager for SurrealDBMemoryManager {
 
             match db.query(&sql_query).await {
                 Ok(mut response) => {
-                    // Use ScoredMemoryNodeSchema to capture the score field
-                    let results: Vec<crate::memory::schema::memory_schema::ScoredMemoryNodeSchema> = 
-                        response.take(0).unwrap_or_default();
+                    // Parse as generic JSON to handle the dynamic score field
+                    let results: Vec<serde_json::Value> = response.take(0).unwrap_or_default();
 
-                    for scored_schema in results {
-                        let mut memory = SurrealDBMemoryManager::from_schema(MemoryNodeSchema {
-                            id: scored_schema.id,
-                            content: scored_schema.content,
-                            memory_type: scored_schema.memory_type,
-                            metadata: scored_schema.metadata,
-                        });
-                        // Set the actual cosine similarity score
-                        memory.relevance_score = Some(scored_schema.score);
+                    for result in results {
+                        // Extract the score from the result
+                        let score = result.get("score")
+                            .and_then(|s| s.as_f64())
+                            .map(|s| s as f32);
                         
-                        if tx.send(Ok(memory)).await.is_err() {
-                            break;
+                        // Parse the rest as a MemoryNodeSchema
+                        if let Ok(schema) = serde_json::from_value::<MemoryNodeSchema>(result) {
+                            let mut memory = SurrealDBMemoryManager::from_schema(schema);
+                            // Set the actual cosine similarity score
+                            memory.relevance_score = score;
+                            
+                            if tx.send(Ok(memory)).await.is_err() {
+                                break;
+                            }
                         }
                     }
                 }

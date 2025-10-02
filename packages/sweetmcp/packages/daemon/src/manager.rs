@@ -123,31 +123,28 @@ impl ServiceManager {
     pub fn run(mut self) -> Result<()> {
         // Process lifecycle start event
         let action = self.lifecycle.step(Event::CmdStart);
-        match action {
-            Action::SpawnProcess => {
-                // Announce manager start
-                self.bus_tx.send(Evt::State {
-                    service: "manager".to_string(),
-                    kind: "starting",
-                    ts: chrono::Utc::now(),
-                    pid: Some(std::process::id()),
-                })?;
+        if action == Action::SpawnProcess {
+            // Announce manager start
+            self.bus_tx.send(Evt::State {
+                service: "manager".to_string(),
+                kind: "starting",
+                ts: chrono::Utc::now(),
+                pid: Some(std::process::id()),
+            })?;
 
-                // Initial start‑up pass.
-                for (name, tx) in self.workers.iter() {
-                    tx.send(Cmd::Start)?;
-                    info!("Started service: {}", name);
-                }
-
-                // Manager is now running
-                self.bus_tx.send(Evt::State {
-                    service: "manager".to_string(),
-                    kind: "running",
-                    ts: chrono::Utc::now(),
-                    pid: Some(std::process::id()),
-                })?;
+            // Initial start‑up pass.
+            for (name, tx) in self.workers.iter() {
+                tx.send(Cmd::Start)?;
+                info!("Started service: {}", name);
             }
-            _ => {}
+
+            // Manager is now running
+            self.bus_tx.send(Evt::State {
+                service: "manager".to_string(),
+                kind: "running",
+                ts: chrono::Utc::now(),
+                pid: Some(std::process::id()),
+            })?;
         }
 
         let sig_tick = tick(Duration::from_millis(200));
@@ -228,7 +225,7 @@ impl ServiceManager {
             } => {
                 info!("{} → {} (pid: {:?}, ts: {})", service, kind, pid, ts);
                 // Check if any service has died unexpectedly
-                if *kind == "stopped" && service != &"manager" {
+                if *kind == "stopped" && service != "manager" {
                     // Schedule restart
                     self.schedule_restart(service, 0);
                 }

@@ -1,0 +1,70 @@
+    Checking paraphym_candle v0.1.0 (/Volumes/samsung_t9/paraphym/packages/candle)
+   Compiling sweetmcp-pingora v0.3.1 (/Volumes/samsung_t9/paraphym/packages/sweetmcp/packages/pingora)
+error: field `type_name` is never read
+  --> packages/candle/src/model/registry.rs:22:5
+   |
+19 | struct CandleModelHandle {
+   |        ----------------- field in this struct
+...
+22 |     type_name: &'static str,
+   |     ^^^^^^^^^
+   |
+   = note: `-D dead-code` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(dead_code)]`
+
+error: method `type_name` is never used
+  --> packages/candle/src/model/registry.rs:59:8
+   |
+25 | impl CandleModelHandle {
+   | ---------------------- method in this implementation
+...
+59 |     fn type_name(&self) -> &'static str {
+   |        ^^^^^^^^^
+
+error: these match arms have identical bodies
+    --> packages/candle/src/domain/context/provider.rs:1003:33
+     |
+1003 | ...                   Ok(0) => break,
+     |                       ^^^^^^^^^^^^^^
+1004 | ...                   Ok(n) => hasher.update(&buffer[..n]),
+1005 | ...                   Err(_) => break,
+     |                       ^^^^^^^^^^^^^^^
+     |
+     = help: if this is unintentional make the arms return different values
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#match_same_arms
+note: the lint level is defined here
+    --> packages/candle/src/domain/mod.rs:11:9
+     |
+  11 | #![deny(clippy::pedantic)]
+     |         ^^^^^^^^^^^^^^^^
+     = note: `#[deny(clippy::match_same_arms)]` implied by `#[deny(clippy::pedantic)]`
+help: otherwise merge the patterns into a single arm
+     |
+1003 ~                                 Ok(0) | Err(_) => break,
+1004 |                                 Ok(n) => hasher.update(&buffer[..n]),
+1005 ~                                 }
+     |
+
+error: use of `format!` to build up a string from an iterator
+    --> packages/candle/src/domain/context/provider.rs:1009:25
+     |
+1009 |                         result.iter().map(|b| format!("{b:02x}")).collect::<String>()
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+help: call `fold` instead
+    --> packages/candle/src/domain/context/provider.rs:1009:39
+     |
+1009 |                         result.iter().map(|b| format!("{b:02x}")).collect::<String>()
+     |                                       ^^^
+help: ... and use the `write!` macro here
+    --> packages/candle/src/domain/context/provider.rs:1009:47
+     |
+1009 |                         result.iter().map(|b| format!("{b:02x}")).collect::<String>()
+     |                                               ^^^^^^^^^^^^^^^^^^
+     = note: this can be written more efficiently by appending to a `String` directly
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#format_collect
+     = note: `#[deny(clippy::format_collect)]` implied by `#[deny(clippy::pedantic)]`
+
+error: could not compile `paraphym_candle` (lib) due to 4 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `paraphym_candle` (lib test) due to 4 previous errors

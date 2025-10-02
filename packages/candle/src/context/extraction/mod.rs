@@ -4,12 +4,12 @@
 //! using language models and other NLP techniques.
 
 mod error;
-// mod extractor; // Temporarily disabled - needs standalone rewrite
+mod extractor;
 mod model;
 
 // Re-export the main types
 pub use error::ExtractionError;
-// pub use extractor::{AgentCompletionModel, Extractor, ExtractorImpl}; // Temporarily disabled
+pub use extractor::{Extractor, ExtractorImpl, DocumentExtractor, BatchExtractor};
 pub use model::{ExtractionConfig, ExtractionRequest, ExtractionResult};
 
 /// Result type for extraction operations

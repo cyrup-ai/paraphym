@@ -36,7 +36,7 @@ impl MemoryNodePool {
     /// Acquire a node from the pool (zero-allocation in common case)
     #[inline]
     pub fn acquire(&self) -> PooledMemoryNode<'_> {
-        let node = self.available.pop().unwrap_or_else(|| {
+        let mut node = self.available.pop().unwrap_or_else(|| {
             // Fallback: create new node if pool is empty
             let content = MemoryContent::text(String::with_capacity(1024));
             let mut node = MemoryNode::new(MemoryType::Working, content);
@@ -49,6 +49,9 @@ impl MemoryNodePool {
             node
         });
 
+        // Reset the node to clean state, reusing all allocations
+        let _ = node.reset(MemoryType::Working);
+
         PooledMemoryNode {
             node: std::mem::ManuallyDrop::new(node),
             pool: self,
@@ -60,14 +63,7 @@ impl MemoryNodePool {
     #[inline]
     fn release(&self, node: MemoryNode) {
         // Reset the node to a clean state for reuse
-        // The modern MemoryNode doesn't allow direct mutation of its fields,
-
-        // The modern MemoryNode doesn't allow direct mutation of its fields,
-        // so we'll just use it as-is for the pool. The creation of new nodes
-        // handles the clean state.
-
-        // For a more efficient pool, we could add reset methods to MemoryNode,
-        // but for now we'll accept the cost of recreation on acquire.
+        // The reset() method preserves allocations for optimal performance
 
         // Return to pool (ignore if pool is full)
         let _ = self.available.push(node);
@@ -93,18 +89,23 @@ impl PooledMemoryNode<'_> {
     #[inline]
     pub fn initialize(&mut self, content: String, memory_type: MemoryType) {
         if !self.taken {
-            // For the current design, we replace the node entirely since
-            // the modern MemoryNode doesn't expose mutable fields directly
-            let new_content = MemoryContent::text(content);
-            let mut new_node = MemoryNode::new(memory_type, new_content);
-
-            // Calculate base importance from memory type
+            // Reset the node to the requested type (reuses allocations)
+            let _ = self.node.reset(memory_type);
+            
+            // Set the content efficiently (reusing String allocation if already Text variant)
+            match &mut self.node.base_memory.content {
+                MemoryContent::Text(s) => {
+                    s.clear();
+                    s.push_str(&content);
+                }
+                _ => {
+                    self.node.base_memory.content = MemoryContent::text(content);
+                }
+            }
+            
+            // Set importance based on memory type
             let importance = memory_type.base_importance();
-            let _ = new_node.set_importance(importance);
-
-            // Replace the node
-            let old_node = std::mem::replace(&mut self.node, std::mem::ManuallyDrop::new(new_node));
-            std::mem::ManuallyDrop::into_inner(old_node); // Drop the old node
+            let _ = self.node.set_importance(importance);
         }
     }
 

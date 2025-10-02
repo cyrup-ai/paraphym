@@ -173,13 +173,12 @@ impl EdgeService {
     /// Extract TLS configuration from upstream URL
     /// Returns (use_tls, sni_hostname)
     pub fn get_tls_config(&self, addr: &SocketAddr) -> (bool, String) {
-        if let Some(url_str) = self.upstream_urls.get(addr) {
-            if let Ok(url) = url::Url::parse(url_str) {
+        if let Some(url_str) = self.upstream_urls.get(addr)
+            && let Ok(url) = url::Url::parse(url_str) {
                 let use_tls = url.scheme() == "https";
                 let sni = url.host_str().unwrap_or("").to_string();
                 return (use_tls, sni);
             }
-        }
         // Fallback: no TLS, no SNI
         (false, String::new())
     }
@@ -202,13 +201,13 @@ impl EdgeService {
     /// Validate service configuration
     pub fn validate_config(&self) -> Result<(), EdgeServiceError> {
         if self.cfg.upstreams.is_empty() {
-            return Err(EdgeServiceError::ConfigurationError(
+            return Err(EdgeServiceError::Configuration(
                 "No upstream servers configured".to_string(),
             ));
         }
 
         if self.cfg.jwt_secret.is_empty() {
-            return Err(EdgeServiceError::ConfigurationError(
+            return Err(EdgeServiceError::Configuration(
                 "JWT secret not configured".to_string(),
             ));
         }
@@ -216,7 +215,7 @@ impl EdgeService {
         // Validate upstream URLs
         for upstream in &self.cfg.upstreams {
             if upstream.parse::<url::Url>().is_err() {
-                return Err(EdgeServiceError::ConfigurationError(format!(
+                return Err(EdgeServiceError::Configuration(format!(
                     "Invalid upstream URL: {}",
                     upstream
                 )));
@@ -324,53 +323,54 @@ pub struct ServiceMetrics {
 
 /// Edge service error types
 #[derive(Debug, thiserror::Error)]
+#[allow(clippy::enum_variant_names)]
 pub enum EdgeServiceError {
     #[error("Configuration error: {0}")]
-    ConfigurationError(String),
+    Configuration(String),
 
     #[error("Authentication error: {0}")]
-    AuthenticationError(String),
+    Authentication(String),
 
     #[error("Rate limiting error: {0}")]
-    RateLimitError(String),
+    RateLimit(String),
 
     #[error("Backend error: {0}")]
-    BackendError(String),
+    Backend(String),
 
     #[error("Network error: {0}")]
-    NetworkError(String),
+    Network(String),
 
     #[error("Shutdown error: {0}")]
-    ShutdownError(String),
+    Shutdown(String),
 
     #[error("Internal error: {0}")]
-    InternalError(String),
+    Internal(String),
 }
 
 impl EdgeServiceError {
     /// Check if error is recoverable
     pub fn is_recoverable(&self) -> bool {
         match self {
-            EdgeServiceError::ConfigurationError(_) => false,
-            EdgeServiceError::AuthenticationError(_) => true,
-            EdgeServiceError::RateLimitError(_) => true,
-            EdgeServiceError::BackendError(_) => true,
-            EdgeServiceError::NetworkError(_) => true,
-            EdgeServiceError::ShutdownError(_) => false,
-            EdgeServiceError::InternalError(_) => false,
+            EdgeServiceError::Configuration(_) => false,
+            EdgeServiceError::Authentication(_) => true,
+            EdgeServiceError::RateLimit(_) => true,
+            EdgeServiceError::Backend(_) => true,
+            EdgeServiceError::Network(_) => true,
+            EdgeServiceError::Shutdown(_) => false,
+            EdgeServiceError::Internal(_) => false,
         }
     }
 
     /// Get error severity level
     pub fn severity(&self) -> ErrorSeverity {
         match self {
-            EdgeServiceError::ConfigurationError(_) => ErrorSeverity::Critical,
-            EdgeServiceError::AuthenticationError(_) => ErrorSeverity::Warning,
-            EdgeServiceError::RateLimitError(_) => ErrorSeverity::Info,
-            EdgeServiceError::BackendError(_) => ErrorSeverity::Error,
-            EdgeServiceError::ShutdownError(_) => ErrorSeverity::Critical,
-            EdgeServiceError::InternalError(_) => ErrorSeverity::Critical,
-            EdgeServiceError::NetworkError(_) => ErrorSeverity::Error,
+            EdgeServiceError::Configuration(_) => ErrorSeverity::Critical,
+            EdgeServiceError::Authentication(_) => ErrorSeverity::Warning,
+            EdgeServiceError::RateLimit(_) => ErrorSeverity::Info,
+            EdgeServiceError::Backend(_) => ErrorSeverity::Error,
+            EdgeServiceError::Shutdown(_) => ErrorSeverity::Critical,
+            EdgeServiceError::Internal(_) => ErrorSeverity::Critical,
+            EdgeServiceError::Network(_) => ErrorSeverity::Error,
         }
     }
 }

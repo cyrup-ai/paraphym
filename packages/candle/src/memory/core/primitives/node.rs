@@ -143,6 +143,7 @@ impl Default for MemoryNode {
             embedding: None,
             evaluation_status: OperationStatus::Pending,
             metadata: MemoryMetadata::default(),
+            relevance_score: None,
         }
     }
 }

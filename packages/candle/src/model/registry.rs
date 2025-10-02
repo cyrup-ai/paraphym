@@ -14,100 +14,43 @@ use std::sync::LazyLock;
 use crate::domain::model::error::{CandleModelError as ModelError, CandleResult as Result};
 use crate::model::info::ModelInfo;
 use crate::model::traits::Model;
-use crate::providers::CandleKimiK2Provider;
 
-/// Zero-allocation typed model handle with static dispatch instead of Box<dyn Any>
-#[derive(Debug, Clone)]
-pub enum CandleModelHandle {
-    /// Kimi K2 model from Candle framework
-    KimiK2(Arc<CandleKimiK2Provider>),
-    /// Generic model implementation for extensibility
-    Generic(Arc<GenericCandleModel>),
+/// Type-erased model handle with preserved type information for downcasting
+struct CandleModelHandle {
+    model: Arc<dyn std::any::Any + Send + Sync>,
+    info: &'static ModelInfo,
 }
 
 impl CandleModelHandle {
     /// Create new model handle from any Model implementation
-    pub fn new<M: Model + 'static>(model: M) -> Self {
-        // For now, convert to GenericCandleModel
-        // In a more sophisticated system, this could use type dispatch
+    fn new<M: Model + 'static>(model: M) -> Self {
         let info = model.info();
-        let generic_model = GenericCandleModel::new(
-            info.name().to_string(),
-            info.provider().to_string(),
-            info.max_input_tokens.map(|t| t.get()).unwrap_or(4096),
-            info.supports_streaming,
-            info.supports_function_calling,
-        );
-        Self::Generic(Arc::new(generic_model))
+        Self {
+            model: Arc::new(model),
+            info,
+        }
     }
     
-    /// Create new Kimi K2 model handle
-    pub fn new_kimi_k2(model: CandleKimiK2Provider) -> Self {
-        Self::KimiK2(Arc::new(model))
-    }
-    
-    /// Create new generic model handle
-    pub fn new_generic(model: GenericCandleModel) -> Self {
-        Self::Generic(Arc::new(model))
+    /// Get model info
+    fn info(&self) -> &'static ModelInfo {
+        self.info
     }
 
-    /// Get model info with zero allocation
-    pub fn info(&self) -> ModelInfo {
-        match self {
-            Self::KimiK2(_model) => {
-                // Create ModelInfo from KimiK2Provider
-                ModelInfo {
-                    name: "kimi-k2-instruct",
-                    provider_name: "moonshot",
-                    // Safe: Constants are non-zero
-                    max_input_tokens: NonZeroU32::new(131072),
-                    max_output_tokens: NonZeroU32::new(2048),
-                    input_price: None,
-                    output_price: None,
-                    supports_vision: false,
-                    supports_function_calling: true,
-                    supports_streaming: true,
-                    supports_embeddings: false,
-                    requires_max_tokens: false,
-                    supports_thinking: false,
-                    optimal_thinking_budget: None,
-                    system_prompt_prefix: None,
-                    real_name: None,
-                    model_type: None,
-                    patch: None,
-                }
-            },
-            Self::Generic(model) => model.info(),
-        }
-    }
-    
-    /// Get Kimi K2 model if this handle contains one
-    pub fn as_kimi_k2(&self) -> Option<&CandleKimiK2Provider> {
-        match self {
-            Self::KimiK2(model) => Some(model.as_ref()),
-            _ => None,
-        }
-    }
-    
-    /// Get generic model if this handle contains one
-    pub fn as_generic(&self) -> Option<&GenericCandleModel> {
-        match self {
-            Self::Generic(model) => Some(model.as_ref()),
-            _ => None,
-        }
-    }
-    
     /// Get as Any trait object for downcasting
-    pub fn as_any(&self) -> &dyn std::any::Any {
-        match self {
-            Self::KimiK2(model) => model.as_ref() as &dyn std::any::Any,
-            Self::Generic(model) => model.as_ref() as &dyn std::any::Any,
-        }
+    fn as_any(&self) -> &dyn std::any::Any {
+        &*self.model
     }
-    
+
     /// Get as specific model type
-    pub fn as_model<M: Model + 'static>(&self) -> Option<&M> {
-        self.as_any().downcast_ref::<M>()
+    fn as_model<M: Model + 'static>(&self) -> Option<&M> {
+        self.model.downcast_ref::<M>()
+    }
+
+    /// Attempt to downcast the model handle to a concrete Arc<T>
+    fn as_arc<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
+        Arc::clone(&self.model)
+            .downcast::<T>()
+            .ok()
     }
 }
 
@@ -347,21 +290,15 @@ impl ModelRegistry {
             Some(handle) => handle,
             None => return Ok(None)};
 
-        // Attempt to downcast the handle to the requested type
-        match handle.as_any().downcast_ref::<T>() {
-            Some(_) => {
-                // For now, this method is not fully implemented due to Arc<T> conversion complexity
-                Err(ModelError::InvalidConfiguration(
-                    format!("Model downcast for '{}' from provider '{}' requires additional implementation", name, provider).into()
-                ))
-            }
+        match handle.as_arc::<T>() {
+            Some(arc_model) => Ok(Some(arc_model)),
             None => Err(ModelError::InvalidConfiguration(
                 format!(
-                    "Model '{}' from provider '{}' is not of the requested type",
-                    name, provider
-                )
-                .into(),
-            ))}
+                    "Model '{}' from provider '{}' is not of type {}",
+                    name, provider, std::any::type_name::<T>()
+                ).into()
+            )),
+        }
     }
 
     /// Get a model as a boxed trait object
@@ -386,8 +323,6 @@ impl ModelRegistry {
             Some(handle) => handle,
             None => return Ok(None)};
 
-        // Attempt to convert the handle to a boxed trait object
-        // This is complex for ?Sized types and requires careful implementation
         Err(ModelError::InvalidConfiguration(Cow::Owned(format!(
             "Boxed trait object conversion for model '{}' from provider '{}' requires additional implementation for ?Sized types",
             name, provider

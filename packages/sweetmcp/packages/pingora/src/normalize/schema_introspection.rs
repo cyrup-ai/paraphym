@@ -241,12 +241,11 @@ impl SchemaIntrospector {
         // Check cache first
         {
             let cache = self.cache.read().await;
-            if let Some(cached) = cache.get(upstream_url) {
-                if cached.is_valid() {
+            if let Some(cached) = cache.get(upstream_url)
+                && cached.is_valid() {
                     debug!("Using cached schema for upstream: {}", upstream_url);
                     return Ok(cached.types.clone());
                 }
-            }
         }
 
         // Cache miss or expired, perform introspection

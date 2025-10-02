@@ -286,40 +286,45 @@ impl ModelDownloadProvider for HfHubDownloadProvider {
             return true;
         }
         
-        // Try to get repo files - if this fails, assume not cached
-        let Ok(repo_files) = self.list_repo_files(model_id).await else { return false };
+        // Check local cache directory WITHOUT making network calls
+        // This is a best-effort check - we check if the model directory exists
+        // For exact file checking, we'd need to know the exact filenames which
+        // requires API calls (defeating the purpose of a cache check)
         
-        let repo = self.api.model(model_id.to_string());
+        // Construct the expected cache directory path
+        let model_id_safe = model_id.replace('/', "--");
+        let model_cache_dir = self.cache_dir.join(format!("models--{model_id_safe}"));
         
-        for file_pattern in files {
-            // Find files that match the pattern
-            let matching_exists = if file_pattern.contains('*') || file_pattern.contains('?') {
-                // Pattern match - check if at least one matching file is cached
-                let mut found = false;
-                for repo_file in &repo_files {
-                    if Self::matches_pattern(file_pattern, &repo_file.rfilename)
-                        && let Ok(path) = repo.get(&repo_file.rfilename).await
-                        && tokio::fs::try_exists(&path).await.unwrap_or(false) {
-                            found = true;
-                            break;
-                        }
-                }
-                found
-            } else {
-                // Exact match
-                if let Ok(path) = repo.get(file_pattern).await {
-                    tokio::fs::try_exists(&path).await.unwrap_or(false)
-                } else {
-                    false
-                }
-            };
+        // For patterns, we can't check without knowing actual filenames
+        // For exact files, check if they exist in expected locations
+        if files.iter().any(|f| f.contains('*') || f.contains('?')) {
+            // If patterns are used, we can only check if model dir exists
+            // This is conservative - returns false even if some files might be cached
+            tokio::fs::try_exists(&model_cache_dir)
+                .await
+                .unwrap_or(false)
+        } else {
+            // For exact filenames, check each one in snapshots dir
+            // HF cache structure: models--{org}--{model}/snapshots/{revision}/{files}
             
-            if !matching_exists {
+            // Check if model directory exists first
+            if !tokio::fs::try_exists(&model_cache_dir).await.unwrap_or(false) {
                 return false;
             }
+            
+            // We can't check exact files without knowing the revision
+            // So we check if snapshots directory has any content
+            let snapshots_dir = model_cache_dir.join("snapshots");
+            if let Ok(mut entries) = tokio::fs::read_dir(&snapshots_dir).await {
+                // Just check if there's at least one snapshot
+                if entries.next_entry().await.unwrap_or(None).is_some() {
+                    // Conservatively assume files might be cached if snapshots exist
+                    return true;
+                }
+            }
+            
+            false
         }
-        
-        true
     }
 
     fn cache_dir(&self) -> PathBuf {

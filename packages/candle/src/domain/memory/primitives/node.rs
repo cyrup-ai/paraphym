@@ -512,6 +512,68 @@ impl MemoryNode {
             _ => None,
         }
     }
+
+    /// Reset node to clean state for pool reuse while preserving allocations
+    /// 
+    /// This method efficiently clears all node data while preserving heap allocations
+    /// for better performance in pooling scenarios. Preserves String and Vec capacities.
+    ///
+    /// # Arguments
+    /// * `memory_type` - The memory type to reset the node to
+    ///
+    /// # Returns
+    /// * `MemoryResult<()>` - Ok if reset successful
+    ///
+    /// # Errors
+    /// Returns error if the reset operation fails
+    pub fn reset(&mut self, memory_type: MemoryTypeEnum) -> MemoryResult<()> {
+        // 1. Update timestamps to now
+        let now = SystemTime::now();
+        self.base_memory.created_at = now;
+        self.base_memory.updated_at = now;
+        
+        // 2. Update memory type
+        self.base_memory.memory_type = memory_type;
+        
+        // 3. Reset content while preserving String capacity
+        match &mut self.base_memory.content {
+            MemoryContent::Text(s) => {
+                s.clear(); // Preserves capacity
+            }
+            _ => {
+                // Replace with empty Text variant with pre-allocated capacity
+                self.base_memory.content = MemoryContent::text(String::with_capacity(1024));
+            }
+        }
+        
+        // 4. Reset embedding vector while preserving capacity
+        if let Some(ref mut emb) = self.embedding {
+            let dim = emb.dimension;
+            emb.data.clear(); // Preserves capacity
+            emb.data.resize(dim, 0.0); // Refill with zeros to maintain dimension
+        }
+        
+        // 5. Clear base_memory metadata HashMap
+        {
+            let mut meta = self.base_memory.metadata.write();
+            meta.clear();
+        }
+        
+        // 6. Replace metadata Arc (cheap allocation, simpler than cloning and clearing)
+        self.metadata = Arc::new(CachePadded::new(MemoryNodeMetadata::new()));
+        
+        // 7. Clear relationships skiplist
+        self.relationships.clear();
+        
+        // 8. Reset all atomic statistics counters
+        self.stats.access_count.store(0, Ordering::Relaxed);
+        self.stats.read_count.store(0, Ordering::Relaxed);
+        self.stats.write_count.store(0, Ordering::Relaxed);
+        self.stats.relationship_count.store(0, Ordering::Relaxed);
+        self.stats.last_access_nanos.store(0, Ordering::Relaxed);
+        
+        Ok(())
+    }
 }
 
 impl Serialize for MemoryNode {

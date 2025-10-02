@@ -77,6 +77,12 @@ pub struct PeerRegistry {
     inner: Arc<RwLock<HashMap<SocketAddr, PeerInfo>>>,
 }
 
+impl Default for PeerRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PeerRegistry {
     pub fn new() -> Self {
         Self {
@@ -286,13 +292,11 @@ impl DiscoveryService {
         let mut headers = reqwest::header::HeaderMap::new();
 
         // Add discovery token if configured
-        if let Ok(token) = std::env::var("SWEETMCP_DISCOVERY_TOKEN") {
-            if !token.is_empty() {
-                if let Ok(header_value) = reqwest::header::HeaderValue::from_str(&token) {
+        if let Ok(token) = std::env::var("SWEETMCP_DISCOVERY_TOKEN")
+            && !token.is_empty()
+                && let Ok(header_value) = reqwest::header::HeaderValue::from_str(&token) {
                     headers.insert("x-discovery-token", header_value);
                 }
-            }
-        }
 
         Self {
             registry,

@@ -118,7 +118,7 @@ pub trait CandleAgentRole: Send + Sync + fmt::Debug + Clone {
     fn name(&self) -> &str;
 
     /// Get the temperature setting
-    fn temperature(&self) -> Option<f64>;
+    fn temperature(&self) -> f64;
 
     /// Get the max tokens setting
     fn max_tokens(&self) -> Option<u64>;
@@ -138,7 +138,7 @@ pub struct CandleAgentRoleImpl {
     name: String,
     /// Completion provider integration (`KimiK2`, `Qwen3Coder`, etc.) - Local models only
     completion_provider: Option<Arc<CandleCompletionProviderType>>,
-    temperature: Option<f64>,
+    temperature: f64,
     max_tokens: Option<u64>,
     system_prompt: Option<String>,
     /// Document context loading and management
@@ -196,7 +196,7 @@ impl CandleAgentRole for CandleAgentRoleImpl {
         &self.name
     }
 
-    fn temperature(&self) -> Option<f64> {
+    fn temperature(&self) -> f64 {
         self.temperature
     }
 
@@ -212,7 +212,7 @@ impl CandleAgentRole for CandleAgentRoleImpl {
         Self {
             name: name.into(),
             completion_provider: None,
-            temperature: None,
+            temperature: 0.0,  // Default temperature to 0
             max_tokens: None,
             system_prompt: None,
             contexts: None,

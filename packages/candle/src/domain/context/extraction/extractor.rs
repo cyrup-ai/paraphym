@@ -7,11 +7,12 @@ use serde::de::DeserializeOwned;
 use cyrup_sugars::prelude::MessageChunk;
 
 use super::error::{ExtractionError, _ExtractionResult as ExtractionResult};
+use crate::builders::completion::CompletionRequestBuilder;
 use crate::domain::{
     chat::message::types::CandleMessageRole as MessageRole,
     completion::{
         types::CandleCompletionParams as CompletionParams,
-        CandleCompletionModel as CompletionModel, CandleCompletionRequest as CompletionRequest,
+        CandleCompletionModel as CompletionModel,
     },
     context::chunk::{CandleCompletionChunk, FinishReason},
     prompt::CandlePrompt as Prompt,
@@ -66,15 +67,73 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static 
         let text = text.to_string();
         let provider = Arc::clone(&self.provider);
         let system_prompt = self.system_prompt.clone().unwrap_or_else(|| {
-            format!("Extract structured data from the following text. Return ONLY valid JSON matching the expected schema. Text: {}", text)
+            format!("Extract structured data from the following text. Return ONLY valid JSON matching the expected schema. Text: {text}")
         });
 
         AsyncStream::with_channel(move |sender| {
-            tokio::spawn(async move {
-                let completion_request = CompletionRequest::new(&text)
-                    .with_system_prompt(system_prompt);
+            let completion_request = match CompletionRequestBuilder::new()
+                .system_prompt(system_prompt.clone())
+                .build()
+            {
+                Ok(req) => req,
+                Err(_e) => {
+                    let _ = sender.send(T::default());
+                    return;
+                }
+            };
 
-                match Self::execute_extraction(provider, completion_request, text).await {
+            // Execute extraction synchronously using ystream pattern
+            let model = provider.as_ref();
+            let prompt = Prompt {
+                content: completion_request.system_prompt,
+                role: MessageRole::System,
+            };
+            let params = CompletionParams {
+                temperature: completion_request.temperature,
+                max_tokens: completion_request
+                    .max_tokens
+                    .and_then(|t| std::num::NonZeroU64::new(t.get())),
+                n: std::num::NonZeroU8::MIN,
+                stream: true,
+                tools: None,
+                additional_params: None,
+            };
+
+            // Get the stream and collect chunks
+            let stream = model.prompt(prompt, &params);
+            let chunks: Vec<_> = stream.collect();
+
+            // Process chunks to build response
+            let mut full_response = String::new();
+            let mut finish_reason = None;
+
+            for chunk in chunks {
+                match chunk {
+                    CandleCompletionChunk::Text(text) => {
+                        full_response.push_str(&text);
+                    }
+                    CandleCompletionChunk::Complete {
+                        text,
+                        finish_reason: reason,
+                        ..
+                    } => {
+                        if !text.is_empty() {
+                            full_response.push_str(&text);
+                        }
+                        finish_reason = reason;
+                        break;
+                    }
+                    CandleCompletionChunk::Error(_err) => {
+                        let _ = sender.send(T::default());
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+
+            // Parse and send result
+            if finish_reason == Some(FinishReason::Stop) || !full_response.is_empty() {
+                match Self::parse_json_response(&full_response) {
                     Ok(result) => {
                         let _ = sender.send(result);
                     }
@@ -82,7 +141,9 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static 
                         let _ = sender.send(T::default());
                     }
                 }
-            });
+            } else {
+                let _ = sender.send(T::default());
+            }
         })
     }
 }
@@ -101,88 +162,8 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static 
     pub fn provider(&self) -> &Arc<dyn CompletionModel> {
         &self.provider
     }
-}
 
-impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + MessageChunk + 'static> ExtractorImpl<T> {
-    /// Execute extraction with provider
-    ///
-    /// # Errors
-    ///
-    /// Returns `ExtractionError` if:
-    /// - Model execution fails
-    /// - Response parsing fails
-    /// - Deserialization fails
-    pub async fn execute_extraction(
-        provider: Arc<dyn CompletionModel>,
-        completion_request: CompletionRequest,
-        _text_input: String,
-    ) -> ExtractionResult<T> {
-        let model = provider.as_ref();
-        let prompt = Prompt {
-            content: completion_request.system_prompt,
-            role: MessageRole::System,
-        };
-        let params = CompletionParams {
-            temperature: completion_request.temperature,
-            max_tokens: completion_request
-                .max_tokens
-                .and_then(|t| std::num::NonZeroU64::new(t.get())),
-            // Use MIN which is guaranteed to be 1 for NonZeroU8
-            n: std::num::NonZeroU8::MIN,
-            stream: true,
-            tools: None,
-            additional_params: None,
-        };
-
-        // Get the stream from the model
-        let stream = model.prompt(prompt, &params);
-        let stream = Box::pin(stream);
-
-        let mut full_response = String::new();
-        let mut finish_reason = None;
-
-        // Process the stream chunks
-        while let Some(chunk) = stream.next().await {
-            match chunk {
-                CandleCompletionChunk::Text(text) => {
-                    // Append text content to full response
-                    full_response.push_str(&text);
-                }
-                CandleCompletionChunk::Complete {
-                    text,
-                    finish_reason: reason,
-                    ..
-                } => {
-                    // This is the final chunk
-                    if !text.is_empty() {
-                        full_response.push_str(&text);
-                    }
-                    finish_reason = reason;
-                    break;
-                }
-                CandleCompletionChunk::Error(err) => {
-                    return Err(ExtractionError::CompletionError(format!(
-                        "Error from model: {err}"
-                    )));
-                }
-                // Handle other variants as needed
-                _ => {}
-            }
-        }
-
-        if finish_reason == Some(FinishReason::Stop) || !full_response.is_empty() {
-            match Self::parse_json_response(&full_response) {
-                Ok(result) => Ok(result),
-                Err(e) => Err(e),
-            }
-        } else {
-            Err(ExtractionError::CompletionError(
-                "No valid response from model".to_string(),
-            ))
-        }
-    }
-
-    /// Parse JSON response (planned feature)
+    /// Parse JSON response
     ///
     /// # Errors
     ///
@@ -211,5 +192,3 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + MessageC
         }
     }
 }
-
-

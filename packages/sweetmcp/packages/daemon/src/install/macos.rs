@@ -1,6 +1,6 @@
 //! macOS platform implementation using osascript and launchd.
 
-use std::{collections::HashMap, path::PathBuf, process::Command};
+use std::{collections::HashMap, path::{Path, PathBuf}, process::Command};
 
 use anyhow::{Context, Result};
 use once_cell::sync::OnceCell;
@@ -376,7 +376,7 @@ impl PlatformExecutor {
     }
 
     /// Extract ZIP data to the specified path
-    fn extract_zip_data(zip_data: &[u8], target_path: &PathBuf) -> Result<(), InstallerError> {
+    fn extract_zip_data(zip_data: &[u8], target_path: &Path) -> Result<(), InstallerError> {
         use std::io::{Cursor, Read};
 
         use zip::ZipArchive;
@@ -486,7 +486,7 @@ impl PlatformExecutor {
     }
 
     /// Validate that the helper app is properly signed and functional
-    fn validate_helper(helper_path: &PathBuf) -> Result<bool, InstallerError> {
+    fn validate_helper(helper_path: &Path) -> Result<bool, InstallerError> {
         // Check if the helper exists and has the expected structure
         let contents = helper_path.join("Contents");
         let macos = contents.join("MacOS");
@@ -518,7 +518,7 @@ impl PlatformExecutor {
     }
 
     /// Verify the code signature of the helper app using Tauri-compatible validation
-    fn verify_code_signature(helper_path: &PathBuf) -> Result<bool, InstallerError> {
+    fn verify_code_signature(helper_path: &Path) -> Result<bool, InstallerError> {
         // Use Tauri's signing verification approach - check for valid bundle structure
         // and signature presence without manual codesign calls
 

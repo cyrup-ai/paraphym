@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
+use tokio::sync::RwLock;
 use chrono::{DateTime, Utc};
 use crossbeam_skiplist::SkipMap;
 use ystream::AsyncStream;
@@ -349,7 +350,7 @@ impl EpisodicMemory {
 
     /// Create a new episodic memory and store it in the repository
     pub fn create(
-        memory_repo: Arc<MemoryRepository>,
+        memory_repo: Arc<RwLock<MemoryRepository>>,
         id: &str,
         name: &str,
         description: &str,
@@ -386,17 +387,17 @@ impl EpisodicMemory {
                     embedding: None,
                     evaluation_status: crate::memory::monitoring::operations::OperationStatus::Pending,
                     metadata,
+                    relevance_score: None,
                 };
 
-                // Use the memory repository to create the memory node
-                // Note: Since memory_repo is Arc<MemoryRepository>, we need interior mutability
-                // For now, we'll acknowledge the repository parameter and simulate the creation
-                let _repo_reference = &memory_repo; // Acknowledge the parameter usage
-                let created_memory = memory_node.clone();
-                
-                // TODO: In a real implementation, this would use something like:
-                // let mut repo = memory_repo.write().unwrap(); // if using RwLock
-                // let created_memory = repo.create(&episodic.base.id, &memory_node)?;
+                // Persist memory to repository using write lock
+                let created_memory = match memory_repo.write().await.create(&episodic.base.id, &memory_node) {
+                    Ok(memory) => memory,
+                    Err(e) => {
+                        let _ = tx.send(EpisodicMemoryChunk::new(Err(e)));
+                        return;
+                    }
+                };
                 {
                         // Convert created MemoryNode to BaseMemory
                         let mut metadata = MemoryMetadata::with_type(MemoryTypeEnum::Episodic);

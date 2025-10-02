@@ -78,11 +78,10 @@ pub fn detect_protocol(
     }
 
     // Check headers for protocol hints
-    if let Some(header) = req_header {
-        if let Some(detection) = detect_from_headers(header) {
+    if let Some(header) = req_header
+        && let Some(detection) = detect_from_headers(header) {
             return Ok(detection);
         }
-    }
 
     // Try Cap'n Proto (binary format)
     if is_capnp_binary(body) {
@@ -400,13 +399,12 @@ pub fn validate_json_rpc(value: &Value) -> ConversionResult<()> {
     }
 
     // Check method field
-    if let Some(method) = obj.get("method") {
-        if !method.is_string() {
+    if let Some(method) = obj.get("method")
+        && !method.is_string() {
             return Err(ConversionError::ValidationError(
                 "Method must be a string".to_string(),
             ));
         }
-    }
 
     // Check id field (optional but must be string, number, or null if present)
     if let Some(id) = obj.get("id") {
@@ -435,11 +433,10 @@ pub fn create_error_response(
         "message": message
     });
 
-    if let Some(data_value) = data {
-        if let Some(error_obj) = error.as_object_mut() {
+    if let Some(data_value) = data
+        && let Some(error_obj) = error.as_object_mut() {
             error_obj.insert("data".to_string(), data_value);
         }
-    }
 
     json!({
         "jsonrpc": JSONRPC_VERSION,

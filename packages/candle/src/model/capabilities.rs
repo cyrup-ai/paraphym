@@ -48,7 +48,66 @@ pub enum Capability {
     /// Supports model distillation
     Distillation,
     /// Supports model pruning
-    Pruning}
+    Pruning,
+}
+
+impl Capability {
+    /// Parse a capability string (case-insensitive, supports `snake_case` and kebab-case)
+    pub fn from_string(s: &str) -> Option<Self> {
+        let normalized = s.to_lowercase().replace('-', "_");
+        match normalized.as_str() {
+            "vision" => Some(Self::Vision),
+            "function_calling" => Some(Self::FunctionCalling),
+            "streaming" => Some(Self::Streaming),
+            "fine_tuning" => Some(Self::FineTuning),
+            "batch_processing" => Some(Self::BatchProcessing),
+            "realtime" => Some(Self::Realtime),
+            "multimodal" => Some(Self::Multimodal),
+            "thinking" => Some(Self::Thinking),
+            "embedding" => Some(Self::Embedding),
+            "code_completion" => Some(Self::CodeCompletion),
+            "chat" => Some(Self::Chat),
+            "instruction_following" => Some(Self::InstructionFollowing),
+            "few_shot_learning" => Some(Self::FewShotLearning),
+            "zero_shot_learning" => Some(Self::ZeroShotLearning),
+            "long_context" => Some(Self::LongContext),
+            "low_latency" => Some(Self::LowLatency),
+            "high_throughput" => Some(Self::HighThroughput),
+            "quantization" => Some(Self::Quantization),
+            "distillation" => Some(Self::Distillation),
+            "pruning" => Some(Self::Pruning),
+            _ => None,
+        }
+    }
+}
+
+impl From<crate::domain::model::capabilities::CandleCapability> for Capability {
+    fn from(candle_cap: crate::domain::model::capabilities::CandleCapability) -> Self {
+        use crate::domain::model::capabilities::CandleCapability;
+        match candle_cap {
+            CandleCapability::Vision => Self::Vision,
+            CandleCapability::FunctionCalling => Self::FunctionCalling,
+            CandleCapability::Streaming => Self::Streaming,
+            CandleCapability::FineTuning => Self::FineTuning,
+            CandleCapability::BatchProcessing => Self::BatchProcessing,
+            CandleCapability::Realtime => Self::Realtime,
+            CandleCapability::Multimodal => Self::Multimodal,
+            CandleCapability::Thinking => Self::Thinking,
+            CandleCapability::Embedding => Self::Embedding,
+            CandleCapability::CodeCompletion => Self::CodeCompletion,
+            CandleCapability::Chat => Self::Chat,
+            CandleCapability::InstructionFollowing => Self::InstructionFollowing,
+            CandleCapability::FewShotLearning => Self::FewShotLearning,
+            CandleCapability::ZeroShotLearning => Self::ZeroShotLearning,
+            CandleCapability::LongContext => Self::LongContext,
+            CandleCapability::LowLatency => Self::LowLatency,
+            CandleCapability::HighThroughput => Self::HighThroughput,
+            CandleCapability::Quantization => Self::Quantization,
+            CandleCapability::Distillation => Self::Distillation,
+            CandleCapability::Pruning => Self::Pruning,
+        }
+    }
+}
 
 /// Model capability flags for filtering and selection
 ///

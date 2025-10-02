@@ -131,6 +131,7 @@ impl IndexAwareQueryPlanner {
             use_index,
             index_name,
             steps,
+            query_fields: fields.to_vec(),
         })
     }
 

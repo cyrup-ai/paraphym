@@ -65,7 +65,7 @@ impl SecureDiscoveryToken {
     }
 
     /// Get cached encrypted token (encrypt if not cached)
-    pub async fn to_encrypted_cached(&mut self) -> Result<String> {
+    pub async fn get_encrypted_cached(&mut self) -> Result<String> {
         if let Some(ref cached) = self.cached_encrypted {
             return Ok(cached.clone());
         }
@@ -76,7 +76,7 @@ impl SecureDiscoveryToken {
     }
 
     /// Decrypt token from transmission
-    pub async fn from_encrypted(&mut self, encrypted_str: &str) -> Result<()> {
+    pub async fn load_encrypted(&mut self, encrypted_str: &str) -> Result<()> {
         let encrypted: EncryptedToken = serde_json::from_str(encrypted_str)?;
         let token = self.manager.decrypt_token(&encrypted).await?;
 
@@ -264,7 +264,7 @@ impl SecureDiscoveryToken {
 
     /// Import token from backup (encrypted)
     pub async fn import_encrypted(&mut self, encrypted_backup: &str) -> Result<()> {
-        self.from_encrypted(encrypted_backup).await
+        self.load_encrypted(encrypted_backup).await
     }
 
     /// Secure comparison with constant time

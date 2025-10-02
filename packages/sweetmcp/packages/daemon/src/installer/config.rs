@@ -393,7 +393,7 @@ fn validate_existing_wildcard_cert(cert_path: &Path) -> Result<()> {
     }
 
     // Parse X.509 certificate
-    let cert = x509_parser::parse_x509_certificate(&cert_der.contents())
+    let cert = x509_parser::parse_x509_certificate(cert_der.contents())
         .context("Failed to parse X.509 certificate")?
         .1;
 

@@ -52,7 +52,7 @@ impl AuthHandler {
             .await
         {
             Ok(_) => Ok(true), // Response written
-            Err(e) => Err(EdgeServiceError::NetworkError(format!(
+            Err(e) => Err(EdgeServiceError::Network(format!(
                 "Failed to send auth error response: {}",
                 e
             ))),
@@ -65,7 +65,7 @@ impl AuthHandler {
         token: &str,
     ) -> Result<UserClaims, EdgeServiceError> {
         if token.is_empty() {
-            return Err(EdgeServiceError::AuthenticationError(
+            return Err(EdgeServiceError::Authentication(
                 "Empty JWT token".to_string(),
             ));
         }
@@ -73,24 +73,24 @@ impl AuthHandler {
         // Split token into parts with zero allocation validation
         let parts: Vec<&str> = token.splitn(3, '.').collect();
         if parts.len() != 3 {
-            return Err(EdgeServiceError::AuthenticationError(
+            return Err(EdgeServiceError::Authentication(
                 "Invalid JWT format".to_string(),
             ));
         }
 
         // Decode header with fast base64 decoding (validates header structure)
         let _header = Self::decode_jwt_part(parts[0]).map_err(|e| {
-            EdgeServiceError::AuthenticationError(format!("Invalid JWT header: {}", e))
+            EdgeServiceError::Authentication(format!("Invalid JWT header: {}", e))
         })?;
 
         // Decode payload with optimized JSON parsing
         let payload = Self::decode_jwt_part(parts[1]).map_err(|e| {
-            EdgeServiceError::AuthenticationError(format!("Invalid JWT payload: {}", e))
+            EdgeServiceError::Authentication(format!("Invalid JWT payload: {}", e))
         })?;
 
         // Verify signature with constant-time comparison
         if !Self::verify_jwt_signature(service, parts[0], parts[1], parts[2])? {
-            return Err(EdgeServiceError::AuthenticationError(
+            return Err(EdgeServiceError::Authentication(
                 "Invalid JWT signature".to_string(),
             ));
         }
@@ -107,11 +107,7 @@ impl AuthHandler {
             .get("authorization")
             .and_then(|h| h.to_str().ok())
             .and_then(|auth_header| {
-                if auth_header.starts_with("Bearer ") {
-                    Some(&auth_header[7..]) // Skip "Bearer "
-                } else {
-                    None
-                }
+                auth_header.strip_prefix("Bearer ")
             })
     }
 
@@ -146,17 +142,17 @@ impl AuthHandler {
 
         // Decode the API key
         let decoded = Self::decode_base64url(api_key).map_err(|e| {
-            EdgeServiceError::AuthenticationError(format!("Invalid API key format: {}", e))
+            EdgeServiceError::Authentication(format!("Invalid API key format: {}", e))
         })?;
 
         let key_str = String::from_utf8(decoded).map_err(|e| {
-            EdgeServiceError::AuthenticationError(format!("Invalid API key encoding: {}", e))
+            EdgeServiceError::Authentication(format!("Invalid API key encoding: {}", e))
         })?;
 
         // Parse key components: client_id|expiration|signature
         let parts: Vec<&str> = key_str.splitn(3, '|').collect();
         if parts.len() != 3 {
-            return Err(EdgeServiceError::AuthenticationError(
+            return Err(EdgeServiceError::Authentication(
                 "Invalid API key structure".to_string(),
             ));
         }
@@ -200,22 +196,22 @@ impl AuthHandler {
     /// Extract expiration timestamp from API key
     fn extract_api_key_expiration(api_key: &str) -> Result<u64, EdgeServiceError> {
         let decoded = Self::decode_base64url(api_key).map_err(|e| {
-            EdgeServiceError::AuthenticationError(format!("Invalid API key format: {}", e))
+            EdgeServiceError::Authentication(format!("Invalid API key format: {}", e))
         })?;
 
         let key_str = String::from_utf8(decoded).map_err(|e| {
-            EdgeServiceError::AuthenticationError(format!("Invalid API key encoding: {}", e))
+            EdgeServiceError::Authentication(format!("Invalid API key encoding: {}", e))
         })?;
 
         let parts: Vec<&str> = key_str.splitn(3, '|').collect();
         if parts.len() != 3 {
-            return Err(EdgeServiceError::AuthenticationError(
+            return Err(EdgeServiceError::Authentication(
                 "Invalid API key structure".to_string(),
             ));
         }
 
         parts[1].parse::<u64>().map_err(|e| {
-            EdgeServiceError::AuthenticationError(format!("Invalid expiration format: {}", e))
+            EdgeServiceError::Authentication(format!("Invalid expiration format: {}", e))
         })
     }
 
@@ -258,16 +254,16 @@ impl AuthHandler {
     /// Extract client ID from API key for audit logging
     fn extract_client_id_from_api_key(api_key: &str) -> Result<String, EdgeServiceError> {
         let decoded = Self::decode_base64url(api_key).map_err(|e| {
-            EdgeServiceError::AuthenticationError(format!("Invalid API key format: {}", e))
+            EdgeServiceError::Authentication(format!("Invalid API key format: {}", e))
         })?;
 
         let key_str = String::from_utf8(decoded).map_err(|e| {
-            EdgeServiceError::AuthenticationError(format!("Invalid API key encoding: {}", e))
+            EdgeServiceError::Authentication(format!("Invalid API key encoding: {}", e))
         })?;
 
         let parts: Vec<&str> = key_str.splitn(3, '|').collect();
         if parts.len() != 3 {
-            return Err(EdgeServiceError::AuthenticationError(
+            return Err(EdgeServiceError::Authentication(
                 "Invalid API key structure".to_string(),
             ));
         }
@@ -283,7 +279,7 @@ impl AuthHandler {
             2 => format!("{}==", part),
             3 => format!("{}=", part),
             _ => {
-                return Err(EdgeServiceError::AuthenticationError(
+                return Err(EdgeServiceError::Authentication(
                     "Invalid base64 length".to_string(),
                 ))
             }
@@ -295,11 +291,11 @@ impl AuthHandler {
         // Decode base64
         BASE64_STANDARD.decode(&standard_b64)
             .map_err(|e| {
-                EdgeServiceError::AuthenticationError(format!("Base64 decode error: {}", e))
+                EdgeServiceError::Authentication(format!("Base64 decode error: {}", e))
             })
             .and_then(|bytes| {
                 String::from_utf8(bytes).map_err(|e| {
-                    EdgeServiceError::AuthenticationError(format!("UTF-8 decode error: {}", e))
+                    EdgeServiceError::Authentication(format!("UTF-8 decode error: {}", e))
                 })
             })
     }
@@ -328,7 +324,7 @@ impl AuthHandler {
 
         // Decode provided signature
         let provided_signature = Self::decode_base64url(signature).map_err(|e| {
-            EdgeServiceError::AuthenticationError(format!("Signature decode error: {}", e))
+            EdgeServiceError::Authentication(format!("Signature decode error: {}", e))
         })?;
 
         // Constant-time comparison
@@ -343,7 +339,7 @@ impl AuthHandler {
             2 => format!("{}==", input),
             3 => format!("{}=", input),
             _ => {
-                return Err(EdgeServiceError::AuthenticationError(
+                return Err(EdgeServiceError::Authentication(
                     "Invalid base64url length".to_string(),
                 ))
             }
@@ -354,7 +350,7 @@ impl AuthHandler {
 
         // Decode base64
         BASE64_STANDARD.decode(&standard_b64).map_err(|e| {
-            EdgeServiceError::AuthenticationError(format!("Base64url decode error: {}", e))
+            EdgeServiceError::Authentication(format!("Base64url decode error: {}", e))
         })
     }
 
@@ -363,21 +359,21 @@ impl AuthHandler {
         use serde_json::Value;
 
         let json: Value = serde_json::from_str(payload).map_err(|e| {
-            EdgeServiceError::AuthenticationError(format!("JSON parse error: {}", e))
+            EdgeServiceError::Authentication(format!("JSON parse error: {}", e))
         })?;
 
         // Extract required fields
         let user_id = json["sub"]
             .as_str()
             .ok_or_else(|| {
-                EdgeServiceError::AuthenticationError("Missing 'sub' claim".to_string())
+                EdgeServiceError::Authentication("Missing 'sub' claim".to_string())
             })?
             .to_string();
 
         let username = json["username"].as_str().unwrap_or(&user_id).to_string();
 
         let expires_at = json["exp"].as_u64().ok_or_else(|| {
-            EdgeServiceError::AuthenticationError("Missing 'exp' claim".to_string())
+            EdgeServiceError::Authentication("Missing 'exp' claim".to_string())
         })?;
 
         let issued_at = json["iat"].as_u64().unwrap_or_else(|| {
@@ -570,7 +566,7 @@ impl AuthHandler {
         }
 
         // OPTIONS requests are typically public for CORS
-        if method == &Method::OPTIONS {
+        if method == Method::OPTIONS {
             return false;
         }
 

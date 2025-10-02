@@ -65,6 +65,8 @@ pub struct QueryPlan {
     pub index_name: Option<String>,
     /// Execution steps
     pub steps: Vec<QueryStep>,
+    /// Fields referenced in the query predicates
+    pub query_fields: Vec<String>,
 }
 
 /// Individual query execution step

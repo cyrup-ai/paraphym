@@ -862,6 +862,7 @@ impl MemoryCoordinator {
             embedding: embedding_vec,
             evaluation_status: crate::memory::monitoring::operations::OperationStatus::Pending,
             metadata: memory_metadata,
+            relevance_score: None, // No score for stored memories, only for retrieved ones
         }
     }
 
@@ -995,58 +996,32 @@ impl MemoryManager for MemoryCoordinator {
     // QUANTUM-ROUTED SEARCH METHODS
     
     fn search_by_content(&self, query: &str) -> MemoryStream {
-        // Create enhanced query for quantum routing
-        let enhanced_query = EnhancedQuery {
-            query: query.to_string(),
-            routing_strategy: RoutingStrategy::Hybrid(vec![
-                RoutingStrategy::Quantum,
-                RoutingStrategy::Attention
-            ]),
-            temporal_context: TemporalContext::default(),
-            coherence_threshold: 0.7,
-        };
-
-        // Block on async routing decision (trait methods are sync)
-        let routing_decision = tokio::task::block_in_place(|| {
+        // ALWAYS try vector search first for semantic similarity
+        // Generate embedding for the query
+        let embedding = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {
-                self.quantum_router.route(enhanced_query).await
+                self.generate_embedding(query).await
             })
         });
-
-        // Route to appropriate search strategy
-        match routing_decision {
-            Ok(decision) => {
-                match decision.strategy {
-                    RoutingStrategy::Quantum => {
-                        // Vector search - generate embedding first
-                        let embedding = tokio::task::block_in_place(|| {
-                            tokio::runtime::Handle::current().block_on(async {
-                                self.generate_embedding(query).await
-                            })
-                        });
-                        
-                        match embedding {
-                            Ok(emb) => self.surreal_manager.search_by_vector(emb, 10),
-                            Err(_) => self.surreal_manager.search_by_content(query), // Fallback
-                        }
-                    }
-                    RoutingStrategy::Attention => {
-                        self.surreal_manager.search_by_content(query)
-                    }
-                    RoutingStrategy::Causal => {
-                        self.surreal_manager.search_by_temporal(query, 10)
-                    }
-                    RoutingStrategy::Emergent => {
-                        self.surreal_manager.search_by_pattern(query, 10)
-                    }
-                    RoutingStrategy::Hybrid(_) => {
-                        // Default to content search for hybrid
-                        self.surreal_manager.search_by_content(query)
-                    }
-                }
+        
+        match embedding {
+            Ok(emb) => {
+                // Successfully generated embedding - use vector search with cosine similarity
+                self.surreal_manager.search_by_vector(emb, 10)
             }
-            Err(_) => {
-                // Fallback to content search if routing fails
+            Err(e) => {
+                // Only fall back to substring search if embedding generation fails
+                log::warn!("Embedding generation failed, falling back to substring search: {}", e);
+                
+                // Try quantum routing as secondary option
+                let _enhanced_query = EnhancedQuery {
+                    query: query.to_string(),
+                    routing_strategy: RoutingStrategy::Attention, // Use attention for substring
+                    temporal_context: TemporalContext::default(),
+                    coherence_threshold: 0.7,
+                };
+
+                // Use substring search as fallback
                 self.surreal_manager.search_by_content(query)
             }
         }

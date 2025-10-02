@@ -40,7 +40,7 @@ impl CertificateValidator {
     }
 
     /// Load certificate from file
-    pub fn from_file<P: AsRef<Path>>(self, path: P) -> CertificateValidatorWithInput {
+    pub fn with_file<P: AsRef<Path>>(self, path: P) -> CertificateValidatorWithInput {
         CertificateValidatorWithInput {
             input_source: InputSource::File(path.as_ref().to_path_buf()),
             domain: None,
@@ -51,7 +51,7 @@ impl CertificateValidator {
 
     /// Load certificate from PEM string
     #[must_use]
-    pub fn from_string(self, pem: &str) -> CertificateValidatorWithInput {
+    pub fn with_string(self, pem: &str) -> CertificateValidatorWithInput {
         CertificateValidatorWithInput {
             input_source: InputSource::String(pem.to_string()),
             domain: None,
@@ -62,7 +62,7 @@ impl CertificateValidator {
 
     /// Load certificate from bytes
     #[must_use]
-    pub fn from_bytes(self, bytes: &[u8]) -> CertificateValidatorWithInput {
+    pub fn with_bytes(self, bytes: &[u8]) -> CertificateValidatorWithInput {
         CertificateValidatorWithInput {
             input_source: InputSource::Bytes(bytes.to_vec()),
             domain: None,

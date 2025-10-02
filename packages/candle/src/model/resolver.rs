@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::hash::Hash;
+use std::sync::LazyLock;
 
 // Removed unused import: std::sync::Arc
 use ahash::RandomState;
@@ -16,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use strsim;
 
 use crate::domain::model::error::{CandleModelError as ModelError, CandleResult as Result};
+use crate::domain::model::capabilities::CandleCapability;
 use crate::model::info::ModelInfo;
 use crate::model::registry::ModelRegistry;
 // Removed unused import: strsim::jaro_winkler
@@ -212,6 +214,15 @@ impl ModelResolution {
     }
 }
 
+/// Cached environment variable for default provider
+/// Using `LazyLock` prevents memory leaks while maintaining &'static str return type
+static ENV_DEFAULT_PROVIDER: LazyLock<Option<&'static str>> = LazyLock::new(|| {
+    std::env::var("DEFAULT_MODEL_PROVIDER")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(|s| Box::leak(s.into_boxed_str()) as &'static str)
+});
+
 /// A resolver for model names and providers
 #[derive(Clone)]
 pub struct ModelResolver {
@@ -342,7 +353,7 @@ impl ModelResolver {
         for rule in &self.rules {
             if rule.pattern.matches(model_name) {
                 if let Some(condition) = &rule.condition
-                    && !self.check_condition(condition)
+                    && !self.check_condition::<M>(condition, rule, registry)
                 {
                     continue;
                 }
@@ -402,26 +413,78 @@ impl ModelResolver {
 
     /// Get the default provider (if any)
     pub fn get_default_provider(&self) -> Option<&'static str> {
-        // In a real implementation, this would check configuration
-        // For now, we'll just return the first provider we find
-        None
+        *ENV_DEFAULT_PROVIDER
     }
 
     /// Check if a condition is met
-    fn check_condition(&self, condition: &RuleCondition) -> bool {
+    fn check_condition<M: Model + 'static>(
+        &self,
+        condition: &RuleCondition,
+        rule: &ModelResolutionRule,
+        registry: &ModelRegistry,
+    ) -> bool {
         match condition {
-            RuleCondition::HasCapability { capability: _ } => {
-                // In a real implementation, check if the model has the capability
-                false
+            RuleCondition::HasCapability { capability } => {
+                // Get the target model from the rule
+                let model = match registry.get::<M>(&rule.provider, &rule.target) {
+                    Ok(Some(m)) => m,
+                    _ => return false,
+                };
+                
+                // Get model info
+                let model_info = model.info();
+                
+                // Parse capability string
+                let cap = match CandleCapability::from_string(capability) {
+                    Some(c) => c.into(),
+                    None => return false,
+                };
+                
+                // Convert to capabilities and check
+                let capabilities = model_info.to_capabilities();
+                capabilities.has_capability(cap)
             }
-            RuleCondition::HasFeature { feature: _ } => {
-                // In a real implementation, check if the feature is enabled
-                false
+            RuleCondition::HasFeature { feature } => {
+                // Get the target model from the rule
+                let model = match registry.get::<M>(&rule.provider, &rule.target) {
+                    Ok(Some(m)) => m,
+                    _ => return false,
+                };
+                
+                let model_info = model.info();
+                
+                // Map feature strings to ModelInfo attributes
+                match feature.to_lowercase().as_str() {
+                    "embedding" | "embeddings" => model_info.supports_embeddings,
+                    "vision" | "multimodal" => model_info.supports_vision,
+                    "function_calling" | "tools" => model_info.supports_function_calling,
+                    "streaming" => model_info.supports_streaming,
+                    "thinking" | "reasoning" => model_info.supports_thinking,
+                    "long_context" => {
+                        // Long context = max_input_tokens > 32k
+                        model_info.max_input_tokens
+                            .map(|t| t.get() > 32000)
+                            .unwrap_or(false)
+                    }
+                    // Check model_type field for feature match
+                    _ => model_info.model_type
+                        .as_ref()
+                        .map(|t| t == feature)
+                        .unwrap_or(false),
+                }
             }
             RuleCondition::EnvVarSet { name } => std::env::var(name).is_ok(),
-            RuleCondition::FeatureEnabled { name: _ } => {
-                // In a real implementation, check if the feature is enabled
-                false
+            RuleCondition::FeatureEnabled { name } => {
+                // Check environment variable: CANDLE_FEATURE_{NAME}
+                let env_var = format!("CANDLE_FEATURE_{}", name.to_uppercase());
+                
+                match std::env::var(&env_var) {
+                    Ok(val) => {
+                        // Consider enabled if set to "1", "true", or "enabled"
+                        matches!(val.to_lowercase().as_str(), "1" | "true" | "enabled")
+                    }
+                    Err(_) => false,
+                }
             }
         }
     }

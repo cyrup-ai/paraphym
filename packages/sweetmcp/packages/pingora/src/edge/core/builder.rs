@@ -83,15 +83,15 @@ impl EdgeServiceBuilder {
         info!("Building EdgeService");
 
         let cfg = self.cfg.ok_or_else(|| {
-            EdgeServiceError::ConfigurationError("Configuration is required".to_string())
+            EdgeServiceError::Configuration("Configuration is required".to_string())
         })?;
 
         let bridge_tx = self.bridge_tx.ok_or_else(|| {
-            EdgeServiceError::ConfigurationError("Bridge channel is required".to_string())
+            EdgeServiceError::Configuration("Bridge channel is required".to_string())
         })?;
 
         let peer_registry = self.peer_registry.ok_or_else(|| {
-            EdgeServiceError::ConfigurationError("Peer registry is required".to_string())
+            EdgeServiceError::Configuration("Peer registry is required".to_string())
         })?;
 
         // Create base service
@@ -137,7 +137,7 @@ impl EdgeServiceBuilder {
         });
 
         // Create test peer registry if not provided
-        let peer_registry = self.peer_registry.unwrap_or_else(|| PeerRegistry::new());
+        let peer_registry = self.peer_registry.unwrap_or_default();
 
         // Build with test configuration
         Self {
@@ -153,19 +153,19 @@ impl EdgeServiceBuilder {
     /// Validate builder state before building
     pub fn validate(&self) -> Result<(), EdgeServiceError> {
         if self.cfg.is_none() {
-            return Err(EdgeServiceError::ConfigurationError(
+            return Err(EdgeServiceError::Configuration(
                 "Configuration must be set before building".to_string(),
             ));
         }
 
         if self.bridge_tx.is_none() {
-            return Err(EdgeServiceError::ConfigurationError(
+            return Err(EdgeServiceError::Configuration(
                 "Bridge channel must be set before building".to_string(),
             ));
         }
 
         if self.peer_registry.is_none() {
-            return Err(EdgeServiceError::ConfigurationError(
+            return Err(EdgeServiceError::Configuration(
                 "Peer registry must be set before building".to_string(),
             ));
         }
@@ -173,13 +173,13 @@ impl EdgeServiceBuilder {
         // Validate configuration if present
         if let Some(ref cfg) = self.cfg {
             if cfg.upstreams.is_empty() {
-                return Err(EdgeServiceError::ConfigurationError(
+                return Err(EdgeServiceError::Configuration(
                     "At least one upstream must be configured".to_string(),
                 ));
             }
 
             if cfg.jwt_secret.is_empty() {
-                return Err(EdgeServiceError::ConfigurationError(
+                return Err(EdgeServiceError::Configuration(
                     "JWT secret must be configured".to_string(),
                 ));
             }

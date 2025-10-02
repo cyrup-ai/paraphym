@@ -137,8 +137,8 @@ impl AdvancedRateLimitManager {
         }
 
         // Check peer-specific rate limit if peer_id is provided
-        if allowed {
-            if let Some(peer) = peer_id {
+        if allowed
+            && let Some(peer) = peer_id {
                 if let Some(mut limiter) = self.peer_limiters.get_mut(peer) {
                     for _ in 0..request_count {
                         if !limiter.try_request() {
@@ -161,7 +161,6 @@ impl AdvancedRateLimitManager {
                     self.peer_limiters.insert(peer.to_string(), limiter);
                 }
             }
-        }
 
         // Update statistics with atomic operations
         if allowed {
@@ -392,6 +391,12 @@ pub enum RateLimitAlgorithmType {
 pub struct RateLimitStats {
     pub requests_allowed: AtomicU64,
     pub requests_denied: AtomicU64,
+}
+
+impl Default for RateLimitStats {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RateLimitStats {

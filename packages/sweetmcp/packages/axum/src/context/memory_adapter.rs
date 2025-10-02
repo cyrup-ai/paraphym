@@ -104,6 +104,7 @@ impl MemoryContextAdapter {
                         "key": key
                     }),
                 },
+                relevance_score: None,
             };
             
             // Use create_memory which returns PendingMemory (Future)

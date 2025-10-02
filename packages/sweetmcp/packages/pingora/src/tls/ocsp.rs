@@ -63,6 +63,12 @@ impl std::fmt::Debug for OcspCache {
     }
 }
 
+impl Default for OcspCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl OcspCache {
     pub fn new() -> Self {
         // Pre-generate 1KB of random bytes for nonce generation

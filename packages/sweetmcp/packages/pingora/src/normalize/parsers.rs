@@ -365,14 +365,13 @@ pub fn validate_type_condition(
     }
 
     // Validate fragment type compatibility with current context
-    if let Some(current_type) = context.get_type_info() {
-        if !context.is_type_compatible(type_name, current_type) {
+    if let Some(current_type) = context.get_type_info()
+        && !context.is_type_compatible(type_name, current_type) {
             return Err(ConversionError::TypeConditionError(format!(
                 "Fragment type '{}' is not compatible with current context type '{}'",
                 type_name, current_type
             )));
         }
-    }
 
     debug!(
         "Validated type condition: {} - passed all checks",
@@ -1154,9 +1153,8 @@ pub fn parse_capnp_message(body: &[u8]) -> ConversionResult<Value> {
                     if !root.is_null() {
                         // Try to parse the actual data content
                         // First try as text
-                        if let Ok(text) = root.get_as::<text::Reader>() {
-                            if let Ok(s) = text.to_str() { return Ok(Value::String(s.to_string())) }
-                        }
+                        if let Ok(text) = root.get_as::<text::Reader>()
+                            && let Ok(s) = text.to_str() { return Ok(Value::String(s.to_string())) }
 
                         // Try as data blob
                         if let Ok(data) = root.get_as::<data::Reader>() {

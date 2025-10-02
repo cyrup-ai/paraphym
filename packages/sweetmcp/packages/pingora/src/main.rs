@@ -74,7 +74,7 @@ fn run_server() -> Result<()> {
     let local_port = cfg
         .tcp_bind
         .split(':')
-        .last()
+        .next_back()
         .and_then(|p| p.parse::<u16>().ok())
         .unwrap_or(8443);
 
@@ -224,11 +224,10 @@ fn run_server() -> Result<()> {
     }
 
     // Remove old socket file if it exists
-    if std::path::Path::new(&cfg.uds_path).exists() {
-        if let Err(e) = std::fs::remove_file(&cfg.uds_path) {
+    if std::path::Path::new(&cfg.uds_path).exists()
+        && let Err(e) = std::fs::remove_file(&cfg.uds_path) {
             log::warn!("Failed to remove old socket file: {}", e);
         }
-    }
 
     proxy_service.add_uds(&cfg.uds_path, None);
 
@@ -506,21 +505,18 @@ impl BackgroundService for MetricsCollectorService {
 
                             // Spawn individual metric fetches to run concurrently
                             tokio::spawn(async move {
-                                if let Ok(response) = client_clone.get(&url).send().await {
-                                    if let Ok(text) = response.text().await {
+                                if let Ok(response) = client_clone.get(&url).send().await
+                                    && let Ok(text) = response.text().await {
                                         // Parse prometheus metrics for node_load1
                                         for line in text.lines() {
-                                            if line.starts_with("node_load1 ") {
-                                                if let Some(value_str) = line.split_whitespace().nth(1) {
-                                                    if let Ok(value) = value_str.parse::<f64>() {
-                                                        picker_clone.update_load(idx, value);
-                                                        break;
-                                                    }
+                                            if line.starts_with("node_load1 ")
+                                                && let Some(value_str) = line.split_whitespace().nth(1)
+                                                && let Ok(value) = value_str.parse::<f64>() {
+                                                    picker_clone.update_load(idx, value);
+                                                    break;
                                                 }
-                                            }
                                         }
                                     }
-                                }
                             });
                         }
                     }

@@ -54,6 +54,12 @@ impl std::fmt::Debug for CrlCache {
     }
 }
 
+impl Default for CrlCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CrlCache {
     pub fn new() -> Self {
         let http_client = BootstrapHttpClient::new();

@@ -1,0 +1,67 @@
+//! Template parser implementation
+//!
+//! Provides high-performance parsing for template syntax with
+//! zero-allocation patterns where possible.
+
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use super::core::{TemplateAst, TemplateError, TemplateResult, TemplateVariable, VariableType};
+
+/// Template parser configuration
+#[derive(Debug, Clone)]
+pub struct ParserConfig {
+    /// Maximum nesting depth for template structures
+    pub max_depth: usize,
+    /// Maximum number of tokens to parse
+    pub max_tokens: usize,
+    /// Whether to allow complex expressions in templates
+    pub allow_expressions: bool,
+    /// Whether to allow function calls in templates
+    pub allow_functions: bool,
+    /// Whether to require all variables to be explicitly defined
+    pub strict_variables: bool,
+}
+
+impl Default for ParserConfig {
+    fn default() -> Self {
+        Self {
+            max_depth: 32,
+            max_tokens: 10000,
+            allow_expressions: true,
+            allow_functions: true,
+            strict_variables: false,
+        }
+    }
+}
+
+/// Template parser implementation
+#[derive(Debug)]
+pub struct TemplateParser {
+    config: ParserConfig,
+}
+
+impl TemplateParser {
+    /// Create a new template parser with default configuration
+    pub fn new() -> Self {
+        Self {
+            config: ParserConfig::default(),
+        }
+    }
+
+    /// Create a new template parser with custom configuration
+    pub fn with_config(config: ParserConfig) -> Self {
+        Self { config }
+    }
+
+    /// Parse template content into AST
+    ///
+    /// # Errors
+    ///
+    /// Returns `TemplateError` if:
+    /// - Maximum parsing depth is exceeded
+    /// - Template syntax is invalid
+    /// - Variable or expression parsing fails
+    pub fn parse(&self, content: &str) -> TemplateResult<TemplateAst> {
+        self.parse_with_depth(content, 0)
+    }

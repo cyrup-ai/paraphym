@@ -74,6 +74,7 @@ impl PromptFormatter {
     /// - U-shaped attention pattern places important info at beginning/end
     pub fn format_prompt(
         &self,
+        system_prompt: Option<&str>,  // Added system prompt parameter
         memories: &ZeroOneOrMany<RetrievalResult>,
         documents: &ZeroOneOrMany<Document>,
         chat_history: &ZeroOneOrMany<ChatMessage>,
@@ -81,22 +82,31 @@ impl PromptFormatter {
     ) -> String {
         let mut prompt_parts = Vec::new();
 
-        // 1. Memory section (prepended to user prompt per best practices)
+        // 1. SYSTEM PROMPT FIRST (most important for LLM attention)
+        if let Some(sys_prompt) = system_prompt {
+            if self.include_headers {
+                prompt_parts.push(format!("--- SYSTEM INSTRUCTIONS ---\n{sys_prompt}"));
+            } else {
+                prompt_parts.push(sys_prompt.to_string());
+            }
+        }
+
+        // 2. Memory section (prepended after system prompt)
         if let Some(memory_section) = self.format_memory_section(memories) {
             prompt_parts.push(memory_section);
         }
 
-        // 2. Context section (static documents)
+        // 3. Context section (static documents)
         if let Some(context_section) = self.format_context_section(documents) {
             prompt_parts.push(context_section);
         }
 
-        // 3. Chat history section
+        // 4. Chat history section
         if let Some(history_section) = self.format_chat_history(chat_history) {
             prompt_parts.push(history_section);
         }
 
-        // 4. Current user message
+        // 5. Current user message
         prompt_parts.push(format!("User: {user_message}"));
 
         prompt_parts.join("\n\n")
@@ -268,6 +278,7 @@ mod tests {
         let chat_history = ZeroOneOrMany::None;
 
         let result = formatter.format_prompt(
+            None,
             &memories,
             &documents,
             &chat_history,

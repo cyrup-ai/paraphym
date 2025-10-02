@@ -117,7 +117,7 @@ RX4MzusreyKRGdvr2IN2gYCDPOgOiqp3YKkOnXV8/pya1KSGrT51fEYTdUrjJ6dr
                 // Certificate parsed successfully
             }
             Err(e) => {
-                assert!(false, "Failed to parse EXAMPLE_CERT: {:?}", e);
+                panic!("Failed to parse EXAMPLE_CERT: {:?}", e);
             }
         }
     }

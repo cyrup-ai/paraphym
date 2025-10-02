@@ -30,6 +30,7 @@
 //! }
 //! ```
 
+use std::str::FromStr;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -67,18 +68,22 @@ pub enum VulnerabilitySeverity {
     Info,
 }
 
-impl VulnerabilitySeverity {
-    /// Convert severity string to enum with zero-allocation
-    pub fn from_str(s: &str) -> Option<Self> {
+impl std::str::FromStr for VulnerabilitySeverity {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "critical" => Some(Self::Critical),
-            "high" => Some(Self::High),
-            "medium" => Some(Self::Medium),
-            "low" => Some(Self::Low),
-            "info" => Some(Self::Info),
-            _ => None,
+            "critical" => Ok(Self::Critical),
+            "high" => Ok(Self::High),
+            "medium" => Ok(Self::Medium),
+            "low" => Ok(Self::Low),
+            "info" => Ok(Self::Info),
+            _ => Err(format!("Unknown severity: {}", s)),
         }
     }
+}
+
+impl VulnerabilitySeverity {
 
     /// Get numeric weight for threshold comparison
     pub fn weight(&self) -> u32 {
@@ -192,6 +197,12 @@ pub struct AuditResult {
     pub scan_timestamp: u64,
     /// Whether scan completed successfully
     pub success: bool,
+}
+
+impl Default for AuditResult {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AuditResult {
@@ -373,7 +384,7 @@ impl VulnerabilityScanner {
     /// Run cargo-audit command with timeout
     async fn run_cargo_audit(&self) -> Result<AuditResult, AuditError> {
         let command = Command::new("cargo")
-            .args(&["audit", "--format", "json", "--color", "never"])
+            .args(["audit", "--format", "json", "--color", "never"])
             .output();
 
         let output = timeout(self.timeout_duration, command)
@@ -480,7 +491,7 @@ impl VulnerabilityScanner {
         let version = self.extract_json_field(json, "version")?;
         let patched = self.extract_json_field(json, "patched");
 
-        let severity = VulnerabilitySeverity::from_str(&severity_str)?;
+        let severity = VulnerabilitySeverity::from_str(&severity_str).ok()?;
 
         Vulnerability::new(
             &id,
@@ -550,7 +561,7 @@ impl VulnerabilityScanner {
     /// Update lock-free vulnerability cache
     fn update_cache(&self, result: &AuditResult) {
         for vulnerability in &result.vulnerabilities {
-            let key = vulnerability.id.clone();
+            let key = vulnerability.id;
             let status = if vulnerability.patched.is_some() {
                 VulnerabilityStatus::Patched
             } else {

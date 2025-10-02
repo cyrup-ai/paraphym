@@ -42,7 +42,7 @@ async fn clone_from_git(fluent_voice_dir: &std::path::Path) -> Result<()> {
         }
 
         let output = Command::new("git")
-            .args(&[
+            .args([
                 "clone",
                 "https://github.com/cyrup-ai/fluent-voice.git",
                 fluent_voice_dir.to_str().ok_or_else(|| {

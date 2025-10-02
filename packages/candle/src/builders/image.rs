@@ -215,12 +215,29 @@ where
     }
     
     /// Process image - EXACT syntax: .process(|chunk| { ... })
-    fn process<F>(self, _f: F) -> impl AsyncStream<Item = ImageChunk>
+    fn process<F>(self, f: F) -> impl AsyncStream<Item = ImageChunk>
     where
         F: FnOnce(ImageChunk) -> ImageChunk + Send + 'static,
     {
-        // For now, just return the load stream
-        // TODO: Implement actual processing
-        self.load()
+        // Create output channel for processed chunks
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        
+        // Get source stream from load
+        let load_stream = self.load();
+        
+        // Spawn async task to apply processing
+        tokio::spawn(async move {
+            // Consume the single chunk from load stream
+            if let Some(chunk) = load_stream.next().await {
+                // Apply the transformation function
+                let processed_chunk = f(chunk);
+                
+                // Send transformed chunk to output stream
+                let _ = tx.send(processed_chunk);
+            }
+        });
+        
+        // Return stream with processed chunks
+        ystream::AsyncStream::new(rx)
     }
 }
