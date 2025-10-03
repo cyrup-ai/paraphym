@@ -437,56 +437,55 @@ impl CandleAgentRoleImpl {
             let memory_stream = memory_manager_clone.search_by_content(&message);
 
             // Collect results from the sophisticated memory system
-            let (retrieval_tx, retrieval_rx) = std::sync::mpsc::channel::<Result<Vec<RetrievalResult>, String>>();
+            let (retrieval_tx, mut retrieval_rx) = tokio::sync::mpsc::channel::<Result<Vec<RetrievalResult>, String>>(1);
 
-            ystream::spawn_task(move || {
-                let Some(runtime) = shared_runtime() else {
-                    let error_msg = "Tokio runtime not initialized - memory retrieval cannot proceed";
-                    log::error!("{error_msg}");
-                    // Send error to prevent the receiver from blocking and allow error detection
-                    let _ = retrieval_tx.send(Err(error_msg.to_string()));
-                    return;
-                };
+            tokio::spawn(async move {
+                use futures_util::StreamExt;
                 
-                runtime.block_on(async move {
-                    use futures_util::StreamExt;
-
-                    let mut stream = memory_stream;
-                    let mut results = Vec::new();
-
-                    // Collect up to MAX_RELEVANT_MEMORIES from the stream
-                    while let Some(memory_result) = stream.next().await {
-                        if results.len() >= MAX_RELEVANT_MEMORIES {
-                            break;
-                        }
-
-                        if let Ok(memory_node) = memory_result {
-                            results.push(Self::memory_node_to_retrieval_result(&memory_node));
-                        }
+                let mut stream = memory_stream;
+                let mut results = Vec::new();
+                
+                // Collect up to MAX_RELEVANT_MEMORIES from the stream
+                while let Some(memory_result) = stream.next().await {
+                    if results.len() >= MAX_RELEVANT_MEMORIES {
+                        break;
                     }
-
-                    let _ = retrieval_tx.send(Ok(results));
-                });
+                    
+                    if let Ok(memory_node) = memory_result {
+                        results.push(Self::memory_node_to_retrieval_result(&memory_node));
+                    }
+                }
+                
+                let _ = retrieval_tx.send(Ok(results)).await;
             });
 
             // Receive results with configurable timeout
             let timeout_ms = Self::get_memory_timeout_ms(timeout_ms);
 
-            let retrieval_results = match retrieval_rx.recv_timeout(
-                std::time::Duration::from_millis(timeout_ms)
-            ) {
-                Ok(Ok(results)) => results,
-                Ok(Err(e)) => {
-                    log::error!("Memory retrieval failed: {e}");
-                    Vec::new()
-                }
-                Err(_) => {
-                    log::warn!(
-                        "Memory retrieval timed out - context may be incomplete (timeout_ms: {timeout_ms}, message: {message:?})"
-                    );
-                    Vec::new()
-                }
-            };
+            let retrieval_results = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    let timeout_duration = std::time::Duration::from_millis(timeout_ms);
+                    
+                    match tokio::time::timeout(timeout_duration, retrieval_rx.recv()).await {
+                        Ok(Some(Ok(results))) => results,
+                        Ok(Some(Err(e))) => {
+                            log::error!("Memory retrieval failed: {e}");
+                            Vec::new()
+                        }
+                        Ok(None) => {
+                            log::error!("Memory retrieval channel closed unexpectedly");
+                            Vec::new()
+                        }
+                        Err(_) => {
+                            log::warn!(
+                                "Memory retrieval timed out - context may be incomplete (timeout_ms: {}, message: {:?})",
+                                timeout_ms, message
+                            );
+                            Vec::new()
+                        }
+                    }
+                })
+            });
 
             let memory_nodes_used = retrieval_results.len();
             let avg_relevance_score = Self::calculate_avg_relevance(&retrieval_results);

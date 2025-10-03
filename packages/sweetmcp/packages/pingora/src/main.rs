@@ -232,7 +232,8 @@ fn run_server() -> Result<()> {
         .context("Server key path contains invalid UTF-8")?;
 
     let tls_settings = TlsSettings::intermediate(server_cert_str, server_key_str)
-        .context("Failed to create TLS settings")?;
+        .context("Failed to create TLS settings")?
+        .with_client_ca(cert_dir.join("ca.crt").to_string_lossy().to_string());
 
     // Add HTTPS listeners
     proxy_service.add_tls_with_settings(&cfg.tcp_bind, None, tls_settings);
@@ -240,7 +241,8 @@ fn run_server() -> Result<()> {
     // Add separate TLS listener for MCP if different from main TCP
     if cfg.mcp_bind != cfg.tcp_bind {
         let tls_settings_mcp = TlsSettings::intermediate(server_cert_str, server_key_str)
-            .context("Failed to create TLS settings for MCP")?;
+            .context("Failed to create TLS settings for MCP")?
+            .with_client_ca(cert_dir.join("ca.crt").to_string_lossy().to_string());
         proxy_service.add_tls_with_settings(&cfg.mcp_bind, None, tls_settings_mcp);
     }
 

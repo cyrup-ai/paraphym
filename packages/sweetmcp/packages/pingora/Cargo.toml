@@ -12,7 +12,7 @@ categories = ["network-programming", "web-programming", "api-bindings"]
 
 [dependencies]
 # Core Pingora dependencies - using latest from GitHub main branch
-pingora = { git = "https://github.com/cloudflare/pingora", package = "pingora", features = ["proxy", "lb"] }
+pingora = { git = "https://github.com/cloudflare/pingora", package = "pingora", features = ["proxy", "lb", "rustls"] }
 pingora-proxy = { git = "https://github.com/cloudflare/pingora", package = "pingora-proxy" }
 pingora-load-balancing = { git = "https://github.com/cloudflare/pingora", package = "pingora-load-balancing" }
 

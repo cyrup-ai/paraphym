@@ -404,6 +404,24 @@ impl AuthHandler {
             })
             .unwrap_or_default();
 
+        // Validate expiry timestamp
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        if now > expires_at {
+            return Err(EdgeServiceError::Authentication(
+                "JWT token has expired".to_string()
+            ));
+        }
+
+        if issued_at > now {
+            return Err(EdgeServiceError::Authentication(
+                "JWT issued_at is in the future".to_string()
+            ));
+        }
+
         Ok(UserClaims {
             user_id,
             username,

@@ -22,3 +22,4 @@ hyper-util = { version = "0.1.16", features = ["http1", "client-legacy"] }
 hyper-rustls = { version = "0.27.7", features = ["ring", "http1"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
 http-body-util = "0.1"
+ipnetwork = "0.20"

@@ -1,4 +1,5 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use ipnetwork::IpNetwork;
 
 use extism_pdk::*;
 use serde_json::{Value, json};
@@ -370,21 +371,36 @@ fn create_ipv6(args: serde_json::Map<String, Value>) -> Result<CallToolResult, E
 
 /// Check if IP is in CIDR range
 fn cidr_contains(args: serde_json::Map<String, Value>) -> Result<CallToolResult, Error> {
-    let _ip_str = args
+    let ip_str = args
         .get("ip")
         .and_then(|v| v.as_str())
         .ok_or_else(|| Error::msg("ip parameter required for cidr_contains"))?;
 
-    let _cidr_str = args
+    let cidr_str = args
         .get("cidr")
         .and_then(|v| v.as_str())
         .ok_or_else(|| Error::msg("cidr parameter required for cidr_contains"))?;
 
-    // Simplified implementation - full CIDR matching would require additional dependencies
+    // Parse CIDR notation (e.g., "192.168.1.0/24")
+    let network: IpNetwork = cidr_str.parse()
+        .map_err(|e| Error::msg(format!("Invalid CIDR notation '{}': {}", cidr_str, e)))?;
+    
+    // Parse IP address
+    let ip: IpAddr = ip_str.parse()
+        .map_err(|e| Error::msg(format!("Invalid IP address '{}': {}", ip_str, e)))?;
+    
+    // Check if IP is contained in the CIDR range
+    let contains = network.contains(ip);
+    
     Ok(ContentBuilder::text(
         json!({
-            "message": "CIDR matching not yet fully implemented",
-            "note": "This feature requires additional network calculation dependencies"
+            "ip": ip_str,
+            "cidr": cidr_str,
+            "contains": contains,
+            "network_type": match network {
+                IpNetwork::V4(_) => "IPv4",
+                IpNetwork::V6(_) => "IPv6"
+            }
         })
         .to_string(),
     ))

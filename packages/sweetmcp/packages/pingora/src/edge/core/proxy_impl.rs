@@ -151,9 +151,151 @@ impl ProxyHttp for EdgeService {
             let path = req_header.uri.path().to_string(); // Clone path to avoid borrow conflict
             let method = req_header.method.clone();
 
+            // Populate context with request metadata for metrics
+            _ctx.request_start = std::time::Instant::now();
+            _ctx.method = method.as_str().to_string();
+            _ctx.endpoint = path.clone();
+            
+            // Extract request size from Content-Length header
+            if let Some(content_length) = req_header.headers.get("content-length") {
+                _ctx.request_size = content_length
+                    .to_str()
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0);
+            }
+            
+            // Increment active requests metric
+            crate::metrics::increment_active_requests(&_ctx.method, &_ctx.endpoint);
+
+            // Validate HTTPS requirement from config
+            if !AuthHandler::validate_https_requirement(self, session) {
+                warn!("HTTPS required - rejecting HTTP request");
+                _ctx.status_code = 403;
+                
+                // Record metrics before returning
+                let duration_secs = _ctx.request_start.elapsed().as_secs_f64();
+                crate::metrics::record_http_request(
+                    &_ctx.method,
+                    &_ctx.endpoint,
+                    403,
+                    duration_secs,
+                    _ctx.request_size,
+                    0,
+                );
+                crate::metrics::decrement_active_requests(&_ctx.method, &_ctx.endpoint);
+                
+                session.respond_error(403).await?;
+                return Ok(true);
+            }
+
             // PHASE 1: Handle local API endpoints (bypass normal auth/proxy flow)
             if path == "/api/peers" && method == pingora::http::Method::GET {
-                // Peer discovery endpoint - verify encrypted discovery token
+                // PHASE 0: mTLS Client Certificate Validation for /api/peers
+                let digest = match session.as_downstream().digest() {
+                    Some(d) => d,
+                    None => {
+                        warn!("Rejecting non-TLS request to /api/peers from {}",
+                            session.client_addr().map(|a| a.to_string()).unwrap_or_else(|| "unknown".to_string()));
+
+                        // Record metrics before returning
+                        let duration_secs = _ctx.request_start.elapsed().as_secs_f64();
+                        _ctx.status_code = 403;
+                        crate::metrics::record_http_request(
+                            &_ctx.method,
+                            &_ctx.endpoint,
+                            403,
+                            duration_secs,
+                            _ctx.request_size,
+                            0,
+                        );
+                        crate::metrics::decrement_active_requests(&_ctx.method, &_ctx.endpoint);
+
+                        let mut response = ResponseHeader::build(403, None)?;
+                        response.insert_header("Content-Type", "text/plain")?;
+                        session.as_mut()
+                            .write_response_header(Box::new(response))
+                            .await?;
+                        session.as_mut()
+                            .write_response_body(
+                                bytes::Bytes::from("Forbidden: TLS required for peer endpoints"),
+                                true
+                            )
+                            .await?;
+                        return Ok(true);
+                    }
+                };
+
+                let ssl_digest = match digest.ssl_digest.as_ref() {
+                    Some(s) => s,
+                    None => {
+                        warn!("Rejecting request without TLS digest to /api/peers from {}",
+                            session.client_addr().map(|a| a.to_string()).unwrap_or_else(|| "unknown".to_string()));
+
+                        // Record metrics before returning
+                        let duration_secs = _ctx.request_start.elapsed().as_secs_f64();
+                        _ctx.status_code = 403;
+                        crate::metrics::record_http_request(
+                            &_ctx.method,
+                            &_ctx.endpoint,
+                            403,
+                            duration_secs,
+                            _ctx.request_size,
+                            0,
+                        );
+                        crate::metrics::decrement_active_requests(&_ctx.method, &_ctx.endpoint);
+
+                        let mut response = ResponseHeader::build(403, None)?;
+                        response.insert_header("Content-Type", "text/plain")?;
+                        session.as_mut()
+                            .write_response_header(Box::new(response))
+                            .await?;
+                        session.as_mut()
+                            .write_response_body(
+                                bytes::Bytes::from("Forbidden: TLS required for peer endpoints"),
+                                true
+                            )
+                            .await?;
+                        return Ok(true);
+                    }
+                };
+
+                if ssl_digest.cert_digest.is_empty() {
+                    warn!("Rejecting TLS request without client certificate to /api/peers from {}",
+                        session.client_addr().map(|a| a.to_string()).unwrap_or_else(|| "unknown".to_string()));
+
+                    // Record metrics before returning
+                    let duration_secs = _ctx.request_start.elapsed().as_secs_f64();
+                    _ctx.status_code = 403;
+                    crate::metrics::record_http_request(
+                        &_ctx.method,
+                        &_ctx.endpoint,
+                        403,
+                        duration_secs,
+                        _ctx.request_size,
+                        0,
+                    );
+                    crate::metrics::decrement_active_requests(&_ctx.method, &_ctx.endpoint);
+
+                    let mut response = ResponseHeader::build(403, None)?;
+                    response.insert_header("Content-Type", "text/plain")?;
+                    session.as_mut()
+                        .write_response_header(Box::new(response))
+                        .await?;
+                    session.as_mut()
+                        .write_response_body(
+                            bytes::Bytes::from("Forbidden: Client certificate required"),
+                            true
+                        )
+                        .await?;
+                    return Ok(true);
+                }
+
+                // mTLS authentication successful - log certificate info
+                info!("mTLS authenticated request to /api/peers - cert_digest: {:?}, org: {:?}, serial: {:?}",
+                    ssl_digest.cert_digest, ssl_digest.organization, ssl_digest.serial_number);
+
+                // PHASE 1: Verify encrypted discovery token (existing code)
                 let headers = &req_header.headers;
                 
                 match handle_peers_request(
@@ -168,6 +310,20 @@ impl ProxyHttp for EdgeService {
                             Ok(json) => json,
                             Err(e) => {
                                 warn!("Failed to serialize peers response: {}", e);
+                                
+                                // Record metrics before returning
+                                let duration_secs = _ctx.request_start.elapsed().as_secs_f64();
+                                _ctx.status_code = 500;
+                                crate::metrics::record_http_request(
+                                    &_ctx.method,
+                                    &_ctx.endpoint,
+                                    500,
+                                    duration_secs,
+                                    _ctx.request_size,
+                                    0, // No response body on error
+                                );
+                                crate::metrics::decrement_active_requests(&_ctx.method, &_ctx.endpoint);
+                                
                                 session.respond_error(500).await?;
                                 return Ok(true);
                             }
@@ -190,6 +346,19 @@ impl ProxyHttp for EdgeService {
                         
                         info!("Served peer list to {}", session.client_addr().map(|a| a.to_string()).unwrap_or_else(|| "unknown".to_string()));
                         
+                        // Record metrics for successful response
+                        let duration_secs = _ctx.request_start.elapsed().as_secs_f64();
+                        _ctx.status_code = 200;
+                        crate::metrics::record_http_request(
+                            &_ctx.method,
+                            &_ctx.endpoint,
+                            200,
+                            duration_secs,
+                            _ctx.request_size,
+                            json_body.len(), // Response size from successful JSON body
+                        );
+                        crate::metrics::decrement_active_requests(&_ctx.method, &_ctx.endpoint);
+                        
                         return Ok(true); // Response sent, stop processing
                     }
                     Err(e) => {
@@ -198,6 +367,20 @@ impl ProxyHttp for EdgeService {
                             session.client_addr().map(|a| a.to_string()).unwrap_or_else(|| "unknown".to_string()),
                             e
                         );
+                        
+                        // Record metrics before returning
+                        let duration_secs = _ctx.request_start.elapsed().as_secs_f64();
+                        _ctx.status_code = 401;
+                        crate::metrics::record_http_request(
+                            &_ctx.method,
+                            &_ctx.endpoint,
+                            401,
+                            duration_secs,
+                            _ctx.request_size,
+                            0,
+                        );
+                        crate::metrics::decrement_active_requests(&_ctx.method, &_ctx.endpoint);
+                        
                         session.respond_error(401).await?;
                         return Ok(true); // Response sent, stop processing
                     }
@@ -207,11 +390,93 @@ impl ProxyHttp for EdgeService {
             // PHASE 2: JWT Authentication (for non-peer endpoints)
             match AuthHandler::authenticate_request(self, session).await {
                 Ok(auth_context) if auth_context.is_authenticated => {
-                    // Authentication successful - continue to rate limiting
+                    // Validate expiry
+                    if auth_context.is_expired() {
+                        warn!("Token expired for user: {:?}", auth_context.user_id());
+                        _ctx.status_code = 401;
+                        
+                        // Record metrics before returning
+                        let duration_secs = _ctx.request_start.elapsed().as_secs_f64();
+                        crate::metrics::record_http_request(
+                            &_ctx.method,
+                            &_ctx.endpoint,
+                            401,
+                            duration_secs,
+                            _ctx.request_size,
+                            0,
+                        );
+                        crate::metrics::decrement_active_requests(&_ctx.method, &_ctx.endpoint);
+                        
+                        session.respond_error(401).await?;
+                        return Ok(true);
+                    }
+                    
+                    // Role-based access control
+                    if path.starts_with("/admin") && !auth_context.has_role("admin") {
+                        warn!("Admin access denied for user: {:?}", auth_context.user_id());
+                        _ctx.status_code = 403;
+                        
+                        // Record metrics before returning
+                        let duration_secs = _ctx.request_start.elapsed().as_secs_f64();
+                        crate::metrics::record_http_request(
+                            &_ctx.method,
+                            &_ctx.endpoint,
+                            403,
+                            duration_secs,
+                            _ctx.request_size,
+                            0,
+                        );
+                        crate::metrics::decrement_active_requests(&_ctx.method, &_ctx.endpoint);
+                        
+                        session.respond_error(403).await?;
+                        return Ok(true);
+                    }
+                    
+                    // Permission-based access control
+                    if method == pingora::http::Method::DELETE 
+                       && !auth_context.has_permission("delete") {
+                        warn!("Delete permission denied for user: {:?}", auth_context.user_id());
+                        _ctx.status_code = 403;
+                        
+                        // Record metrics before returning
+                        let duration_secs = _ctx.request_start.elapsed().as_secs_f64();
+                        crate::metrics::record_http_request(
+                            &_ctx.method,
+                            &_ctx.endpoint,
+                            403,
+                            duration_secs,
+                            _ctx.request_size,
+                            0,
+                        );
+                        crate::metrics::decrement_active_requests(&_ctx.method, &_ctx.endpoint);
+                        
+                        session.respond_error(403).await?;
+                        return Ok(true);
+                    }
+                    
+                    // Log authenticated user for audit
+                    info!("Request from user: {} ({})", 
+                        auth_context.username().unwrap_or("unknown"),
+                        auth_context.user_id().unwrap_or("unknown")
+                    );
                 }
                 Ok(_) | Err(_) => {
                     // Authentication failed - send 401 and stop processing
                     warn!("Authentication required - no valid credentials provided");
+                    
+                    // Record metrics before returning
+                    let duration_secs = _ctx.request_start.elapsed().as_secs_f64();
+                    _ctx.status_code = 401;
+                    crate::metrics::record_http_request(
+                        &_ctx.method,
+                        &_ctx.endpoint,
+                        401,
+                        duration_secs,
+                        _ctx.request_size,
+                        0,
+                    );
+                    crate::metrics::decrement_active_requests(&_ctx.method, &_ctx.endpoint);
+                    
                     session.respond_error(401).await?;
                     return Ok(true); // Response sent, stop here
                 }
@@ -228,6 +493,20 @@ impl ProxyHttp for EdgeService {
             // Check rate limit
             if !self.rate_limit_manager.check_request(&path, Some(&client_id), 1) {
                 warn!("Rate limit exceeded for client: {} on endpoint: {}", client_id, path);
+                
+                // Record metrics before returning
+                let duration_secs = _ctx.request_start.elapsed().as_secs_f64();
+                _ctx.status_code = 429;
+                crate::metrics::record_http_request(
+                    &_ctx.method,
+                    &_ctx.endpoint,
+                    429,
+                    duration_secs,
+                    _ctx.request_size,
+                    0,
+                );
+                crate::metrics::decrement_active_requests(&_ctx.method, &_ctx.endpoint);
+                
                 session.respond_error(429).await?;
                 return Ok(true); // Response sent, stop here
             }

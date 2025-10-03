@@ -208,7 +208,7 @@ impl UnifiedToolExecutor {
         if Self::is_mcp_tool(tool_info) {
             self.execute_mcp_tool(tool_name, args).await
         } else {
-            self.execute_native_tool(tool_info, args)
+            self.execute_native_tool(tool_info, args).await
         }
     }
 
@@ -283,21 +283,19 @@ impl UnifiedToolExecutor {
     }
 
     /// Execute native tool via `SweetMcpRouter` delegation
-    fn execute_native_tool(&self, tool_info: &ToolInfo, args: JsonValue) -> Result<Response, ToolError> {
+    async fn execute_native_tool(&self, tool_info: &ToolInfo, args: JsonValue) -> Result<Response, ToolError> {
         use crate::domain::agent::role::convert_serde_to_sweet_json;
         
         // Get router through RwLock
-        let runtime = crate::runtime::shared_runtime()
-            .ok_or_else(|| ToolError::Other(anyhow::anyhow!("Runtime unavailable")))?;
-        
-        let router_guard = runtime.block_on(self.native_router.read());
+        let router_guard = self.native_router.read().await;
         
         let router = router_guard.as_ref()
             .ok_or_else(|| ToolError::Other(anyhow::anyhow!("Native router not initialized")))?;
 
-        // BLOCKING CODE APPROVED BY DAVID ON 2025-01-29: Using shared_runtime().block_on() for router call
-        let result = runtime
-            .block_on(router.call_tool(&tool_info.name, args))
+        // Now properly async - no blocking
+        let result = router
+            .call_tool(&tool_info.name, args)
+            .await
             .map_err(|e| ToolError::CyloError(e.to_string()))?;
 
         // Convert serde_json::Value result to Response
