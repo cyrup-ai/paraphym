@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid;
 
-use crate::domain::model::CandleUsage as Usage;
+use crate::domain::model::CandleUsage;
 
 /// Candle chunk of document content for streaming file operations
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -162,7 +162,7 @@ pub enum CandleCompletionChunk {
     Complete {
         text: String,
         finish_reason: Option<FinishReason>,
-        usage: Option<Usage>,
+        usage: Option<CandleUsage>,
     },
 
     /// Error occurred during streaming
@@ -280,9 +280,6 @@ where
         self.error_message.as_deref()
     }
 }
-
-// Backward compatibility alias
-pub type CompletionChunk = CandleCompletionChunk;
 
 /// Chunk of embedding data for streaming embeddings
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -427,7 +424,7 @@ impl ChatMessageChunk {
     }
 }
 
-impl CompletionChunk {
+impl CandleCompletionChunk {
     /// Create a simple text chunk
     pub fn text(text: impl Into<String>) -> Self {
         Self::Text(text.into())
@@ -471,7 +468,7 @@ impl CompletionChunk {
     pub fn complete(
         text: impl Into<String>,
         finish_reason: Option<FinishReason>,
-        usage: Option<Usage>,
+        usage: Option<CandleUsage>,
     ) -> Self {
         Self::Complete {
             text: text.into(),

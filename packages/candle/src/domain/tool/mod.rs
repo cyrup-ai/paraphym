@@ -23,7 +23,3 @@ pub use unified::{UnifiedToolExecutor, ToolError};
 // Re-export SweetMCP types for external compatibility
 pub use sweet_mcp_type::ToolInfo;
 pub use mcp_client_traits::{McpClient, McpToolOperations};
-
-// Type aliases for compatibility with existing code
-pub type McpToolData = ToolInfo;
-pub type CandleMcpToolData = ToolInfo;

@@ -155,6 +155,12 @@ impl DistributedRateLimitManager {
                 RateLimitAlgorithmConfig::SlidingWindow(window_config) => RateLimiter::SlidingWindow(
                     super::algorithms::SlidingWindow::new(window_config.clone()),
                 ),
+                RateLimitAlgorithmConfig::Hybrid(token_config, window_config) => {
+                    RateLimiter::Hybrid(super::algorithms::HybridAlgorithm::new(
+                        token_config.clone(),
+                        window_config.clone()
+                    ))
+                }
             };
             self.endpoint_limiters.insert(endpoint.to_string(), limiter);
         }
@@ -200,6 +206,12 @@ impl DistributedRateLimitManager {
                     RateLimitAlgorithmConfig::SlidingWindow(window_config) => {
                         RateLimiter::SlidingWindow(super::algorithms::SlidingWindow::new(
                             window_config.clone(),
+                        ))
+                    }
+                    RateLimitAlgorithmConfig::Hybrid(token_config, window_config) => {
+                        RateLimiter::Hybrid(super::algorithms::HybridAlgorithm::new(
+                            token_config.clone(),
+                            window_config.clone()
                         ))
                     }
                 };
@@ -307,6 +319,7 @@ impl DistributedRateLimitManager {
                 serde_json::json!(match &config.algorithm {
                     RateLimitAlgorithmConfig::TokenBucket(_) => "TokenBucket",
                     RateLimitAlgorithmConfig::SlidingWindow(_) => "SlidingWindow",
+                    RateLimitAlgorithmConfig::Hybrid(_, _) => "Hybrid",
                 }),
             );
 

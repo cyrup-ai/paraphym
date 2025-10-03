@@ -26,7 +26,6 @@ use crate::domain::memory::{Error as MemoryError};
 use crate::domain::context::chunk::CandleCollectionChunk;
 use crate::domain::context::CandleDocument as Document;
 use crate::domain::memory::{MemoryTool, MemoryToolError};
-use crate::runtime::shared_runtime;
 use cyrup_sugars::ZeroOneOrMany;
 
 /// Maximum number of relevant memories for context injection
@@ -414,10 +413,6 @@ impl CandleAgentRoleImpl {
     ///
     /// # Performance
     /// Zero allocation with lock-free memory queries and quantum routing
-    ///
-    /// # Panics
-    /// Panics if a retrieval result vector with length 1 doesn't contain exactly one element.
-    /// This should never happen in practice as the length check guarantees the element exists.
     pub fn inject_memory_context(
         &self,
         message: &str,

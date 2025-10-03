@@ -24,7 +24,7 @@ pub struct AgentBuilder<const TOOLS_CAPACITY: usize = MAX_AGENT_TOOLS> {
     system_prompt: Option<String>,
     memory_config: Option<ComprehensiveMemoryConfig>,
     shared_memory: Option<Arc<Memory>>,
-    tools: ArrayVec<McpToolData, TOOLS_CAPACITY>,
+    tools: ArrayVec<ToolInfo, TOOLS_CAPACITY>,
     temperature: Option<f64>,
     max_tokens: Option<u64>}
 
@@ -72,7 +72,7 @@ impl<const TOOLS_CAPACITY: usize> AgentBuilder<TOOLS_CAPACITY> {
     }
 
     /// Add tool with zero-allocation error handling
-    pub fn tool(mut self, tool: McpToolData) -> AgentResult<Self> {
+    pub fn tool(mut self, tool: ToolInfo) -> AgentResult<Self> {
         if self.tools.try_push(tool).is_err() {
             return Err(AgentError::Config(format!(
                 "Tool capacity exceeded. Maximum {} tools allowed.",

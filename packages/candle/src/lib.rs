@@ -76,11 +76,19 @@ pub mod prelude {
             FinishReason,
         },
         tool::{
-            UnifiedToolExecutor, ToolError, McpToolData,
+            UnifiedToolExecutor, ToolError, ToolInfo,
+        },
+        image_generation::{
+            ImageGenerationConfig,
+            ImageGenerationChunk,
+            ImageGenerationModel,
+            tensor_to_image,
         },
     };
     pub use crate::providers::{
         CandleKimiK2Config, CandleKimiK2Provider, CandleQwen3CoderConfig, CandleQwen3CoderProvider,
+        SD35TurboConfig, StableDiffusion35Turbo,
+        FluxConfig, FluxSchnell,
     };
     // Real workflow execution types - streams-only architecture
     pub use crate::workflow::{candle_workflow, CandleExecutableWorkflow, CandleWorkflowStep};
@@ -226,9 +234,6 @@ pub mod prelude {
 
     // Re-export tool implementation that provides static methods
     pub use ystream::AsyncStream;
-
-    // Tool functionality provided by SweetMCP ToolInfo and UnifiedToolExecutor
-    pub use sweet_mcp_type::ToolInfo;
 
     // Helper function for ARCHITECTURE.md example
     pub fn process_turn() -> CandleChatLoop {

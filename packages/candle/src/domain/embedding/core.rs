@@ -8,7 +8,7 @@ use cyrup_sugars::prelude::MessageChunk;
 use serde::{Deserialize, Serialize};
 
 use crate::domain::context::chunk::EmbeddingChunk;
-use crate::domain::model::usage::Usage;
+use crate::domain::model::usage::CandleUsage;
 use crate::AsyncTask;
 
 /// Core trait for embedding models
@@ -69,7 +69,7 @@ pub struct EmbeddingResponse {
     /// The model used to generate the embeddings
     pub model: String,
     /// Token usage statistics
-    pub usage: Option<Usage>,
+    pub usage: Option<CandleUsage>,
 }
 /// Individual embedding data structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,7 +112,7 @@ impl EmbeddingResponse {
         total_tokens: u32,
     ) -> Self {
         let mut response = Self::new(embeddings, model);
-        response.usage = Some(Usage::new(prompt_tokens, total_tokens - prompt_tokens));
+        response.usage = Some(CandleUsage::new(prompt_tokens, total_tokens - prompt_tokens));
         response
     }
 

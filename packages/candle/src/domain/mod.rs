@@ -23,6 +23,8 @@ pub mod engine;
 pub mod error;
 /// Image processing and vision model support
 pub mod image;
+/// Image generation domain types for text-to-image diffusion models
+pub mod image_generation;
 pub mod init;
 pub mod memory;
 pub mod model;

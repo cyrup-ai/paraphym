@@ -14,7 +14,7 @@ use surrealdb::engine::any::Any;
 use crate::memory::primitives::types::MemoryTypeEnum;
 use crate::memory::primitives::{MemoryNode, MemoryRelationship};
 use crate::memory::schema::memory_schema::{MemoryMetadataSchema, MemoryNodeSchema};
-use crate::memory::schema::relationship_schema::RelationshipSchema;
+use crate::memory::schema::relationship_schema::Relationship;
 use crate::memory::schema::quantum_schema::QuantumSignatureSchema;
 use crate::memory::utils::error::Error;
 use crate::memory::migration::{DataExporter, ExportFormat, MigrationManager, BuiltinMigrations, DataImporter, ImportFormat};
@@ -642,8 +642,8 @@ impl SurrealDBMemoryManager {
         let mut rels_response = self.db.query(rels_query).await
             .map_err(|e| Error::Database(format!("Failed to query relationships: {}", e)))?;
 
-        // Get as RelationshipSchema first, then convert properly
-        let relationship_schemas: Vec<RelationshipSchema> = rels_response.take(0)
+        // Get as Relationship first, then convert properly
+        let relationship_schemas: Vec<Relationship> = rels_response.take(0)
             .map_err(|e| Error::Database(format!("Failed to parse relationships: {}", e)))?;
 
         // Convert with full field preservation
@@ -738,7 +738,7 @@ impl SurrealDBMemoryManager {
         // Insert relationships
         for rel in import_data.relationships {
             let create_content = RelationshipCreateContent::from(&rel);
-            let result: Option<RelationshipSchema> = self.db
+            let result: Option<Relationship> = self.db
                 .create(("memory_relationship", rel.id.as_str()))
                 .content(create_content)
                 .await
@@ -890,7 +890,7 @@ impl MemoryManager for SurrealDBMemoryManager {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         tokio::spawn(async move {
-            let created: Option<RelationshipSchema> = match db
+            let created: Option<Relationship> = match db
                 .create(("memory_relationship", relationship.id.as_str()))
                 .content(content)
                 .await
@@ -933,7 +933,7 @@ impl MemoryManager for SurrealDBMemoryManager {
 
             match db.query(sql_query).bind(("memory_id", memory_id)).await {
                 Ok(mut response) => {
-                    let results: Vec<RelationshipSchema> = response.take(0).unwrap_or_default();
+                    let results: Vec<Relationship> = response.take(0).unwrap_or_default();
 
                     for schema in results {
                         let relationship = MemoryRelationship {
@@ -969,7 +969,7 @@ impl MemoryManager for SurrealDBMemoryManager {
 
         tokio::spawn(async move {
             let result = match db
-                .delete::<Option<RelationshipSchema>>(("memory_relationship", &id_str))
+                .delete::<Option<Relationship>>(("memory_relationship", &id_str))
                 .await
             {
                 Ok(result) => Ok(result.is_some()),

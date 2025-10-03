@@ -261,6 +261,3 @@ impl<T: Send + Sync + fmt::Debug + Clone + 'static> LoaderImpl<T> {
 
 // Type alias for convenience
 pub type DefaultLoader<T> = LoaderImpl<T>;
-
-// Backward compatibility aliases
-pub type FileLoader<T> = LoaderImpl<T>;

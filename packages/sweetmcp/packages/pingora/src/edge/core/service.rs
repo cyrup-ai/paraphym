@@ -10,6 +10,7 @@ use std::sync::atomic::AtomicU64;
 use std::time::Instant;
 
 use arc_swap::ArcSwap;
+use dashmap::DashMap;
 use pingora_load_balancing::Backend;
 use tokio::sync::mpsc::Sender;
 use tracing::{error, info};
@@ -20,7 +21,8 @@ use crate::{
     config::Config,
     crypto::core::TokenManager,
     load::Load, metric_picker::MetricPicker,
-    peer_discovery::{PeerDiscovery, PeerRegistry}, rate_limit::distributed::DistributedRateLimitManager,
+    peer_discovery::{PeerDiscovery, PeerRegistry},
+    rate_limit::{RateLimiter, DistributedRateLimitManager},
     shutdown::ShutdownCoordinator,
 };
 
@@ -56,7 +58,7 @@ pub struct EdgeService {
     pub bridge_tx: Sender<crate::mcp_bridge::BridgeMsg>,
     pub peer_registry: PeerRegistry,
     pub peer_discovery: Arc<PeerDiscovery>,
-    pub rate_limit_manager: Arc<DistributedRateLimitManager>,
+    pub rate_limit_manager: RateLimiter,
     pub shutdown_coordinator: Arc<ShutdownCoordinator>,
     pub circuit_breaker_manager: Arc<CircuitBreakerManager>,
     /// Maps backend SocketAddr to original upstream URL for TLS detection
@@ -67,6 +69,8 @@ pub struct EdgeService {
     pub start_time: Instant,
     /// Token manager for peer discovery crypto
     pub token_manager: Arc<TokenManager>,
+    /// Track authentication attempts per IP: (count, window_start_time)
+    pub auth_attempt_tracker: Arc<DashMap<String, (u32, Instant)>>,
 }
 
 impl EdgeService {
@@ -121,7 +125,7 @@ impl EdgeService {
         let initial_picker = MetricPicker::from_backends(&backends);
         let picker = Arc::new(ArcSwap::from_pointee(initial_picker));
         let load = Arc::new(Load::new());
-        let rate_limit_manager = Arc::new(DistributedRateLimitManager::new());
+        let rate_limit_manager = RateLimiter::Distributed(Arc::new(DistributedRateLimitManager::new()));
         let shutdown_coordinator = Arc::new(ShutdownCoordinator::new(
             std::env::temp_dir().join("sweetmcp")
         ));
@@ -161,6 +165,7 @@ impl EdgeService {
             metrics,
             start_time,
             token_manager,
+            auth_attempt_tracker: Arc::new(DashMap::new()),
         }
     }
 
@@ -275,6 +280,34 @@ impl EdgeService {
         }
     }
 
+    /// Check if auth attempts from IP exceed rate limit
+    /// Returns true if rate limit exceeded
+    pub fn auth_attempts_exceeded(&self, client_ip: &str, max_attempts: u32) -> bool {
+        let now = Instant::now();
+        let window = std::time::Duration::from_secs(60); // 1 minute window
+        
+        // Get or create entry
+        let mut entry = self.auth_attempt_tracker
+            .entry(client_ip.to_string())
+            .or_insert((0, now));
+        
+        // Reset if window expired
+        if now.duration_since(entry.1) > window {
+            entry.0 = 1;
+            entry.1 = now;
+            return false;
+        }
+        
+        // Increment and check
+        entry.0 += 1;
+        entry.0 > max_attempts
+    }
+    
+    /// Record successful authentication (reset counter)
+    pub fn reset_auth_attempts(&self, client_ip: &str) {
+        self.auth_attempt_tracker.remove(client_ip);
+    }
+
     /// Shutdown service gracefully
     pub async fn shutdown(&self) -> Result<(), EdgeServiceError> {
         info!("Initiating EdgeService shutdown");
@@ -306,6 +339,7 @@ impl EdgeService {
             metrics: self.metrics.clone(),
             start_time: self.start_time,
             token_manager: self.token_manager.clone(),
+            auth_attempt_tracker: self.auth_attempt_tracker.clone(),
         };
 
         temp_service.validate_config()?;

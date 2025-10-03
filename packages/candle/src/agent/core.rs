@@ -48,7 +48,7 @@ pub struct Agent {
     /// Context documents that provide background information
     pub context: ZeroOneOrMany<Document>,
     /// MCP tools available to the agent for function calling
-    pub tools: ZeroOneOrMany<McpToolData>,
+    pub tools: ZeroOneOrMany<ToolInfo>,
     /// Optional memory system for storing and retrieving conversation context
     pub memory: Option<Memory>,
     /// Memory tool for automated memory management operations
@@ -235,7 +235,7 @@ impl Agent {
     /// # Performance
     /// Zero allocation with inlined tool addition
     #[inline]
-    pub fn add_tool(mut self, tool: McpToolData) -> Self {
+    pub fn add_tool(mut self, tool: ToolInfo) -> Self {
         match &mut self.tools {
             ZeroOneOrMany::None => {
                 self.tools = ZeroOneOrMany::One(tool);

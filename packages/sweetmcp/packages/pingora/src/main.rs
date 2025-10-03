@@ -90,6 +90,21 @@ fn run_server() -> Result<()> {
         .and_then(|p| p.parse::<u16>().ok())
         .unwrap_or(8443);
 
+    // Create and configure shutdown coordinator
+    let mut shutdown_coordinator = shutdown::ShutdownCoordinator::new(
+        std::env::temp_dir().join("sweetmcp")
+    );
+    shutdown_coordinator.set_local_port(local_port);
+    shutdown_coordinator.set_peer_registry(peer_registry.clone());
+
+    let shutdown_coordinator = Arc::new(shutdown_coordinator);
+
+    // Spawn signal listener for graceful shutdown
+    let coord_clone = shutdown_coordinator.clone();
+    tokio::spawn(async move {
+        coord_clone.listen_for_shutdown().await;
+    });
+
     // Create background services
     let mcp_bridge = background_service(
         "mcp-bridge",
@@ -159,8 +174,12 @@ fn run_server() -> Result<()> {
     server.add_service(tls_service);
 
     // Create HTTP proxy service
-    let edge_service =
-        edge::EdgeService::new(cfg.clone(), bridge_tx.clone(), peer_registry.clone(), circuit_breaker_manager.clone());
+    let edge_service = edge::EdgeServiceBuilder::new()
+        .with_config(cfg.clone())
+        .with_bridge_channel(bridge_tx.clone())
+        .with_peer_registry(peer_registry.clone())
+        .with_custom_shutdown_coordinator(shutdown_coordinator)
+        .build()?;
 
     // Create backend update service
     let static_upstreams: Vec<pingora_load_balancing::Backend> = edge_service.picker().load()

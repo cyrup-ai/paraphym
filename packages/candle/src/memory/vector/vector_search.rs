@@ -34,6 +34,25 @@ fn task_string(task: &'static str) -> Option<String> {
     Some(task.to_string())
 }
 
+/// State for multi-stage cognitive filtering
+struct CognitiveSearchState {
+    /// Results deferred for secondary evaluation with confidence scores
+    deferred_results: Vec<(String, Vec<f32>, f32, Option<HashMap<String, Value>>, f32)>,
+    // (id, vector, similarity, metadata, confidence)
+    
+    /// Final accepted results
+    final_results: Vec<(String, Vec<f32>, f32, Option<HashMap<String, Value>>)>,
+}
+
+impl CognitiveSearchState {
+    fn new() -> Self {
+        Self {
+            deferred_results: Vec::new(),
+            final_results: Vec::new(),
+        }
+    }
+}
+
 /// Type alias for keyword search function - SYNCHRONOUS OPERATIONS
 ///
 /// This function type represents a synchronous keyword search operation.
@@ -369,59 +388,76 @@ impl VectorSearch {
         // Search in vector store (synchronous)
         let results = self.store.search(embedding, limit, filters)?;
 
-        // Use cognitive processor for intelligent result filtering
+        // Use cognitive processor for intelligent result filtering with defer queue
         let filtered_results = if options.min_similarity.is_some() {
-            results
-                .into_iter()
-                .filter(|(_, vector, similarity, _)| {
-                    // Use processor to make decision about this result
-                    match self.cognitive_processor.process(vector) {
-                        Ok(decision) => {
-                            match decision.outcome {
-                                DecisionOutcome::Accept => {
-                                    tracing::debug!(
-                                        "CognitiveProcessor ACCEPT: similarity={:.4}, confidence={:.4}",
-                                        similarity,
-                                        decision.confidence
-                                    );
-                                    true // Include this result
-                                }
-                                DecisionOutcome::Defer => {
-                                    // Medium confidence - skip for now (VECCOG_4 may add defer queue)
-                                    tracing::debug!(
-                                        "CognitiveProcessor DEFER: similarity={:.4}, confidence={:.4}",
-                                        similarity,
-                                        decision.confidence
-                                    );
-                                    false // Exclude for now
-                                }
-                                DecisionOutcome::Reject => {
-                                    tracing::trace!(
-                                        "CognitiveProcessor REJECT: similarity={:.4}, confidence={:.4}",
-                                        similarity,
-                                        decision.confidence
-                                    );
-                                    false // Exclude this result
-                                }
-                                DecisionOutcome::RequestInfo => {
-                                    // This outcome is never returned by make_decision()
-                                    // but handle it defensively
-                                    tracing::debug!(
-                                        "CognitiveProcessor REQUEST_INFO: similarity={:.4}",
-                                        similarity
-                                    );
-                                    false // Skip for now
-                                }
+            let mut state = CognitiveSearchState::new();
+            
+            // Stage 1: Initial cognitive filtering with defer queue
+            for (id, vector, similarity, metadata) in results {
+                match self.cognitive_processor.process(&vector) {
+                    Ok(decision) => {
+                        match decision.outcome {
+                            DecisionOutcome::Accept => {
+                                tracing::debug!(
+                                    "CognitiveProcessor ACCEPT: similarity={:.4}, confidence={:.4}",
+                                    similarity,
+                                    decision.confidence
+                                );
+                                state.final_results.push((id, vector, similarity, metadata));
+                            }
+                            DecisionOutcome::Defer => {
+                                tracing::debug!(
+                                    "CognitiveProcessor DEFER: similarity={:.4}, confidence={:.4}",
+                                    similarity,
+                                    decision.confidence
+                                );
+                                state.deferred_results.push((
+                                    id,
+                                    vector,
+                                    similarity,
+                                    metadata,
+                                    decision.confidence,
+                                ));
+                            }
+                            DecisionOutcome::Reject => {
+                                tracing::trace!(
+                                    "CognitiveProcessor REJECT: similarity={:.4}, confidence={:.4}",
+                                    similarity,
+                                    decision.confidence
+                                );
+                                // Excluded
+                            }
+                            DecisionOutcome::RequestInfo => {
+                                tracing::debug!(
+                                    "CognitiveProcessor REQUEST_INFO: similarity={:.4}",
+                                    similarity
+                                );
+                                // Treat as deferred for future callback support
+                                state.deferred_results.push((
+                                    id,
+                                    vector,
+                                    similarity,
+                                    metadata,
+                                    decision.confidence,
+                                ));
                             }
                         }
-                        Err(e) => {
-                            // Fallback to similarity threshold on processor error
-                            tracing::warn!("CognitiveProcessor error, using fallback: {}", e);
-                            *similarity >= options.min_similarity.unwrap_or(0.7)
+                    }
+                    Err(e) => {
+                        // Fallback to similarity threshold on processor error
+                        tracing::warn!("CognitiveProcessor error, using fallback: {}", e);
+                        if similarity >= options.min_similarity.unwrap_or(0.7) {
+                            state.final_results.push((id, vector, similarity, metadata));
                         }
                     }
-                })
-                .collect::<Vec<_>>()
+                }
+            }
+            
+            // Stage 2: Process deferred results with relaxed threshold
+            let defer_threshold = options.min_similarity.unwrap_or(0.7) * 0.8; // 80% of main threshold
+            process_deferred_results(&mut state, defer_threshold);
+            
+            state.final_results
         } else {
             results
         };
@@ -570,6 +606,42 @@ impl VectorSearch {
     pub fn default_options(&self) -> &SearchOptions {
         &self.default_options
     }
+}
+
+/// Process deferred results with secondary threshold evaluation
+///
+/// Results with confidence above the secondary threshold are promoted to final results.
+/// This implements a two-stage filtering approach for medium-confidence items.
+///
+/// # Arguments
+/// * `state` - Mutable reference to cognitive search state
+/// * `threshold` - Secondary threshold for deferred result acceptance (typically 0.56 = 0.7 * 0.8)
+fn process_deferred_results(state: &mut CognitiveSearchState, threshold: f32) {
+    state.deferred_results.retain(|(id, vector, similarity, metadata, confidence)| {
+        if *confidence >= threshold {
+            tracing::debug!(
+                "Promoting deferred result: id={}, confidence={:.4}, threshold={:.4}",
+                id,
+                confidence,
+                threshold
+            );
+            state.final_results.push((
+                id.clone(),
+                vector.clone(),
+                *similarity,
+                metadata.clone(),
+            ));
+            false // Remove from deferred queue
+        } else {
+            tracing::trace!(
+                "Rejecting deferred result: id={}, confidence={:.4}, threshold={:.4}",
+                id,
+                confidence,
+                threshold
+            );
+            false // Remove from deferred queue (rejected)
+        }
+    });
 }
 
 /// Create a shared BERT embedding provider instance for use across VectorSearch operations

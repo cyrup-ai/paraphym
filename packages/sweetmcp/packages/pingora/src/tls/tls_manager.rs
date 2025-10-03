@@ -463,6 +463,7 @@ impl TlsManager {
             match self
                 .crl_cache
                 .check_certificate_status(&parsed_cert.serial_number, crl_url)
+                .await
             {
                 crate::tls::crl_cache::CrlStatus::Valid => {
                     tracing::debug!("CRL validation passed for URL: {}", crl_url);
@@ -722,3 +723,69 @@ impl TlsManager {
 
 // EnterpriseServerCertVerifier removed - now using standard rustls WebPkiServerVerifier
 // This eliminates the OCSP circular dependency issue while maintaining security
+
+impl TlsManager {
+    /// Build a Pingora mTLS acceptor with server-side client certificate verification
+    ///
+    /// Creates a rustls ServerConfig that requires and validates client certificates
+    /// against the provided CA certificate.
+    ///
+    /// # Arguments
+    /// * `cert_path` - Path to server certificate PEM file
+    /// * `key_path` - Path to server private key PEM file
+    /// * `ca_cert_path` - Path to CA certificate PEM file for client verification
+    ///
+    /// # Returns
+    /// Pingora Acceptor configured for mutual TLS
+    pub fn build_mtls_acceptor(
+        cert_path: &str,
+        key_path: &str,
+        ca_cert_path: &str,
+    ) -> Result<pingora::listeners::tls::Acceptor, TlsError> {
+        // Load server certificate and key
+        let cert_pem = std::fs::read(cert_path)
+            .map_err(|e| TlsError::Internal(format!("Failed to read server cert: {e}")))?;
+        let key_pem = std::fs::read(key_path)
+            .map_err(|e| TlsError::Internal(format!("Failed to read server key: {e}")))?;
+
+        let certs: Vec<rustls::pki_types::CertificateDer> =
+            rustls_pemfile::certs(&mut cert_pem.as_slice())
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| TlsError::Internal(format!("Failed to parse server cert: {e}")))?;
+
+        let key = rustls_pemfile::private_key(&mut key_pem.as_slice())
+            .map_err(|e| TlsError::Internal(format!("Failed to parse key: {e}")))?
+            .ok_or_else(|| TlsError::Internal("No private key found".to_string()))?;
+
+        // Load CA certificate for client verification
+        let ca_pem = std::fs::read(ca_cert_path)
+            .map_err(|e| TlsError::Internal(format!("Failed to read CA cert: {e}")))?;
+
+        let ca_certs: Vec<rustls::pki_types::CertificateDer> =
+            rustls_pemfile::certs(&mut ca_pem.as_slice())
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| TlsError::Internal(format!("Failed to parse CA cert: {e}")))?;
+
+        // Build root CA store
+        let mut root_store = RootCertStore::empty();
+        for cert in ca_certs {
+            root_store.add(cert)
+                .map_err(|e| TlsError::Internal(format!("Failed to add CA cert: {e}")))?;
+        }
+
+        // Create client certificate verifier
+        let verifier = rustls::server::WebPkiClientVerifier::builder(Arc::new(root_store))
+            .build()
+            .map_err(|e| TlsError::Internal(format!("Failed to build verifier: {e}")))?;
+
+        // Build server config with mTLS
+        let config = rustls::ServerConfig::builder()
+            .with_client_cert_verifier(verifier)
+            .with_single_cert(certs, key)
+            .map_err(|e| TlsError::Internal(format!("Failed to build server config: {e}")))?;
+
+        Ok(pingora::listeners::tls::Acceptor::new(
+            pingora_rustls::TlsAcceptor::from(Arc::new(config))
+        ))
+    }
+}

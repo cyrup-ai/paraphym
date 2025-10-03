@@ -8,7 +8,7 @@ use std::borrow::Cow;
 use serde::{Deserialize, Serialize};
 use cyrup_sugars::prelude::MessageChunk;
 
-use crate::domain::model::usage::Usage;
+use crate::domain::model::usage::CandleUsage;
 
 /// A response from a text completion request
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,7 +20,7 @@ pub struct CompletionResponse<'a> {
     /// The provider that generated the completion (optional)
     pub provider: Option<Cow<'a, str>>,
     /// Token usage information (optional)
-    pub usage: Option<Usage>,
+    pub usage: Option<CandleUsage>,
     /// The reason the completion finished (optional)
     pub finish_reason: Option<Cow<'a, str>>,
     /// Response time in milliseconds (optional)
@@ -64,7 +64,7 @@ impl CompletionResponse<'_> {
 
     /// Get the token usage if available
     #[must_use]
-    pub fn usage(&self) -> Option<&Usage> {
+    pub fn usage(&self) -> Option<&CandleUsage> {
         self.usage.as_ref()
     }
 
@@ -164,7 +164,7 @@ impl CompactCompletionResponse {
             text: Cow::Owned((*self.content).to_owned()),
             model: Cow::Owned((*self.model).to_owned()),
             provider: Some(Cow::Owned((*self.provider).to_owned())),
-            usage: Some(Usage {
+            usage: Some(CandleUsage {
                 total_tokens: self.tokens_used,
                 input_tokens: 0,  // Not available in compact form
                 output_tokens: 0, // Not available in compact form

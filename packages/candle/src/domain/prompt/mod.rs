@@ -41,7 +41,4 @@ impl std::fmt::Display for CandlePrompt {
     }
 }
 
-// Backward compatibility alias
-pub type Prompt = CandlePrompt;
-
 // PromptBuilder implementation moved to paraphym/src/builders/prompt.rs

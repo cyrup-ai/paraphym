@@ -6,6 +6,7 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime};
 
 use base64::engine::Engine;
+use http_body_util::BodyExt;
 
 use x509_parser::prelude::*;
 
@@ -94,8 +95,8 @@ impl CrlCache {
     // Streaming wrapper removed - using direct async methods per cryypt pattern
 
     /// Check certificate status against specific CRL URL - used by TLS verifier
-    pub fn check_certificate_status(&self, serial_number: &[u8], crl_url: &str) -> CrlStatus {
-        let is_revoked = self.check_against_crl(serial_number, crl_url);
+    pub async fn check_certificate_status(&self, serial_number: &[u8], crl_url: &str) -> CrlStatus {
+        let is_revoked = self.check_against_crl(serial_number, crl_url).await;
         if is_revoked {
             CrlStatus::Revoked
         } else {
@@ -104,7 +105,7 @@ impl CrlCache {
     }
 
     /// Check if certificate serial number is revoked using CRL
-    pub fn check_certificate_revocation(&self, cert: &ParsedCertificate) -> bool {
+    pub async fn check_certificate_revocation(&self, cert: &ParsedCertificate) -> bool {
         if cert.crl_urls.is_empty() {
             tracing::warn!("No CRL URLs found in certificate, skipping CRL validation");
             return false; // Not revoked (no CRL available)
@@ -112,7 +113,7 @@ impl CrlCache {
 
         // Try each CRL URL until one succeeds
         for crl_url in &cert.crl_urls {
-            let is_revoked = self.check_against_crl(&cert.serial_number, crl_url);
+            let is_revoked = self.check_against_crl(&cert.serial_number, crl_url).await;
             if is_revoked {
                 tracing::warn!(
                     "Certificate serial {:?} found in CRL from {}",
@@ -132,7 +133,7 @@ impl CrlCache {
         false
     }
 
-    fn check_against_crl(&self, serial_number: &[u8], crl_url: &str) -> bool {
+    async fn check_against_crl(&self, serial_number: &[u8], crl_url: &str) -> bool {
         let cache_key = crl_url.to_string();
 
         // Check cache first
@@ -144,12 +145,29 @@ impl CrlCache {
             return cached_crl.revoked_serials.contains(serial_number);
         }
 
-        // No cache hit and no download to prevent circular dependency
-        tracing::debug!(
-            "CRL validation skipped for URL: {} (no cached data, download disabled)",
-            crl_url
-        );
-        false // Assume not revoked if we can't check
+        // Cache miss - download CRL asynchronously
+        self.cache_misses.fetch_add(1, Ordering::Relaxed);
+
+        tracing::debug!("CRL cache miss for URL: {}, downloading...", crl_url);
+
+        // Download and cache CRL using BootstrapHttpClient
+        match self.download_and_parse_crl(crl_url).await {
+            Ok(entry) => {
+                let is_revoked = entry.revoked_serials.contains(serial_number);
+                self.cache_crl(cache_key, entry);
+                tracing::info!(
+                    "Downloaded and cached CRL from {}: serial {} is {}",
+                    crl_url,
+                    hex::encode(serial_number),
+                    if is_revoked { "REVOKED" } else { "valid" }
+                );
+                is_revoked
+            }
+            Err(e) => {
+                tracing::warn!("Failed to download CRL from {}: {}", crl_url, e);
+                false // Assume not revoked if download fails (soft-fail)
+            }
+        }
     }
 
     #[inline]
@@ -191,15 +209,32 @@ impl CrlCache {
         }
     }
 
-    fn download_and_parse_crl(_crl_url: &str) -> Result<CrlCacheEntry, TlsError> {
-        // CRL download disabled to prevent circular dependency during TLS handshake
-        // TLS connections use CRL checking automatically via rustls WebPkiServerVerifier when enabled
-        tracing::debug!(
-            "CRL download skipped to prevent circular dependency (using pre-loaded CRLs instead)"
+    async fn download_and_parse_crl(&self, crl_url: &str) -> Result<CrlCacheEntry, TlsError> {
+        tracing::debug!("Downloading CRL from: {}", crl_url);
+        
+        // Create HTTP GET request
+        let request = BootstrapHttpClient::get(crl_url)
+            .map_err(|e| TlsError::CrlValidation(format!("Failed to create request: {}", e)))?;
+        
+        // Execute request using BootstrapHttpClient (basic TLS, no OCSP/CRL validation)
+        let response = self.http_client.execute(request).await
+            .map_err(|e| TlsError::CrlValidation(format!("CRL download failed: {}", e)))?;
+        
+        // Read response body using http-body-util
+        let body_bytes = response.into_body().collect().await
+            .map_err(|e| TlsError::CrlValidation(format!("Failed to read CRL body: {}", e)))?
+            .to_bytes();
+        
+        // Parse CRL data (existing function works correctly)
+        let entry = Self::parse_crl_data(&body_bytes)?;
+        
+        tracing::info!(
+            "Downloaded CRL from {} - {} revoked certificates", 
+            crl_url, 
+            entry.revoked_serials.len()
         );
-        Err(TlsError::CrlValidation(
-            "CRL download disabled to prevent circular dependency".to_string(),
-        ))
+        
+        Ok(entry)
     }
 
     #[allow(clippy::cast_sign_loss)]

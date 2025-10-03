@@ -9,9 +9,6 @@ use surrealdb::RecordId;
 
 use crate::memory::utils;
 
-/// Type alias for backwards compatibility
-pub type RelationshipSchema = Relationship;
-
 /// Relationship schema
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Relationship {

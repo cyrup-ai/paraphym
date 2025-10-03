@@ -15,6 +15,12 @@ use tokio::sync::{mpsc, oneshot, Mutex};
 use tracing;
 use uuid::Uuid;
 
+// Extism host function for embeddings
+#[host_fn]
+extern "ExtismHost" {
+    fn get_text_embedding(text: String) -> Vec<f32>;
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PolicyGuidedNode {
     #[serde(flatten)]
@@ -76,6 +82,9 @@ pub struct MCTS002AlphaStrategy {
     novelty_bonus: f64,
     policy_metrics: Arc<Mutex<PolicyMetrics>>,
     simulation_count: usize,
+    
+    // WASM-compatible embedding cache
+    embedding_cache: Arc<Mutex<HashMap<String, Vec<f32>>>>,
 }
 
 impl MCTS002AlphaStrategy {
@@ -105,6 +114,9 @@ impl MCTS002AlphaStrategy {
             novelty_bonus: 0.2,
             policy_metrics: Arc::new(Mutex::new(policy_metrics)),
             simulation_count: num_simulations,
+            
+            // WASM-compatible embedding cache
+            embedding_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -117,8 +129,74 @@ impl MCTS002AlphaStrategy {
         hasher.finish().to_string()
     }
 
-    // Now async to use semantic coherence
-    pub async fn calculate_policy_score(
+    /// Pure Rust cosine similarity (WASM-compatible, no SIMD)
+    fn cosine_similarity_wasm(a: &[f32], b: &[f32]) -> f32 {
+        if a.len() != b.len() || a.is_empty() {
+            return 0.0;
+        }
+        
+        let mut dot = 0.0f32;
+        let mut norm_a = 0.0f32;
+        let mut norm_b = 0.0f32;
+        
+        for (&a_val, &b_val) in a.iter().zip(b) {
+            dot += a_val * b_val;
+            norm_a += a_val * a_val;
+            norm_b += b_val * b_val;
+        }
+        
+        let norm_product = (norm_a * norm_b).sqrt();
+        
+        if norm_product <= f32::EPSILON {
+            0.0
+        } else {
+            (dot / norm_product).clamp(-1.0, 1.0)
+        }
+    }
+
+    /// Compute semantic coherence using host-provided embeddings
+    fn thought_coherence(&self, thought1: &str, thought2: &str) -> Result<f64, Box<dyn std::error::Error>> {
+        // Check cache first
+        let mut cache = match self.embedding_cache.lock() {
+            Ok(c) => c,
+            Err(_) => return Ok(0.5), // Fallback on lock failure
+        };
+        
+        // Get or fetch embedding for thought1
+        let emb1 = if let Some(cached) = cache.get(thought1) {
+            cached.clone()
+        } else {
+            // Request embedding from host
+            let embedding = unsafe { 
+                get_text_embedding(thought1.to_string())
+                    .map_err(|e| format!("Failed to get embedding: {}", e))? 
+            };
+            cache.insert(thought1.to_string(), embedding.clone());
+            embedding
+        };
+        
+        // Get or fetch embedding for thought2
+        let emb2 = if let Some(cached) = cache.get(thought2) {
+            cached.clone()
+        } else {
+            // Request embedding from host
+            let embedding = unsafe { 
+                get_text_embedding(thought2.to_string())
+                    .map_err(|e| format!("Failed to get embedding: {}", e))? 
+            };
+            cache.insert(thought2.to_string(), embedding.clone());
+            embedding
+        };
+        
+        // Compute similarity using pure Rust
+        let similarity = Self::cosine_similarity_wasm(&emb1, &emb2);
+        
+        // Normalize from [-1, 1] to [0, 1]
+        Ok((similarity as f64 + 1.0) / 2.0)
+    }
+
+    // Synchronous policy score calculation with semantic coherence
+    pub fn calculate_policy_score(
         &self,
         node: &PolicyGuidedNode,
         parent: Option<&PolicyGuidedNode>,
@@ -126,23 +204,20 @@ impl MCTS002AlphaStrategy {
         // Combine multiple policy factors
         let depth_factor = (-0.1 * node.base.depth as f64).exp();
 
-        // Use async semantic coherence
+        // Use semantic coherence from host-provided embeddings
         let parent_alignment = if let Some(p) = parent {
-            match self
-                .base
-                .calculate_semantic_coherence(&p.base.thought, &node.base.thought)
-                .await // Await the async call
-            {
-                Ok(score) => score,
-                Err(_) => 0.5, // Default on error
-            }
+            self.thought_coherence(&p.base.thought, &node.base.thought)
+                .unwrap_or(0.5) // Fallback to neutral on error
         } else {
-            1.0 // No parent, max alignment
+            0.5 // No parent, neutral alignment
         };
-        let novelty_bonus = node.novelty_score.unwrap_or(0.0); // Novelty is also heuristic
 
-        // Weights are heuristic
-        0.4 * depth_factor + 0.4 * parent_alignment + 0.2 * novelty_bonus
+        // Combine factors: depth, semantic coherence, policy score
+        let combined = depth_factor * 0.3 
+            + parent_alignment * 0.4 
+            + node.policy_score * 0.3;
+        
+        combined.min(1.0).max(0.0)
     }
 
     // Now async (though not strictly needed if policy_score already calculated coherence)
@@ -185,29 +260,6 @@ impl MCTS002AlphaStrategy {
 
         // Weights are heuristic
         0.7 * uniqueness_ratio + 0.3 * complexity_score
-    }
-
-    // Simple word overlap coherence (used as placeholder)
-    #[allow(dead_code)]
-    fn thought_coherence(&self, thought1: &str, thought2: &str) -> f64 {
-        let words1: HashSet<String> = thought1
-            .to_lowercase()
-            .split(|c: char| !c.is_alphanumeric())
-            .filter(|s| !s.is_empty())
-            .map(String::from)
-            .collect();
-
-        let words2: HashSet<String> = thought2
-            .to_lowercase()
-            .split(|c: char| !c.is_alphanumeric())
-            .filter(|s| !s.is_empty())
-            .map(String::from)
-            .collect();
-
-        let intersection = words1.intersection(&words2).count();
-        let union = words1.union(&words2).count();
-
-        intersection as f64 / union as f64
     }
 
     async fn run_policy_guided_search(
@@ -351,8 +403,8 @@ impl MCTS002AlphaStrategy {
         };
 
         new_node.novelty_score = Some(self.calculate_novelty(&new_node));
-        // Await the async calculation
-        new_node.policy_score = self.calculate_policy_score(&new_node, Some(&node)).await;
+        // Calculate policy score with semantic coherence
+        new_node.policy_score = self.calculate_policy_score(&new_node, Some(&node));
         new_node.base.score = self.base.evaluate_thought(&new_node.base, Some(&node.base));
         // Await the async calculation
         new_node.value_estimate = self.estimate_value(&new_node).await;
@@ -685,8 +737,8 @@ impl Strategy for MCTS002AlphaStrategy {
                 .evaluate_thought(&node.base, parent_node.as_ref().map(|p| &p.base));
             node.visits = 1;
             node.total_reward = node.base.score;
-            // Await async calculations
-            node.policy_score = self_clone.calculate_policy_score(&node, parent_node.as_ref()).await;
+            // Calculate policy score and value estimate
+            node.policy_score = self_clone.calculate_policy_score(&node, parent_node.as_ref());
             node.value_estimate = self_clone.estimate_value(&node).await;
             node.novelty_score = Some(self_clone.calculate_novelty(&node));
             base_node.score = node.base.score;

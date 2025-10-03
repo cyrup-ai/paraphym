@@ -1,71 +1,112 @@
-# Rate Limiting: HybridAlgorithm Disconnection
+# Rate Limiting: Enable HybridAlgorithm in DistributedRateLimitManager
 
 ## Status
-**DISCONNECTED** - HybridAlgorithm exists but unreachable
+**PARTIALLY CONNECTED** - HybridAlgorithm accessible via AdvancedRateLimitManager, not via DistributedRateLimitManager
 
-## Problem
-HybridAlgorithm (combines TokenBucket + SlidingWindow for stricter limiting) is fully implemented but cannot be instantiated.
+## Problem Statement (CORRECTED)
 
-## Root Cause
-1. **HybridAlgorithm exists**: `rate_limit/algorithms.rs:458-518`
-2. **AdvancedRateLimitManager supports it**: Uses `Box<dyn RateLimitAlgorithm>`
-3. **DistributedRateLimitManager cannot use it**: Uses `RateLimiter` enum which lacks Hybrid variant
-4. **RateLimitAlgorithmConfig missing Hybrid variant**: `algorithms.rs:406-410`
-5. **EdgeService hardcoded to Distributed**: `edge/core/service.rs:124`
+The HybridAlgorithm (combines TokenBucket + SlidingWindow for stricter rate limiting) exists and is **already usable** via `AdvancedRateLimitManager`, but is **not accessible** via `DistributedRateLimitManager`.
 
-## Architecture
+### Current State
+- ✅ HybridAlgorithm exists: [`src/rate_limit/algorithms.rs:458-518`](../packages/sweetmcp/packages/pingora/src/rate_limit/algorithms.rs)
+- ✅ AdvancedRateLimitManager CAN use HybridAlgorithm via `RateLimitAlgorithmType::Hybrid`: [`src/rate_limit/limiter.rs:192-195, 209-212`](../packages/sweetmcp/packages/pingora/src/rate_limit/limiter.rs)
+- ❌ DistributedRateLimitManager CANNOT use HybridAlgorithm (uses `algorithms::RateLimiter` enum which lacks Hybrid variant)
+
+### Architecture (As-Is)
+
 ```
-RateLimitAlgorithm trait (low-level)
+RateLimitAlgorithm trait (low-level interface)
   ├── TokenBucket ✓
   ├── SlidingWindow ✓
-  └── HybridAlgorithm ✓ (EXISTS BUT UNREACHABLE)
+  └── HybridAlgorithm ✓ (EXISTS, implements trait)
 
-RateLimiter enum (mid-level)
-  ├── TokenBucket(TokenBucket)
-  └── SlidingWindow(SlidingWindow)
-  └── Hybrid(HybridAlgorithm) ✗ MISSING
+algorithms.rs enums (used by DistributedRateLimitManager):
+  RateLimitAlgorithmConfig (lines 406-410)
+    ├── TokenBucket(TokenBucketConfig)
+    └── SlidingWindow(SlidingWindowConfig)
+    └── Hybrid(TokenBucketConfig, SlidingWindowConfig) ✗ MISSING
 
-RateLimitAlgorithmConfig enum
-  ├── TokenBucket(TokenBucketConfig)
-  └── SlidingWindow(SlidingWindowConfig)
-  └── Hybrid(TokenBucketConfig, SlidingWindowConfig) ✗ MISSING
+  RateLimiter (lines 318-321)
+    ├── TokenBucket(TokenBucket)
+    └── SlidingWindow(SlidingWindow)
+    └── Hybrid(HybridAlgorithm) ✗ MISSING
+
+limiter.rs (used by AdvancedRateLimitManager):
+  RateLimitAlgorithmType (line 373)
+    ├── TokenBucket
+    ├── SlidingWindow
+    └── Hybrid ✓ PRESENT
 
 Managers:
-  AdvancedRateLimitManager (NEVER INSTANTIATED)
-    - Uses Box<dyn RateLimitAlgorithm> → CAN access Hybrid
-    - Has cleanup_handle for background task
-    - Has operational state tracking
+  AdvancedRateLimitManager (limiter.rs:59-74)
+    - Uses Box<dyn RateLimitAlgorithm> → CAN use HybridAlgorithm ✓
+    - Selects algorithm via RateLimitAlgorithmType enum (has Hybrid variant)
 
-  DistributedRateLimitManager (HARDCODED EVERYWHERE)
-    - Uses RateLimiter enum → CANNOT access Hybrid
-    - Has load_multiplier for adaptive limiting
-    - Has per-endpoint configs
+  DistributedRateLimitManager (distributed.rs:36-45)
+    - Uses algorithms::RateLimiter enum → CANNOT use HybridAlgorithm ✗
+    - Needs Hybrid variant added to enums it uses
+
+Wrapper (mod.rs:17-22):
+  RateLimiter enum
+    ├── Distributed(Arc<DistributedRateLimitManager>)
+    └── Advanced(Arc<AdvancedRateLimitManager>) ✓ Can access Hybrid
+
+EdgeService (edge/core/service.rs:60)
+  - Uses wrapper RateLimiter enum
+  - Defaults to Distributed (line 124)
+  - Can use Advanced variant to access HybridAlgorithm
 ```
 
-## Reconnection Steps
+## Objective
 
-### 1. Add Hybrid to RateLimitAlgorithmConfig
-**File**: `rate_limit/algorithms.rs:406-410`
+Enable HybridAlgorithm support in `DistributedRateLimitManager` by adding Hybrid variants to the enums it uses (`RateLimitAlgorithmConfig` and `RateLimiter` in `algorithms.rs`).
+
+## Implementation Steps
+
+### 1. Add Hybrid to RateLimitAlgorithmConfig Enum
+**File**: [`src/rate_limit/algorithms.rs`](../packages/sweetmcp/packages/pingora/src/rate_limit/algorithms.rs) (lines 406-410)
+
+**Current**:
 ```rust
 pub enum RateLimitAlgorithmConfig {
     TokenBucket(TokenBucketConfig),
     SlidingWindow(SlidingWindowConfig),
-    Hybrid(TokenBucketConfig, SlidingWindowConfig), // ADD THIS
 }
 ```
 
-### 2. Add Hybrid to RateLimiter enum
-**File**: `rate_limit/algorithms.rs:318-322`
+**Change to**:
+```rust
+pub enum RateLimitAlgorithmConfig {
+    TokenBucket(TokenBucketConfig),
+    SlidingWindow(SlidingWindowConfig),
+    Hybrid(TokenBucketConfig, SlidingWindowConfig),
+}
+```
+
+### 2. Add Hybrid to RateLimiter Enum
+**File**: [`src/rate_limit/algorithms.rs`](../packages/sweetmcp/packages/pingora/src/rate_limit/algorithms.rs) (lines 318-321)
+
+**Current**:
 ```rust
 pub enum RateLimiter {
     TokenBucket(TokenBucket),
     SlidingWindow(SlidingWindow),
-    Hybrid(HybridAlgorithm), // ADD THIS
+}
+```
+
+**Change to**:
+```rust
+pub enum RateLimiter {
+    TokenBucket(TokenBucket),
+    SlidingWindow(SlidingWindow),
+    Hybrid(HybridAlgorithm),
 }
 ```
 
 ### 3. Update RateLimiter::new()
-**File**: `rate_limit/algorithms.rs:326-335`
+**File**: [`src/rate_limit/algorithms.rs`](../packages/sweetmcp/packages/pingora/src/rate_limit/algorithms.rs) (lines 326-335)
+
+Add match arm:
 ```rust
 pub fn new(algorithm: &RateLimitAlgorithmConfig) -> Self {
     match algorithm {
@@ -83,59 +124,198 @@ pub fn new(algorithm: &RateLimitAlgorithmConfig) -> Self {
 ```
 
 ### 4. Update RateLimiter::check_request()
-**File**: `rate_limit/algorithms.rs:338-346`
-Add Hybrid case to match.
+**File**: [`src/rate_limit/algorithms.rs`](../packages/sweetmcp/packages/pingora/src/rate_limit/algorithms.rs) (lines 338-346)
 
-### 5. Update RateLimiter::update_config()
-**File**: `rate_limit/algorithms.rs:349-370`
-Add Hybrid case to match.
-
-### 6. Update RateLimiter::get_state()
-**File**: `rate_limit/algorithms.rs:373-378`
-Add Hybrid case to match.
-
-### 7. Update RateLimiter methods (is_active, reset, last_used)
-Add Hybrid case to all match statements.
-
-### 8. Create RateLimitManager Trait
-**File**: `rate_limit/mod.rs` (add trait)
+Add match arm:
 ```rust
-pub trait RateLimitManager: Send + Sync {
-    fn check_request(&self, endpoint: &str, peer_id: Option<&str>, count: u32) -> bool;
-    fn cleanup_unused_limiters(&self);
-    fn is_healthy(&self) -> bool;
+pub fn check_request(&mut self, tokens: u32) -> bool {
+    match self {
+        Self::TokenBucket(bucket) => bucket.try_consume(tokens),
+        Self::SlidingWindow(window) => window.try_request(),
+        Self::Hybrid(hybrid) => {
+            // Hybrid requires both algorithms to allow
+            for _ in 0..tokens {
+                if !hybrid.try_request() {
+                    return false;
+                }
+            }
+            true
+        }
+    }
 }
 ```
 
-### 9. Impl trait for both managers
-- `impl RateLimitManager for AdvancedRateLimitManager`
-- `impl RateLimitManager for DistributedRateLimitManager`
+### 5. Update RateLimiter::update_config()
+**File**: [`src/rate_limit/algorithms.rs`](../packages/sweetmcp/packages/pingora/src/rate_limit/algorithms.rs) (lines 349-370)
 
-### 10. Update EdgeService
-**File**: `edge/core/service.rs:59`
+Add match arms for Hybrid in both outer and inner matches:
 ```rust
-pub rate_limit_manager: Arc<dyn RateLimitManager>, // was Arc<DistributedRateLimitManager>
+pub fn update_config(&mut self, algorithm: &RateLimitAlgorithmConfig) {
+    match algorithm {
+        RateLimitAlgorithmConfig::TokenBucket(config) => { /* existing */ }
+        RateLimitAlgorithmConfig::SlidingWindow(config) => { /* existing */ }
+        RateLimitAlgorithmConfig::Hybrid(token_config, window_config) => {
+            match self {
+                Self::Hybrid(hybrid) => {
+                    // Update both internal algorithms
+                    *self = Self::Hybrid(HybridAlgorithm::new(
+                        token_config.clone(),
+                        window_config.clone()
+                    ));
+                }
+                _ => {
+                    // Switch to Hybrid
+                    *self = Self::Hybrid(HybridAlgorithm::new(
+                        token_config.clone(),
+                        window_config.clone()
+                    ));
+                }
+            }
+        }
+    }
+}
 ```
 
-### 11. Update EdgeServiceBuilder
-**File**: `edge/core/builder.rs:23,65`
-```rust
-custom_rate_limiter: Option<Arc<dyn RateLimitManager>>, // was Arc<DistributedRateLimitManager>
+### 6. Update RateLimiter::get_state()
+**File**: [`src/rate_limit/algorithms.rs`](../packages/sweetmcp/packages/pingora/src/rate_limit/algorithms.rs) (lines 373-378)
 
-pub fn with_custom_rate_limiter(mut self, rate_limiter: Arc<dyn RateLimitManager>) -> Self
+Add match arm:
+```rust
+pub fn get_state(&self) -> AlgorithmState {
+    match self {
+        Self::TokenBucket(bucket) => bucket.get_state(),
+        Self::SlidingWindow(window) => window.get_state(),
+        Self::Hybrid(hybrid) => hybrid.get_state(),
+    }
+}
 ```
 
-## Testing
-1. Create Hybrid config: `RateLimitAlgorithmConfig::Hybrid(token, window)`
-2. Use in DistributedRateLimitManager via configure_endpoint()
-3. Verify both token bucket AND sliding window enforced
-4. Test AdvancedRateLimitManager instantiation
-5. Test switching between managers via builder
+### 7. Update Remaining RateLimiter Methods
+**File**: [`src/rate_limit/algorithms.rs`](../packages/sweetmcp/packages/pingora/src/rate_limit/algorithms.rs) (lines 380+)
 
-## Files Modified
-- `rate_limit/algorithms.rs` - Add Hybrid to enums and matches
-- `rate_limit/mod.rs` - Add RateLimitManager trait
-- `rate_limit/limiter.rs` - Impl trait for AdvancedRateLimitManager
-- `rate_limit/distributed.rs` - Impl trait for DistributedRateLimitManager
-- `edge/core/service.rs` - Use trait object
-- `edge/core/builder.rs` - Accept trait object
+Add Hybrid match arms to:
+- `is_active()`: `Self::Hybrid(hybrid) => hybrid.is_active(),`
+- `reset()`: `Self::Hybrid(hybrid) => hybrid.reset(),`
+- `last_used()`: `Self::Hybrid(hybrid) => hybrid.last_used(),`
+
+### 8. Update DistributedRateLimitManager::check_endpoint_request()
+**File**: [`src/rate_limit/distributed.rs`](../packages/sweetmcp/packages/pingora/src/rate_limit/distributed.rs) (lines 137-157)
+
+Add match arm:
+```rust
+fn check_endpoint_request(&self, endpoint: &str, config: &EndpointRateConfig, tokens: u32) -> bool {
+    if !self.endpoint_limiters.contains_key(endpoint) {
+        let limiter = match &config.algorithm {
+            RateLimitAlgorithmConfig::TokenBucket(token_config) => {
+                RateLimiter::TokenBucket(super::algorithms::TokenBucket::new(token_config.clone()))
+            }
+            RateLimitAlgorithmConfig::SlidingWindow(window_config) => {
+                RateLimiter::SlidingWindow(super::algorithms::SlidingWindow::new(window_config.clone()))
+            }
+            RateLimitAlgorithmConfig::Hybrid(token_config, window_config) => {
+                RateLimiter::Hybrid(super::algorithms::HybridAlgorithm::new(
+                    token_config.clone(),
+                    window_config.clone()
+                ))
+            }
+        };
+        self.endpoint_limiters.insert(endpoint.to_string(), limiter);
+    }
+    // ... rest of method
+}
+```
+
+### 9. Update DistributedRateLimitManager::check_peer_request()
+**File**: [`src/rate_limit/distributed.rs`](../packages/sweetmcp/packages/pingora/src/rate_limit/distributed.rs) (lines 172-194)
+
+Add match arm (same pattern as step 8):
+```rust
+fn check_peer_request(&self, endpoint: &str, peer_ip: &str, config: &EndpointRateConfig, tokens: u32) -> bool {
+    // ... setup code ...
+    if !endpoint_limiters.contains_key(peer_ip) {
+        let limiter = match &config.algorithm {
+            RateLimitAlgorithmConfig::TokenBucket(token_config) => {
+                RateLimiter::TokenBucket(super::algorithms::TokenBucket::new(token_config.clone()))
+            }
+            RateLimitAlgorithmConfig::SlidingWindow(window_config) => {
+                RateLimiter::SlidingWindow(super::algorithms::SlidingWindow::new(window_config.clone()))
+            }
+            RateLimitAlgorithmConfig::Hybrid(token_config, window_config) => {
+                RateLimiter::Hybrid(super::algorithms::HybridAlgorithm::new(
+                    token_config.clone(),
+                    window_config.clone()
+                ))
+            }
+        };
+        endpoint_limiters.insert(peer_ip.to_string(), limiter);
+    }
+    // ... rest of method
+}
+```
+
+### 10. Update DistributedRateLimitManager::get_stats()
+**File**: [`src/rate_limit/distributed.rs`](../packages/sweetmcp/packages/pingora/src/rate_limit/distributed.rs) (around line 289)
+
+Update algorithm name display:
+```rust
+endpoint_info.insert(
+    "algorithm",
+    serde_json::json!(match &config.algorithm {
+        RateLimitAlgorithmConfig::TokenBucket(_) => "TokenBucket",
+        RateLimitAlgorithmConfig::SlidingWindow(_) => "SlidingWindow",
+        RateLimitAlgorithmConfig::Hybrid(_, _) => "Hybrid",
+    }),
+);
+```
+
+## Files to Modify (2 files)
+
+1. **[`src/rate_limit/algorithms.rs`](../packages/sweetmcp/packages/pingora/src/rate_limit/algorithms.rs)** - Add Hybrid to both enums and all match statements
+2. **[`src/rate_limit/distributed.rs`](../packages/sweetmcp/packages/pingora/src/rate_limit/distributed.rs)** - Add Hybrid match arms where configs are used
+
+## Definition of Done
+
+1. `RateLimitAlgorithmConfig::Hybrid` variant added with two config parameters
+2. `RateLimiter::Hybrid` variant added wrapping `HybridAlgorithm`
+3. All `RateLimiter` methods handle the Hybrid variant correctly
+4. `DistributedRateLimitManager` can create and use Hybrid limiters
+5. Hybrid algorithm enforces both token bucket AND sliding window limits (both must allow)
+6. Configuration example works:
+
+```rust
+use sweetmcp::rate_limit::*;
+
+// Create distributed manager
+let manager = DistributedRateLimitManager::new();
+
+// Configure endpoint with Hybrid algorithm
+manager.configure_endpoint(
+    "/api/critical".to_string(),
+    EndpointRateConfig {
+        algorithm: RateLimitAlgorithmConfig::Hybrid(
+            TokenBucketConfig {
+                capacity: 100,
+                refill_rate: 10.0,
+                initial_tokens: 100,
+            },
+            SlidingWindowConfig {
+                window_size: 60,
+                max_requests: 50,
+                sub_windows: 6,
+            }
+        ),
+        per_peer: true,
+        trusted_multiplier: 1.0,
+    }
+);
+
+// Both token bucket AND sliding window must allow request
+let allowed = manager.check_request("/api/critical", Some("192.168.1.1"), 1);
+```
+
+## References
+
+- HybridAlgorithm implementation: [`src/rate_limit/algorithms.rs:458-518`](../packages/sweetmcp/packages/pingora/src/rate_limit/algorithms.rs)
+- AdvancedRateLimitManager (working example): [`src/rate_limit/limiter.rs:192-195`](../packages/sweetmcp/packages/pingora/src/rate_limit/limiter.rs)
+- DistributedRateLimitManager: [`src/rate_limit/distributed.rs`](../packages/sweetmcp/packages/pingora/src/rate_limit/distributed.rs)
+- RateLimiter wrapper enum: [`src/rate_limit/mod.rs:17-22`](../packages/sweetmcp/packages/pingora/src/rate_limit/mod.rs)

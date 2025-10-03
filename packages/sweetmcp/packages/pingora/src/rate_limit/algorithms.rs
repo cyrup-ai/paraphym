@@ -319,6 +319,7 @@ impl RateLimitAlgorithm for SlidingWindow {
 pub enum RateLimiter {
     TokenBucket(TokenBucket),
     SlidingWindow(SlidingWindow),
+    Hybrid(HybridAlgorithm),
 }
 
 impl RateLimiter {
@@ -331,6 +332,9 @@ impl RateLimiter {
             RateLimitAlgorithmConfig::SlidingWindow(config) => {
                 Self::SlidingWindow(SlidingWindow::new(config.clone()))
             }
+            RateLimitAlgorithmConfig::Hybrid(token_config, window_config) => {
+                Self::Hybrid(HybridAlgorithm::new(token_config.clone(), window_config.clone()))
+            }
         }
     }
 
@@ -341,6 +345,15 @@ impl RateLimiter {
             Self::SlidingWindow(window) => {
                 // For sliding window, tokens parameter is ignored (always 1 request)
                 window.try_request()
+            }
+            Self::Hybrid(hybrid) => {
+                // Hybrid requires both algorithms to allow
+                for _ in 0..tokens {
+                    if !hybrid.try_request() {
+                        return false;
+                    }
+                }
+                true
             }
         }
     }
@@ -355,6 +368,10 @@ impl RateLimiter {
                         // Switch algorithm type
                         *self = Self::TokenBucket(TokenBucket::new(config.clone()));
                     }
+                    Self::Hybrid(_) => {
+                        // Switch algorithm type
+                        *self = Self::TokenBucket(TokenBucket::new(config.clone()));
+                    }
                 }
             }
             RateLimitAlgorithmConfig::SlidingWindow(config) => {
@@ -363,6 +380,28 @@ impl RateLimiter {
                     Self::TokenBucket(_) => {
                         // Switch algorithm type
                         *self = Self::SlidingWindow(SlidingWindow::new(config.clone()));
+                    }
+                    Self::Hybrid(_) => {
+                        // Switch algorithm type
+                        *self = Self::SlidingWindow(SlidingWindow::new(config.clone()));
+                    }
+                }
+            }
+            RateLimitAlgorithmConfig::Hybrid(token_config, window_config) => {
+                match self {
+                    Self::Hybrid(_) => {
+                        // Update both internal algorithms
+                        *self = Self::Hybrid(HybridAlgorithm::new(
+                            token_config.clone(),
+                            window_config.clone()
+                        ));
+                    }
+                    _ => {
+                        // Switch to Hybrid
+                        *self = Self::Hybrid(HybridAlgorithm::new(
+                            token_config.clone(),
+                            window_config.clone()
+                        ));
                     }
                 }
             }
@@ -374,6 +413,7 @@ impl RateLimiter {
         match self {
             Self::TokenBucket(bucket) => bucket.get_state(),
             Self::SlidingWindow(window) => window.get_state(),
+            Self::Hybrid(hybrid) => hybrid.get_state(),
         }
     }
 
@@ -382,6 +422,7 @@ impl RateLimiter {
         match self {
             Self::TokenBucket(bucket) => bucket.is_active(),
             Self::SlidingWindow(window) => window.is_active(),
+            Self::Hybrid(hybrid) => hybrid.is_active(),
         }
     }
 
@@ -390,6 +431,7 @@ impl RateLimiter {
         match self {
             Self::TokenBucket(bucket) => bucket.reset(),
             Self::SlidingWindow(window) => window.reset(),
+            Self::Hybrid(hybrid) => hybrid.reset(),
         }
     }
 
@@ -398,6 +440,7 @@ impl RateLimiter {
         match self {
             Self::TokenBucket(bucket) => bucket.last_used(),
             Self::SlidingWindow(window) => window.last_used(),
+            Self::Hybrid(hybrid) => hybrid.last_used(),
         }
     }
 }
@@ -407,6 +450,7 @@ impl RateLimiter {
 pub enum RateLimitAlgorithmConfig {
     TokenBucket(TokenBucketConfig),
     SlidingWindow(SlidingWindowConfig),
+    Hybrid(TokenBucketConfig, SlidingWindowConfig),
 }
 
 /// Algorithm state information for monitoring and debugging
@@ -456,6 +500,7 @@ impl AlgorithmState {
 }
 
 /// Hybrid algorithm that combines token bucket and sliding window
+#[derive(Debug)]
 pub struct HybridAlgorithm {
     token_bucket: TokenBucket,
     sliding_window: SlidingWindow,

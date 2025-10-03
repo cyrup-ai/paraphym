@@ -4,7 +4,7 @@
 Implement parenthesis-aware argument parsing to handle nested function calls in template expressions.
 
 ## LOCATION
-`packages/candle/src/domain/chat/templates/parser_new.rs:655`
+`packages/candle/src/domain/chat/templates/parser.rs:655`
 
 ## SUBTASK 1: Implement parse_function_args with depth tracking
 - Add parenthesis-aware parsing with depth tracking

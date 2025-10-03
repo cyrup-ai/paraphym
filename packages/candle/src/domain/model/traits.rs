@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use crate::domain::model::{CandleModelInfo, CandleUsage as Usage};
+use crate::domain::model::{CandleModelInfo, CandleUsage};
 
 /// Core trait for all Candle AI models
 ///
@@ -185,7 +185,7 @@ pub struct TextChunk {
     /// The reason generation stopped (if complete)
     pub finish_reason: Option<String>,
     /// Token usage for this chunk (if available)
-    pub usage: Option<Usage>,
+    pub usage: Option<CandleUsage>,
 }
 
 /// Request for text generation
@@ -223,7 +223,7 @@ pub struct Embedding {
     /// The original text that was embedded
     pub text: String,
     /// Token usage for this embedding (if available)
-    pub usage: Option<Usage>,
+    pub usage: Option<CandleUsage>,
 }
 
 /// Fine-tuning configuration

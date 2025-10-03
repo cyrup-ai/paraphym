@@ -144,6 +144,9 @@ impl ProxyHttp for EdgeService {
         Self::CTX: Send + Sync,
     {
         Box::pin(async move {
+            // Enable graceful shutdown with connection draining
+            let _guard = self.shutdown_coordinator.request_start();
+            
             // Track active connection (request started)
             self.metrics.active_connections.fetch_add(1, Ordering::Relaxed);
 
@@ -387,6 +390,32 @@ impl ProxyHttp for EdgeService {
                 }
             }
 
+            // Extract client IP for rate limiting
+            let client_ip = crate::edge::routing::extract_client_ip(session)
+                .unwrap_or_else(|| "unknown".to_string());
+
+            // Check authentication attempt rate limit
+            let max_auth_attempts = self.cfg.auth.max_auth_attempts_per_minute;
+            if self.auth_attempts_exceeded(&client_ip, max_auth_attempts) {
+                warn!("Max auth attempts exceeded for IP: {}", client_ip);
+                _ctx.status_code = 429;
+                
+                // Record metrics
+                let duration_secs = _ctx.request_start.elapsed().as_secs_f64();
+                crate::metrics::record_http_request(
+                    &_ctx.method,
+                    &_ctx.endpoint,
+                    429,
+                    duration_secs,
+                    _ctx.request_size,
+                    0,
+                );
+                crate::metrics::decrement_active_requests(&_ctx.method, &_ctx.endpoint);
+                
+                session.respond_error(429).await?;
+                return Ok(true);
+            }
+
             // PHASE 2: JWT Authentication (for non-peer endpoints)
             match AuthHandler::authenticate_request(self, session).await {
                 Ok(auth_context) if auth_context.is_authenticated => {
@@ -410,6 +439,9 @@ impl ProxyHttp for EdgeService {
                         session.respond_error(401).await?;
                         return Ok(true);
                     }
+                    
+                    // Reset auth attempts on successful authentication
+                    self.reset_auth_attempts(&client_ip);
                     
                     // Role-based access control
                     if path.starts_with("/admin") && !auth_context.has_role("admin") {
@@ -436,6 +468,28 @@ impl ProxyHttp for EdgeService {
                     if method == pingora::http::Method::DELETE 
                        && !auth_context.has_permission("delete") {
                         warn!("Delete permission denied for user: {:?}", auth_context.user_id());
+                        _ctx.status_code = 403;
+                        
+                        // Record metrics before returning
+                        let duration_secs = _ctx.request_start.elapsed().as_secs_f64();
+                        crate::metrics::record_http_request(
+                            &_ctx.method,
+                            &_ctx.endpoint,
+                            403,
+                            duration_secs,
+                            _ctx.request_size,
+                            0,
+                        );
+                        crate::metrics::decrement_active_requests(&_ctx.method, &_ctx.endpoint);
+                        
+                        session.respond_error(403).await?;
+                        return Ok(true);
+                    }
+                    
+                    // Permission-based access control for PUT
+                    if method == pingora::http::Method::PUT 
+                       && !auth_context.has_permission("write") {
+                        warn!("Write permission denied for user: {:?}", auth_context.user_id());
                         _ctx.status_code = 403;
                         
                         // Record metrics before returning

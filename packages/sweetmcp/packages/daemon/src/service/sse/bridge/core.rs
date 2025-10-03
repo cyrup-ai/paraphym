@@ -4,12 +4,37 @@
 //! for communicating with the sweetmcp-axum MCP server with zero allocation
 //! patterns and blazing-fast performance.
 
-use std::time::Duration;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use reqwest::{Client, Response};
 use serde_json::Value;
 use tracing::{debug, warn};
+
+/// Connection statistics tracker with atomic counters
+struct ConnectionStatsTracker {
+    /// Number of currently active requests
+    active: AtomicUsize,
+    /// Total requests sent since bridge creation
+    total_requests: AtomicU64,
+    /// Total failed requests
+    failed_requests: AtomicU64,
+    /// Bridge creation time for uptime calculation
+    start_time: Instant,
+}
+
+impl ConnectionStatsTracker {
+    fn new() -> Self {
+        Self {
+            active: AtomicUsize::new(0),
+            total_requests: AtomicU64::new(0),
+            failed_requests: AtomicU64::new(0),
+            start_time: Instant::now(),
+        }
+    }
+}
 
 /// Bridge for communicating with the MCP server
 ///
@@ -24,6 +49,8 @@ pub struct McpBridge {
     /// Request timeout
     #[allow(dead_code)]
     pub(super) timeout: Duration,
+    /// Connection statistics tracker
+    stats_tracker: Arc<ConnectionStatsTracker>,
 }
 
 impl McpBridge {
@@ -43,6 +70,7 @@ impl McpBridge {
             client,
             mcp_server_url,
             timeout,
+            stats_tracker: Arc::new(ConnectionStatsTracker::new()),
         })
     }
 
@@ -69,6 +97,7 @@ impl McpBridge {
             client,
             mcp_server_url,
             timeout,
+            stats_tracker: Arc::new(ConnectionStatsTracker::new()),
         })
     }
 
@@ -119,18 +148,20 @@ impl McpBridge {
     /// Get connection statistics
     #[allow(dead_code)]
     pub fn get_connection_stats(&self) -> ConnectionStats {
-        // Note: reqwest doesn't expose detailed connection pool stats
-        // This is a placeholder for potential future implementation
         ConnectionStats {
-            active_connections: 0,
-            idle_connections: 0,
-            total_requests: 0,
-            failed_requests: 0,
+            active_connections: self.stats_tracker.active.load(Ordering::Relaxed),
+            idle_connections: 0, // reqwest doesn't expose pool idle count
+            total_requests: self.stats_tracker.total_requests.load(Ordering::Relaxed),
+            failed_requests: self.stats_tracker.failed_requests.load(Ordering::Relaxed),
         }
     }
 
-    /// Send raw HTTP request to MCP server
+    /// Send raw HTTP request to MCP server with statistics tracking
     pub(super) async fn send_request(&self, json_rpc_request: Value) -> Result<Value> {
+        // Track request start
+        self.stats_tracker.total_requests.fetch_add(1, Ordering::Relaxed);
+        self.stats_tracker.active.fetch_add(1, Ordering::Relaxed);
+        
         debug!(
             "Sending JSON-RPC request to MCP server: {}",
             json_rpc_request
@@ -144,9 +175,18 @@ impl McpBridge {
             .json(&json_rpc_request)
             .send()
             .await
-            .context("Failed to send request to MCP server")?;
+            .context("Failed to send request to MCP server");
 
-        self.handle_http_response(response).await
+        // Track request completion
+        self.stats_tracker.active.fetch_sub(1, Ordering::Relaxed);
+        
+        match response {
+            Ok(resp) => self.handle_http_response(resp).await,
+            Err(e) => {
+                self.stats_tracker.failed_requests.fetch_add(1, Ordering::Relaxed);
+                Err(e)
+            }
+        }
     }
 
     /// Handle HTTP response from MCP server
@@ -270,8 +310,22 @@ pub struct BridgeConfig {
 
 impl Default for McpBridge {
     fn default() -> Self {
-        Self::new("http://localhost:8080".to_string(), Duration::from_secs(30))
-            .expect("Failed to create default MCP bridge")
+        let client = Client::builder()
+            .timeout(Duration::from_secs(30))
+            .pool_idle_timeout(Duration::from_secs(30))
+            .pool_max_idle_per_host(10)
+            .tcp_keepalive(Duration::from_secs(60))
+            .tcp_nodelay(true)
+            .http2_prior_knowledge()
+            .build()
+            .expect("Failed to create default HTTP client");
+
+        Self {
+            client,
+            mcp_server_url: "http://localhost:8080".to_string(),
+            timeout: Duration::from_secs(30),
+            stats_tracker: Arc::new(ConnectionStatsTracker::new()),
+        }
     }
 }
 

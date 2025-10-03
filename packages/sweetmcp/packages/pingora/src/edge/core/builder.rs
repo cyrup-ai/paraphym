@@ -4,14 +4,25 @@
 //! of EdgeService instances with zero allocation patterns and blazing-fast
 //! performance.
 
+use std::collections::{BTreeSet, HashMap};
+use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Instant;
 
+use arc_swap::ArcSwap;
+use pingora_load_balancing::Backend;
 use tokio::sync::mpsc::Sender;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 use super::service::{EdgeService, EdgeServiceError};
 use crate::{
-    config::Config, peer_discovery::PeerRegistry, rate_limit::distributed::DistributedRateLimitManager,
+    auth::JwtAuth,
+    config::Config,
+    crypto::core::TokenManager,
+    load::Load,
+    metric_picker::MetricPicker,
+    peer_discovery::{PeerDiscovery, PeerRegistry},
+    rate_limit::{distributed::DistributedRateLimitManager, limiter::AdvancedRateLimitManager},
     shutdown::ShutdownCoordinator,
 };
 
@@ -20,7 +31,7 @@ pub struct EdgeServiceBuilder {
     cfg: Option<Arc<Config>>,
     bridge_tx: Option<Sender<crate::mcp_bridge::BridgeMsg>>,
     peer_registry: Option<PeerRegistry>,
-    custom_rate_limiter: Option<Arc<DistributedRateLimitManager>>,
+    custom_rate_limiter: Option<RateLimiter>,
     custom_shutdown_coordinator: Option<Arc<ShutdownCoordinator>>,
 }
 
@@ -62,7 +73,7 @@ impl EdgeServiceBuilder {
     }
 
     /// Set custom rate limiter with advanced configuration
-    pub fn with_custom_rate_limiter(mut self, rate_limiter: Arc<DistributedRateLimitManager>) -> Self {
+    pub fn with_custom_rate_limiter(mut self, rate_limiter: RateLimiter) -> Self {
         debug!("Setting custom rate limiter");
         self.custom_rate_limiter = Some(rate_limiter);
         self
@@ -94,6 +105,29 @@ impl EdgeServiceBuilder {
             EdgeServiceError::Configuration("Peer registry is required".to_string())
         })?;
 
+        // Parse URLs and build backends (from EdgeService::new logic)
+        let mut backends = BTreeSet::new();
+        let mut url_map = HashMap::new();
+        for url in &cfg.upstreams {
+            match url::Url::parse(url) {
+                Ok(parsed) => {
+                    if let Some(host) = parsed.host_str() {
+                        let port = parsed.port().unwrap_or(
+                            if parsed.scheme() == "https" { 443 } else { 80 }
+                        );
+                        let addr_str = format!("{}:{}", host, port);
+                        if let Ok(backend) = Backend::new(&addr_str) {
+                            backends.insert(backend.clone());
+                            if let Ok(sock_addr) = addr_str.parse::<SocketAddr>() {
+                                url_map.insert(sock_addr, url.clone());
+                            }
+                        }
+                    }
+                }
+                Err(e) => error!("Failed to parse upstream URL {}: {}", url, e),
+            }
+        }
+
         // Create circuit breaker manager
         let circuit_config = crate::circuit_breaker::CircuitBreakerConfig {
             error_threshold_percentage: cfg.circuit_breaker_threshold,
@@ -104,19 +138,43 @@ impl EdgeServiceBuilder {
         };
         let circuit_breaker_manager = Arc::new(crate::circuit_breaker::CircuitBreakerManager::new(circuit_config));
 
-        // Create base service
-        let mut service = EdgeService::new(cfg, bridge_tx, peer_registry, circuit_breaker_manager);
+        // Use custom or default rate limiter
+        let rate_limit_manager = self.custom_rate_limiter
+            .unwrap_or(RateLimiter::Distributed(Arc::new(DistributedRateLimitManager::new())));
 
-        // Apply custom components if provided
-        if let Some(custom_rate_limiter) = self.custom_rate_limiter {
-            debug!("Applying custom rate limiter");
-            service.rate_limit_manager = custom_rate_limiter;
-        }
+        // Use custom or default shutdown coordinator
+        let shutdown_coordinator = self.custom_shutdown_coordinator
+            .unwrap_or_else(|| Arc::new(ShutdownCoordinator::new(std::env::temp_dir().join("sweetmcp"))));
 
-        if let Some(custom_shutdown_coordinator) = self.custom_shutdown_coordinator {
-            debug!("Applying custom shutdown coordinator");
-            service.shutdown_coordinator = custom_shutdown_coordinator;
-        }
+        // Initialize crypto token manager
+        let token_manager = Arc::new(TokenManager::new()
+            .map_err(|e| EdgeServiceError::Internal(format!("TokenManager init failed: {}", e)))?);
+
+        // Start token rotation
+        let manager_clone = Arc::clone(&token_manager);
+        tokio::spawn(async move {
+            if let Err(e) = manager_clone.start_rotation_task().await {
+                error!("Token rotation task failed: {}", e);
+            }
+        });
+
+        // Construct EdgeService DIRECTLY
+        let service = EdgeService {
+            cfg: cfg.clone(),
+            auth: JwtAuth::new(cfg.jwt_secret.clone(), cfg.jwt_expiry),
+            picker: Arc::new(ArcSwap::from_pointee(MetricPicker::from_backends(&backends))),
+            load: Arc::new(Load::new()),
+            bridge_tx,
+            peer_registry: peer_registry.clone(),
+            peer_discovery: Arc::new(PeerDiscovery::new(peer_registry)),
+            rate_limit_manager,
+            shutdown_coordinator,
+            circuit_breaker_manager,
+            upstream_urls: Arc::new(url_map),
+            metrics: Arc::new(super::service::AtomicMetrics::new()),
+            start_time: Instant::now(),
+            token_manager,
+        };
 
         // Validate the built service
         service.validate_config()?;
@@ -275,18 +333,27 @@ impl EdgeServiceBuilder {
         match preset {
             BuilderPreset::Development => {
                 debug!("Applying development preset");
-                // Development settings would be applied here
-                self
+                // Low rate limits for local development
+                let rate_limiter = RateLimiter::Advanced(Arc::new(
+                    AdvancedRateLimitManager::new(10.0, 100, 60)
+                ));
+                self.with_custom_rate_limiter(rate_limiter)
             }
             BuilderPreset::Production => {
                 debug!("Applying production preset");
-                // Production settings would be applied here
-                self
+                // Use default DistributedRateLimitManager (high performance)
+                let rate_limiter = RateLimiter::Distributed(Arc::new(
+                    DistributedRateLimitManager::new()
+                ));
+                self.with_custom_rate_limiter(rate_limiter)
             }
             BuilderPreset::Testing => {
                 debug!("Applying testing preset");
-                // Testing settings would be applied here
-                self
+                // Permissive limits for test suites
+                let rate_limiter = RateLimiter::Advanced(Arc::new(
+                    AdvancedRateLimitManager::new(1000.0, 10000, 3600)
+                ));
+                self.with_custom_rate_limiter(rate_limiter)
             }
         }
     }

@@ -7,6 +7,8 @@
 pub mod agent_role;
 pub mod completion;
 pub mod document;
+pub mod image;
 
 // Re-export main builder types for public API
 pub use agent_role::{CandleAgentBuilder, CandleAgentRoleBuilder, CandleFluentAi};
+pub use image::ResizeFilter;

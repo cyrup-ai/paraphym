@@ -20,6 +20,9 @@ pub struct AuthConfig {
 
     /// Require HTTPS for authentication
     pub require_https: bool,
+
+    /// Maximum authentication attempts per minute per IP
+    pub max_auth_attempts_per_minute: u32,
 }
 
 impl Default for AuthConfig {
@@ -29,6 +32,7 @@ impl Default for AuthConfig {
             discovery_token: String::new(),
             token_expiry_seconds: 3600,
             require_https: false,
+            max_auth_attempts_per_minute: 10,
         }
     }
 }
@@ -102,6 +106,7 @@ impl Default for Config {
             discovery_token: "dev-discovery-token".to_string(),
             token_expiry_seconds: 3600,
             require_https: false,
+            max_auth_attempts_per_minute: 10,
         };
 
         Self {
@@ -260,11 +265,18 @@ impl Config {
             .parse()
             .unwrap_or(false);
 
+        // Maximum auth attempts per minute
+        let max_auth_attempts = env::var("SWEETMCP_MAX_AUTH_ATTEMPTS")
+            .unwrap_or_else(|_| "10".to_string())
+            .parse()
+            .context("Invalid SWEETMCP_MAX_AUTH_ATTEMPTS value")?;
+
         let auth = AuthConfig {
             jwt_secret: Arc::new(secret),
             discovery_token,
             token_expiry_seconds: jwt_expiry.as_secs(),
             require_https,
+            max_auth_attempts_per_minute: max_auth_attempts,
         };
 
         Ok(Self {

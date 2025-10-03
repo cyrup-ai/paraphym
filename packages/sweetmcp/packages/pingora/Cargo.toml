@@ -11,10 +11,11 @@ keywords = ["mcp", "gateway", "proxy", "pingora", "opentelemetry"]
 categories = ["network-programming", "web-programming", "api-bindings"]
 
 [dependencies]
-# Core Pingora dependencies - using latest from GitHub main branch
-pingora = { git = "https://github.com/cloudflare/pingora", package = "pingora", features = ["proxy", "lb", "rustls"] }
-pingora-proxy = { git = "https://github.com/cloudflare/pingora", package = "pingora-proxy" }
-pingora-load-balancing = { git = "https://github.com/cloudflare/pingora", package = "pingora-load-balancing" }
+# Core Pingora dependencies - using local fork with mTLS support
+pingora = { path = "../../../../forks/pingora/pingora", features = ["proxy", "lb", "rustls"] }
+pingora-proxy = { path = "../../../../forks/pingora/pingora-proxy" }
+pingora-load-balancing = { path = "../../../../forks/pingora/pingora-load-balancing" }
+pingora-rustls = { path = "../../../../forks/pingora/pingora-rustls" }
 
 # Async trait support
 async-trait = "0.1.42"
@@ -117,6 +118,7 @@ pin-project = "1.1"
 http = "1"
 hyper = { version = "1.7", features = ["http1", "client"] }
 hyper-util = { version = "0.1", features = ["http1", "http2", "client", "client-legacy"] }
+http-body-util = "0.1"
 hyper-rustls = "0.27"
 tokio-rustls = "0.26"
 const-oid = { version = "0.10", features = ["db"] }

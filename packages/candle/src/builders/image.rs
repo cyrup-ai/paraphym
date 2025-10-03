@@ -3,36 +3,36 @@
 //! All image construction logic and builder patterns with zero allocation.
 
 use std::future::Future;
-use std::marker::PhantomData;
+
 use ystream::AsyncStream;
 use crate::domain::context::CandleDocumentChunk as ImageChunk;
-use crate::image::{ContentFormat, Image, ImageDetail, ImageMediaType};
-use image::{DynamicImage, GenericImageView, ImageReader};
+use crate::domain::image::{ContentFormat, Image, ImageDetail, ImageMediaType};
+use image::{DynamicImage, ImageReader};
 use base64::Engine;
 use candle_core::{Device, DType, Tensor};
 
 /// Image builder trait - elegant zero-allocation builder pattern
 pub trait ImageBuilder: Sized {
     /// Set format - EXACT syntax: .format(ContentFormat::Base64)
-    fn format(self, format: ContentFormat) -> impl ImageBuilder;
+    fn format(self, format: ContentFormat) -> Self;
     
     /// Set media type - EXACT syntax: .media_type(ImageMediaType::PNG)
-    fn media_type(self, media_type: ImageMediaType) -> impl ImageBuilder;
+    fn media_type(self, media_type: ImageMediaType) -> Self;
     
     /// Set detail - EXACT syntax: .detail(ImageDetail::High)
-    fn detail(self, detail: ImageDetail) -> impl ImageBuilder;
+    fn detail(self, detail: ImageDetail) -> Self;
     
     /// Set as PNG - EXACT syntax: .as_png()
-    fn as_png(self) -> impl ImageBuilder;
+    fn as_png(self) -> Self;
     
     /// Set as JPEG - EXACT syntax: .as_jpeg()
-    fn as_jpeg(self) -> impl ImageBuilder;
+    fn as_jpeg(self) -> Self;
     
     /// Set high detail - EXACT syntax: .high_detail()
-    fn high_detail(self) -> impl ImageBuilder;
+    fn high_detail(self) -> Self;
     
     /// Set low detail - EXACT syntax: .low_detail()
-    fn low_detail(self) -> impl ImageBuilder;
+    fn low_detail(self) -> Self;
     
     /// Resize image - EXACT syntax: .resize(width, height, filter)
     /// 
@@ -40,7 +40,7 @@ pub trait ImageBuilder: Sized {
     /// - CLIP: 224×224 (ViT-B), 336×336 (ViT-L)
     /// - LLaVA: 336×336 (default)
     /// - Stable Diffusion: 512×512, 768×768, 1024×1024
-    fn resize(self, width: usize, height: usize, filter: ResizeFilter) -> impl ImageBuilder;
+    fn resize(self, width: usize, height: usize, filter: ResizeFilter) -> Self;
     
     /// Normalize to range [-1, 1] - EXACT syntax: .normalize_signed()
     /// 
@@ -51,7 +51,7 @@ pub trait ImageBuilder: Sized {
     /// - CLIP and OpenCLIP models
     /// - MobileCLIP
     /// - Chinese CLIP
-    fn normalize_signed(self) -> impl ImageBuilder;
+    fn normalize_signed(self) -> Self;
     
     /// Normalize to range [0, 1] - EXACT syntax: .normalize_unsigned()
     /// 
@@ -62,7 +62,7 @@ pub trait ImageBuilder: Sized {
     /// - VAE decoders (Stable Diffusion output)
     /// - Visualization and output processing
     /// - Some detection models
-    fn normalize_unsigned(self) -> impl ImageBuilder;
+    fn normalize_unsigned(self) -> Self;
     
     /// Normalize with mean/std per channel - EXACT syntax: .normalize_with(mean, std)
     /// 
@@ -79,7 +79,7 @@ pub trait ImageBuilder: Sized {
     /// - ResNet-based models
     /// - Vision Transformers (ViT)
     /// - Any ImageNet pre-trained model
-    fn normalize_with(self, mean: [f32; 3], std: [f32; 3]) -> impl ImageBuilder;
+    fn normalize_with(self, mean: [f32; 3], std: [f32; 3]) -> Self;
     
     /// Clamp values to range - EXACT syntax: .clamp(min, max)
     /// 
@@ -92,7 +92,7 @@ pub trait ImageBuilder: Sized {
     /// - Stable Diffusion VAE output
     /// - Tensor sanitization before model input
     /// - Output post-processing
-    fn clamp(self, min: f32, max: f32) -> impl ImageBuilder;
+    fn clamp(self, min: f32, max: f32) -> Self;
     
     /// Convert to Candle tensor - EXACT syntax: .to_tensor(device)
     /// 
@@ -121,10 +121,10 @@ pub trait ImageBuilder: Sized {
         F: FnMut(ImageChunk) -> ImageChunk + Send + 'static;
     
     /// Load image - EXACT syntax: .load()
-    fn load(self) -> impl AsyncStream<Item = ImageChunk>;
+    fn load(self) -> AsyncStream<ImageChunk>;
     
     /// Process image - EXACT syntax: .process(|chunk| { ... })
-    fn process<F>(self, f: F) -> impl AsyncStream<Item = ImageChunk>
+    fn process<F>(self, f: F) -> AsyncStream<ImageChunk>
     where
         F: FnOnce(ImageChunk) -> ImageChunk + Send + 'static;
 }
@@ -190,16 +190,6 @@ enum ImageOperation {
         min: f32, 
         max: f32 
     },
-    
-    /// Convert to RGB format (if grayscale or other format)
-    ToRGB,
-    
-    /// Permute tensor dimensions (HWC ↔ CHW conversion)
-    /// Reference: tmp/candle-examples/candle-examples/examples/clip/main.rs:47
-    Permute { 
-        from: TensorFormat, 
-        to: TensorFormat 
-    },
 }
 
 /// Convert ResizeFilter to image crate FilterType
@@ -243,7 +233,7 @@ struct ImageBuilderImpl<
 impl Image {
     /// Semantic entry point - EXACT syntax: Image::from_base64(data)
     pub fn from_base64(data: impl Into<String>) -> impl ImageBuilder {
-        ImageBuilderImpl {
+        ImageBuilderImpl::<fn(String), fn(ImageChunk) -> ImageChunk> {
             data: data.into(),
             format: Some(ContentFormat::Base64),
             media_type: None,
@@ -256,7 +246,7 @@ impl Image {
 
     /// Semantic entry point - EXACT syntax: Image::from_url(url)
     pub fn from_url(url: impl Into<String>) -> impl ImageBuilder {
-        ImageBuilderImpl {
+        ImageBuilderImpl::<fn(String), fn(ImageChunk) -> ImageChunk> {
             data: url.into(),
             format: Some(ContentFormat::Url),
             media_type: None,
@@ -269,7 +259,7 @@ impl Image {
 
     /// Semantic entry point - EXACT syntax: Image::from_path(path)
     pub fn from_path(path: impl Into<String>) -> impl ImageBuilder {
-        ImageBuilderImpl {
+        ImageBuilderImpl::<fn(String), fn(ImageChunk) -> ImageChunk> {
             data: path.into(),
             format: Some(ContentFormat::Url),
             media_type: None,
@@ -287,73 +277,73 @@ where
     F2: FnMut(ImageChunk) -> ImageChunk + Send + 'static,
 {
     /// Set format - EXACT syntax: .format(ContentFormat::Base64)
-    fn format(mut self, format: ContentFormat) -> impl ImageBuilder {
+    fn format(mut self, format: ContentFormat) -> Self {
         self.format = Some(format);
         self
     }
     
     /// Set media type - EXACT syntax: .media_type(ImageMediaType::PNG)
-    fn media_type(mut self, media_type: ImageMediaType) -> impl ImageBuilder {
+    fn media_type(mut self, media_type: ImageMediaType) -> Self {
         self.media_type = Some(media_type);
         self
     }
     
     /// Set detail - EXACT syntax: .detail(ImageDetail::High)
-    fn detail(mut self, detail: ImageDetail) -> impl ImageBuilder {
+    fn detail(mut self, detail: ImageDetail) -> Self {
         self.detail = Some(detail);
         self
     }
     
     /// Set as PNG - EXACT syntax: .as_png()
-    fn as_png(mut self) -> impl ImageBuilder {
+    fn as_png(mut self) -> Self {
         self.media_type = Some(ImageMediaType::PNG);
         self
     }
     
     /// Set as JPEG - EXACT syntax: .as_jpeg()
-    fn as_jpeg(mut self) -> impl ImageBuilder {
+    fn as_jpeg(mut self) -> Self {
         self.media_type = Some(ImageMediaType::JPEG);
         self
     }
     
     /// Set high detail - EXACT syntax: .high_detail()
-    fn high_detail(mut self) -> impl ImageBuilder {
+    fn high_detail(mut self) -> Self {
         self.detail = Some(ImageDetail::High);
         self
     }
     
     /// Set low detail - EXACT syntax: .low_detail()
-    fn low_detail(mut self) -> impl ImageBuilder {
+    fn low_detail(mut self) -> Self {
         self.detail = Some(ImageDetail::Low);
         self
     }
     
     /// Resize image - EXACT syntax: .resize(width, height, filter)
-    fn resize(mut self, width: usize, height: usize, filter: ResizeFilter) -> impl ImageBuilder {
+    fn resize(mut self, width: usize, height: usize, filter: ResizeFilter) -> Self {
         self.operations.push(ImageOperation::Resize { width, height, filter });
         self
     }
     
     /// Normalize to range [-1, 1] - EXACT syntax: .normalize_signed()
-    fn normalize_signed(mut self) -> impl ImageBuilder {
+    fn normalize_signed(mut self) -> Self {
         self.operations.push(ImageOperation::NormalizeSigned);
         self
     }
     
     /// Normalize to range [0, 1] - EXACT syntax: .normalize_unsigned()
-    fn normalize_unsigned(mut self) -> impl ImageBuilder {
+    fn normalize_unsigned(mut self) -> Self {
         self.operations.push(ImageOperation::NormalizeUnsigned);
         self
     }
     
     /// Normalize with mean/std per channel - EXACT syntax: .normalize_with(mean, std)
-    fn normalize_with(mut self, mean: [f32; 3], std: [f32; 3]) -> impl ImageBuilder {
+    fn normalize_with(mut self, mean: [f32; 3], std: [f32; 3]) -> Self {
         self.operations.push(ImageOperation::NormalizeWithParams { mean, std });
         self
     }
     
     /// Clamp values to range - EXACT syntax: .clamp(min, max)
-    fn clamp(mut self, min: f32, max: f32) -> impl ImageBuilder {
+    fn clamp(mut self, min: f32, max: f32) -> Self {
         self.operations.push(ImageOperation::Clamp { min, max });
         self
     }
@@ -468,60 +458,43 @@ where
     }
     
     /// Load image - EXACT syntax: .load()
-    fn load(self) -> impl AsyncStream<Item = ImageChunk> {
-        let image = Image {
-            data: self.data,
-            format: self.format,
-            media_type: self.media_type,
-            detail: self.detail,
-        };
-
-        // Convert image data to bytes and create proper ImageChunk
-        let data = image.data.as_bytes().to_vec();
-        let format = match image.media_type.unwrap_or(ImageMediaType::PNG) {
-            ImageMediaType::PNG => crate::domain::context::ImageFormat::PNG,
-            ImageMediaType::JPEG => crate::domain::context::ImageFormat::JPEG,
-            ImageMediaType::GIF => crate::domain::context::ImageFormat::GIF,
-            ImageMediaType::WEBP => crate::domain::context::ImageFormat::WebP,
-            ImageMediaType::SVG => crate::domain::context::ImageFormat::PNG, // fallback
-        };
-
+    fn load(self) -> AsyncStream<ImageChunk> {
+        // Create CandleDocumentChunk with proper fields
         let chunk = ImageChunk {
-            data,
-            format,
-            dimensions: None,
+            path: None,
+            content: self.data,
+            byte_range: None,
             metadata: std::collections::HashMap::new(),
         };
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        let _ = tx.send(chunk);
-        ystream::AsyncStream::new(rx)
+        
+        ystream::AsyncStream::with_channel(|sender| {
+            let _ = sender.send(chunk);
+        })
     }
     
     /// Process image - EXACT syntax: .process(|chunk| { ... })
-    fn process<F>(self, f: F) -> impl AsyncStream<Item = ImageChunk>
+    fn process<F>(self, f: F) -> AsyncStream<ImageChunk>
     where
         F: FnOnce(ImageChunk) -> ImageChunk + Send + 'static,
     {
-        // Create output channel for processed chunks
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        
         // Get source stream from load
         let load_stream = self.load();
         
-        // Spawn async task to apply processing
-        tokio::spawn(async move {
-            // Consume the single chunk from load stream
-            if let Some(chunk) = load_stream.next().await {
-                // Apply the transformation function
-                let processed_chunk = f(chunk);
-                
-                // Send transformed chunk to output stream
-                let _ = tx.send(processed_chunk);
-            }
-        });
-        
-        // Return stream with processed chunks
-        ystream::AsyncStream::new(rx)
+        // Create output stream with processing logic
+        ystream::AsyncStream::with_channel(move |sender| {
+            // The with_channel closure runs in its own thread, so we can use async/await with tokio runtime
+            let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+            rt.block_on(async move {
+                // Consume the single chunk from load stream
+                if let Some(chunk) = load_stream.next().await {
+                    // Apply the transformation function
+                    let processed_chunk = f(chunk);
+                    
+                    // Send transformed chunk to output stream
+                    let _ = sender.send(processed_chunk);
+                }
+            });
+        })
     }
 }
 
@@ -585,17 +558,11 @@ where
                     // This ensures width × height exactly, without aspect ratio preservation
                     img.resize_exact(*width as u32, *height as u32, filter_type)
                 }
-                ImageOperation::ToRGB => {
-                    // Ensure RGB8 format (3 channels, u8 values)
-                    // Converts from RGBA, grayscale, or other formats
-                    DynamicImage::ImageRgb8(img.to_rgb8())
-                }
-                // Skip tensor operations - handled in IMG_4B
+                // Skip tensor operations - handled in apply_tensor_operations
                 ImageOperation::NormalizeSigned
                 | ImageOperation::NormalizeUnsigned
                 | ImageOperation::NormalizeWithParams { .. }
-                | ImageOperation::Clamp { .. }
-                | ImageOperation::Permute { .. } => img,
+                | ImageOperation::Clamp { .. } => img,
             };
         }
         Ok(img)

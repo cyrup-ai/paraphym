@@ -50,38 +50,6 @@ impl CandleUsage {
     pub const fn is_zero(&self) -> bool {
         self.input_tokens == 0 && self.output_tokens == 0
     }
-
-    /// Backward compatibility: get input tokens as prompt tokens
-    #[inline]
-    #[deprecated(
-        since = "0.1.0",
-        note = "Use `input_tokens` instead for HTTP3 API standardization"
-    )]
-    #[must_use]
-    pub const fn prompt_tokens(&self) -> u32 {
-        self.input_tokens
-    }
-
-    /// Backward compatibility: get output tokens as completion tokens
-    #[inline]
-    #[deprecated(
-        since = "0.1.0",
-        note = "Use `output_tokens` instead for HTTP3 API standardization"
-    )]
-    #[must_use]
-    pub const fn completion_tokens(&self) -> u32 {
-        self.output_tokens
-    }
-
-    /// Create from legacy field names (deprecated)
-    #[inline]
-    #[deprecated(
-        since = "0.1.0",
-        note = "Use `new` instead for standardized API"
-    )]
-    pub const fn from_legacy(prompt_tokens: u32, completion_tokens: u32) -> Self {
-        Self::new(prompt_tokens, completion_tokens)
-    }
 }
 
 impl std::ops::Add for CandleUsage {
