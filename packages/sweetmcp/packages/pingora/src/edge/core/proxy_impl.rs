@@ -333,9 +333,10 @@ impl ProxyHttp for EdgeService {
                         };
                         
                         // Build HTTP 200 response with JSON body
+                        let json_body_len = json_body.len();
                         let mut response_header = ResponseHeader::build(200, None)?;
                         response_header.insert_header("Content-Type", "application/json")?;
-                        response_header.insert_header("Content-Length", json_body.len().to_string())?;
+                        response_header.insert_header("Content-Length", json_body_len.to_string())?;
                         
                         // Write response header
                         session.as_mut()
@@ -358,7 +359,7 @@ impl ProxyHttp for EdgeService {
                             200,
                             duration_secs,
                             _ctx.request_size,
-                            json_body.len(), // Response size from successful JSON body
+                            json_body_len, // Response size from successful JSON body
                         );
                         crate::metrics::decrement_active_requests(&_ctx.method, &_ctx.endpoint);
                         
@@ -391,7 +392,7 @@ impl ProxyHttp for EdgeService {
             }
 
             // Extract client IP for rate limiting
-            let client_ip = crate::edge::routing::extract_client_ip(session)
+            let client_ip = crate::edge::routing::RoutingHandler::extract_client_ip(session)
                 .unwrap_or_else(|| "unknown".to_string());
 
             // Check authentication attempt rate limit
@@ -419,6 +420,16 @@ impl ProxyHttp for EdgeService {
             // PHASE 2: JWT Authentication (for non-peer endpoints)
             match AuthHandler::authenticate_request(self, session).await {
                 Ok(auth_context) if auth_context.is_authenticated => {
+                    // Log successful authentication with method details and token age
+                    let auth_age_secs = auth_context.auth_age().map(|d| d.as_secs()).unwrap_or(0);
+                    let time_to_expiry_secs = auth_context.time_until_expiration().map(|d| d.as_secs()).unwrap_or(0);
+                    info!("Authentication successful - method: {:?}, user: {:?}, ip: {:?}, age: {}s, ttl: {}s", 
+                        auth_context.auth_method, 
+                        auth_context.user_id(), 
+                        auth_context.client_ip,
+                        auth_age_secs,
+                        time_to_expiry_secs);
+                    
                     // Validate expiry
                     if auth_context.is_expired() {
                         warn!("Token expired for user: {:?}", auth_context.user_id());
@@ -443,47 +454,56 @@ impl ProxyHttp for EdgeService {
                     // Reset auth attempts on successful authentication
                     self.reset_auth_attempts(&client_ip);
                     
-                    // Role-based access control
-                    if path.starts_with("/admin") && !auth_context.has_role("admin") {
-                        warn!("Admin access denied for user: {:?}", auth_context.user_id());
-                        _ctx.status_code = 403;
+                    // Enhanced role-based and permission-based access control
+                    if path.starts_with("/admin") {
+                        // Admin endpoints require admin role OR superuser role
+                        if !auth_context.has_any_role(&["admin", "superuser"]) {
+                            warn!("Admin access denied for user: {:?}, roles: {:?}", 
+                                auth_context.user_id(), 
+                                auth_context.roles());
+                            _ctx.status_code = 403;
                         
-                        // Record metrics before returning
-                        let duration_secs = _ctx.request_start.elapsed().as_secs_f64();
-                        crate::metrics::record_http_request(
-                            &_ctx.method,
-                            &_ctx.endpoint,
-                            403,
-                            duration_secs,
-                            _ctx.request_size,
-                            0,
-                        );
-                        crate::metrics::decrement_active_requests(&_ctx.method, &_ctx.endpoint);
-                        
-                        session.respond_error(403).await?;
-                        return Ok(true);
+                            // Record metrics before returning
+                            let duration_secs = _ctx.request_start.elapsed().as_secs_f64();
+                            crate::metrics::record_http_request(
+                                &_ctx.method,
+                                &_ctx.endpoint,
+                                403,
+                                duration_secs,
+                                _ctx.request_size,
+                                0,
+                            );
+                            crate::metrics::decrement_active_requests(&_ctx.method, &_ctx.endpoint);
+                            
+                            session.respond_error(403).await?;
+                            return Ok(true);
+                        }
                     }
                     
-                    // Permission-based access control
-                    if method == pingora::http::Method::DELETE 
-                       && !auth_context.has_permission("delete") {
-                        warn!("Delete permission denied for user: {:?}", auth_context.user_id());
-                        _ctx.status_code = 403;
-                        
-                        // Record metrics before returning
-                        let duration_secs = _ctx.request_start.elapsed().as_secs_f64();
-                        crate::metrics::record_http_request(
-                            &_ctx.method,
-                            &_ctx.endpoint,
-                            403,
-                            duration_secs,
-                            _ctx.request_size,
-                            0,
-                        );
-                        crate::metrics::decrement_active_requests(&_ctx.method, &_ctx.endpoint);
-                        
-                        session.respond_error(403).await?;
-                        return Ok(true);
+                    // Permission-based access control for sensitive operations
+                    if method == pingora::http::Method::DELETE {
+                        // DELETE requires delete permission
+                        if !auth_context.has_any_permission(&["delete", "admin"]) {
+                            warn!("Delete permission denied for user: {:?}, permissions: {:?}", 
+                                auth_context.user_id(),
+                                auth_context.permissions());
+                            _ctx.status_code = 403;
+                            
+                            // Record metrics before returning
+                            let duration_secs = _ctx.request_start.elapsed().as_secs_f64();
+                            crate::metrics::record_http_request(
+                                &_ctx.method,
+                                &_ctx.endpoint,
+                                403,
+                                duration_secs,
+                                _ctx.request_size,
+                                0,
+                            );
+                            crate::metrics::decrement_active_requests(&_ctx.method, &_ctx.endpoint);
+                            
+                            session.respond_error(403).await?;
+                            return Ok(true);
+                        }
                     }
                     
                     // Permission-based access control for PUT

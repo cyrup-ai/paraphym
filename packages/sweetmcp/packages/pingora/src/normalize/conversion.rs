@@ -5,6 +5,9 @@
 //! performance.
 
 
+
+#![allow(dead_code)]
+
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use sweetmcp_axum::JSONRPC_VERSION;

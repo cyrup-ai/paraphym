@@ -4,6 +4,9 @@
 //! authorities from the filesystem, including certificate generation and
 //! file management operations.
 
+
+#![allow(dead_code)]
+
 use std::path::PathBuf;
 use std::time::SystemTime;
 

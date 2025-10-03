@@ -32,7 +32,7 @@ use paraphym_provider::Model;
 use mcp_client_traits::ToolInfo;
 use crate::{
     domain::completion::Document,
-    domain::tool::unified::UnifiedToolExecutor,
+    domain::tool::SweetMcpRouter,
     vector_store::VectorStoreIndexDyn};
 use cyrup_sugars::{OneOrMany, ZeroOneOrMany};
 
@@ -171,7 +171,7 @@ pub struct AgentBuilder<M: Model, S, C> {
     tools: ZeroOneOrMany<ToolInfo>,
     dynamic_context: OneOrMany<(usize, Box<dyn VectorStoreIndexDyn>)>,
     dynamic_tools: OneOrMany<(usize, Box<dyn VectorStoreIndexDyn>)>,
-    tool_executor: Option<UnifiedToolExecutor>,
+    tool_router: Option<SweetMcpRouter>,
 
     // Runtime configuration
     temperature: Option<f64>,
@@ -203,7 +203,7 @@ impl<M: Model> AgentBuilder<M, MissingSys, MissingCtx> {
             tools: ZeroOneOrMany::None,
             dynamic_context: OneOrMany::None,
             dynamic_tools: OneOrMany::None,
-            tool_executor: None,
+            tool_router: None,
             temperature: None,
             max_tokens: None,
             extended_thinking: false,
@@ -225,7 +225,7 @@ impl<M: Model> AgentBuilder<M, MissingSys, MissingCtx> {
             tools: self.tools,
             dynamic_context: self.dynamic_context,
             dynamic_tools: self.dynamic_tools,
-            tool_executor: self.tool_executor,
+            tool_router: self.tool_router,
             temperature: self.temperature,
             max_tokens: self.max_tokens,
             extended_thinking: self.extended_thinking,
@@ -251,7 +251,7 @@ impl<M: Model> AgentBuilder<M, (), MissingCtx> {
             tools: self.tools,
             dynamic_context: self.dynamic_context,
             dynamic_tools: self.dynamic_tools,
-            tool_executor: self.tool_executor,
+            tool_router: self.tool_router,
             temperature: self.temperature,
             max_tokens: self.max_tokens,
             extended_thinking: self.extended_thinking,
@@ -277,7 +277,7 @@ impl<M: Model> AgentBuilder<M, (), MissingCtx> {
             tools: self.tools,
             dynamic_context: self.dynamic_context,
             dynamic_tools: self.dynamic_tools,
-            tool_executor: self.tool_executor,
+            tool_router: self.tool_router,
             temperature: self.temperature,
             max_tokens: self.max_tokens,
             extended_thinking: self.extended_thinking,
@@ -305,13 +305,13 @@ impl<M: Model> AgentBuilder<M, (), Ready> {
     }
 
     /// Add MCP server for tool execution and discovery
+    /// NOTE: MCP server protocol support has been removed. Use WASM plugins or Cylo backends instead.
     #[inline]
-    pub fn mcp_server(mut self, server_url: String) -> Result<Self, AgentBuilderError> {
-        let executor = UnifiedToolExecutor::with_mcp_server(Some(server_url), true)
-            .map_err(|e| AgentBuilderError::StreamingError(format!("MCP client creation failed: {}", e)))?;
-
-        self.tool_executor = Some(executor);
-        Ok(self)
+    #[deprecated(note = "MCP server protocol support removed. Use SweetMcpRouter with WASM plugins instead.")]
+    pub fn mcp_server(mut self, _server_url: String) -> Result<Self, AgentBuilderError> {
+        Err(AgentBuilderError::StreamingError(
+            "MCP server protocol support has been removed. Use WASM plugins or Cylo backends with SweetMcpRouter instead.".to_string()
+        ))
     }
 
     /// Set temperature
@@ -343,10 +343,11 @@ impl<M: Model> AgentBuilder<M, (), Ready> {
     /// Build the agent directly - handles async tool initialization
     pub fn build(self) -> AsyncStream<super::agent::Agent<M>> {
         AsyncStream::with_channel(move |sender| async move {
-            // Initialize tool executor and discover tools if present
-            if let Some(ref executor) = self.tool_executor {
-                if let Err(e) = executor.initialize().await {
-                    tracing::warn!("Failed to initialize tool executor during build: {}", e);
+            // Initialize tool router and discover tools if present
+            if let Some(router) = self.tool_router.as_ref() {
+                let mut mutable_router = SweetMcpRouter::new();
+                if let Err(e) = mutable_router.initialize().await {
+                    tracing::warn!("Failed to initialize tool router during build: {}", e);
                 }
             }
 
@@ -360,7 +361,7 @@ impl<M: Model> AgentBuilder<M, (), Ready> {
                             self.tools,
                             self.dynamic_context,
                             self.dynamic_tools,
-                            self.tool_executor,
+                            self.tool_router,
                             self.temperature,
                             self.max_tokens,
                             self.additional_params,
@@ -440,7 +441,7 @@ impl<M: Model> CompletionBuilder<M> {
 }
 
 // ============================================================================
-// Tool support now handled by UnifiedToolExecutor with SweetMCP ToolInfo
+// Tool support now handled by SweetMcpRouter with SweetMCP ToolInfo
 // ============================================================================
 
 // ============================================================================

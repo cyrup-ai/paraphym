@@ -1,6 +1,9 @@
+#![allow(dead_code)]
+
 //! TLS-specific error types for detailed error handling
 
 /// TLS-specific error types for detailed error handling
+
 #[derive(Debug, thiserror::Error)]
 pub enum TlsError {
     #[error("Certificate parsing failed: {0}")]

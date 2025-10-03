@@ -6,11 +6,9 @@ use serde_json::Value;
 
 use crate::domain::chat::message::types::CandleMessageRole as MessageRole;
 use crate::domain::context::CandleContext;
-// Tool functionality now handled by UnifiedToolExecutor
 use cyrup_sugars::ZeroOneOrMany as ZeroOneOrMany;
 // Type aliases for trait objects
 type Context = Box<dyn CandleContext + Send + Sync>;
-// Tool functionality replaced by UnifiedToolExecutor - no more trait objects needed
 use uuid;
 
 /// Additional parameters for agent configuration

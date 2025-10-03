@@ -14,6 +14,7 @@ use serde_json::Value;
 use tracing::{debug, warn};
 
 /// Connection statistics tracker with atomic counters
+#[derive(Debug)]
 struct ConnectionStatsTracker {
     /// Number of currently active requests
     active: AtomicUsize,
@@ -22,7 +23,7 @@ struct ConnectionStatsTracker {
     /// Total failed requests
     failed_requests: AtomicU64,
     /// Bridge creation time for uptime calculation
-    start_time: Instant,
+    _start_time: Instant,
 }
 
 impl ConnectionStatsTracker {
@@ -31,7 +32,7 @@ impl ConnectionStatsTracker {
             active: AtomicUsize::new(0),
             total_requests: AtomicU64::new(0),
             failed_requests: AtomicU64::new(0),
-            start_time: Instant::now(),
+            _start_time: Instant::now(),
         }
     }
 }

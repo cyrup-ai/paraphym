@@ -23,14 +23,11 @@ pub mod events;
 pub mod server;
 pub mod session;
 
-pub use bridge::McpBridge;
-pub use encoder::SseEncoder;
-pub use events::{EventType, SseEvent};
 use std::net::SocketAddr;
-
-pub use session::{ClientInfo, SessionManager, SseSession};
 use anyhow::Result;
-pub use server::{MessagesQuery, ServerState, SseServer};
+
+// Re-export only the main server type for external use
+pub use server::SseServer;
 use tokio::sync::oneshot;
 
 /// SSE server configuration

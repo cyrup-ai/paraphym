@@ -1,5 +1,8 @@
 //! Internal certificate parsing implementation details
 
+
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::net::IpAddr;

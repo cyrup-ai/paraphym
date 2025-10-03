@@ -1,6 +1,8 @@
 //! EdgeService builder pattern implementation
 //!
 //! This module provides the EdgeServiceBuilder for flexible construction
+
+#![allow(dead_code)]
 //! of EdgeService instances with zero allocation patterns and blazing-fast
 //! performance.
 
@@ -22,7 +24,7 @@ use crate::{
     load::Load,
     metric_picker::MetricPicker,
     peer_discovery::{PeerDiscovery, PeerRegistry},
-    rate_limit::{distributed::DistributedRateLimitManager, limiter::AdvancedRateLimitManager},
+    rate_limit::{distributed::DistributedRateLimitManager, limiter::AdvancedRateLimitManager, RateLimiter},
     shutdown::ShutdownCoordinator,
 };
 
@@ -174,6 +176,7 @@ impl EdgeServiceBuilder {
             metrics: Arc::new(super::service::AtomicMetrics::new()),
             start_time: Instant::now(),
             token_manager,
+            auth_attempt_tracker: Arc::new(dashmap::DashMap::new()),
         };
 
         // Validate the built service

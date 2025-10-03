@@ -28,6 +28,18 @@ use crate::domain::memory::cognitive::types::{
     DecisionOutcome,
 };
 
+/// Type alias for request info callback function
+/// Callback receives: (result_id, similarity, confidence) -> bool (accept/reject)
+type RequestInfoCallback = Arc<dyn Fn(&str, f32, f32) -> bool + Send + Sync>;
+
+/// Type alias for deferred search result with confidence
+/// Format: (id, vector, similarity, metadata, confidence)
+type DeferredResult = (String, Vec<f32>, f32, Option<HashMap<String, Value>>, f32);
+
+/// Type alias for final search result
+/// Format: (id, vector, similarity, metadata)
+type FinalResult = (String, Vec<f32>, f32, Option<HashMap<String, Value>>);
+
 /// Convert static string to Option<String> for embedding tasks
 #[inline]
 fn task_string(task: &'static str) -> Option<String> {
@@ -37,11 +49,10 @@ fn task_string(task: &'static str) -> Option<String> {
 /// State for multi-stage cognitive filtering
 struct CognitiveSearchState {
     /// Results deferred for secondary evaluation with confidence scores
-    deferred_results: Vec<(String, Vec<f32>, f32, Option<HashMap<String, Value>>, f32)>,
-    // (id, vector, similarity, metadata, confidence)
+    deferred_results: Vec<DeferredResult>,
     
     /// Final accepted results
-    final_results: Vec<(String, Vec<f32>, f32, Option<HashMap<String, Value>>)>,
+    final_results: Vec<FinalResult>,
 }
 
 impl CognitiveSearchState {
@@ -147,7 +158,7 @@ impl SearchResult {
 }
 
 /// Search options for fine-tuning search behavior
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SearchOptions {
     /// Maximum number of results to return
     pub limit: Option<usize>,
@@ -165,6 +176,26 @@ pub struct SearchOptions {
     pub candidate_limit: Option<usize>,
     /// Whether to enable SIMD optimization (default: true)
     pub enable_simd: Option<bool>,
+    /// Optional callback for RequestInfo outcomes requiring user interaction
+    /// Callback receives: (result_id, similarity, confidence) -> bool (accept/reject)
+    #[serde(skip)]
+    pub request_info_callback: Option<RequestInfoCallback>,
+}
+
+impl std::fmt::Debug for SearchOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SearchOptions")
+            .field("limit", &self.limit)
+            .field("min_similarity", &self.min_similarity)
+            .field("filters", &self.filters)
+            .field("include_vectors", &self.include_vectors)
+            .field("include_metadata", &self.include_metadata)
+            .field("include_rank", &self.include_rank)
+            .field("candidate_limit", &self.candidate_limit)
+            .field("enable_simd", &self.enable_simd)
+            .field("request_info_callback", &self.request_info_callback.as_ref().map(|_| "<callback>"))
+            .finish()
+    }
 }
 
 impl Default for SearchOptions {
@@ -178,6 +209,7 @@ impl Default for SearchOptions {
             include_rank: Some(false),
             candidate_limit: Some(1000),
             enable_simd: Some(true),
+            request_info_callback: None,
         }
     }
 }
@@ -194,6 +226,7 @@ impl SearchOptions {
             include_rank: Some(false),
             candidate_limit: Some(100),
             enable_simd: Some(true),
+            request_info_callback: None,
         }
     }
 
@@ -208,6 +241,7 @@ impl SearchOptions {
             include_rank: Some(true),
             candidate_limit: Some(10000),
             enable_simd: Some(true),
+            request_info_callback: None,
         }
     }
 
@@ -432,14 +466,37 @@ impl VectorSearch {
                                     "CognitiveProcessor REQUEST_INFO: similarity={:.4}",
                                     similarity
                                 );
-                                // Treat as deferred for future callback support
-                                state.deferred_results.push((
-                                    id,
-                                    vector,
-                                    similarity,
-                                    metadata,
-                                    decision.confidence,
-                                ));
+                                if let Some(ref callback) = options.request_info_callback {
+                                    let should_accept = callback(&id, similarity, decision.confidence);
+                                    if should_accept {
+                                        tracing::debug!(
+                                            "RequestInfo callback accepted: id={}, similarity={:.4}",
+                                            id,
+                                            similarity
+                                        );
+                                        state.final_results.push((id, vector, similarity, metadata));
+                                    } else {
+                                        tracing::debug!(
+                                            "RequestInfo callback rejected: id={}, similarity={:.4}",
+                                            id,
+                                            similarity
+                                        );
+                                        // Rejected by callback - exclude from results
+                                    }
+                                } else {
+                                    // Fallback: treat as deferred
+                                    tracing::trace!(
+                                        "No RequestInfo callback provided, treating as deferred: id={}",
+                                        id
+                                    );
+                                    state.deferred_results.push((
+                                        id,
+                                        vector,
+                                        similarity,
+                                        metadata,
+                                        decision.confidence,
+                                    ));
+                                }
                             }
                         }
                     }

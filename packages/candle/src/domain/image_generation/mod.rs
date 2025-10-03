@@ -18,7 +18,7 @@ pub struct ImageGenerationConfig {
     pub width: usize,
     /// Image height in pixels
     pub height: usize,
-    /// Denoising steps (num_inference_steps)
+    /// Denoising steps (`num_inference_steps`)
     pub steps: usize,
     /// CFG scale for classifier-free guidance
     pub guidance_scale: f64,
@@ -128,7 +128,7 @@ pub trait ImageGenerationModel: Send + Sync + 'static {
     fn default_steps(&self) -> usize;
 }
 
-/// Convert image tensor (CHW, F32, [0-1]) to DynamicImage for saving
+/// Convert image tensor (CHW, F32, [0-1]) to `DynamicImage` for saving
 ///
 /// This is the standard conversion used by all Candle image generation examples.
 /// Expects tensor in Candle's native CHW format with values in [0, 1] range.
@@ -137,45 +137,66 @@ pub trait ImageGenerationModel: Send + Sync + 'static {
 /// * `tensor` - Image tensor (C, H, W) with F32 dtype in [0, 1] range
 ///
 /// # Returns
-/// DynamicImage ready for saving to disk
+/// `DynamicImage` ready for saving to disk
+///
+/// # Errors
+/// Returns an error if:
+/// - Tensor is not 3D (expected CHW format)
+/// - Number of channels is not 3 (RGB required)
+/// - Tensor operations fail (permute, flatten, extraction)
 ///
 /// # Reference
-/// Based on save_image() from candle-examples/src/lib.rs
+/// Based on `save_image()` from candle-examples/src/lib.rs
 /// See: ../../tmp/candle-examples/candle-examples/src/lib.rs
 pub fn tensor_to_image(tensor: &Tensor) -> Result<DynamicImage, String> {
     // 1. Validate 3D tensor (C, H, W) - Candle's native format
     let (channels, height, width) = tensor
         .dims3()
-        .map_err(|e| format!("Expected 3D CHW tensor: {}", e))?;
+        .map_err(|e| format!("Expected 3D CHW tensor: {e}"))?;
 
     if channels != 3 {
-        return Err(format!("Expected RGB (3 channels), got {}", channels));
+        return Err(format!("Expected RGB (3 channels), got {channels}"));
     }
 
     // 2. Permute CHW → HWC for image crate compatibility
     // image crate expects (Height, Width, Channel) format
     let hwc = tensor
         .permute((1, 2, 0))
-        .map_err(|e| format!("Permute failed: {}", e))?;
+        .map_err(|e| format!("Permute failed: {e}"))?;
 
     // 3. Flatten and extract f32 pixels
     let flat = hwc
         .flatten_all()
-        .map_err(|e| format!("Flatten failed: {}", e))?;
+        .map_err(|e| format!("Flatten failed: {e}"))?;
     let pixels_f32 = flat
         .to_vec1::<f32>()
-        .map_err(|e| format!("Tensor extraction failed: {}", e))?;
+        .map_err(|e| format!("Tensor extraction failed: {e}"))?;
 
     // 4. Scale [0,1] → [0,255] and convert to u8
     // This matches the inverse of normalize_unsigned() from builders/image.rs
     let pixels_u8: Vec<u8> = pixels_f32
         .iter()
-        .map(|&x| (x.clamp(0.0, 1.0) * 255.0) as u8)
+        .map(|&x| {
+            // Clamp to [0.0, 1.0], scale to [0.0, 255.0], round to integer value
+            let scaled = (x.clamp(0.0, 1.0) * 255.0).round();
+            // Explicit range check to avoid clippy cast warnings
+            if scaled <= 0.0 {
+                0u8
+            } else if scaled >= 255.0 {
+                255u8
+            } else {
+                scaled as u8
+            }
+        })
         .collect();
 
     // 5. Create RGB image from raw pixels
-    let rgb = image::RgbImage::from_raw(width as u32, height as u32, pixels_u8)
-        .ok_or("Failed to create image from pixels")?;
+    let rgb = image::RgbImage::from_raw(
+        width.try_into().map_err(|_| "Image width exceeds u32::MAX")?,
+        height.try_into().map_err(|_| "Image height exceeds u32::MAX")?,
+        pixels_u8,
+    )
+    .ok_or("Failed to create image from pixels")?;
 
     Ok(DynamicImage::ImageRgb8(rgb))
 }

@@ -5,9 +5,11 @@
 
 pub mod bert_embedding;
 pub mod clip_vision;
+pub mod clip_vision_embedding;
 pub mod gte_qwen_embedding;
 pub mod jina_bert_embedding;
 pub mod kimi_k2;
+pub mod llava;
 pub mod nvembed_embedding;
 pub mod qwen3_coder;
 pub mod stable_diffusion_35_turbo;
@@ -18,9 +20,11 @@ pub mod tokenizer; // tokenizers dependency is available in Cargo.toml
 // Re-export primary provider types
 pub use bert_embedding::{CandleBertConfig, CandleBertEmbeddingProvider};
 pub use clip_vision::ClipVisionProvider;
+pub use clip_vision_embedding::ClipVisionEmbeddingProvider;
 pub use gte_qwen_embedding::{CandleGteQwenConfig, CandleGteQwenEmbeddingProvider};
 pub use jina_bert_embedding::{CandleJinaBertConfig, CandleJinaBertEmbeddingProvider};
 pub use kimi_k2::{CandleKimiK2Config, CandleKimiK2Provider};
+pub use llava::{LLaVAProvider, LLaVAProviderConfig};
 pub use nvembed_embedding::{CandleNvEmbedConfig, CandleNvEmbedEmbeddingProvider};
 pub use qwen3_coder::{CandleQwen3CoderConfig, CandleQwen3CoderProvider};
 pub use stable_diffusion_35_turbo::{SD35TurboConfig, StableDiffusion35Turbo};

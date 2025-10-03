@@ -3,6 +3,9 @@
 //! This module contains the core type definitions for certificate authorities,
 //! including metadata, source tracking, and serialization support.
 
+
+#![allow(dead_code)]
+
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 

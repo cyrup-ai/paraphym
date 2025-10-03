@@ -54,6 +54,7 @@ impl LocalEmbeddingProvider {
             LocalEmbeddingProvider::JinaBERT => 768,
             LocalEmbeddingProvider::NvEmbed => 4096,
             LocalEmbeddingProvider::Stella => 1024,
+            LocalEmbeddingProvider::ClipVision => 512,
         }
     }
 }
@@ -68,6 +69,7 @@ impl CandleModel {
             CandleModel::LocalEmbedding(LocalEmbeddingProvider::JinaBERT) => "jina-bert-embedding",
             CandleModel::LocalEmbedding(LocalEmbeddingProvider::NvEmbed) => "nvembed-embedding",
             CandleModel::LocalEmbedding(LocalEmbeddingProvider::Stella) => "stella-embedding",
+            CandleModel::LocalEmbedding(LocalEmbeddingProvider::ClipVision) => "clip-vision-embedding",
         }
     }
 

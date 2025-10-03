@@ -124,13 +124,13 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
         
         AsyncStream::with_channel(move |sender| {
             // Set random seed
-            if let Some(seed) = config.seed {
-                if let Err(e) = device.set_seed(seed) {
-                    let _ = sender.send(ImageGenerationChunk::Error(
-                        format!("Seed setting failed: {}", e)
-                    ));
-                    return;
-                }
+            if let Some(seed) = config.seed
+                && let Err(e) = device.set_seed(seed)
+            {
+                let _ = sender.send(ImageGenerationChunk::Error(
+                    format!("Seed setting failed: {e}")
+                ));
+                return;
             }
             
             // Load triple CLIP encoders
@@ -201,7 +201,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
             
             // Load MMDiT model
             let vb = match unsafe {
-                VarBuilder::from_mmaped_safetensors(&[model_file.clone()], DType::F16, &device)
+                VarBuilder::from_mmaped_safetensors(std::slice::from_ref(&model_file), DType::F16, &device)
             } {
                 Ok(vb) => vb,
                 Err(e) => {

@@ -126,13 +126,13 @@ impl ImageGenerationModel for FluxSchnell {
         
         AsyncStream::with_channel(move |sender| {
             // Set random seed
-            if let Some(seed) = config.seed {
-                if let Err(e) = device.set_seed(seed) {
-                    let _ = sender.send(ImageGenerationChunk::Error(
-                        format!("Seed setting failed: {}", e)
-                    ));
-                    return;
-                }
+            if let Some(seed) = config.seed
+                && let Err(e) = device.set_seed(seed)
+            {
+                let _ = sender.send(ImageGenerationChunk::Error(
+                    format!("Seed setting failed: {e}")
+                ));
+                return;
             }
             
             // Determine dtype (prefer BF16 if available)
@@ -196,7 +196,7 @@ impl ImageGenerationModel for FluxSchnell {
             
             // Load FLUX transformer
             let vb_flux = match unsafe {
-                VarBuilder::from_mmaped_safetensors(&[flux_file.clone()], dtype, &device)
+                VarBuilder::from_mmaped_safetensors(std::slice::from_ref(&flux_file), dtype, &device)
             } {
                 Ok(vb) => vb,
                 Err(e) => {
@@ -222,7 +222,7 @@ impl ImageGenerationModel for FluxSchnell {
             
             // Load VAE
             let vb_vae = match unsafe {
-                VarBuilder::from_mmaped_safetensors(&[vae_file.clone()], dtype, &device)
+                VarBuilder::from_mmaped_safetensors(std::slice::from_ref(&vae_file), dtype, &device)
             } {
                 Ok(vb) => vb,
                 Err(e) => {

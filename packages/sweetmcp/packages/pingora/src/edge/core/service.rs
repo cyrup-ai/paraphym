@@ -1,6 +1,8 @@
 //! Core EdgeService struct and initialization
 //!
 //! This module provides the core EdgeService struct and initialization logic
+
+#![allow(dead_code)]
 //! with zero allocation fast paths and blazing-fast performance.
 
 use std::collections::{BTreeSet, HashMap};
@@ -195,7 +197,7 @@ impl EdgeService {
     }
 
     /// Get rate limit manager
-    pub fn rate_limit_manager(&self) -> &Arc<DistributedRateLimitManager> {
+    pub fn rate_limit_manager(&self) -> &RateLimiter {
         &self.rate_limit_manager
     }
 
@@ -368,6 +370,7 @@ impl EdgeService {
             metrics: self.metrics.clone(),
             start_time: self.start_time,
             token_manager: self.token_manager.clone(),
+            auth_attempt_tracker: self.auth_attempt_tracker.clone(),
         }
     }
 }

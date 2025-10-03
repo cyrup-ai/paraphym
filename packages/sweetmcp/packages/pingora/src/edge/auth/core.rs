@@ -4,6 +4,8 @@
 //! authentication and authorization with zero allocation patterns and
 //! blazing-fast performance.
 
+#![allow(dead_code)]
+
 
 
 
@@ -41,28 +43,6 @@ pub enum AuthMethod {
     DiscoveryToken,
     /// API key authentication
     ApiKey,
-}
-
-/// Authentication configuration with optimized settings
-#[derive(Debug, Clone)]
-pub struct AuthConfig {
-    pub jwt_secret: String,
-    pub discovery_token: String,
-    pub token_expiry_seconds: u64,
-    pub max_auth_attempts_per_minute: u32,
-    pub require_https: bool,
-}
-
-impl Default for AuthConfig {
-    fn default() -> Self {
-        Self {
-            jwt_secret: String::new(),
-            discovery_token: String::new(),
-            token_expiry_seconds: 3600, // 1 hour
-            max_auth_attempts_per_minute: 10,
-            require_https: true,
-        }
-    }
 }
 
 impl AuthContext {
@@ -389,49 +369,5 @@ impl UserClaims {
     /// Set new expiration time
     pub fn set_expiration(&mut self, expires_at: u64) {
         self.expires_at = expires_at;
-    }
-}
-
-impl AuthConfig {
-    /// Create new authentication configuration
-    pub fn new(jwt_secret: String, discovery_token: String) -> Self {
-        Self {
-            jwt_secret,
-            discovery_token,
-            token_expiry_seconds: 3600,
-            max_auth_attempts_per_minute: 10,
-            require_https: true,
-        }
-    }
-
-    /// Set token expiry duration
-    pub fn with_token_expiry(mut self, seconds: u64) -> Self {
-        self.token_expiry_seconds = seconds;
-        self
-    }
-
-    /// Set maximum authentication attempts per minute
-    pub fn with_max_auth_attempts(mut self, attempts: u32) -> Self {
-        self.max_auth_attempts_per_minute = attempts;
-        self
-    }
-
-    /// Set HTTPS requirement
-    pub fn with_https_requirement(mut self, require_https: bool) -> Self {
-        self.require_https = require_https;
-        self
-    }
-
-    /// Validate configuration
-    pub fn is_valid(&self) -> bool {
-        !self.jwt_secret.is_empty()
-            && !self.discovery_token.is_empty()
-            && self.token_expiry_seconds > 0
-            && self.max_auth_attempts_per_minute > 0
-    }
-
-    /// Get token expiry as duration
-    pub fn token_expiry_duration(&self) -> std::time::Duration {
-        std::time::Duration::from_secs(self.token_expiry_seconds)
     }
 }

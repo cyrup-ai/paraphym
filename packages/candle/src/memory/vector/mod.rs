@@ -3,6 +3,7 @@
 pub mod embedding_factory;
 pub mod embedding_model;
 pub mod in_memory;
+pub mod multimodal_service;
 pub mod vector_index;
 pub mod vector_repository;
 pub mod vector_search;
@@ -15,6 +16,7 @@ use std::task::{Context, Poll};
 
 pub use embedding_factory::{EmbeddingModelFactory, ModelInfo};
 pub use embedding_model::*;
+pub use multimodal_service::MultimodalEmbeddingService;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 use uuid;

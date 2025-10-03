@@ -28,6 +28,7 @@ pub enum LocalEmbeddingProvider {
     JinaBERT,
     NvEmbed,
     Stella,
+    ClipVision,
 }
 
 impl LocalTextProvider {
@@ -49,6 +50,7 @@ impl LocalEmbeddingProvider {
             LocalEmbeddingProvider::JinaBERT => "jina-bert",
             LocalEmbeddingProvider::NvEmbed => "nvembed",
             LocalEmbeddingProvider::Stella => "stella",
+            LocalEmbeddingProvider::ClipVision => "clip-vision",
         }
     }
 }

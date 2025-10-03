@@ -1,5 +1,8 @@
 //! Certificate generator components
 
+
+#![allow(dead_code)]
+
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -26,7 +29,7 @@ impl CertificateGenerator {
     pub fn domain(self, domain: &str) -> CertificateGeneratorWithDomain {
         CertificateGeneratorWithDomain {
             domains: vec![domain.to_string()],
-            is_wildcard: false,
+            _is_wildcard: false,
             authority: None,
             self_signed: false,
             valid_for_days: 90,
@@ -41,7 +44,7 @@ impl CertificateGenerator {
                 .iter()
                 .map(std::string::ToString::to_string)
                 .collect(),
-            is_wildcard: false,
+            _is_wildcard: false,
             authority: None,
             self_signed: false,
             valid_for_days: 90,
@@ -54,7 +57,7 @@ impl CertificateGenerator {
     pub fn wildcard(self, domain: &str) -> CertificateGeneratorWithDomain {
         CertificateGeneratorWithDomain {
             domains: vec![format!("*.{}", domain)],
-            is_wildcard: true,
+            _is_wildcard: true,
             authority: None,
             self_signed: false,
             valid_for_days: 90,
@@ -73,7 +76,7 @@ impl Default for CertificateGenerator {
 #[derive(Debug, Clone)]
 pub struct CertificateGeneratorWithDomain {
     domains: Vec<String>,
-    is_wildcard: bool,
+    _is_wildcard: bool,
     authority: Option<CertificateAuthority>,
     self_signed: bool,
     valid_for_days: u32,

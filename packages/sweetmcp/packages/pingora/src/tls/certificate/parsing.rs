@@ -1,5 +1,7 @@
 //! Certificate parsing and validation functions
 
+#![allow(dead_code)]
+
 // HashMap import removed - not used
 use std::time::SystemTime;
 

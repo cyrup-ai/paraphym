@@ -5,6 +5,9 @@
 //! protocols with zero allocation patterns and blazing-fast performance.
 
 
+
+#![allow(dead_code)]
+
 pub mod conversion;
 pub mod parsers;
 pub mod schema_introspection;

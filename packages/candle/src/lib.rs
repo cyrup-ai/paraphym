@@ -76,7 +76,7 @@ pub mod prelude {
             FinishReason,
         },
         tool::{
-            UnifiedToolExecutor, ToolError, ToolInfo,
+            SweetMcpRouter, RouterError, ToolRoute, ToolInfo,
         },
         image_generation::{
             ImageGenerationConfig,

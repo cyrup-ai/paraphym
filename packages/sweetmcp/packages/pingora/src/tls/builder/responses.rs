@@ -1,5 +1,7 @@
 //! Structured response objects for TLS operations
 
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};

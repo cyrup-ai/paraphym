@@ -14,7 +14,7 @@ use crate::domain::completion::traits::CandleCompletionModel;
 use crate::providers::{CandleKimiK2Provider, CandleQwen3CoderProvider};
 use crate::domain::context::document::CandleDocument;
 use crate::domain::context::chunk::CandleJsonChunk;
-use crate::domain::tool::unified::{UnifiedToolExecutor, ToolError};
+use crate::domain::tool::{SweetMcpRouter, RouterError};
 use sweet_mcp_type::ToolInfo;
 use sweet_mcp_type::JsonValue as SweetJsonValue;
 use simd_json::value::owned::Object as JsonObject;
@@ -151,8 +151,8 @@ pub struct CandleAgentRoleImpl {
     system_prompt: Option<String>,
     /// Document context loading and management
     contexts: Option<ZeroOneOrMany<CandleDocument>>,
-    /// Unified tool executor for both MCP and native tools
-    tool_executor: Option<Arc<UnifiedToolExecutor>>,
+    /// Tool router for WASM plugins and Cylo backends
+    tool_router: Option<Arc<SweetMcpRouter>>,
     /// MCP server configuration and management
     mcp_servers: Option<ZeroOneOrMany<McpServerConfig>>,
     /// Provider-specific parameters (model paths, quantization options)
@@ -189,7 +189,7 @@ impl Clone for CandleAgentRoleImpl {
             memory_read_timeout: self.memory_read_timeout,
             system_prompt: self.system_prompt.clone(),
             contexts: self.contexts.clone(),
-            tool_executor: self.tool_executor.clone(), // Arc<UnifiedToolExecutor> can be cloned
+            tool_router: self.tool_router.clone(), // Arc<SweetMcpRouter> can be cloned
             mcp_servers: self.mcp_servers.clone(),
             additional_params: self.additional_params.clone(),
             memory: self.memory.clone(), // Arc<dyn MemoryManager> can be cloned
@@ -230,7 +230,7 @@ impl CandleAgentRole for CandleAgentRoleImpl {
             memory_read_timeout: None,
             system_prompt: None,
             contexts: None,
-            tool_executor: None,
+            tool_router: None,
             mcp_servers: None,
             additional_params: None,
             memory: None,
@@ -343,7 +343,7 @@ impl CandleAgentRoleImpl {
         self
     }
 
-    /// Enable code execution with the unified tool executor
+    /// Enable code execution with the tool router
     ///
     /// # Arguments
     /// * `enabled` - Whether to enable code execution via cylo
@@ -353,25 +353,28 @@ impl CandleAgentRoleImpl {
     #[inline]
     #[must_use]
     pub fn with_code_execution(mut self, _enabled: bool) -> Self {
-        // Create or update the unified tool executor
-        let executor = UnifiedToolExecutor::new(None); // MCP client will be added later
-        self.tool_executor = Some(Arc::new(executor));
+        // Create or update the tool router
+        let router = SweetMcpRouter::new();
+        self.tool_router = Some(Arc::new(router));
         self
     }
 
     /// Initialize tool execution system
     ///
-    /// This method sets up the unified tool executor with MCP servers and code execution
+    /// This method sets up the tool router with WASM plugins and Cylo backends
     /// Called automatically during agent initialization
     ///
     /// # Errors
-    /// Returns `ToolError` if tool executor initialization fails, including:
-    /// - MCP server connection failures
-    /// - Tool discovery errors
+    /// Returns `RouterError` if tool router initialization fails, including:
+    /// - Plugin discovery errors
     /// - Backend initialization issues
-    pub async fn initialize_tools(&mut self) -> Result<(), ToolError> {
-        if let Some(ref executor) = self.tool_executor {
-            executor.initialize().await?;
+    pub async fn initialize_tools(&mut self) -> Result<(), RouterError> {
+        if let Some(_router) = self.tool_router.as_ref() {
+            // Need to get mutable access to router for initialization
+            // Since we have Arc<SweetMcpRouter>, we need to create a new one and reinitialize
+            let mut new_router = SweetMcpRouter::new();
+            new_router.initialize().await?;
+            self.tool_router = Some(Arc::new(new_router));
         }
         Ok(())
     }
@@ -386,15 +389,15 @@ impl CandleAgentRoleImpl {
     /// `AsyncStream` of tool execution results for `ystream` compatibility
     #[must_use]
     pub fn execute_tool(&self, tool_name: &str, args: Value) -> ystream::AsyncStream<CandleJsonChunk> {
-        if let Some(ref executor) = self.tool_executor {
+        if let Some(ref router) = self.tool_router {
             // Convert serde_json::Value to sweet_mcp_type::JsonValue
             let sweet_args = convert_serde_to_sweet_json(args);
-            executor.call_tool_stream(tool_name, sweet_args)
+            router.call_tool_stream(tool_name, sweet_args)
         } else {
-            // Return error stream if no tool executor
+            // Return error stream if no tool router
             AsyncStream::with_channel(move |sender| {
                 let error_value = Value::Object([
-                    ("error".to_string(), Value::String("No tool executor configured".to_string()))
+                    ("error".to_string(), Value::String("No tool router configured".to_string()))
                 ].into_iter().collect::<serde_json::Map<_, _>>());
                 ystream::emit!(sender, CandleJsonChunk(error_value));
             })
@@ -406,8 +409,8 @@ impl CandleAgentRoleImpl {
     /// # Returns
     /// Vector of `ToolInfo` structs describing available tools
     pub async fn get_available_tools(&self) -> Vec<ToolInfo> {
-        if let Some(ref executor) = self.tool_executor {
-            executor.get_available_tools().await
+        if let Some(ref router) = self.tool_router {
+            router.get_available_tools().await
         } else {
             Vec::new()
         }

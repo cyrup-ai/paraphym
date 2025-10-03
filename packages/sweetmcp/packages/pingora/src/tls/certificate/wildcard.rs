@@ -1,5 +1,8 @@
 //! Wildcard certificate generation with multiple SAN entries for `SweetMCP` auto-integration
 
+
+#![allow(dead_code)]
+
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 

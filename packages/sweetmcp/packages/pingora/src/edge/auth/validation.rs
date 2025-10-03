@@ -1,6 +1,8 @@
 //! Token validation and extraction logic
 //!
 //! This module provides token validation, extraction, and authentication
+
+#![allow(dead_code)]
 //! processing with zero allocation patterns and blazing-fast performance.
 
 

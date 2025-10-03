@@ -1,6 +1,8 @@
 //! Protocol-specific parsers and converters
 //!
 //! This module provides protocol-specific parsing and conversion logic
+
+#![allow(dead_code)]
 //! for GraphQL, Cap'n Proto, and other protocols with zero allocation
 //! patterns and blazing-fast performance.
 
@@ -13,7 +15,7 @@ use async_graphql::{Name, Positioned};
 use async_graphql_value::Value as GraphQLValue;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use capnp::{
-    any_pointer, data, dynamic_list, dynamic_struct, dynamic_value, message::ReaderOptions,
+    any_pointer, data, message::ReaderOptions,
     serialize, serialize_packed, text,
 };
 use serde_json::{json, Value};
@@ -433,136 +435,6 @@ fn detect_and_parse_message(
     // Fall back to unpacked format
     serialize::read_message(&mut Cursor::new(body), reader_options)
         .map_err(|e| ConversionError::CapnProtoError(format!("Failed to parse message: {}", e)))
-}
-
-/// Convert dynamic Cap'n Proto value to JSON
-fn dynamic_value_to_json(value: dynamic_value::Reader) -> ConversionResult<Value> {
-    match value {
-        dynamic_value::Reader::Void => Ok(Value::Null),
-        dynamic_value::Reader::Bool(b) => Ok(Value::Bool(b)),
-        dynamic_value::Reader::Int8(i) => Ok(Value::Number(i.into())),
-        dynamic_value::Reader::Int16(i) => Ok(Value::Number(i.into())),
-        dynamic_value::Reader::Int32(i) => Ok(Value::Number(i.into())),
-        dynamic_value::Reader::Int64(i) => Ok(Value::Number(i.into())),
-        dynamic_value::Reader::UInt8(i) => Ok(Value::Number(i.into())),
-        dynamic_value::Reader::UInt16(i) => Ok(Value::Number(i.into())),
-        dynamic_value::Reader::UInt32(i) => Ok(Value::Number(i.into())),
-        dynamic_value::Reader::UInt64(i) => Ok(Value::Number(i.into())),
-        dynamic_value::Reader::Float32(f) => Ok(Value::Number(
-            serde_json::Number::from_f64(f as f64).unwrap_or_else(|| serde_json::Number::from(0)),
-        )),
-        dynamic_value::Reader::Float64(f) => Ok(Value::Number(
-            serde_json::Number::from_f64(f).unwrap_or_else(|| serde_json::Number::from(0)),
-        )),
-        dynamic_value::Reader::Text(t) => Ok(Value::String(
-            t.to_str()
-                .map_err(|e| {
-                    ConversionError::CapnProtoError(format!("Text conversion error: {}", e))
-                })?
-                .to_string(),
-        )),
-        dynamic_value::Reader::Data(d) => Ok(Value::String(BASE64_STANDARD.encode(d))),
-        dynamic_value::Reader::Struct(s) => convert_struct_to_json(s),
-        dynamic_value::Reader::List(l) => convert_list_to_json(l),
-        dynamic_value::Reader::Enum(e) => {
-            match e.get_enumerant() {
-                Ok(Some(enumerant)) => {
-                    // Get the enumerant ordinal value for display
-                    let ordinal = enumerant.get_ordinal();
-                    Ok(Value::String(format!("enum_{}", ordinal)))
-                },
-                Ok(None) => Ok(Value::String("enum_unknown".to_string())),
-                Err(_) => Ok(Value::String("enum_error".to_string())),
-            }
-        }
-        dynamic_value::Reader::AnyPointer(ptr) => {
-            // Try to decode AnyPointer as different possible types
-            if ptr.is_null() {
-                Ok(Value::Null)
-            } else {
-                // Try as text first
-                if let Ok(text) = ptr.get_as::<text::Reader>() {
-                    match text.to_str() {
-                        Ok(s) => Ok(Value::String(s.to_string())),
-                        Err(_) => Ok(json!({"any_pointer": "text_decode_failed"})),
-                    }
-                }
-                // Try as data
-                else if let Ok(data) = ptr.get_as::<data::Reader>() {
-                    Ok(Value::String(BASE64_STANDARD.encode(data)))
-                }
-                // Note: Cannot inspect struct without schema via public API
-                // The reader field is private in capnp::any_pointer::Reader
-                // Fallback - return size info
-                else {
-                    match ptr.target_size() {
-                        Ok(size) => Ok(json!({
-                            "any_pointer": {
-                                "words": size.word_count,
-                                "caps": size.cap_count
-                            }
-                        })),
-                        Err(_) => Ok(json!({"any_pointer": "unknown"})),
-                    }
-                }
-            }
-        }
-        dynamic_value::Reader::Capability(_cap) => {
-            // Capability is just an empty stub per source code documentation
-            Ok(json!({
-                "capability": "dynamic_capability_stub"
-            }))
-        }
-    }
-}
-
-/// Convert Cap'n Proto struct to JSON object
-fn convert_struct_to_json(struct_reader: dynamic_struct::Reader) -> ConversionResult<Value> {
-    let mut object = serde_json::Map::new();
-    let schema = struct_reader.get_schema();
-
-    for field in schema
-        .get_fields()
-        .map_err(|e| ConversionError::CapnProtoError(format!("Failed to get fields: {}", e)))?
-    {
-        let field_name = field
-            .get_proto()
-            .get_name()
-            .map_err(|e| {
-                ConversionError::CapnProtoError(format!("Failed to get field name: {}", e))
-            })?
-            .to_str()
-            .map_err(|e| {
-                ConversionError::CapnProtoError(format!("Failed to convert field name: {}", e))
-            })?;
-
-        if struct_reader.has(field).map_err(|e| {
-            ConversionError::CapnProtoError(format!("Failed to check field: {}", e))
-        })? {
-            let field_value = struct_reader.get(field).map_err(|e| {
-                ConversionError::CapnProtoError(format!("Failed to get field value: {}", e))
-            })?;
-            let json_value = dynamic_value_to_json(field_value)?;
-            object.insert(field_name.to_string(), json_value);
-        }
-    }
-
-    Ok(Value::Object(object))
-}
-
-/// Convert Cap'n Proto list to JSON array
-fn convert_list_to_json(list_reader: dynamic_list::Reader) -> ConversionResult<Value> {
-    let mut array = Vec::new();
-
-    for i in 0..list_reader.len() {
-        let element = list_reader.get(i).map_err(|e| {
-            ConversionError::CapnProtoError(format!("Failed to get list element: {}", e))
-        })?;
-        let json_element = dynamic_value_to_json(element)?;
-        array.push(json_element);
-    }
-
-    Ok(Value::Array(array))
 }
 
 /// Detect method name from parsed JSON data
@@ -1327,12 +1199,6 @@ pub fn extract_field_arguments(
     }
 
     args
-}
-
-/// Convert GraphQL value to JSON value (legacy function for backward compatibility)
-fn graphql_value_to_json(value: &async_graphql_value::Value) -> ConversionResult<Value> {
-    // Use empty variables context for backward compatibility
-    graphql_value_to_json_with_variables(value, &Value::Object(serde_json::Map::new()))
 }
 
 /// Convert GraphQL value to JSON value with variable context

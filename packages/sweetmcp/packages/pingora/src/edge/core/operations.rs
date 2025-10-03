@@ -5,6 +5,9 @@
 //! in proxy_impl.rs and authentication functions in auth/validation.rs.
 
 
+
+#![allow(dead_code)]
+
 use std::sync::atomic::Ordering;
 use tokio::time::Duration;
 
@@ -30,7 +33,7 @@ impl EdgeService {
 
         // Check component health
         let auth_healthy = self.auth.is_healthy();
-        let rate_limiter_healthy = self.rate_limit_manager.is_healthy();
+        let rate_limiter_healthy = self.rate_limit_manager.is_healthy().await;
         let peer_registry_healthy = true; // TODO: implement health check for peer registry
 
         let overall_healthy =

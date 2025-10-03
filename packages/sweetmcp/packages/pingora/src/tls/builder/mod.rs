@@ -5,6 +5,9 @@
 //! - Certificate validation and generation
 //! - Structured response objects
 
+
+#![allow(dead_code)]
+
 pub mod authority;
 pub mod certificate;
 pub mod responses;

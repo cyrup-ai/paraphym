@@ -1,5 +1,8 @@
 //! Main certificate builder entry point
 
+
+#![allow(dead_code)]
+
 use super::generator::CertificateGenerator;
 use super::validator::CertificateValidator;
 

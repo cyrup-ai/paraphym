@@ -1,6 +1,9 @@
 //! OCSP (Online Certificate Status Protocol) validation module
 
 
+
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
@@ -34,8 +37,8 @@ pub struct OcspCacheEntry {
 #[derive(Clone)]
 pub struct OcspCache {
     cache: Arc<RwLock<HashMap<String, OcspCacheEntry>>>,
-    /// Pre-generated random bytes for nonce generation
-    nonce_pool: Arc<RwLock<Vec<u8>>>,
+    /// Pre-generated random bytes for nonce generation (unused, kept for future use)
+    _nonce_pool: Arc<RwLock<Vec<u8>>>,
     /// Cache hit statistics
     cache_hits: Arc<AtomicUsize>,
     /// Cache miss statistics
@@ -76,7 +79,7 @@ impl OcspCache {
 
         Self {
             cache: Arc::new(RwLock::new(HashMap::with_capacity(128))),
-            nonce_pool: Arc::new(RwLock::new(nonce_pool)),
+            _nonce_pool: Arc::new(RwLock::new(nonce_pool)),
             cache_hits: Arc::new(AtomicUsize::new(0)),
             cache_misses: Arc::new(AtomicUsize::new(0)),
         }
@@ -186,50 +189,7 @@ impl OcspCache {
             }
         }
     }
-
-    fn perform_ocsp_check(
-        cert: &ParsedCertificate,
-        _issuer_cert: Option<&ParsedCertificate>,
-    ) -> (OcspStatus, Option<SystemTime>) {
-        // OCSP validation disabled to prevent circular dependency during TLS handshake
-        // TLS connections use OCSP stapling automatically via rustls WebPkiServerVerifier
-        tracing::debug!(
-            "OCSP validation skipped for certificate serial: {:?} (using OCSP stapling instead)",
-            hex::encode(&cert.serial_number)
-        );
-        (OcspStatus::Unknown, None)
-    }
-
-    // HTTP-based OCSP validation methods removed to prevent circular dependency
     // TLS connections use OCSP stapling automatically via rustls WebPkiServerVerifier
-
-    #[inline]
-    fn generate_nonce(&self) -> Vec<u8> {
-        let mut nonce = vec![0u8; 16];
-
-        // Get random bytes from pre-generated pool
-        {
-            let mut pool = match self.nonce_pool.write() {
-                Ok(pool) => pool,
-                Err(poisoned) => {
-                    tracing::warn!("OCSP nonce pool write lock poisoned, recovering");
-                    poisoned.into_inner()
-                }
-            };
-            if pool.len() >= 16 {
-                nonce.copy_from_slice(&pool[..16]);
-                pool.drain(..16);
-            } else {
-                // Refill pool if exhausted
-                pool.resize(1024, 0);
-                rand::rng().fill(&mut pool[..]);
-                nonce.copy_from_slice(&pool[..16]);
-                pool.drain(..16);
-            }
-        }
-
-        nonce
-    }
 
     /// Cleanup expired cache entries
     pub fn cleanup_cache(&self) {

@@ -6,7 +6,6 @@
 
 pub mod core;
 pub mod operations;
-pub mod wrapper;
 
 // Re-export core types for ergonomic use
 

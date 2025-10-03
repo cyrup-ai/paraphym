@@ -43,6 +43,7 @@ pub struct TemplateParser {
 
 impl TemplateParser {
     /// Create a new template parser with default configuration
+    #[must_use]
     pub fn new() -> Self {
         Self {
             config: ParserConfig::default(),
@@ -50,6 +51,7 @@ impl TemplateParser {
     }
 
     /// Create a new template parser with custom configuration
+    #[must_use]
     pub fn with_config(config: ParserConfig) -> Self {
         Self { config }
     }
@@ -226,7 +228,7 @@ impl TemplateParser {
 
         // Find the body until endif/elif/else
         let body_start = block_end + 2;
-        let (true_body, next_tag_pos, next_tag) = self.find_block_end(content, body_start, &["endif", "elif", "else"])?;
+        let (true_body, next_tag_pos, next_tag) = Self::find_block_end(content, body_start, &["endif", "elif", "else"])?;
 
         let if_true = self.parse_with_depth(&true_body, depth + 1)?;
 
@@ -249,7 +251,7 @@ impl TemplateParser {
                 i += 1;
             }
 
-            let (else_body, endif_pos, _) = self.find_block_end(content, else_start + i, &["endif"])?;
+            let (else_body, endif_pos, _) = Self::find_block_end(content, else_start + i, &["endif"])?;
             let else_ast = self.parse_with_depth(&else_body, depth + 1)?;
             (Some(Arc::new(else_ast)), endif_pos)
         } else {
@@ -322,7 +324,7 @@ impl TemplateParser {
         let iterable_expr = parts[1].trim();
 
         // Parse iterable as expression or variable
-        let iterable = if iterable_expr.contains(|c: char| matches!(c, '+' | '-' | '*' | '/' | '=' | '<' | '>' | '&' | '|')) {
+        let iterable = if iterable_expr.contains(['+', '-', '*', '/', '=', '<', '>', '&', '|']) {
             self.parse_expression(iterable_expr, depth + 1)?
         } else {
             TemplateAst::Variable(iterable_expr.to_string())
@@ -330,7 +332,7 @@ impl TemplateParser {
 
         // Find loop body until endfor
         let body_start = block_end + 2;
-        let (body_content, endfor_pos, _) = self.find_block_end(content, body_start, &["endfor"])?;
+        let (body_content, endfor_pos, _) = Self::find_block_end(content, body_start, &["endfor"])?;
 
         let body = self.parse_with_depth(&body_content, depth + 1)?;
 
@@ -356,7 +358,6 @@ impl TemplateParser {
     }
 
     fn find_block_end(
-        &self,
         content: &str,
         start: usize,
         end_tags: &[&str],
@@ -393,12 +394,11 @@ impl TemplateParser {
                         body.push_str(&chars[i..tag_end + 2].iter().collect::<String>());
                         i = tag_end + 2;
                         continue;
-                    } else {
-                        // Found our end tag
-                        for end_tag in end_tags {
-                            if tag_content == *end_tag {
-                                return Ok((body, start + i, tag_content.to_string()));
-                            }
+                    }
+                    // Found our end tag
+                    for end_tag in end_tags {
+                        if tag_content == *end_tag {
+                            return Ok((body, start + i, tag_content.to_string()));
                         }
                     }
                 } else if (tag_content == "else" || tag_content.starts_with("elif ")) && depth == 0 {
@@ -419,7 +419,7 @@ impl TemplateParser {
         }
 
         Err(TemplateError::ParseError {
-            message: format!("Unclosed block: expected one of {:?}", end_tags),
+            message: format!("Unclosed block: expected one of {end_tags:?}"),
         })
     }
 
@@ -607,7 +607,7 @@ impl TemplateParser {
                 if substr == *op {
                     let left: String = chars[..pos].iter().collect();
                     let right: String = chars[pos + op.len()..].iter().collect();
-                    return Ok((left, op.to_string(), right));
+                    return Ok((left, (*op).to_string(), right));
                 }
             }
         }
@@ -641,20 +641,64 @@ impl TemplateParser {
         })?;
         
         let args_str = &content[paren_pos + 1..close_paren];
-        let mut args = Vec::new();
-
-        if !args_str.trim().is_empty() {
-            // Simple comma-split for now (doesn't handle nested commas in function calls)
-            for arg in args_str.split(',') {
-                let arg_ast = self.parse_expression(arg.trim(), depth + 1)?;
-                args.push(arg_ast);
-            }
-        }
+        
+        let args = if args_str.trim().is_empty() {
+            Vec::new()
+        } else {
+            self.parse_function_args(args_str, depth)?
+        };
 
         Ok(TemplateAst::Function {
             name: func_name.to_string(),
             args: args.into(),
         })
+    }
+
+    /// Parse function arguments with parenthesis and quote awareness
+    ///
+    /// Handles nested function calls by tracking parenthesis depth and quote context.
+    /// Only splits on commas when at depth 0 and not inside a string literal.
+    ///
+    /// # Arguments
+    ///
+    /// * `args_str` - The argument string to parse (content between parentheses)
+    /// * `depth` - Current parsing depth for recursion tracking
+    ///
+    /// # Errors
+    ///
+    /// Returns `TemplateError` if argument parsing fails
+    fn parse_function_args(&self, args_str: &str, depth: usize) -> TemplateResult<Vec<TemplateAst>> {
+        let mut args = Vec::new();
+        let mut current_arg = String::new();
+        let mut paren_depth = 0;
+        let mut string_delimiter: Option<char> = None;  // Track which quote opened the string
+        
+        for ch in args_str.chars() {
+            match ch {
+                '"' | '\'' => {
+                    match string_delimiter {
+                        None => string_delimiter = Some(ch),           // Open string
+                        Some(delim) if delim == ch => string_delimiter = None,  // Close if matching
+                        _ => {}  // Different quote inside string, ignore
+                    }
+                }
+                '(' if string_delimiter.is_none() => paren_depth += 1,
+                ')' if string_delimiter.is_none() => paren_depth -= 1,
+                ',' if string_delimiter.is_none() && paren_depth == 0 => {
+                    args.push(self.parse_expression(current_arg.trim(), depth + 1)?);
+                    current_arg.clear();
+                    continue;
+                }
+                _ => {}
+            }
+            current_arg.push(ch);
+        }
+        
+        if !current_arg.trim().is_empty() {
+            args.push(self.parse_expression(current_arg.trim(), depth + 1)?);
+        }
+        
+        Ok(args)
     }
 
     /// Extract variables from template content

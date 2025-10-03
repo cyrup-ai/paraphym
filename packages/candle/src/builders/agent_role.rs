@@ -18,7 +18,7 @@ use crate::domain::context::provider::{
     CandleContext, CandleDirectory, CandleFile, CandleFiles, CandleGithub,
 };
 use crate::domain::prompt::CandlePrompt;
-use crate::domain::tool::UnifiedToolExecutor;
+use crate::domain::tool::SweetMcpRouter;
 use sweet_mcp_type::ToolInfo;
 use serde_json;
 
@@ -856,16 +856,16 @@ where
                         let _conversation_with_input =
                             CandleAgentConversation::with_user_input(&user_message);
 
-                        // Initialize tool executor if tools are provided or MCP servers are configured
-                        let tool_executor = if !tools.is_empty() || !mcp_servers.is_empty() {
+                        // Initialize tool router if tools are provided or MCP servers are configured
+                        let tool_router = if !tools.is_empty() || !mcp_servers.is_empty() {
                             let Some(runtime) = crate::runtime::shared_runtime() else {
                                 let error_chunk = CandleMessageChunk::Error("Failed to access shared runtime".to_string());
                                 ystream::emit!(stream_sender, error_chunk);
                                 return;
                             };
-                            let executor = UnifiedToolExecutor::with_mcp_servers(mcp_servers);
-                            match runtime.block_on(executor.initialize()) {
-                                Ok(()) => Some(executor),
+                            let mut router = SweetMcpRouter::new();
+                            match runtime.block_on(router.initialize()) {
+                                Ok(()) => Some(router),
                                 Err(e) => {
                                     let error_chunk = CandleMessageChunk::Error(format!("Tool initialization failed: {}", e));
                                     ystream::emit!(stream_sender, error_chunk);
@@ -905,12 +905,12 @@ where
                         };
 
                         // Combine builder tools with auto-generated tools
-                        if let Some(ref executor) = tool_executor {
+                        if let Some(ref router) = tool_router {
                             let mut all_tools: Vec<ToolInfo> = tools.into();
                             
                             // Try to get auto-generated tools if runtime is available
                             if let Some(runtime) = crate::runtime::shared_runtime() {
-                                let auto_generated_tools = runtime.block_on(executor.get_available_tools());
+                                let auto_generated_tools = runtime.block_on(router.get_available_tools());
                                 all_tools.extend(auto_generated_tools);
                             }
 
@@ -955,8 +955,8 @@ where
                                     partial_input,
                                 } => CandleMessageChunk::ToolCall { id, name, partial_input },
                                 CandleCompletionChunk::ToolCallComplete { id, name, input } => {
-                                    // Execute the tool if we have an executor
-                                    if let Some(ref executor) = tool_executor {
+                                    // Execute the tool if we have a router
+                                    if let Some(ref router) = tool_router {
                                         // Convert input string to JsonValue
                                         match serde_json::from_str::<serde_json::Value>(&input) {
                                             Ok(args_json) => {
@@ -966,7 +966,7 @@ where
                                                 // Execute the tool if runtime is available
                                                 match crate::runtime::shared_runtime() {
                                                     Some(runtime) => {
-                                                        match runtime.block_on(executor.call_tool(&name, sweet_args)) {
+                                                        match runtime.block_on(router.call_tool(&name, sweet_args)) {
                                                             Ok(response) => {
                                                                 // Convert response to text result
                                                                 let result_text = format!("Tool '{}' executed successfully: {:?}", name, response);

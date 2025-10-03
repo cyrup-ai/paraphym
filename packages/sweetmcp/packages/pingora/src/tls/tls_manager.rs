@@ -3,6 +3,9 @@
 //! Provides comprehensive TLS connection management with OCSP validation,
 //! CRL checking, certificate validation, and enterprise security features.
 
+
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;

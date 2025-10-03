@@ -4,6 +4,8 @@
 //! for protocol normalization with zero allocation patterns and
 //! blazing-fast performance.
 
+#![allow(dead_code)]
+
 
 use std::{collections::HashMap, str::FromStr};
 

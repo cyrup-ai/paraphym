@@ -1,6 +1,8 @@
 //! Schema introspection module for upstream GraphQL servers
 //!
 //! This module provides schema introspection capabilities for SweetMCP Pingora
+
+#![allow(dead_code)]
 //! to extract real schema information from upstream GraphQL servers and cache
 //! it for fragment resolution.
 
@@ -120,11 +122,11 @@ struct IntrospectionData {
 #[derive(Debug, Deserialize)]
 struct SchemaData {
     #[serde(rename = "queryType")]
-    query_type: Option<TypeRef>,
+    _query_type: Option<TypeRef>,
     #[serde(rename = "mutationType")]
-    mutation_type: Option<TypeRef>,
+    _mutation_type: Option<TypeRef>,
     #[serde(rename = "subscriptionType")]
-    subscription_type: Option<TypeRef>,
+    _subscription_type: Option<TypeRef>,
     types: Vec<TypeData>,
 }
 

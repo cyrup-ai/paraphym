@@ -295,7 +295,7 @@ impl ServiceDiscovery for PeerDiscovery {
 #[derive(Clone)]
 pub struct DiscoveryService {
     registry: PeerRegistry,
-    tls_manager: Arc<crate::tls::tls_manager::TlsManager>,
+    _tls_manager: Arc<crate::tls::tls_manager::TlsManager>,
     client: reqwest::Client,
     poll_interval: Duration,
     token_manager: Arc<TokenManager>,
@@ -375,7 +375,7 @@ impl DiscoveryService {
         
         Ok(Self {
             registry,
-            tls_manager,
+            _tls_manager: tls_manager,
             client,
             poll_interval: Duration::from_secs(30),
             token_manager,

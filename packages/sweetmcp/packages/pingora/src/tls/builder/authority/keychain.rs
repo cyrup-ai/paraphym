@@ -3,6 +3,9 @@
 //! This module provides functionality for loading and storing certificate
 //! authorities in the system keychain using the keyring crate.
 
+
+#![allow(dead_code)]
+
 use super::types::{CaMetadata, CaSource, CertificateAuthority};
 use super::utils::{format_dn_hashmap, format_serial_number};
 use crate::tls::certificate::parse_certificate_from_pem;

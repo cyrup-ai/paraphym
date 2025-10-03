@@ -3,6 +3,9 @@
 //! This module provides functionality for downloading certificate authorities
 //! from remote URLs over HTTP/HTTPS with timeout and validation support.
 
+
+#![allow(dead_code)]
+
 use std::time::Duration;
 
 use super::types::{CaMetadata, CaSource, CertificateAuthority};

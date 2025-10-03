@@ -1,5 +1,8 @@
 //! Certificate generation and loading functions
 
+
+#![allow(dead_code)]
+
 use std::path::Path;
 
 use anyhow::{Context, Result};

@@ -3,6 +3,9 @@
 //! This module provides the entry point for creating different types of
 //! certificate authority builders (filesystem, keychain, remote).
 
+
+#![allow(dead_code)]
+
 use std::path::Path;
 
 use super::filesystem::AuthorityFilesystemBuilder;

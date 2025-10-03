@@ -10,6 +10,7 @@ use crate::memory::utils::error::{Error as MemoryError, Result};
 use crate::memory::vector::embedding_model::EmbeddingModel;
 use crate::providers::{
     bert_embedding::CandleBertEmbeddingProvider,
+    clip_vision_embedding::ClipVisionEmbeddingProvider,
     gte_qwen_embedding::CandleGteQwenEmbeddingProvider,
     jina_bert_embedding::CandleJinaBertEmbeddingProvider,
     nvembed_embedding::CandleNvEmbedEmbeddingProvider,
@@ -26,7 +27,7 @@ impl EmbeddingModelFactory {
         Self::validate_config(&config)?;
         
         // Determine model type from config.model field
-        let model_name = config.model.as_deref().unwrap_or("bert");
+        let model_name = config.model.as_deref().unwrap_or("stella");
         
         match Self::normalize_model_name(model_name) {
             "bert" | "sentence-transformers" => {
@@ -73,9 +74,17 @@ impl EmbeddingModelFactory {
                 Ok(Arc::new(provider) as Arc<dyn EmbeddingModel>)
             },
             
+            "clip-vision" | "clip" => {
+                // CLIP Vision supports 512D (ViT-Base) or 768D (ViT-Large)
+                let dimension = config.dimensions.unwrap_or(512);  // Default to ViT-Base
+                let provider = ClipVisionEmbeddingProvider::with_dimension(dimension).await
+                    .map_err(|e| MemoryError::ModelError(format!("Failed to create CLIP Vision provider: {}", e)))?;
+                Ok(Arc::new(provider) as Arc<dyn EmbeddingModel>)
+            },
+            
             _ => {
                 Err(MemoryError::Config(format!(
-                    "Unknown embedding model: '{}'. Supported models: bert, stella, gte-qwen, jina-bert, nvembed", 
+                    "Unknown embedding model: '{}'. Supported models: bert, stella, gte-qwen, jina-bert, nvembed, clip-vision", 
                     model_name
                 )))
             }
@@ -95,7 +104,7 @@ impl EmbeddingModelFactory {
         
         // Validate dimensions against model-specific native support
         if let Some(dims) = config.dimensions {
-            let model_name = config.model.as_deref().unwrap_or("bert");
+            let model_name = config.model.as_deref().unwrap_or("stella");
             Self::validate_dimension_for_model(dims, model_name)?;
         }
         
@@ -148,6 +157,14 @@ impl EmbeddingModelFactory {
                     )));
                 }
             },
+            "clip-vision" | "clip" => {
+                if dimension != 512 && dimension != 768 {
+                    return Err(MemoryError::Config(format!(
+                        "CLIP Vision supports 512 dimensions (ViT-Base-Patch32) or 768 dimensions (ViT-Large-Patch14). Requested: {}",
+                        dimension
+                    )));
+                }
+            },
             _ => {
                 return Err(MemoryError::Config(format!(
                     "Unknown model '{}' for dimension validation",
@@ -172,6 +189,7 @@ impl EmbeddingModelFactory {
                 "gte-qwen" => vec![1536], // GTE-Qwen2 1.5B native dimension only
                 "jina-bert" => vec![768], // Jina-BERT v2 native dimension only
                 "nvembed" => vec![4096], // NVEmbed v2 native dimension only
+                "clip-vision" => vec![512, 768], // CLIP ViT-Base (512) and ViT-Large (768)
                 _ => vec![],
             },
             default_model_path: match normalized_name {
@@ -180,11 +198,13 @@ impl EmbeddingModelFactory {
                 "gte-qwen" => "Alibaba-NLP/gte-Qwen2-1.5B-instruct",
                 "jina-bert" => "jinaai/jina-embeddings-v2-base-en",
                 "nvembed" => "nvidia/NV-Embed-v2",
+                "clip-vision" => "openai/clip-vit-base-patch32",
                 _ => "unknown",
             }.to_string(),
             supports_custom_path: true,
             recommended_device: match normalized_name {
                 "stella" => "GPU", // Large model benefits from GPU
+                "clip-vision" => "GPU/CPU", // Vision models work on both
                 _ => "GPU/CPU", // Others work well on both
             }.to_string(),
         }
@@ -281,6 +301,9 @@ impl EmbeddingModelFactory {
             
             // NVEmbed variants
             "nvembed" | "nv-embed-v2" | "nvidia/nv-embed-v2" => "nvembed",
+            
+            // CLIP Vision variants
+            "clip-vision" | "clip" | "clip-vit-base-patch32" | "clip-vit-large-patch14" | "openai/clip-vit-base-patch32" | "openai/clip-vit-large-patch14-336" => "clip-vision",
             
             // Default fallback
             _ => model_name,

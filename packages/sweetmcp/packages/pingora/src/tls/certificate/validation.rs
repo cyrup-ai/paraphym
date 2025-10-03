@@ -1,5 +1,8 @@
 //! Certificate validation and chain verification
 
+
+#![allow(dead_code)]
+
 use anyhow::Result;
 use rustls::pki_types::CertificateDer;
 use tracing::{info, warn};

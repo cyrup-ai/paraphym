@@ -3,6 +3,9 @@
 //! This module contains helper functions for formatting distinguished names,
 //! serial numbers, and other certificate-related data structures.
 
+
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 
 /// Format a distinguished name `HashMap` into a string representation

@@ -55,8 +55,8 @@ fn default_truncate() -> bool {
 impl Default for EmbeddingConfig {
     fn default() -> Self {
         Self {
-            model: None,
-            dimensions: None,
+            model: Some("stella".to_string()),
+            dimensions: Some(1024),
             normalize: default_normalize(),
             batch_size: default_batch_size(),
             truncate: default_truncate(),
@@ -172,9 +172,17 @@ impl EmbeddingConfig {
                     )));
                 }
             },
+            "clip-vision" | "clip" => {
+                if dimension != 512 && dimension != 768 {
+                    return Err(MemoryError::Config(format!(
+                        "CLIP Vision supports 512 dimensions (ViT-Base-Patch32) or 768 dimensions (ViT-Large-Patch14). Requested: {dimension}. \
+                         These correspond to the two available CLIP Vision architectures."
+                    )));
+                }
+            },
             _ => {
                 return Err(MemoryError::Config(format!(
-                    "Unknown model '{model_name}' for dimension validation. Supported models: bert, stella, gte-qwen, jina-bert, nvembed"
+                    "Unknown model '{model_name}' for dimension validation. Supported models: bert, stella, gte-qwen, jina-bert, nvembed, clip-vision"
                 )));
             }
         }
@@ -200,6 +208,9 @@ impl EmbeddingConfig {
             
             // NVEmbed variants
             "nvembed" | "nv-embed-v2" | "nvidia/nv-embed-v2" => "nvembed",
+            
+            // CLIP Vision variants
+            "clip-vision" | "clip" | "clip-vit-base-patch32" | "clip-vit-large-patch14" | "openai/clip-vit-base-patch32" | "openai/clip-vit-large-patch14-336" => "clip-vision",
             
             // Default fallback - return generic "unknown" for unrecognized models
             _ => "unknown",
@@ -265,7 +276,7 @@ impl EmbeddingConfig {
     /// Returns error if dimensions are not supported by the configured model
     pub fn validate_dimensions(&self) -> Result<()> {
         if let Some(dims) = self.dimensions {
-            let model_name = self.model.as_deref().unwrap_or("bert");
+            let model_name = self.model.as_deref().unwrap_or("stella");
             Self::validate_dimension_for_model(dims, model_name)
         } else {
             Ok(())
@@ -275,14 +286,14 @@ impl EmbeddingConfig {
     /// Check if a specific dimension is supported by the configured model
     #[must_use]
     pub fn is_dimension_supported(&self, dimension: usize) -> bool {
-        let model_name = self.model.as_deref().unwrap_or("bert");
+        let model_name = self.model.as_deref().unwrap_or("stella");
         Self::validate_dimension_for_model(dimension, model_name).is_ok()
     }
 
     /// Get all supported dimensions for the configured model
     #[must_use]
     pub fn get_supported_dimensions(&self) -> Vec<usize> {
-        let model_name = self.model.as_deref().unwrap_or("bert");
+        let model_name = self.model.as_deref().unwrap_or("stella");
         let normalized_name = Self::normalize_model_name(model_name);
         
         match normalized_name {
@@ -291,6 +302,7 @@ impl EmbeddingConfig {
             "gte-qwen" => vec![1536],
             "jina-bert" => vec![768],
             "nvembed" => vec![4096],
+            "clip-vision" => vec![512, 768],
             _ => vec![],
         }
     }

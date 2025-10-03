@@ -1,5 +1,7 @@
 //! Certificate validator components
 
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime};
@@ -44,7 +46,7 @@ impl CertificateValidator {
         CertificateValidatorWithInput {
             input_source: InputSource::File(path.as_ref().to_path_buf()),
             domain: None,
-            domains: None,
+            _domains: None,
             authority: None,
         }
     }
@@ -55,7 +57,7 @@ impl CertificateValidator {
         CertificateValidatorWithInput {
             input_source: InputSource::String(pem.to_string()),
             domain: None,
-            domains: None,
+            _domains: None,
             authority: None,
         }
     }
@@ -66,7 +68,7 @@ impl CertificateValidator {
         CertificateValidatorWithInput {
             input_source: InputSource::Bytes(bytes.to_vec()),
             domain: None,
-            domains: None,
+            _domains: None,
             authority: None,
         }
     }
@@ -83,7 +85,7 @@ impl Default for CertificateValidator {
 pub struct CertificateValidatorWithInput {
     input_source: InputSource,
     domain: Option<String>,
-    domains: Option<Vec<String>>,
+    _domains: Option<Vec<String>>,
     authority: Option<CertificateAuthority>,
 }
 
@@ -101,7 +103,7 @@ impl CertificateValidatorWithInput {
     #[must_use = "Certificate validator builder methods return a new validator and should be used"]
     pub fn domains(self, domains: &[&str]) -> Self {
         Self {
-            domains: Some(
+            _domains: Some(
                 domains
                     .iter()
                     .map(std::string::ToString::to_string)

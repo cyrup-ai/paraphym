@@ -199,13 +199,15 @@ fn run_server() -> Result<()> {
     server.add_service(backend_update);
 
     // Add rate limit cleanup service
-    let rate_limit_service = background_service(
-        "rate-limit-cleanup",
-        RateLimitCleanupService {
-            rate_limiter: edge_service.rate_limit_manager().clone(),
-        },
-    );
-    server.add_service(rate_limit_service);
+    if let Some(distributed_limiter) = edge_service.rate_limit_manager().as_distributed() {
+        let rate_limit_service = background_service(
+            "rate-limit-cleanup",
+            RateLimitCleanupService {
+                rate_limiter: distributed_limiter,
+            },
+        );
+        server.add_service(rate_limit_service);
+    }
 
     // Add metrics collector service
     let metrics_service = background_service(

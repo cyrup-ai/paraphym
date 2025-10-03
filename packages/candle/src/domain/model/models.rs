@@ -58,6 +58,7 @@ impl CandleDomainModel {
                 LocalEmbeddingProvider::JinaBERT => "jina-bert-embedding",
                 LocalEmbeddingProvider::NvEmbed => "nvembed-embedding",
                 LocalEmbeddingProvider::Stella => "stella-embedding",
+                LocalEmbeddingProvider::ClipVision => "clip-vision-embedding",
             },
         }
     }

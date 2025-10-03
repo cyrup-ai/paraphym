@@ -1,6 +1,9 @@
 //! Sugora peer picker that selects the lowest `node_load1`.
 
 
+
+#![allow(dead_code)]
+
 use std::{
     collections::BTreeSet,
     sync::{

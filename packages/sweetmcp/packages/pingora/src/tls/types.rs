@@ -1,5 +1,7 @@
 //! Core types and structures for TLS management
 
+#![allow(dead_code)]
+
 use std::collections::{HashMap, HashSet};
 use std::time::SystemTime;
 

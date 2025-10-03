@@ -1,5 +1,8 @@
 //! Private key encryption and decryption utilities
 
+
+#![allow(dead_code)]
+
 use std::collections::HashSet;
 use std::env;
 

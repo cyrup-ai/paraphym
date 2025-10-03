@@ -473,8 +473,7 @@ impl CandleAgentRoleImpl {
                         }
                         Err(_) => {
                             log::warn!(
-                                "Memory retrieval timed out - context may be incomplete (timeout_ms: {}, message: {:?})",
-                                timeout_ms, message
+                                "Memory retrieval timed out - context may be incomplete (timeout_ms: {timeout_ms}, message: {message:?})"
                             );
                             Vec::new()
                         }

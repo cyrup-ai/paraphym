@@ -22,11 +22,11 @@ pub trait ImageBuilder: Sized {
     /// Set detail - EXACT syntax: .detail(ImageDetail::High)
     fn detail(self, detail: ImageDetail) -> Self;
     
-    /// Set as PNG - EXACT syntax: .as_png()
-    fn as_png(self) -> Self;
+    /// Set PNG format - EXACT syntax: .with_png()
+    fn with_png(self) -> Self;
     
-    /// Set as JPEG - EXACT syntax: .as_jpeg()
-    fn as_jpeg(self) -> Self;
+    /// Set JPEG format - EXACT syntax: .with_jpeg()
+    fn with_jpeg(self) -> Self;
     
     /// Set high detail - EXACT syntax: .high_detail()
     fn high_detail(self) -> Self;
@@ -294,14 +294,14 @@ where
         self
     }
     
-    /// Set as PNG - EXACT syntax: .as_png()
-    fn as_png(mut self) -> Self {
+    /// Set PNG format - EXACT syntax: .with_png()
+    fn with_png(mut self) -> Self {
         self.media_type = Some(ImageMediaType::PNG);
         self
     }
     
-    /// Set as JPEG - EXACT syntax: .as_jpeg()
-    fn as_jpeg(mut self) -> Self {
+    /// Set JPEG format - EXACT syntax: .with_jpeg()
+    fn with_jpeg(mut self) -> Self {
         self.media_type = Some(ImageMediaType::JPEG);
         self
     }
@@ -467,7 +467,7 @@ where
             metadata: std::collections::HashMap::new(),
         };
         
-        ystream::AsyncStream::with_channel(|sender| {
+        ystream::AsyncStream::with_channel(move |sender| {
             let _ = sender.send(chunk);
         })
     }
@@ -480,20 +480,16 @@ where
         // Get source stream from load
         let load_stream = self.load();
         
-        // Create output stream with processing logic
+        // Create processing stream using ystream pattern
         ystream::AsyncStream::with_channel(move |sender| {
-            // The with_channel closure runs in its own thread, so we can use async/await with tokio runtime
-            let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-            rt.block_on(async move {
-                // Consume the single chunk from load stream
-                if let Some(chunk) = load_stream.next().await {
-                    // Apply the transformation function
-                    let processed_chunk = f(chunk);
-                    
-                    // Send transformed chunk to output stream
-                    let _ = sender.send(processed_chunk);
-                }
-            });
+            // Collect the single chunk synchronously (blocking)
+            let chunks = load_stream.collect();
+            
+            // Process the chunk (FnOnce called once)
+            if let Some(chunk) = chunks.into_iter().next() {
+                let processed = f(chunk);
+                let _ = sender.send(processed);
+            }
         })
     }
 }

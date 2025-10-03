@@ -4,6 +4,9 @@
 //! with zero allocation fast paths and blazing-fast performance.
 
 
+
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};

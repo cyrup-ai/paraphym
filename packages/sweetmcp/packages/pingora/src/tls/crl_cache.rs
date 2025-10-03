@@ -1,5 +1,8 @@
 //! CRL cache implementation and validation logic
 
+
+#![allow(dead_code)]
+
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
