@@ -30,6 +30,7 @@ pub struct RealtimeContextProvider {
 
 impl RealtimeContextProvider {
     /// Create a new realtime context provider
+    #[must_use]
     pub fn new() -> Self {
         let (event_tx, event_rx) = bounded(100);
         Self {

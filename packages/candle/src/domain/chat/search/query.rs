@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use super::types::{ProcessedQuery, QueryMetadata, QueryOperator, SearchOptions};
+use crate::domain::util::duration_to_micros_u64;
 
 /// Query processor for advanced query handling
 pub struct QueryProcessor {
@@ -14,6 +15,7 @@ pub struct QueryProcessor {
 
 impl QueryProcessor {
     /// Create a new query processor
+    #[must_use]
     pub fn new() -> Self {
         Self {
             expansion_enabled: false,
@@ -54,7 +56,7 @@ impl QueryProcessor {
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_secs(),
-                processing_time_us: start_time.elapsed().as_micros() as u64,
+                processing_time_us: duration_to_micros_u64(start_time.elapsed()),
                 expansion_applied: options.enable_query_expansion,
                 normalization_applied: true,
             },

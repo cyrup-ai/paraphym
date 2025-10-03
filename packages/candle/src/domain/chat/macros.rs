@@ -793,6 +793,7 @@ impl Default for ResourceLimits {
 
 impl MacroSystem {
     /// Create a new macro system with optimal performance settings
+    #[must_use]
     pub fn new() -> Self {
         Self {
             macros: SkipMap::new(),
@@ -1544,6 +1545,7 @@ impl Default for MacroProcessorConfig {
 
 impl MacroProcessor {
     /// Create a new macro processor
+    #[must_use]
     pub fn new() -> Self {
         Self {
             macros: Arc::new(SkipMap::new()),
@@ -1555,6 +1557,7 @@ impl MacroProcessor {
     }
 
     /// Create a macro processor with custom configuration
+    #[must_use]
     pub fn with_config(config: MacroProcessorConfig) -> Self {
         Self {
             macros: Arc::new(SkipMap::new()),
@@ -1594,6 +1597,7 @@ impl MacroProcessor {
     }
 
     /// Execute a macro by ID
+    #[must_use]
     pub fn execute_macro(
         &self,
         macro_id: &Uuid,
@@ -1613,7 +1617,7 @@ impl MacroProcessor {
                 std::thread::spawn(move || {
                     let default_result = MacroExecutionResult {
                         success: false,
-                        message: format!("Macro not found: {:?}", macro_id),
+                        message: format!("Macro not found: {macro_id:?}"),
                         actions_executed: 0,
                         execution_duration: Duration::from_secs(0),
                         modified_variables: HashMap::new(),
@@ -1669,59 +1673,9 @@ impl MacroProcessor {
                     conversation: None,
                 };
 
-                let mut actions_executed = 0;
-                let modified_variables = HashMap::new();
                 let mut performance = MacroPerformanceMetrics::default();
-                let mut error_message: Option<String> = None;
-
-                let success = loop {
-                    if context.current_action >= macro_def.actions.len() {
-                        break true;
-                    }
-
-                    let action = &macro_def.actions[context.current_action];
-
-                    match execute_action_sync(action, &mut context) {
-                        Ok(ActionExecutionResult::Success) => {
-                            actions_executed += 1;
-                            context.current_action += 1;
-                        }
-                        Ok(ActionExecutionResult::Wait(duration)) => {
-                            std::thread::sleep(duration);
-                            actions_executed += 1;
-                            context.current_action += 1;
-                        }
-                        Ok(ActionExecutionResult::SkipToAction(index)) => {
-                            actions_executed += 1;
-                            context.current_action = index;
-                        }
-                        Ok(ActionExecutionResult::Error(error)) => {
-                            error_message = Some(format!(
-                                "Action {} failed: {}", 
-                                context.current_action, 
-                                error
-                            ));
-                            if let Some(ref msg) = error_message {
-                                eprintln!("Macro execution error: {msg}");
-                            }
-                            break false;
-                        }
-                        Err(e) => {
-                            error_message = Some(format!(
-                                "System error at action {}: {}", 
-                                context.current_action, 
-                                e
-                            ));
-                            if let Some(ref msg) = error_message {
-                                eprintln!("Macro system error: {msg}");
-                            }
-                            break false;
-                        }
-                    }
-
-                    // Update performance metrics - simplified for now
-                    performance.disk_operations += 1;
-                };
+                let (success, actions_executed, error_message) = 
+                    Self::execute_macro_actions(&macro_def, &mut context, &mut performance);
 
                 let execution_duration = Utc::now().signed_duration_since(start_time).to_std().unwrap_or_default();
                 let completed_at = Duration::from_secs(
@@ -1749,13 +1703,72 @@ impl MacroProcessor {
                     },
                     actions_executed,
                     execution_duration,
-                    modified_variables,
+                    modified_variables: HashMap::new(),
                     metadata,
                 };
 
                 let _ = sender.send(result);
             });
         })
+    }
+
+    fn execute_macro_actions(
+        macro_def: &ChatMacro,
+        context: &mut MacroExecutionContext,
+        performance: &mut MacroPerformanceMetrics,
+    ) -> (bool, usize, Option<String>) {
+        let mut actions_executed = 0;
+        let mut error_message: Option<String> = None;
+
+        let success = loop {
+            if context.current_action >= macro_def.actions.len() {
+                break true;
+            }
+
+            let action = &macro_def.actions[context.current_action];
+
+            match execute_action_sync(action, context) {
+                Ok(ActionExecutionResult::Success) => {
+                    actions_executed += 1;
+                    context.current_action += 1;
+                }
+                Ok(ActionExecutionResult::Wait(duration)) => {
+                    std::thread::sleep(duration);
+                    actions_executed += 1;
+                    context.current_action += 1;
+                }
+                Ok(ActionExecutionResult::SkipToAction(index)) => {
+                    actions_executed += 1;
+                    context.current_action = index;
+                }
+                Ok(ActionExecutionResult::Error(error)) => {
+                    error_message = Some(format!(
+                        "Action {} failed: {}", 
+                        context.current_action, 
+                        error
+                    ));
+                    if let Some(ref msg) = error_message {
+                        eprintln!("Macro execution error: {msg}");
+                    }
+                    break false;
+                }
+                Err(e) => {
+                    error_message = Some(format!(
+                        "System error at action {}: {}", 
+                        context.current_action, 
+                        e
+                    ));
+                    if let Some(ref msg) = error_message {
+                        eprintln!("Macro system error: {msg}");
+                    }
+                    break false;
+                }
+            }
+
+            performance.disk_operations += 1;
+        };
+
+        (success, actions_executed, error_message)
     }
 
     /// Validate a macro
@@ -1790,6 +1803,7 @@ impl MacroProcessor {
     }
 
     /// Get macro processor statistics snapshot
+    #[must_use]
     pub fn get_stats_snapshot(&self) -> MacroProcessorStatsSnapshot {
         MacroProcessorStatsSnapshot {
             total_executions: self.stats.total_executions.load(Ordering::Relaxed),
@@ -1801,6 +1815,7 @@ impl MacroProcessor {
     }
 
     /// Get active executions count
+    #[must_use]
     pub fn get_active_executions(&self) -> usize {
         self.stats.active_executions.load(Ordering::Relaxed)
     }
@@ -1827,6 +1842,7 @@ impl MacroProcessor {
     }
 
     /// Get a global variable value by name
+    #[must_use]
     pub fn get_global_variable(&self, name: &str) -> Option<String> {
         match self.variables.read() {
             Ok(vars) => vars.get(name).cloned(),
@@ -1835,6 +1851,7 @@ impl MacroProcessor {
     }
 
     /// Get all global variables as a snapshot
+    #[must_use]
     pub fn get_global_variables_snapshot(&self) -> HashMap<String, String> {
         match self.variables.read() {
             Ok(vars) => vars.clone(),

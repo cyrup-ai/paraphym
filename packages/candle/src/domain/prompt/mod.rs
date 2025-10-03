@@ -21,6 +21,7 @@ impl CandlePrompt {
         }
     }
 
+    #[must_use]
     pub fn content(&self) -> &str {
         &self.content
     }

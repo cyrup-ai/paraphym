@@ -1,6 +1,0 @@
-    Blocking waiting for file lock on build directory
-    Checking paraphym_candle v0.1.0 (/Volumes/samsung_t9/paraphym/packages/candle)
-   Compiling sweetmcp-pingora v0.3.1 (/Volumes/samsung_t9/paraphym/packages/sweetmcp/packages/pingora)
-    Checking sweetmcp-axum v0.1.0 (/Volumes/samsung_t9/paraphym/packages/sweetmcp/packages/axum)
-    Checking sweetmcp-daemon v0.2.0 (/Volumes/samsung_t9/paraphym/packages/sweetmcp/packages/daemon)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 06s

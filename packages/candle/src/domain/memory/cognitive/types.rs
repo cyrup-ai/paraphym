@@ -1,6 +1,7 @@
 // Removed unused import: std::collections::HashMap
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::RwLock;
 use std::time::{Duration, SystemTime};
 
 use crossbeam_queue::SegQueue;
@@ -10,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use paraphym_simd::similarity::cosine_similarity;
+
+use crate::domain::util::unix_timestamp_nanos;
 
 /// Quantum-inspired cognitive state with atomic operations and lock-free queues
 ///
@@ -65,6 +68,7 @@ pub struct AlignedActivationPattern {
 impl AlignedActivationPattern {
     /// Create new aligned activation pattern
     #[inline]
+    #[must_use]
     pub fn new(data: Vec<f32>) -> Self {
         let dimension = data.len();
         Self {
@@ -97,6 +101,7 @@ impl AlignedActivationPattern {
     /// Calculate pattern energy with SIMD hint
     #[allow(dead_code)] // TODO: Implement in cognitive pattern system
     #[inline]
+    #[must_use]
     pub fn energy(&self) -> f32 {
         self.data.iter().map(|x| x * x).sum::<f32>().sqrt()
     }
@@ -104,6 +109,7 @@ impl AlignedActivationPattern {
     /// Check if the activation pattern is empty
     #[allow(dead_code)] // TODO: Implement in cognitive pattern system
     #[inline]
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
@@ -132,6 +138,7 @@ pub struct AtomicAttentionWeights {
 impl AtomicAttentionWeights {
     /// Create new atomic attention weights
     #[inline]
+    #[must_use]
     pub fn new() -> Self {
         Self {
             primary: AtomicF32::new(0.6),
@@ -240,6 +247,7 @@ impl WorkingMemoryItem {
 
     /// Check if item has expired
     #[inline]
+    #[must_use]
     pub fn is_expired(&self) -> bool {
         self.created_at.elapsed().unwrap_or(Duration::ZERO) > self.ttl
     }
@@ -319,6 +327,7 @@ pub struct TemporalContext {
 impl TemporalContext {
     /// Create new temporal context
     #[inline]
+    #[must_use]
     pub fn new(window_duration: Duration) -> Self {
         Self {
             history_embedding: Vec::new(),
@@ -334,6 +343,7 @@ impl TemporalContext {
     /// Get next sequence number atomically
     #[allow(dead_code)] // TODO: Implement in temporal context system
     #[inline]
+    #[must_use]
     pub fn next_sequence(&self) -> u64 {
         self.sequence_counter.fetch_add(1, Ordering::Relaxed)
     }
@@ -395,6 +405,7 @@ impl CausalLink {
     /// Create new causal link
     #[inline]
     #[allow(dead_code)] // TODO: Implement causal reasoning in cognitive state system
+    #[must_use]
     pub fn new(source_id: Uuid, target_id: Uuid, strength: f32, temporal_distance: i64) -> Self {
         Self {
             source_id,
@@ -419,7 +430,7 @@ pub struct QuantumSignature {
     coherence_fingerprint: AlignedCoherenceFingerprint,
 
     /// Quantum entanglement bonds
-    entanglement_bonds: Vec<EntanglementBond>,
+    entanglement_bonds: Arc<RwLock<Vec<EntanglementBond>>>,
 
     /// Superposition contexts for quantum routing
     superposition_contexts: Vec<Arc<str>>,
@@ -473,6 +484,7 @@ impl AlignedCoherenceFingerprint {
 
     /// Calculate quantum state probability with SIMD optimization
     #[inline]
+    #[must_use]
     pub fn state_probability(&self) -> f32 {
         self.amplitudes.iter().map(|a| a * a).sum()
     }
@@ -504,6 +516,7 @@ impl AlignedCoherenceFingerprint {
 
     /// Measure quantum entanglement with another fingerprint
     #[inline]
+    #[must_use]
     pub fn entanglement_measure(&self, other: &Self) -> Option<f32> {
         if self.dimension != other.dimension {
             return None;
@@ -521,6 +534,7 @@ impl AlignedCoherenceFingerprint {
 
     /// Check if the coherence fingerprint is empty
     #[inline]
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.amplitudes.is_empty() && self.phases.is_empty()
     }
@@ -552,10 +566,11 @@ fn default_quantum_entropy() -> Arc<AtomicF64> {
 impl QuantumSignature {
     /// Create new quantum signature
     #[inline]
+    #[must_use]
     pub fn new() -> Self {
         Self {
             coherence_fingerprint: AlignedCoherenceFingerprint::default(),
-            entanglement_bonds: Vec::new(),
+            entanglement_bonds: Arc::new(RwLock::new(Vec::new())),
             superposition_contexts: vec![Arc::from("default")],
             collapse_probability: default_collapse_probability(),
             quantum_entropy: default_quantum_entropy(),
@@ -575,13 +590,38 @@ impl QuantumSignature {
 
         Ok(Self {
             coherence_fingerprint,
-            entanglement_bonds: Vec::new(),
+            entanglement_bonds: Arc::new(RwLock::new(Vec::new())),
             superposition_contexts: vec![Arc::from("custom")],
             collapse_probability: default_collapse_probability(),
             quantum_entropy: default_quantum_entropy(),
             creation_time: SystemTime::now(),
             decoherence_rate: 0.001,
         })
+    }
+
+    /// Create quantum signature with all data (for deserialization)
+    ///
+    /// Used when reconstructing a quantum signature from persisted data.
+    #[inline]
+    #[must_use]
+    pub fn new_with_data(
+        coherence_fingerprint: AlignedCoherenceFingerprint,
+        entanglement_bonds: Vec<EntanglementBond>,
+        superposition_contexts: Vec<Arc<str>>,
+        collapse_probability: f32,
+        quantum_entropy: f64,
+        creation_time: SystemTime,
+        decoherence_rate: f64,
+    ) -> Self {
+        Self {
+            coherence_fingerprint,
+            entanglement_bonds: Arc::new(RwLock::new(entanglement_bonds)),
+            superposition_contexts,
+            collapse_probability: Arc::new(AtomicF32::new(collapse_probability)),
+            quantum_entropy: Arc::new(AtomicF64::new(quantum_entropy)),
+            creation_time,
+            decoherence_rate,
+        }
     }
 
     /// Apply decoherence based on elapsed time
@@ -599,6 +639,7 @@ impl QuantumSignature {
     /// Get collapse probability
     #[inline]
     #[allow(dead_code)] // TODO: Implement collapse probability getter
+    #[must_use]
     pub fn collapse_probability(&self) -> f32 {
         self.collapse_probability.load(Ordering::Relaxed)
     }
@@ -614,12 +655,14 @@ impl QuantumSignature {
     /// Get quantum entropy
     #[inline]
     #[allow(dead_code)] // TODO: Implement quantum entropy getter
+    #[must_use]
     pub fn quantum_entropy(&self) -> f64 {
         self.quantum_entropy.load(Ordering::Relaxed)
     }
 
     /// Get coherence state probability using quantum mechanics
     #[inline]
+    #[must_use]
     pub fn coherence_state_probability(&self) -> f32 {
         self.coherence_fingerprint.state_probability()
     }
@@ -636,6 +679,7 @@ impl QuantumSignature {
 
     /// Measure entanglement with another quantum signature
     #[inline]
+    #[must_use]
     pub fn measure_entanglement(&self, other: &Self) -> Option<f32> {
         self.coherence_fingerprint
             .entanglement_measure(&other.coherence_fingerprint)
@@ -643,26 +687,75 @@ impl QuantumSignature {
 
     /// Check if quantum signature has valid coherence
     #[inline]
+    #[must_use]
     pub fn has_valid_coherence(&self) -> bool {
         !self.coherence_fingerprint.is_empty()
     }
 
     /// Create entanglement bond with another quantum signature
+    ///
+    /// # Errors
+    ///
+    /// Returns `CognitiveError::LockPoisoned` if the entanglement bonds `RwLock` is poisoned
     #[inline]
     pub fn create_entanglement_bond(
-        &mut self,
+        &self,
         target_id: Uuid,
         bond_strength: f32,
         entanglement_type: EntanglementType,
-    ) {
+    ) -> CognitiveResult<()> {
         let bond = EntanglementBond::new(target_id, bond_strength, entanglement_type);
-        self.entanglement_bonds.push(bond);
+        
+        // Use write lock for interior mutability
+        // Lock is held only during the push operation, then immediately released
+        self.entanglement_bonds
+            .write()
+            .map_err(|e| CognitiveError::LockPoisoned(format!("Failed to acquire write lock for entanglement bonds: {e}")))?
+            .push(bond);
+        
+        Ok(())
     }
 
     /// Get all entanglement bonds
+    /// 
+    /// # Errors
+    ///
+    /// Returns `CognitiveError::LockPoisoned` if the entanglement bonds `RwLock` is poisoned
     #[inline]
-    pub fn entanglement_bonds(&self) -> &[EntanglementBond] {
-        &self.entanglement_bonds
+    pub fn entanglement_bonds(&self) -> CognitiveResult<Vec<EntanglementBond>> {
+        // Read lock is held only during clone, then released
+        self.entanglement_bonds
+            .read()
+            .map(|bonds| bonds.clone())
+            .map_err(|e| CognitiveError::LockPoisoned(format!("Failed to acquire read lock for entanglement bonds: {e}")))
+    }
+
+    /// Get coherence fingerprint for quantum state access
+    #[inline]
+    #[must_use]
+    pub fn coherence_fingerprint(&self) -> &AlignedCoherenceFingerprint {
+        &self.coherence_fingerprint
+    }
+
+    /// Get superposition contexts for quantum routing
+    #[inline]
+    #[must_use]
+    pub fn superposition_contexts(&self) -> &Vec<Arc<str>> {
+        &self.superposition_contexts
+    }
+
+    /// Get creation timestamp for decoherence calculations
+    #[inline]
+    #[must_use]
+    pub fn creation_time(&self) -> SystemTime {
+        self.creation_time
+    }
+
+    /// Get decoherence rate for quantum state decay
+    #[inline]
+    #[must_use]
+    pub fn decoherence_rate(&self) -> f64 {
+        self.decoherence_rate
     }
 }
 
@@ -689,6 +782,7 @@ pub struct EntanglementBond {
 impl EntanglementBond {
     /// Create new entanglement bond
     #[inline]
+    #[must_use]
     #[allow(dead_code)] // TODO: Implement quantum entanglement bonds
     pub fn new(target_id: Uuid, bond_strength: f32, entanglement_type: EntanglementType) -> Self {
         Self {
@@ -731,6 +825,7 @@ pub struct AtomicF32 {
 impl AtomicF32 {
     /// Create new atomic f32
     #[inline]
+    #[must_use]
     pub fn new(value: f32) -> Self {
         Self {
             inner: AtomicU64::new(u64::from(value.to_bits())),
@@ -740,7 +835,9 @@ impl AtomicF32 {
     /// Load value atomically
     #[inline]
     pub fn load(&self, ordering: Ordering) -> f32 {
-        f32::from_bits(self.inner.load(ordering) as u32)
+        let bits = self.inner.load(ordering);
+        let bits_u32 = u32::try_from(bits).unwrap_or(0);
+        f32::from_bits(bits_u32)
     }
 
     /// Store value atomically
@@ -766,6 +863,7 @@ pub struct AtomicF64 {
 impl AtomicF64 {
     /// Create new atomic f64
     #[inline]
+    #[must_use]
     #[allow(dead_code)] // TODO: Implement atomic f64 constructor
     pub fn new(value: f64) -> Self {
         Self {
@@ -813,6 +911,7 @@ pub struct CognitiveStats {
 impl CognitiveStats {
     /// Create new cognitive stats
     #[inline]
+    #[must_use]
     pub fn new() -> Self {
         Self {
             working_memory_accesses: AtomicU64::new(0),
@@ -855,10 +954,7 @@ impl CognitiveStats {
     /// Update last access timestamp
     #[inline]
     fn update_timestamp(&self) {
-        let now_nanos = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0);
+        let now_nanos = unix_timestamp_nanos();
         self.last_update_nanos.store(now_nanos, Ordering::Relaxed);
     }
 }
@@ -914,6 +1010,7 @@ fn default_cognitive_stats() -> Arc<CachePadded<CognitiveStats>> {
 impl CognitiveState {
     /// Create new cognitive state
     #[inline]
+    #[must_use]
     pub fn new() -> Self {
         Self {
             activation_pattern: AlignedActivationPattern::default(),
@@ -938,6 +1035,7 @@ impl CognitiveState {
     }
 
     /// Get item from working memory with automatic cleanup
+    #[must_use]
     pub fn get_working_memory(&self) -> Option<WorkingMemoryItem> {
         // Clean up expired items
         while let Some(item) = self.working_memory.pop() {
@@ -957,6 +1055,7 @@ impl CognitiveState {
     }
 
     /// Get from long-term memory with access tracking
+    #[must_use]
     pub fn get_long_term_memory(&self, id: Uuid) -> Option<CognitiveMemoryEntry> {
         if let Some(entry) = self.long_term_memory.get(&id) {
             let mut memory_entry = entry.value().clone();
@@ -982,6 +1081,7 @@ impl CognitiveState {
 
     /// Get attention weights
     #[inline]
+    #[must_use]
     pub fn attention_weights(&self) -> (f32, f32, f32, f32) {
         (
             self.attention_weights.primary(),
@@ -1000,6 +1100,7 @@ impl CognitiveState {
 
     /// Get uncertainty
     #[inline]
+    #[must_use]
     pub fn uncertainty(&self) -> f32 {
         self.uncertainty.load(Ordering::Relaxed)
     }
@@ -1013,6 +1114,7 @@ impl CognitiveState {
 
     /// Get confidence
     #[inline]
+    #[must_use]
     pub fn confidence(&self) -> f32 {
         self.confidence.load(Ordering::Relaxed)
     }
@@ -1026,18 +1128,21 @@ impl CognitiveState {
 
     /// Get meta-awareness
     #[inline]
+    #[must_use]
     pub fn meta_awareness(&self) -> f32 {
         self.meta_awareness.load(Ordering::Relaxed)
     }
 
     /// Get cognitive statistics
     #[inline]
+    #[must_use]
     pub fn stats(&self) -> &CognitiveStats {
         &self.stats
     }
 
     /// Get quantum signature for quantum-enhanced routing
     #[inline]
+    #[must_use]
     pub fn quantum_signature(&self) -> &Arc<QuantumSignature> {
         &self.quantum_signature
     }
@@ -1050,24 +1155,28 @@ impl CognitiveState {
 
     /// Get quantum collapse probability
     #[inline]
+    #[must_use]
     pub fn quantum_collapse_probability(&self) -> f32 {
         self.quantum_signature.collapse_probability()
     }
 
     /// Get quantum entropy measure
     #[inline]
+    #[must_use]
     pub fn quantum_entropy(&self) -> f64 {
         self.quantum_signature.quantum_entropy()
     }
 
     /// Get coherence state probability for quantum routing
     #[inline]
+    #[must_use]
     pub fn coherence_state_probability(&self) -> f32 {
         self.quantum_signature.coherence_state_probability()
     }
 
     /// Measure quantum entanglement with another cognitive state
     #[inline]
+    #[must_use]
     pub fn measure_quantum_entanglement(&self, other: &Self) -> Option<f32> {
         self.quantum_signature
             .measure_entanglement(&other.quantum_signature)
@@ -1075,36 +1184,56 @@ impl CognitiveState {
 
     /// Check if cognitive state has valid quantum coherence
     #[inline]
+    #[must_use]
     pub fn has_quantum_coherence(&self) -> bool {
         self.quantum_signature.has_valid_coherence()
     }
 
     /// Add quantum entanglement bond to another cognitive state
     #[inline]
+    #[must_use]
     pub fn add_quantum_entanglement_bond(
         &self,
         target_id: Uuid,
         bond_strength: f32,
         entanglement_type: EntanglementType,
     ) -> bool {
-        // Since QuantumSignature.entanglement_bonds is private and create_entanglement_bond requires &mut,
-        // we'll implement this by creating a log entry and returning success for now
-        // In a full implementation, this would modify the quantum signature's bonds
-        log::info!(
-            "Adding quantum entanglement bond to {target_id} with strength {bond_strength} and type {entanglement_type:?}"
-        );
-
+        // Validate bond strength is in valid range
+        if !(0.0..=1.0).contains(&bond_strength) {
+            log::warn!(
+                "Invalid bond strength {bond_strength} for entanglement with {target_id}, must be 0.0-1.0"
+            );
+            return false;
+        }
+        
+        // Create the actual entanglement bond in quantum signature
+        if let Err(e) = self.quantum_signature.create_entanglement_bond(
+            target_id,
+            bond_strength,
+            entanglement_type,
+        ) {
+            log::error!("Failed to create entanglement bond: {e}");
+            return false;
+        }
+        
         // Record the quantum operation for statistics
         self.stats.record_quantum_operation();
-
-        // Simulate successful entanglement creation
+        
+        log::debug!(
+            "Created quantum entanglement bond to {target_id} with strength {bond_strength} and type {entanglement_type:?}"
+        );
+        
         true
     }
 
     /// Get count of quantum entanglement bonds
     #[inline]
+    #[must_use]
     pub fn quantum_entanglement_bond_count(&self) -> usize {
-        self.quantum_signature.entanglement_bonds().len()
+        self.quantum_signature
+            .entanglement_bonds()
+            .map(|bonds| bonds.len())
+            .unwrap_or(0)
     }
 
     /// Create cognitive state with custom quantum coherence
@@ -1132,6 +1261,26 @@ impl CognitiveState {
             stats: default_cognitive_stats(),
         })
     }
+
+    /// Create cognitive state with existing quantum signature
+    /// 
+    /// Used for deserializing persisted cognitive states with their quantum signatures.
+    #[inline]
+    #[must_use]
+    pub fn new_with_quantum_signature(quantum_signature: QuantumSignature) -> Self {
+        Self {
+            activation_pattern: AlignedActivationPattern::default(),
+            attention_weights: default_attention_weights(),
+            working_memory: default_working_memory(),
+            long_term_memory: default_long_term_memory(),
+            temporal_context: default_temporal_context(),
+            quantum_signature: Arc::new(quantum_signature),
+            uncertainty: default_uncertainty(),
+            confidence: default_confidence(),
+            meta_awareness: default_meta_awareness(),
+            stats: default_cognitive_stats(),
+        }
+    }
 }
 
 impl Default for CognitiveState {
@@ -1154,6 +1303,8 @@ pub enum CognitiveError {
     TemporalInconsistency(String),
     #[error("Attention overflow: {0}")]
     AttentionOverflow(String),
+    #[error("Lock poisoned: {0}")]
+    LockPoisoned(String),
 }
 
 /// Result type for cognitive operations
@@ -1313,6 +1464,7 @@ pub enum DecisionOutcome {
 
 impl CognitiveMemory {
     /// Create a new cognitive memory system
+    #[must_use]
     pub fn new(config: CognitiveMemoryConfig) -> Self {
         Self {
             state: Arc::new(CognitiveState::new()),
@@ -1323,6 +1475,7 @@ impl CognitiveMemory {
     }
 
     /// Get the current cognitive state
+    #[must_use]
     pub fn state(&self) -> &Arc<CognitiveState> {
         &self.state
     }
@@ -1348,6 +1501,7 @@ impl CognitiveMemory {
     }
 
     /// Retrieve a cognitive pattern by ID
+    #[must_use]
     pub fn get_pattern(&self, id: &Uuid) -> Option<CognitivePattern> {
         self.pattern_storage
             .get(id)
@@ -1355,6 +1509,7 @@ impl CognitiveMemory {
     }
 
     /// Get performance metrics
+    #[must_use]
     pub fn metrics(&self) -> &CognitiveMetrics {
         &self.metrics
     }
@@ -1362,6 +1517,7 @@ impl CognitiveMemory {
 
 impl CognitiveProcessor {
     /// Create a new cognitive processor
+    #[must_use]
     pub fn new(config: CognitiveProcessorConfig) -> Self {
         Self {
             config,
@@ -1379,10 +1535,7 @@ impl CognitiveProcessor {
     pub fn process(&self, input: &[f32]) -> CognitiveResult<Decision> {
         // Set processing state
         self.state.is_processing.store(true, Ordering::Relaxed);
-        let start_time = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos() as u64;
+        let start_time = unix_timestamp_nanos();
         self.state.start_time.store(start_time, Ordering::Relaxed);
 
         // Generate pattern ID for caching
@@ -1412,12 +1565,14 @@ impl CognitiveProcessor {
     }
 
     /// Get current processing state
+    #[must_use]
     pub fn is_processing(&self) -> bool {
         self.state.is_processing.load(Ordering::Relaxed)
     }
 
     /// Get processor configuration
     #[inline]
+    #[must_use]
     pub fn config(&self) -> &CognitiveProcessorConfig {
         &self.config
     }
@@ -1436,12 +1591,14 @@ impl CognitiveProcessor {
 
     /// Get pattern cache size for monitoring
     #[inline]
+    #[must_use]
     pub fn pattern_cache_size(&self) -> usize {
         self.pattern_matcher.cache_size()
     }
 
     /// Get cache performance statistics
     #[inline]
+    #[must_use]
     pub fn cache_performance(&self) -> (usize, bool) {
         let size = self.pattern_matcher.cache_size();
         let needs_cleanup = size > 1000; // Example threshold
@@ -1473,6 +1630,7 @@ impl Default for CognitiveProcessorConfig {
 
 impl CognitiveMetrics {
     /// Create new metrics
+    #[must_use]
     pub fn new() -> Self {
         Self {
             patterns_processed: AtomicU64::new(0),
@@ -1492,6 +1650,7 @@ impl Default for CognitiveMetrics {
 
 impl ProcessingState {
     /// Create new processing state
+    #[must_use]
     pub fn new() -> Self {
         Self {
             is_processing: std::sync::atomic::AtomicBool::new(false),
@@ -1510,6 +1669,7 @@ impl Default for ProcessingState {
 
 impl PatternMatcher {
     /// Create new pattern matcher
+    #[must_use]
     pub fn new(threshold: f32) -> Self {
         Self {
             threshold,
@@ -1583,6 +1743,7 @@ impl PatternMatcher {
 
     /// Get cached pattern result
     #[inline]
+    #[must_use]
     pub fn get_cached_result(&self, pattern_id: &Uuid) -> Option<f32> {
         self.cache.get(pattern_id).map(|entry| *entry.value())
     }
@@ -1595,6 +1756,7 @@ impl PatternMatcher {
 
     /// Get cache size for monitoring
     #[inline]
+    #[must_use]
     pub fn cache_size(&self) -> usize {
         self.cache.len()
     }
@@ -1602,6 +1764,7 @@ impl PatternMatcher {
 
 impl DecisionEngine {
     /// Create new decision engine
+    #[must_use]
     pub fn new(threshold: f32) -> Self {
         Self {
             threshold,

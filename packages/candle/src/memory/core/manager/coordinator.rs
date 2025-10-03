@@ -27,8 +27,10 @@ use crate::memory::utils::{Error, Result};
 use crate::memory::core::manager::surreal::{
     SurrealDBMemoryManager, MemoryManager, MemoryStream, 
     PendingMemory, MemoryQuery, PendingDeletion, 
-    PendingRelationship, RelationshipStream
+    PendingRelationship, RelationshipStream,
+    PendingQuantumUpdate, PendingQuantumSignature, PendingEntanglementEdge
 };
+use crate::domain::memory::cognitive::types::{CognitiveState, EntanglementType};
 use futures_util::StreamExt;
 
 
@@ -98,7 +100,7 @@ impl MemoryCoordinator {
         let cognitive_queue = Arc::new(CognitiveProcessingQueue::new());
         let quantum_router = Arc::new(QuantumRouter::default());
         let quantum_state = Arc::new(RwLock::new(QuantumState::new()));
-        
+
         // Spawn cognitive workers
         let num_workers = 2;  // Start with 2 worker threads
         let mut cognitive_workers = Vec::new();
@@ -106,14 +108,12 @@ impl MemoryCoordinator {
         for worker_id in 0..num_workers {
             let queue = cognitive_queue.clone();
             let manager = surreal_manager.clone();
-            let q_state = quantum_state.clone();
             let evaluator = committee_evaluator.clone();
             
             let worker = crate::memory::core::cognitive_worker::CognitiveWorker::new(
                 queue, 
                 manager, 
                 evaluator,
-                q_state
             );
             
             let handle = std::thread::Builder::new()
@@ -123,7 +123,7 @@ impl MemoryCoordinator {
                     worker.run();
                     log::info!("Cognitive worker {} stopped", worker_id);
                 })
-                .expect("Failed to spawn cognitive worker thread");
+                .map_err(|e| Error::Internal(format!("Failed to spawn cognitive worker thread {}: {}", worker_id, e)))?;
             
             cognitive_workers.push(handle);
         }
@@ -246,39 +246,49 @@ impl MemoryCoordinator {
     }
 
     /// Spawn background cognitive workers
-    pub fn spawn_cognitive_workers(&self, worker_count: usize) {
+    /// 
+    /// Returns the number of workers successfully spawned
+    /// 
+    /// # Errors
+    /// 
+    /// Returns `Error::Internal` if unable to store worker handles due to lock poisoning
+    pub fn spawn_cognitive_workers(&self, worker_count: usize) -> Result<usize> {
         use crate::memory::core::cognitive_worker::CognitiveWorker;
         
         let mut handles = vec![];
+        let mut spawned_count = 0;
         
         for i in 0..worker_count {
             let worker = CognitiveWorker::new(
                 self.cognitive_queue.clone(),
                 self.surreal_manager.clone(),
                 self.committee_evaluator.clone(),
-                self.quantum_state.clone(),
             );
             
-            let handle = std::thread::Builder::new()
+            match std::thread::Builder::new()
                 .name(format!("cognitive-worker-{}", i))
                 .spawn(move || {
                     worker.run();
-                })
-                .expect("Failed to spawn cognitive worker thread");
-            
-            handles.push(handle);
+                }) {
+                Ok(handle) => {
+                    handles.push(handle);
+                    spawned_count += 1;
+                },
+                Err(e) => {
+                    log::error!("Failed to spawn cognitive worker thread {}: {}", i, e);
+                    // Continue with remaining workers rather than failing completely
+                }
+            }
         }
         
         // Store handles for potential future graceful shutdown
-        match self.cognitive_workers.write() {
-            Ok(mut workers) => {
-                workers.extend(handles);
-                log::info!("Spawned {} cognitive worker threads", worker_count);
-            }
-            Err(e) => {
-                log::error!("Failed to acquire write lock for cognitive workers: {}", e);
-            }
-        }
+        self.cognitive_workers
+            .write()
+            .map_err(|e| Error::Internal(format!("Failed to acquire write lock for cognitive workers: {}", e)))?
+            .extend(handles);
+        
+        log::info!("Spawned {}/{} cognitive worker threads", spawned_count, worker_count);
+        Ok(spawned_count)
     }
 
     /// Enqueue a cognitive task for background processing
@@ -1038,6 +1048,63 @@ impl MemoryManager for MemoryCoordinator {
 
     fn search_by_pattern(&self, query: &str, limit: usize) -> MemoryStream {
         self.surreal_manager.search_by_pattern(query, limit)
+    }
+
+    fn update_quantum_signature(
+        &self, 
+        memory_id: &str, 
+        cognitive_state: &CognitiveState
+    ) -> PendingQuantumUpdate {
+        self.surreal_manager.update_quantum_signature(memory_id, cognitive_state)
+    }
+    
+    fn get_quantum_signature(
+        &self, 
+        memory_id: &str
+    ) -> PendingQuantumSignature {
+        self.surreal_manager.get_quantum_signature(memory_id)
+    }
+    
+    fn create_entanglement_edge(
+        &self,
+        source_id: &str,
+        target_id: &str,
+        strength: f32,
+        bond_type: EntanglementType,
+    ) -> PendingEntanglementEdge {
+        self.surreal_manager.create_entanglement_edge(source_id, target_id, strength, bond_type)
+    }
+
+    fn get_entangled_memories(
+        &self, 
+        memory_id: &str, 
+        min_strength: f32
+    ) -> MemoryStream {
+        self.surreal_manager.get_entangled_memories(memory_id, min_strength)
+    }
+    
+    fn get_entangled_by_type(
+        &self, 
+        memory_id: &str, 
+        bond_type: EntanglementType
+    ) -> MemoryStream {
+        self.surreal_manager.get_entangled_by_type(memory_id, bond_type)
+    }
+
+    fn traverse_entanglement_graph(
+        &self, 
+        memory_id: &str, 
+        max_depth: usize
+    ) -> MemoryStream {
+        self.surreal_manager.traverse_entanglement_graph(memory_id, max_depth)
+    }
+
+    fn expand_via_entanglement(
+        &self, 
+        memory_ids: Vec<String>, 
+        min_strength: f32
+    ) -> MemoryStream {
+        self.surreal_manager.expand_via_entanglement(memory_ids, min_strength)
     }
 }
 

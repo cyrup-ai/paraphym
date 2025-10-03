@@ -53,6 +53,7 @@ impl CodeExecutionTool {
 
     /// Python analysis tool constructor for data analysis and calculations
     #[inline]
+    #[must_use]
     pub fn python_analysis() -> Self {
         Self::new(
             "python_analysis",
@@ -72,6 +73,7 @@ print(f"Average: {df['column'].mean()}")"#,
 
     /// JavaScript processing tool constructor for JSON processing and API calls
     #[inline]
+    #[must_use]
     pub fn javascript_processing() -> Self {
         Self::new(
             "javascript_processing",
@@ -93,6 +95,7 @@ console.log(`Average age: ${averageAge}`);"#,
 
     /// Rust computation tool constructor for performance-critical calculations
     #[inline]
+    #[must_use]
     pub fn rust_computation() -> Self {
         Self::new(
             "rust_computation",
@@ -117,6 +120,7 @@ fn main() {
 
     /// Go processing tool constructor for concurrent processing tasks
     #[inline]
+    #[must_use]
     pub fn go_processing() -> Self {
         Self::new(
             "go_processing",
@@ -153,6 +157,7 @@ func main() {
 
     /// Bash automation tool constructor for system automation and file operations
     #[inline]
+    #[must_use]
     pub fn bash_automation() -> Self {
         Self::new(
             "bash_automation",
@@ -245,6 +250,7 @@ pub enum CodeLanguage {
 impl CodeLanguage {
     /// Get language name as static string for zero allocation
     #[inline]
+    #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Python => "python",
@@ -257,6 +263,7 @@ impl CodeLanguage {
 
     /// Get file extension for the language
     #[inline]
+    #[must_use]
     pub const fn file_extension(&self) -> &'static str {
         match self {
             Self::Python => "py",
@@ -269,6 +276,7 @@ impl CodeLanguage {
 
     /// Get MIME type for the language
     #[inline]
+    #[must_use]
     pub const fn mime_type(&self) -> &'static str {
         match self {
             Self::Python => "text/x-python",
@@ -424,6 +432,7 @@ pub enum OutputFormat {
 impl OutputFormat {
     /// Get format name as static string for zero allocation
     #[inline]
+    #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Text => "text",
@@ -508,6 +517,7 @@ impl CodeExecutionResult {
 
     /// Create a timeout execution result
     #[inline]
+    #[must_use]
     pub fn timeout(duration_us: u64) -> Self {
         Self {
             exit_code: -1,
@@ -525,18 +535,21 @@ impl CodeExecutionResult {
 
     /// Check if execution was successful
     #[inline]
+    #[must_use]
     pub fn is_success(&self) -> bool {
         matches!(self.status, ExecutionStatus::Success) && self.exit_code == 0
     }
 
     /// Check if execution failed
     #[inline]
+    #[must_use]
     pub fn is_failure(&self) -> bool {
         matches!(self.status, ExecutionStatus::Failed)
     }
 
     /// Check if execution timed out
     #[inline]
+    #[must_use]
     pub fn is_timeout(&self) -> bool {
         matches!(self.status, ExecutionStatus::Timeout)
     }
@@ -544,6 +557,7 @@ impl CodeExecutionResult {
     /// Get execution duration as human readable string
     #[allow(clippy::cast_precision_loss)] // Acceptable for display formatting
     #[inline]
+    #[must_use]
     pub fn duration_human(&self) -> String {
         let duration_us = self.duration_us;
 
@@ -591,6 +605,7 @@ pub enum ExecutionStatus {
 impl ExecutionStatus {
     /// Get status name as static string for zero allocation
     #[inline]
+    #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Success => "success",
@@ -634,6 +649,7 @@ pub enum ExecutionError {
 impl ExecutionError {
     /// Get error message as string
     #[inline]
+    #[must_use]
     pub fn message(&self) -> String {
         match self {
             Self::Timeout => "Execution timed out".to_string(),
@@ -731,12 +747,14 @@ impl ValidationError {
 
     /// Create a prohibited patterns error
     #[inline]
+    #[must_use]
     pub fn prohibited_patterns(patterns: Vec<String>) -> Self {
         Self::ProhibitedPatterns { patterns }
     }
 
     /// Create a code size exceeded error
     #[inline]
+    #[must_use]
     pub fn code_size_exceeded(size: usize, limit: usize) -> Self {
         Self::CodeSizeExceeded { size, limit }
     }
@@ -800,6 +818,7 @@ impl ValidationConfig {
 
     /// Create secure Python validation configuration
     #[inline]
+    #[must_use]
     pub fn python_secure() -> Self {
         Self {
             max_code_size_bytes: 128 * 1024, // 128KB
@@ -844,6 +863,7 @@ impl ValidationConfig {
 
     /// Create secure JavaScript validation configuration
     #[inline]
+    #[must_use]
     pub fn javascript_secure() -> Self {
         Self {
             max_code_size_bytes: 64 * 1024, // 64KB
@@ -887,6 +907,7 @@ impl ValidationConfig {
 
     /// Create secure Rust validation configuration
     #[inline]
+    #[must_use]
     pub fn rust_secure() -> Self {
         Self {
             max_code_size_bytes: 256 * 1024, // 256KB
@@ -925,6 +946,7 @@ impl ValidationConfig {
 
     /// Create secure Go validation configuration
     #[inline]
+    #[must_use]
     pub fn go_secure() -> Self {
         Self {
             max_code_size_bytes: 128 * 1024, // 128KB
@@ -965,6 +987,7 @@ impl ValidationConfig {
 
     /// Create secure Bash validation configuration
     #[inline]
+    #[must_use]
     pub fn bash_secure() -> Self {
         Self {
             max_code_size_bytes: 32 * 1024, // 32KB
@@ -1142,6 +1165,7 @@ impl ResourceLimits {
 
     /// Create resource limits for analysis workloads
     #[inline]
+    #[must_use]
     pub fn analysis_workload() -> Self {
         Self {
             max_execution_time_seconds: 60,
@@ -1156,6 +1180,7 @@ impl ResourceLimits {
 
     /// Create resource limits for processing workloads
     #[inline]
+    #[must_use]
     pub fn processing_workload() -> Self {
         Self {
             max_execution_time_seconds: 45,
@@ -1170,6 +1195,7 @@ impl ResourceLimits {
 
     /// Create resource limits for computation workloads
     #[inline]
+    #[must_use]
     pub fn computation_workload() -> Self {
         Self {
             max_execution_time_seconds: 90,
@@ -1184,6 +1210,7 @@ impl ResourceLimits {
 
     /// Create resource limits for automation workloads
     #[inline]
+    #[must_use]
     pub fn automation_workload() -> Self {
         Self {
             max_execution_time_seconds: 120,

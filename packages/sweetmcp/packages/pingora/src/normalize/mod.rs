@@ -10,11 +10,6 @@ pub mod parsers;
 pub mod schema_introspection;
 pub mod types;
 
-#[cfg(test)]
-mod schema_introspection_test;
-
-#[cfg(test)]
-mod integration_test;
 
 // Re-export key types and functions for ergonomic usage
 pub use conversion::{

@@ -106,7 +106,9 @@ mod tests {
     fn test_repetition_penalty() {
         let mut logits = vec![1.0, 2.0, 3.0];
         let history = vec![0, 2, 0]; // Test with duplicate
-        apply_repetition_penalty(&mut logits, &history, 2.0).unwrap();
+        if let Err(e) = apply_repetition_penalty(&mut logits, &history, 2.0) {
+            panic!("Repetition penalty failed: {}", e);
+        }
 
         // First and third elements should be penalized once each
         assert_float_eq!(logits[0], 0.5, abs <= 1e-6); // 1.0 / 2.0
@@ -118,7 +120,9 @@ mod tests {
     fn test_frequency_penalty() {
         let mut logits = vec![1.0, 2.0, 3.0];
         let history = vec![0, 0, 1]; // Token 0 appears twice, token 1 once
-        apply_frequency_penalty(&mut logits, &history, 0.5).unwrap();
+        if let Err(e) = apply_frequency_penalty(&mut logits, &history, 0.5) {
+            panic!("Frequency penalty failed: {}", e);
+        }
 
         // Penalty is frequency * penalty
         assert_float_eq!(logits[0], 0.0, abs <= 1e-6); // 1.0 - (2 * 0.5)
@@ -130,7 +134,9 @@ mod tests {
     fn test_presence_penalty() {
         let mut logits = vec![1.0, 2.0, 3.0];
         let history = vec![0, 0, 1]; // Tokens 0 and 1 (unique)
-        apply_presence_penalty(&mut logits, &history, 0.5).unwrap();
+        if let Err(e) = apply_presence_penalty(&mut logits, &history, 0.5) {
+            panic!("Presence penalty failed: {}", e);
+        }
 
         // Each unique token gets penalty applied once
         assert_float_eq!(logits[0], 0.5, abs <= 1e-6); // 1.0 - 0.5

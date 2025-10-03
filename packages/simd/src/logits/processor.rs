@@ -88,7 +88,9 @@ mod tests {
         let mut logits = vec![1.0, 2.0, 3.0];
         let context = ProcessingContext::new().with_temperature(0.5);
 
-        processor.process(&mut logits, &context).unwrap();
+        if let Err(e) = processor.process(&mut logits, &context) {
+            panic!("Temperature scaling failed: {}", e);
+        }
 
         assert_float_eq!(logits[0], 2.0, abs <= 1e-6);
         assert_float_eq!(logits[1], 4.0, abs <= 1e-6);
@@ -101,7 +103,9 @@ mod tests {
         let mut logits = vec![1.0, 5.0, 2.0, 4.0, 3.0];
         let context = ProcessingContext::new().with_top_k(Some(2));
 
-        processor.process(&mut logits, &context).unwrap();
+        if let Err(e) = processor.process(&mut logits, &context) {
+            panic!("Top-k processing failed: {}", e);
+        }
 
         // Only top 2 values should remain non-negative infinity
         let non_inf = logits.iter().filter(|&&x| x > f32::NEG_INFINITY).count();
@@ -116,7 +120,9 @@ mod tests {
         let mut logits = vec![1.0, 2.0, 3.0, 4.0];
         let context = ProcessingContext::new().with_top_p(Some(0.7));
 
-        processor.process(&mut logits, &context).unwrap();
+        if let Err(e) = processor.process(&mut logits, &context) {
+            panic!("Nucleus processing failed: {}", e);
+        }
 
         // At least one value should be set to negative infinity
         let has_inf = logits.contains(&f32::NEG_INFINITY);
@@ -135,7 +141,9 @@ mod tests {
         let mut logits = vec![1.0, 2.0, 3.0];
         let context = ProcessingContext::new().with_token_history(vec![0, 0, 1]); // Token 0 appears twice, token 1 once
 
-        processor.process(&mut logits, &context).unwrap();
+        if let Err(e) = processor.process(&mut logits, &context) {
+            panic!("Penalty processing failed: {}", e);
+        }
 
         // Verify penalties were applied
         // Original: [1.0, 2.0, 3.0]

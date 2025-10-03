@@ -78,6 +78,7 @@ pub struct EngineRegistry {
 
 impl EngineRegistry {
     /// Create a new engine registry
+    #[must_use]
     pub fn new() -> Self {
         Self {
             engines: Vec::new(),
@@ -85,6 +86,7 @@ impl EngineRegistry {
     }
 
     /// Create a registry with default engines
+    #[must_use]
     pub fn with_defaults() -> Self {
         let mut registry = Self::new();
         registry.register(Box::new(SimpleEngine));

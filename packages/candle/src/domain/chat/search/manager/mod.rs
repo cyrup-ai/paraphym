@@ -31,6 +31,7 @@ impl Default for CandleEnhancedHistoryManager {
 
 impl CandleEnhancedHistoryManager {
     /// Create a new enhanced history manager
+    #[must_use]
     pub fn new() -> Self {
         Self {
             search_index: Arc::new(super::index::ChatSearchIndex::new()),
@@ -42,6 +43,7 @@ impl CandleEnhancedHistoryManager {
     }
 
     /// Add message to history manager (streaming)
+    #[must_use]
     pub fn add_message_stream(&self, message: &CandleSearchChatMessage) -> AsyncStream<super::types::IndexOperationResult> {
         let message_id = message.message.id.clone();
         let timestamp = message.message.timestamp;
@@ -79,6 +81,7 @@ impl CandleEnhancedHistoryManager {
     }
 
     /// Search messages (streaming)
+    #[must_use]
     pub fn search_messages_stream(
         &self,
         query: &CandleSearchQuery,

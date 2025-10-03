@@ -49,6 +49,7 @@ impl RetryConfig {
 
     /// Create optimized retry configuration for high-performance scenarios
     #[inline]
+    #[must_use]
     pub fn optimized() -> Self {
         Self {
             enabled: true,
@@ -63,6 +64,7 @@ impl RetryConfig {
 
     /// Create aggressive retry configuration for critical operations
     #[inline]
+    #[must_use]
     pub fn aggressive() -> Self {
         Self {
             enabled: true,
@@ -79,6 +81,7 @@ impl RetryConfig {
 
     /// Create minimal retry configuration for testing
     #[inline]
+    #[must_use]
     pub fn minimal() -> Self {
         Self {
             enabled: true,
@@ -93,6 +96,7 @@ impl RetryConfig {
 
     /// Create disabled retry configuration
     #[inline]
+    #[must_use]
     pub fn disabled() -> Self {
         Self {
             enabled: false,
@@ -107,12 +111,14 @@ impl RetryConfig {
 
     /// Check if a status code is retryable
     #[inline]
+    #[must_use]
     pub fn is_retryable_status(&self, status_code: u16) -> bool {
         self.enabled && self.retryable_status_codes.contains(&status_code)
     }
 
     /// Calculate delay for a given retry attempt with optional jitter
     #[inline]
+    #[must_use]
     pub fn calculate_delay(&self, attempt: usize) -> Duration {
         if !self.enabled || attempt == 0 {
             return Duration::from_millis(0);
@@ -123,7 +129,7 @@ impl RetryConfig {
         #[allow(clippy::cast_possible_wrap)]
         let multiplier = self
             .backoff_multiplier
-            .powi(attempt.saturating_sub(1) as i32);
+            .powi(i32::try_from(attempt.saturating_sub(1)).unwrap_or(i32::MAX));
         let mut delay_ms = base_delay * multiplier;
 
         // Apply maximum delay limit
@@ -262,6 +268,7 @@ impl EmbeddingConfig {
 
     /// Create high-performance embedding configuration
     #[inline]
+    #[must_use]
     pub fn high_performance() -> Self {
         Self {
             model_type: EmbeddingModelType::OpenAI,
@@ -277,6 +284,7 @@ impl EmbeddingConfig {
 
     /// Create compact embedding configuration for memory-constrained environments
     #[inline]
+    #[must_use]
     pub fn compact() -> Self {
         Self {
             model_type: EmbeddingModelType::SentenceTransformers,
@@ -291,6 +299,7 @@ impl EmbeddingConfig {
     }
 
     /// Create Stella 1024-dim embedding configuration
+    #[must_use]
     pub fn stella_1024() -> Self {
         Self {
             model_type: EmbeddingModelType::Stella,
@@ -305,6 +314,7 @@ impl EmbeddingConfig {
     }
 
     /// Create GTE-Qwen2 1536-dim embedding configuration  
+    #[must_use]
     pub fn gte_qwen() -> Self {
         Self {
             model_type: EmbeddingModelType::GteQwen,
@@ -319,6 +329,7 @@ impl EmbeddingConfig {
     }
 
     /// Create `NVEmbed` v2 4096-dim embedding configuration
+    #[must_use]
     pub fn nvembed_v2() -> Self {
         Self {
             model_type: EmbeddingModelType::NvEmbed,
@@ -333,6 +344,7 @@ impl EmbeddingConfig {
     }
 
     /// Create Jina-BERT 768-dim embedding configuration
+    #[must_use]
     pub fn jina_bert() -> Self {
         Self {
             model_type: EmbeddingModelType::JinaBert,

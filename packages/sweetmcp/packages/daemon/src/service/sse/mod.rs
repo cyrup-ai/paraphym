@@ -23,14 +23,14 @@ pub mod events;
 pub mod server;
 pub mod session;
 
-// Removed unused import: pub use bridge::McpBridge;
-// Removed unused import: pub use encoder::SseEncoder;
-// Removed unused imports: pub use events::{EventType, SseEvent};
+pub use bridge::McpBridge;
+pub use encoder::SseEncoder;
+pub use events::{EventType, SseEvent};
 use std::net::SocketAddr;
 
-// Removed unused imports: pub use session::{SessionManager, SseSession};
+pub use session::{ClientInfo, SessionManager, SseSession};
 use anyhow::Result;
-pub use server::SseServer;
+pub use server::{MessagesQuery, ServerState, SseServer};
 use tokio::sync::oneshot;
 
 /// SSE server configuration

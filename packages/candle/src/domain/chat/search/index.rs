@@ -125,6 +125,7 @@ impl Default for ChatSearchIndex {
 
 impl ChatSearchIndex {
     /// Create a new search index
+    #[must_use]
     pub fn new() -> Self {
         Self {
             inverted_index: SkipMap::new(),

@@ -46,6 +46,7 @@ pub enum ModelPattern {
 
 impl ModelPattern {
     /// Check if the pattern matches the given model name
+    #[must_use]
     pub fn matches(&self, model_name: &str) -> bool {
         match self {
             ModelPattern::Exact(pattern) => pattern == model_name,
@@ -80,6 +81,7 @@ impl ModelPattern {
     }
 
     /// Get the pattern as a string
+    #[must_use]
     pub fn as_str(&self) -> &str {
         match self {
             ModelPattern::Exact(s) | ModelPattern::Pattern(s) | ModelPattern::Regex(s) => s,
@@ -172,11 +174,13 @@ pub struct RegisteredModelResult<M: Model + 'static> {
 
 impl<M: Model + 'static> RegisteredModelResult<M> {
     /// Create a result with a found model
+    #[must_use]
     pub fn found(model: RegisteredModel<M>) -> Self {
         Self { model: Some(model) }
     }
     
     /// Create a result with no model found
+    #[must_use]
     pub fn not_found() -> Self {
         Self { model: None }
     }
@@ -217,6 +221,7 @@ impl ModelResolution {
     }
 
     /// Check if the resolution is valid
+    #[must_use]
     pub fn is_valid(&self) -> bool {
         self.score > 0.0 && !self.provider.is_empty() && !self.model.is_empty()
     }
@@ -240,6 +245,7 @@ impl Default for ModelResolver {
 
 impl ModelResolver {
     /// Create a new model resolver
+    #[must_use]
     pub fn new() -> Self {
         Self {
             registry: ModelRegistry::new(),
@@ -450,6 +456,7 @@ impl ModelResolver {
     /// # Returns
     /// 
     /// The default provider name if one can be determined, or None
+    #[must_use]
     pub fn get_default_provider(&self) -> Option<&'static str> {
         // Priority 1: Environment variable (highest priority)
         if let Some(provider) = *ENV_DEFAULT_PROVIDER {
@@ -476,6 +483,7 @@ impl ModelResolver {
     }
     
     /// Check if a feature flag is enabled
+    #[must_use]
     pub fn is_feature_enabled(&self, name: &str) -> bool {
         self.feature_flags.get(name).copied().unwrap_or(false)
     }
@@ -645,7 +653,7 @@ mod tests {
     }
 
     #[test]
-    fn test_exact_model_match() {
+    fn test_exact_model_match() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let resolver = ModelResolver::new();
         let registry = ModelRegistry::new();
 
@@ -655,18 +663,18 @@ mod tests {
 
         // Test exact match with provider
         let resolution = resolver
-            .resolve_with_registry::<TestModel>(&registry, "test-model-a", Some("test-provider"))
-            .unwrap();
+            .resolve_with_registry::<TestModel>(&registry, "test-model-a", Some("test-provider"))?;
 
         assert_eq!(resolution.provider, "test-provider");
         assert_eq!(resolution.model, "test-model-a");
         assert!((resolution.score - 1.0).abs() < f64::EPSILON);
         assert!(resolution.info.is_some());
         assert!(resolution.rule.is_none());
+        Ok(())
     }
 
     #[test]
-    fn test_alias_resolution() {
+    fn test_alias_resolution() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let mut resolver = ModelResolver::new();
         let registry = ModelRegistry::new();
 
@@ -679,12 +687,12 @@ mod tests {
 
         // Test alias lookup
         let resolution = resolver
-            .resolve_with_registry::<TestModel>(&registry, "test-a-alias", None)
-            .unwrap();
+            .resolve_with_registry::<TestModel>(&registry, "test-a-alias", None)?;
 
         assert_eq!(resolution.provider, "test-provider");
         assert_eq!(resolution.model, "test-model-a");
         assert!((resolution.score - 0.8).abs() < f64::EPSILON);
+        Ok(())
     }
 
     #[test]
@@ -727,7 +735,7 @@ mod tests {
     }
 
     #[test]
-    fn test_fuzzy_matching() {
+    fn test_fuzzy_matching() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let resolver = ModelResolver::new();
         let registry = ModelRegistry::new();
 
@@ -739,12 +747,12 @@ mod tests {
 
         // Test fuzzy match (typo in model name)
         let resolution = resolver
-            .resolve_with_registry::<TestModel>(&registry, "test-model-", Some("test-provider"))
-            .unwrap();
+            .resolve_with_registry::<TestModel>(&registry, "test-model-", Some("test-provider"))?;
 
         // Should match test-model-a or test-model-b with high similarity
         assert!(resolution.score > 0.7);
         assert!(resolution.model.starts_with("test-model-"));
+        Ok(())
     }
 
     #[test]
@@ -792,7 +800,7 @@ mod tests {
     }
 
     #[test]
-    fn test_rule_with_condition() {
+    fn test_rule_with_condition() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let mut resolver = ModelResolver::new();
         let registry = ModelRegistry::new();
 
@@ -816,11 +824,11 @@ mod tests {
 
         // With PATH set (should always be set), rule should match
         let resolution = resolver
-            .resolve_with_registry::<TestModel>(&registry, "test-pattern", None)
-            .unwrap();
+            .resolve_with_registry::<TestModel>(&registry, "test-pattern", None)?;
 
         assert_eq!(resolution.provider, "test-provider");
         assert_eq!(resolution.model, "test-model-a");
         assert!((resolution.score - 0.7).abs() < f64::EPSILON); // Rule-based resolution score
+        Ok(())
     }
 }

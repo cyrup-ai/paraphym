@@ -170,7 +170,9 @@ mod tests {
         let context = ProcessingContext::new().with_temperature(0.5);
         let config = ProcessorConfig::default();
 
-        process_logits_scalar(&mut logits, &context, &config).unwrap();
+        if let Err(e) = process_logits_scalar(&mut logits, &context, &config) {
+            panic!("Temperature scaling failed: {}", e);
+        }
         assert_relative_eq!(logits[0], 2.0);
         assert_relative_eq!(logits[1], 4.0);
         assert_relative_eq!(logits[2], 6.0);
@@ -182,14 +184,16 @@ mod tests {
         let context = ProcessingContext::new().with_top_k(Some(2));
         let config = ProcessorConfig::default();
 
-        process_logits_scalar(&mut logits, &context, &config).unwrap();
+        if let Err(e) = process_logits_scalar(&mut logits, &context, &config) {
+            panic!("Top-k filtering failed: {}", e);
+        }
 
         // Only top 2 values should remain non-negative infinity
         let non_inf = logits.iter().filter(|&&x| x > f32::NEG_INFINITY).count();
         assert_eq!(non_inf, 2);
         // Check specific values
         let mut sorted = logits.clone();
-        sorted.sort_by(|a, b| b.partial_cmp(a).unwrap());
+        sorted.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
         assert!(logits.contains(&sorted[0]));
         assert!(logits.contains(&sorted[1]));
     }
@@ -200,7 +204,9 @@ mod tests {
         let context = ProcessingContext::new().with_top_p(Some(0.5));
         let config = ProcessorConfig::default();
 
-        process_logits_scalar(&mut logits, &context, &config).unwrap();
+        if let Err(e) = process_logits_scalar(&mut logits, &context, &config) {
+            panic!("Nucleus sampling failed: {}", e);
+        }
 
         // Verify correct masking (indices 0 and 1 masked for top_p=0.5)
         let has_inf = logits.iter().filter(|&&x| x == f32::NEG_INFINITY).count() == 2;

@@ -9,13 +9,18 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::time::Instant;
 
+use arc_swap::ArcSwap;
 use pingora_load_balancing::Backend;
 use tokio::sync::mpsc::Sender;
 use tracing::{error, info};
 
 use crate::{
-    auth::JwtAuth, config::Config, load::Load, metric_picker::MetricPicker,
-    peer_discovery::PeerRegistry, rate_limit::AdvancedRateLimitManager,
+    auth::JwtAuth,
+    circuit_breaker::CircuitBreakerManager,
+    config::Config,
+    crypto::core::TokenManager,
+    load::Load, metric_picker::MetricPicker,
+    peer_discovery::{PeerDiscovery, PeerRegistry}, rate_limit::distributed::DistributedRateLimitManager,
     shutdown::ShutdownCoordinator,
 };
 
@@ -46,19 +51,22 @@ impl AtomicMetrics {
 pub struct EdgeService {
     pub cfg: Arc<Config>,
     pub auth: JwtAuth,
-    pub picker: Arc<MetricPicker>,
+    pub picker: Arc<ArcSwap<MetricPicker>>,
     pub load: Arc<Load>,
-    #[allow(dead_code)]
     pub bridge_tx: Sender<crate::mcp_bridge::BridgeMsg>,
     pub peer_registry: PeerRegistry,
-    pub rate_limit_manager: Arc<AdvancedRateLimitManager>,
+    pub peer_discovery: Arc<PeerDiscovery>,
+    pub rate_limit_manager: Arc<DistributedRateLimitManager>,
     pub shutdown_coordinator: Arc<ShutdownCoordinator>,
+    pub circuit_breaker_manager: Arc<CircuitBreakerManager>,
     /// Maps backend SocketAddr to original upstream URL for TLS detection
     pub upstream_urls: Arc<HashMap<SocketAddr, String>>,
     /// Atomic metrics for request tracking
     pub metrics: Arc<AtomicMetrics>,
     /// Service start time for uptime calculation
     pub start_time: Instant,
+    /// Token manager for peer discovery crypto
+    pub token_manager: Arc<TokenManager>,
 }
 
 impl EdgeService {
@@ -67,6 +75,7 @@ impl EdgeService {
         cfg: Arc<Config>,
         bridge_tx: Sender<crate::mcp_bridge::BridgeMsg>,
         peer_registry: PeerRegistry,
+        circuit_breaker_manager: Arc<CircuitBreakerManager>,
     ) -> Self {
         // Parse URLs and build both backends and URL map
         let mut backends = BTreeSet::new();
@@ -104,21 +113,38 @@ impl EdgeService {
         info!("Initialized EdgeService with {} backends, {} URL mappings", 
              backends.len(), upstream_urls.len());
 
+        // Create PeerDiscovery
+        let peer_discovery = Arc::new(PeerDiscovery::new(peer_registry.clone()));
+
         // Initialize components with optimized settings
         let auth = JwtAuth::new(cfg.jwt_secret.clone(), cfg.jwt_expiry);
-        let picker = Arc::new(MetricPicker::from_backends(&backends));
+        let initial_picker = MetricPicker::from_backends(&backends);
+        let picker = Arc::new(ArcSwap::from_pointee(initial_picker));
         let load = Arc::new(Load::new());
-        let rate_limit_manager = Arc::new(AdvancedRateLimitManager::new(
-            cfg.rate_limit.per_ip_rps as f64,
-            cfg.rate_limit.burst_capacity,
-            60, // 60 second window
-        ));
+        let rate_limit_manager = Arc::new(DistributedRateLimitManager::new());
         let shutdown_coordinator = Arc::new(ShutdownCoordinator::new(
             std::env::temp_dir().join("sweetmcp")
         ));
 
         let metrics = Arc::new(AtomicMetrics::new());
         let start_time = Instant::now();
+
+        // Initialize crypto token manager for peer discovery
+        let token_manager = match TokenManager::new() {
+            Ok(tm) => Arc::new(tm),
+            Err(e) => {
+                error!("Failed to initialize TokenManager for peer crypto: {}", e);
+                panic!("Failed to initialize TokenManager for peer crypto: {}", e);
+            }
+        };
+
+        // Start automatic token rotation task (24 hour rotation by default)
+        let manager_clone = Arc::clone(&token_manager);
+        tokio::spawn(async move {
+            if let Err(e) = manager_clone.start_rotation_task().await {
+                error!("Token rotation task failed: {}", e);
+            }
+        });
 
         Self {
             cfg,
@@ -127,11 +153,14 @@ impl EdgeService {
             load,
             bridge_tx,
             peer_registry,
+            peer_discovery,
             rate_limit_manager,
             shutdown_coordinator,
+            circuit_breaker_manager,
             upstream_urls,
             metrics,
             start_time,
+            token_manager,
         }
     }
 
@@ -146,7 +175,7 @@ impl EdgeService {
     }
 
     /// Get metric picker
-    pub fn picker(&self) -> &Arc<MetricPicker> {
+    pub fn picker(&self) -> &Arc<ArcSwap<MetricPicker>> {
         &self.picker
     }
 
@@ -161,7 +190,7 @@ impl EdgeService {
     }
 
     /// Get rate limit manager
-    pub fn rate_limit_manager(&self) -> &Arc<AdvancedRateLimitManager> {
+    pub fn rate_limit_manager(&self) -> &Arc<DistributedRateLimitManager> {
         &self.rate_limit_manager
     }
 
@@ -269,11 +298,14 @@ impl EdgeService {
             load: self.load.clone(),
             bridge_tx: self.bridge_tx.clone(),
             peer_registry: self.peer_registry.clone(),
+            peer_discovery: self.peer_discovery.clone(),
             rate_limit_manager: self.rate_limit_manager.clone(),
             shutdown_coordinator: self.shutdown_coordinator.clone(),
+            circuit_breaker_manager: self.circuit_breaker_manager.clone(),
             upstream_urls: self.upstream_urls.clone(),
             metrics: self.metrics.clone(),
             start_time: self.start_time,
+            token_manager: self.token_manager.clone(),
         };
 
         temp_service.validate_config()?;
@@ -294,11 +326,14 @@ impl EdgeService {
             load: self.load.clone(),
             bridge_tx: self.bridge_tx.clone(),
             peer_registry: self.peer_registry.clone(),
+            peer_discovery: self.peer_discovery.clone(),
             rate_limit_manager: self.rate_limit_manager.clone(),
             shutdown_coordinator: self.shutdown_coordinator.clone(),
+            circuit_breaker_manager: self.circuit_breaker_manager.clone(),
             upstream_urls: self.upstream_urls.clone(),
             metrics: self.metrics.clone(),
             start_time: self.start_time,
+            token_manager: self.token_manager.clone(),
         }
     }
 }

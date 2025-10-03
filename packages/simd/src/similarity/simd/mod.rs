@@ -57,16 +57,3 @@ pub fn best_available() -> Arc<dyn RuntimeSelectable> {
 
     BEST_IMPL.clone()
 }
-
-/// Get the best implementation for a given vector length
-pub fn best_for_length(len: usize) -> Arc<dyn RuntimeSelectable> {
-    let best = best_available();
-
-    // If the best implementation is not optimal for this length,
-    // fall back to a more appropriate one
-    if len < best.optimal_vector_length() {
-        return Arc::new(crate::similarity::scalar::ScalarSimilarity::new());
-    }
-
-    best
-}

@@ -35,6 +35,7 @@ pub enum TemplateAction {
 impl TemplateAction {
     /// Get action name as static string for zero allocation
     #[inline]
+    #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::List => "list",
@@ -53,6 +54,7 @@ impl TemplateAction {
 
     /// Check if action requires template name parameter
     #[inline]
+    #[must_use]
     pub const fn requires_name(&self) -> bool {
         matches!(
             self,
@@ -70,6 +72,7 @@ impl TemplateAction {
 
     /// Check if action modifies templates
     #[inline]
+    #[must_use]
     pub const fn is_mutating(&self) -> bool {
         matches!(
             self,
@@ -110,6 +113,7 @@ pub enum MacroAction {
 impl MacroAction {
     /// Get action name as static string for zero allocation
     #[inline]
+    #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::List => "list",
@@ -129,6 +133,7 @@ impl MacroAction {
 
     /// Check if action requires macro name parameter
     #[inline]
+    #[must_use]
     pub const fn requires_name(&self) -> bool {
         matches!(
             self,
@@ -144,6 +149,7 @@ impl MacroAction {
 
     /// Check if action modifies macros
     #[inline]
+    #[must_use]
     pub const fn is_mutating(&self) -> bool {
         matches!(
             self,
@@ -153,6 +159,7 @@ impl MacroAction {
 
     /// Check if action affects running macros
     #[inline]
+    #[must_use]
     pub const fn affects_execution(&self) -> bool {
         matches!(
             self,
@@ -189,6 +196,7 @@ pub enum BranchAction {
 impl BranchAction {
     /// Get action name as static string for zero allocation
     #[inline]
+    #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::List => "list",
@@ -206,6 +214,7 @@ impl BranchAction {
 
     /// Check if action requires branch name parameter
     #[inline]
+    #[must_use]
     pub const fn requires_name(&self) -> bool {
         matches!(
             self,
@@ -221,6 +230,7 @@ impl BranchAction {
 
     /// Check if action modifies branches
     #[inline]
+    #[must_use]
     pub const fn is_mutating(&self) -> bool {
         matches!(
             self,
@@ -267,6 +277,7 @@ pub enum SessionAction {
 impl SessionAction {
     /// Get action name as static string for zero allocation
     #[inline]
+    #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::List => "list",
@@ -286,6 +297,7 @@ impl SessionAction {
 
     /// Check if action requires session name parameter
     #[inline]
+    #[must_use]
     pub const fn requires_name(&self) -> bool {
         matches!(
             self,
@@ -303,6 +315,7 @@ impl SessionAction {
 
     /// Check if action modifies sessions
     #[inline]
+    #[must_use]
     pub const fn is_mutating(&self) -> bool {
         matches!(
             self,
@@ -350,6 +363,7 @@ pub enum ToolAction {
 impl ToolAction {
     /// Get action name as static string for zero allocation
     #[inline]
+    #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::List => "list",
@@ -369,6 +383,7 @@ impl ToolAction {
 
     /// Check if action requires tool name parameter
     #[inline]
+    #[must_use]
     pub const fn requires_name(&self) -> bool {
         matches!(
             self,
@@ -388,6 +403,7 @@ impl ToolAction {
 
     /// Check if action modifies tools
     #[inline]
+    #[must_use]
     pub const fn is_mutating(&self) -> bool {
         matches!(
             self,
@@ -436,6 +452,7 @@ pub enum SearchScope {
 impl SearchScope {
     /// Get scope name as static string for zero allocation
     #[inline]
+    #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::All => "all",
@@ -457,6 +474,7 @@ impl SearchScope {
 
     /// Check if scope requires additional parameters
     #[inline]
+    #[must_use]
     pub const fn requires_parameters(&self) -> bool {
         matches!(
             self,
@@ -493,6 +511,7 @@ pub enum StatsType {
 impl StatsType {
     /// Get type name as static string for zero allocation
     #[inline]
+    #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Usage => "usage",
@@ -510,6 +529,7 @@ impl StatsType {
 
     /// Check if stats type requires time range
     #[inline]
+    #[must_use]
     pub const fn supports_time_range(&self) -> bool {
         matches!(
             self,
@@ -552,6 +572,7 @@ pub enum ThemeAction {
 impl ThemeAction {
     /// Get action name as static string for zero allocation
     #[inline]
+    #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Set => "set",
@@ -569,6 +590,7 @@ impl ThemeAction {
 
     /// Check if action requires theme name parameter
     #[inline]
+    #[must_use]
     pub const fn requires_name(&self) -> bool {
         matches!(
             self,
@@ -584,6 +606,7 @@ impl ThemeAction {
 
     /// Check if action modifies themes
     #[inline]
+    #[must_use]
     pub const fn is_mutating(&self) -> bool {
         matches!(
             self,
@@ -630,6 +653,7 @@ pub enum DebugAction {
 impl DebugAction {
     /// Get action name as static string for zero allocation
     #[inline]
+    #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Info => "info",
@@ -649,6 +673,7 @@ impl DebugAction {
 
     /// Check if action supports filtering parameters
     #[inline]
+    #[must_use]
     pub const fn supports_filtering(&self) -> bool {
         matches!(
             self,
@@ -690,6 +715,7 @@ pub enum HistoryAction {
 impl HistoryAction {
     /// Get action name as static string for zero allocation
     #[inline]
+    #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Show => "show",
@@ -707,6 +733,7 @@ impl HistoryAction {
 
     /// Check if action modifies history
     #[inline]
+    #[must_use]
     pub const fn is_mutating(&self) -> bool {
         matches!(
             self,
@@ -716,6 +743,7 @@ impl HistoryAction {
 
     /// Check if action supports time range filtering
     #[inline]
+    #[must_use]
     pub const fn supports_time_range(&self) -> bool {
         matches!(
             self,
@@ -750,6 +778,7 @@ pub enum ImportType {
 impl ImportType {
     /// Get type name as static string for zero allocation
     #[inline]
+    #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Chat => "chat",
@@ -766,12 +795,14 @@ impl ImportType {
 
     /// Check if import type requires file path
     #[inline]
+    #[must_use]
     pub const fn requires_file_path(&self) -> bool {
         true // All import types require a source file
     }
 
     /// Check if import type supports selective import
     #[inline]
+    #[must_use]
     pub const fn supports_selective_import(&self) -> bool {
         matches!(
             self,

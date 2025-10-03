@@ -132,6 +132,7 @@ impl BuiltinMigrations {
             Box::new(V1InitialSchema),
             Box::new(V2AddVectorIndex),
             Box::new(V3AddRelationshipStrength),
+            Box::new(V4QuantumEntanglement),
         ]
     }
 }
@@ -377,6 +378,147 @@ impl Migration for V3AddRelationshipStrength {
             // (Optional, commented out for safety)
 
             let _ = tx.send(Ok(()));
+        });
+
+        PendingMigration::new(rx)
+    }
+}
+
+/// V4: Create dedicated quantum entanglement RELATION table
+struct V4QuantumEntanglement;
+
+impl Migration for V4QuantumEntanglement {
+    fn version(&self) -> u32 {
+        4
+    }
+
+    fn name(&self) -> &str {
+        "quantum_entanglement_relation"
+    }
+
+    fn content(&self) -> String {
+        [
+            "DEFINE TABLE IF NOT EXISTS entangled TYPE RELATION IN memory OUT memory ENFORCED SCHEMALESS",
+            "DEFINE FIELD strength ON entangled TYPE number ASSERT $value >= 0.0 AND $value <= 1.0",
+            "DEFINE FIELD bond_type ON entangled TYPE string",
+            "DEFINE FIELD created_at ON entangled TYPE datetime DEFAULT time::now()",
+            "DEFINE INDEX IF NOT EXISTS entangled_strength_idx ON entangled COLUMNS strength",
+            "DEFINE INDEX IF NOT EXISTS entangled_type_idx ON entangled COLUMNS bond_type",
+        ].join(";\n")
+    }
+
+    fn up(&self, db: Arc<Surreal<Any>>) -> PendingMigration {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+
+        tokio::spawn(async move {
+            // Step 1: Create RELATION table with enforced graph constraints
+            let result = db
+                .query("DEFINE TABLE IF NOT EXISTS entangled TYPE RELATION IN memory OUT memory ENFORCED SCHEMALESS")
+                .await
+                .map_err(|e| MigrationError::DatabaseError(
+                    format!("Failed to create entangled RELATION table: {:?}", e)
+                ));
+
+            if let Err(e) = result {
+                let _ = tx.send(Err(e));
+                return;
+            }
+
+            // Step 2: Define strength field with 0.0-1.0 validation
+            let result = db
+                .query("DEFINE FIELD strength ON entangled TYPE number ASSERT $value >= 0.0 AND $value <= 1.0")
+                .await
+                .map_err(|e| MigrationError::DatabaseError(
+                    format!("Failed to define strength field: {:?}", e)
+                ));
+
+            if let Err(e) = result {
+                let _ = tx.send(Err(e));
+                return;
+            }
+
+            // Step 3: Define bond_type field (string for flexibility)
+            let result = db
+                .query("DEFINE FIELD bond_type ON entangled TYPE string")
+                .await
+                .map_err(|e| MigrationError::DatabaseError(
+                    format!("Failed to define bond_type field: {:?}", e)
+                ));
+
+            if let Err(e) = result {
+                let _ = tx.send(Err(e));
+                return;
+            }
+
+            // Step 4: Define created_at with auto-timestamp
+            let result = db
+                .query("DEFINE FIELD created_at ON entangled TYPE datetime DEFAULT time::now()")
+                .await
+                .map_err(|e| MigrationError::DatabaseError(
+                    format!("Failed to define created_at field: {:?}", e)
+                ));
+
+            if let Err(e) = result {
+                let _ = tx.send(Err(e));
+                return;
+            }
+
+            // Step 5: Create strength index for range queries
+            let result = db
+                .query("DEFINE INDEX IF NOT EXISTS entangled_strength_idx ON entangled COLUMNS strength")
+                .await
+                .map_err(|e| MigrationError::DatabaseError(
+                    format!("Failed to create strength index: {:?}", e)
+                ));
+
+            if let Err(e) = result {
+                let _ = tx.send(Err(e));
+                return;
+            }
+
+            // Step 6: Create bond_type index for type filtering
+            let result = db
+                .query("DEFINE INDEX IF NOT EXISTS entangled_type_idx ON entangled COLUMNS bond_type")
+                .await
+                .map_err(|e| MigrationError::DatabaseError(
+                    format!("Failed to create bond_type index: {:?}", e)
+                ));
+
+            if let Err(e) = result {
+                let _ = tx.send(Err(e));
+                return;
+            }
+
+            log::info!("V4 migration complete: entangled RELATION table created with indexes");
+            let _ = tx.send(Ok(()));
+        });
+
+        PendingMigration::new(rx)
+    }
+
+    fn down(&self, db: Arc<Surreal<Any>>) -> PendingMigration {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+
+        tokio::spawn(async move {
+            // Remove indexes first (reverse order)
+            let _ = db
+                .query("REMOVE INDEX IF EXISTS entangled_type_idx ON entangled")
+                .await;
+
+            let _ = db
+                .query("REMOVE INDEX IF EXISTS entangled_strength_idx ON entangled")
+                .await;
+
+            // Remove RELATION table (fields cascade automatically)
+            let result = db
+                .query("REMOVE TABLE IF EXISTS entangled")
+                .await
+                .map_err(|e| MigrationError::DatabaseError(
+                    format!("Failed to drop entangled table: {:?}", e)
+                ));
+
+            log::info!("V4 migration rolled back: entangled RELATION table removed");
+            let _ = tx.send(result.map(|_| ()));
         });
 
         PendingMigration::new(rx)

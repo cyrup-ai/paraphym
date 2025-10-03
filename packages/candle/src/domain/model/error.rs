@@ -223,10 +223,9 @@ mod tests {
     }
 
     #[test]
-    fn test_option_ext() {
+    fn test_option_ext() -> Result<(), Box<dyn std::error::Error>> {
         let some: Option<u32> = Some(42);
-        assert_eq!(some.or_model_not_found("test", "test")
-            .expect("Some(42) should convert to Ok(42)"), 42);
+        assert_eq!(some.or_model_not_found("test", "test")?, 42);
 
         let none: Option<u32> = None;
         assert!(matches!(
@@ -236,10 +235,11 @@ mod tests {
                 name: _
             })
         ));
+        Ok(())
     }
 
     #[test]
-    fn test_result_ext() {
+    fn test_result_ext() -> Result<(), Box<dyn std::error::Error>> {
         #[derive(Debug, Clone)]
         struct TestError(String);
 
@@ -252,10 +252,8 @@ mod tests {
         impl std::error::Error for TestError {}
 
         let ok: std::result::Result<u32, TestError> = Ok(42);
-        assert_eq!(ok.clone().invalid_config("test")
-            .expect("Ok(42) should remain Ok(42) after invalid_config"), 42);
-        assert_eq!(ok.not_supported("test")
-            .expect("Ok(42) should remain Ok(42) after not_supported"), 42);
+        assert_eq!(ok.clone().invalid_config("test")?, 42);
+        assert_eq!(ok.not_supported("test")?, 42);
 
         let err: std::result::Result<u32, TestError> = Err(TestError("error".to_string()));
         assert!(matches!(
@@ -266,6 +264,7 @@ mod tests {
             err.not_supported("test"),
             Err(CandleModelError::OperationNotSupported(_))
         ));
+        Ok(())
     }
 
     #[test]

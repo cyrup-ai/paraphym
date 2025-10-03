@@ -61,6 +61,7 @@ impl MemoryTypeEnum {
     /// Convert from string to `MemoryTypeEnum` with zero allocation
     /// Uses static string matching for blazing-fast lookup
     #[inline]
+    #[must_use]
     pub const fn from_str_const(s: &str) -> Option<Self> {
         match s.as_bytes() {
             b"fact" => Some(Self::Fact),
@@ -84,6 +85,7 @@ impl MemoryTypeEnum {
 
     /// Get static string representation with zero allocation
     #[inline]
+    #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Fact => "fact",
@@ -106,6 +108,7 @@ impl MemoryTypeEnum {
 
     /// Get base importance score for memory type with zero allocation
     #[inline]
+    #[must_use]
     pub const fn base_importance(&self) -> f32 {
         match self {
             Self::Fact | Self::Declarative | Self::Explicit => 0.9, // High importance
@@ -162,6 +165,7 @@ pub enum RelationshipType {
 impl RelationshipType {
     /// Check if relationship is bidirectional with zero allocation
     #[inline]
+    #[must_use]
     pub const fn is_bidirectional(&self) -> bool {
         matches!(
             self,
@@ -175,6 +179,7 @@ impl RelationshipType {
 
     /// Get inverse relationship type with optimized lookup
     #[inline]
+    #[must_use]
     pub fn inverse(&self) -> Option<Self> {
         match self {
             Self::DependsOn => Some(Self::Custom("depended_on_by".to_string())),
@@ -295,6 +300,7 @@ impl MemoryContent {
 
     /// Create JSON content
     #[inline]
+    #[must_use]
     pub fn json(value: serde_json::Value) -> Self {
         Self::Json(value)
     }
@@ -554,6 +560,7 @@ pub struct MemoryRelationship {
 impl MemoryRelationship {
     /// Create new memory relationship with generated ID
     #[inline]
+    #[must_use]
     pub fn new(
         from_id: Uuid,
         to_id: Uuid,
@@ -572,12 +579,14 @@ impl MemoryRelationship {
 
     /// Check if relationship is bidirectional
     #[inline]
+    #[must_use]
     pub fn is_bidirectional(&self) -> bool {
         self.relationship_type.is_bidirectional()
     }
 
     /// Get inverse relationship if possible
     #[inline]
+    #[must_use]
     pub fn inverse(&self) -> Option<Self> {
         self.relationship_type.inverse().map(|inverse_type| Self {
             id: Uuid::new_v4(),

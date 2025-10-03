@@ -90,6 +90,7 @@ pub struct CandleModelRegistry;
 
 impl CandleModelRegistry {
     /// Create a new model registry
+    #[must_use]
     pub fn new() -> Self {
         Self
     }
@@ -155,6 +156,7 @@ impl CandleModelRegistry {
     /// # Returns
     /// 
     /// A vector where each element is a tuple of (provider name, number of models)
+    #[must_use]
     pub fn count_models_by_provider(&self) -> Vec<(&'static str, usize)> {
         GLOBAL_REGISTRY
             .models
@@ -229,6 +231,7 @@ impl CandleModelRegistry {
     ///
     /// # Returns
     /// A vector of registered models of the specified type
+    #[must_use]
     pub fn find_all<M: CandleModel + 'static>(&self) -> Vec<RegisteredModel<M>> {
         let type_id = TypeId::of::<M>();
         let mut result = Vec::new();

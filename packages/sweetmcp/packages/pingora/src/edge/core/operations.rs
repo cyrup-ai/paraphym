@@ -30,7 +30,7 @@ impl EdgeService {
 
         // Check component health
         let auth_healthy = self.auth.is_healthy();
-        let rate_limiter_healthy = self.rate_limit_manager.is_healthy().await;
+        let rate_limiter_healthy = self.rate_limit_manager.is_healthy();
         let peer_registry_healthy = true; // TODO: implement health check for peer registry
 
         let overall_healthy =
@@ -52,7 +52,7 @@ impl EdgeService {
     /// Count healthy backends by performing TCP health checks
     async fn count_healthy_backends(&self) -> usize {
         // Get number of backends from metrics targets
-        let targets = self.picker.get_metrics_targets();
+        let targets = self.picker.load().get_metrics_targets();
         let backend_count = targets.len();
         
         if backend_count == 0 {

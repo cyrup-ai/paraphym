@@ -54,15 +54,3 @@ pub use runtime::{CpuFeatures, CpuInfo, get_cpu_features, get_cpu_info, should_u
 pub use similarity::{cosine_similarity, simd_cosine_similarity, smart_cosine_similarity};
 pub use utils::simd_available;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_constants() {
-        // Verify SIMD width is reasonable for vectorization
-        assert_eq!(SIMD_WIDTH_8, 8);
-        // Verify version string is populated from Cargo.toml
-        assert!(VERSION.starts_with(char::is_numeric));
-    }
-}

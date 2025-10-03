@@ -11,6 +11,7 @@ use serde_json::{Map, Value};
 use tokio::sync::mpsc;
 
 use super::types::{CommandOutput, OutputType, CandleCommandError, CommandInfo};
+use crate::domain::util::unix_timestamp_nanos;
 
 /// Response formatter with streaming support
 #[derive(Debug, Clone)]
@@ -46,6 +47,7 @@ impl Default for ResponseFormatter {
 
 impl ResponseFormatter {
     /// Create a new response formatter
+    #[must_use]
     pub fn new() -> Self {
         Self {
             format: ResponseFormat::Text,
@@ -307,10 +309,7 @@ impl ResponseFormatter {
             execution_id: 0,
             content: error.to_string(),
             output_type: OutputType::Text,
-            timestamp_nanos: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos() as u64)
-                .unwrap_or(0),
+            timestamp_nanos: unix_timestamp_nanos(),
             is_final: true,
             execution_time: 0,
             success: false,
@@ -424,6 +423,7 @@ impl ResponseFormatter {
     }
 
     /// Create streaming response channel
+    #[must_use]
     pub fn create_streaming_channel(&self) -> (StreamingSender, StreamingReceiver) {
         let (tx, rx) = mpsc::unbounded_channel();
         (StreamingSender::new(tx), StreamingReceiver::new(rx))
@@ -564,6 +564,7 @@ static GLOBAL_FORMATTER: LazyLock<ResponseFormatter> =
     LazyLock::new(ResponseFormatter::new);
 
 /// Get global response formatter
+#[must_use]
 pub fn get_global_formatter() -> &'static ResponseFormatter {
     &GLOBAL_FORMATTER
 }

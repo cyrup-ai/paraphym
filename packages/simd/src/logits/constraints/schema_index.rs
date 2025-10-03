@@ -655,24 +655,34 @@ mod tests {
     #[test]
     fn test_boolean_constraint() {
         let vocab = Arc::new(mock_vocabulary());
-        let constraint = utils::boolean_constraint(vocab).expect("Should create boolean constraint");
+        let constraint = match utils::boolean_constraint(vocab) {
+            Ok(c) => c,
+            Err(e) => panic!("Should create boolean constraint: {}", e),
+        };
 
         let state = constraint.new_state();
 
         // Test valid boolean tokens
-        assert!(constraint.try_next(&state, 2).unwrap()); // "true"
-        assert!(constraint.try_next(&state, 3).unwrap()); // "false"
+        assert!(constraint.try_next(&state, 2)
+            .unwrap_or_else(|e| panic!("Failed to check 'true' token: {}", e))); // "true"
+        assert!(constraint.try_next(&state, 3)
+            .unwrap_or_else(|e| panic!("Failed to check 'false' token: {}", e))); // "false"
 
         // Test invalid tokens
-        assert!(!constraint.try_next(&state, 0).unwrap()); // "hello"
-        assert!(!constraint.try_next(&state, 5).unwrap()); // "123"
+        assert!(!constraint.try_next(&state, 0)
+            .unwrap_or_else(|e| panic!("Failed to check 'hello' token: {}", e))); // "hello"
+        assert!(!constraint.try_next(&state, 5)
+            .unwrap_or_else(|e| panic!("Failed to check '123' token: {}", e))); // "123"
     }
 
     #[test]
     fn test_enum_constraint() {
         let vocab = Arc::new(mock_vocabulary());
         let values = ["hello", "world"];
-        let constraint = utils::enum_constraint(&values, vocab).expect("Should create enum constraint");
+        let constraint = match utils::enum_constraint(&values, vocab) {
+            Ok(c) => c,
+            Err(e) => panic!("Should create enum constraint: {}", e),
+        };
 
         let state = constraint.new_state();
 
@@ -683,10 +693,16 @@ mod tests {
     #[test]
     fn test_deterministic_sequence() {
         let vocab = Arc::new(mock_vocabulary());
-        let constraint = utils::null_constraint(vocab).expect("Should create null constraint");
+        let constraint = match utils::null_constraint(vocab) {
+            Ok(c) => c,
+            Err(e) => panic!("Should create null constraint: {}", e),
+        };
 
         let state = constraint.new_state();
-        let sequence = constraint.get_deterministic_sequence(&state).expect("Should get sequence");
+        let sequence = match constraint.get_deterministic_sequence(&state) {
+            Ok(seq) => seq,
+            Err(e) => panic!("Should get sequence for null constraint: {}", e),
+        };
 
         // For null constraint, should have deterministic sequence to "null" token
         assert!(!sequence.is_empty());
@@ -695,7 +711,10 @@ mod tests {
     #[test]
     fn test_index_stats() {
         let vocab = Arc::new(mock_vocabulary());
-        let constraint = utils::boolean_constraint(vocab).expect("Should create constraint");
+        let constraint = match utils::boolean_constraint(vocab) {
+            Ok(c) => c,
+            Err(e) => panic!("Should create constraint: {}", e),
+        };
 
         let stats = constraint.index_stats();
         assert!(stats.num_states > 0);

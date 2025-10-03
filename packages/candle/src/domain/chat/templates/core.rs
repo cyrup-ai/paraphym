@@ -265,6 +265,7 @@ pub struct TemplateContext {
 
 impl TemplateContext {
     /// Create a new empty template context
+    #[must_use]
     pub fn new() -> Self {
         Self {
             variables: HashMap::new(),
@@ -289,11 +290,13 @@ impl TemplateContext {
     }
 
     /// Get a variable value by name
+    #[must_use]
     pub fn get_variable(&self, name: &str) -> Option<&TemplateValue> {
         self.variables.get(name)
     }
 
     /// Get all variables as a reference to the `HashMap`
+    #[must_use]
     pub fn variables(&self) -> &HashMap<String, TemplateValue> {
         &self.variables
     }
@@ -363,6 +366,7 @@ pub struct CompiledTemplate {
 
 impl CompiledTemplate {
     /// Create a new compiled template
+    #[must_use]
     pub fn new(
         metadata: TemplateMetadata,
         ast: TemplateAst,
@@ -651,6 +655,7 @@ pub struct ChatTemplate {
 
 impl ChatTemplate {
     /// Create a new chat template
+    #[must_use]
     pub fn new(
         metadata: TemplateMetadata,
         content: String,
@@ -688,26 +693,31 @@ impl ChatTemplate {
     }
 
     /// Get the template ID
+    #[must_use]
     pub fn get_id(&self) -> &String {
         &self.metadata.id
     }
 
     /// Get the template name
+    #[must_use]
     pub fn get_name(&self) -> &String {
         &self.metadata.name
     }
 
     /// Get the template content
+    #[must_use]
     pub fn get_content(&self) -> &String {
         &self.content
     }
 
     /// Get the template variables
+    #[must_use]
     pub fn get_variables(&self) -> &Arc<[TemplateVariable]> {
         &self.variables
     }
 
     /// Get template name (alias for `get_name` for compatibility)
+    #[must_use]
     pub fn name(&self) -> &String {
         &self.metadata.name
     }
@@ -739,6 +749,7 @@ impl ChatTemplate {
     }
 
     /// Get template info
+    #[must_use]
     pub fn info(&self) -> TemplateInfo {
         TemplateInfo {
             id: self.metadata.id.clone(),

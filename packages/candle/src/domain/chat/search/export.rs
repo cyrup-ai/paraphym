@@ -21,6 +21,7 @@ pub struct HistoryExporter {
 
 impl SearchExporter {
     /// Create a new search exporter
+    #[must_use]
     pub fn new() -> Self {
         Self {
             default_options: ExportOptions::default(),
@@ -28,6 +29,7 @@ impl SearchExporter {
     }
 
     /// Export search results as a stream
+    #[must_use]
     pub fn export_stream(
         &self,
         results: Vec<SearchResult>,
@@ -84,6 +86,7 @@ impl Clone for SearchExporter {
 
 impl HistoryExporter {
     /// Create a new history exporter
+    #[must_use]
     pub fn new() -> Self {
         Self {
             default_options: ExportOptions::default(),
@@ -91,6 +94,7 @@ impl HistoryExporter {
     }
 
     /// Create exporter with custom default options
+    #[must_use]
     pub fn with_options(options: ExportOptions) -> Self {
         Self {
             default_options: options,

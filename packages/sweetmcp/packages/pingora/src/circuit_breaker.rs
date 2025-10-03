@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use once_cell::sync::Lazy;
-use prometheus::{register_int_counter, register_int_gauge, IntCounter, IntGauge};
+use prometheus::{register_int_counter, IntCounter};
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
@@ -75,16 +75,20 @@ pub struct CircuitBreaker {
 }
 
 // Prometheus metrics
-static CIRCUIT_STATE_GAUGE: Lazy<IntGauge> = Lazy::new(|| {
-    register_int_gauge!(
+static CIRCUIT_STATE_GAUGE: Lazy<prometheus::IntGaugeVec> = Lazy::new(|| {
+    prometheus::register_int_gauge_vec!(
         "sweetmcp_circuit_breaker_state",
-        "Current circuit breaker state (0=closed, 1=open, 2=half-open)"
+        "Current circuit breaker state (0=closed, 1=open, 2=half-open)",
+        &["peer"]
     )
     .unwrap_or_else(|e| {
         tracing::warn!("Failed to register circuit breaker state gauge: {}", e);
-        IntGauge::new(
-            "sweetmcp_circuit_breaker_state_fallback",
-            "Fallback circuit breaker state gauge",
+        prometheus::IntGaugeVec::new(
+            prometheus::Opts::new(
+                "sweetmcp_circuit_breaker_state_fallback",
+                "Fallback circuit breaker state gauge",
+            ),
+            &["peer"]
         )
         .unwrap_or_else(|e| {
             tracing::error!("Critical: Cannot create circuit breaker gauge: {}", e);
@@ -237,7 +241,7 @@ impl CircuitBreaker {
             *self.opened_at.write().await = Some(Instant::now());
 
             warn!("Circuit breaker opened for peer: {}", self.peer_id);
-            CIRCUIT_STATE_GAUGE.set(1);
+            CIRCUIT_STATE_GAUGE.with_label_values(&[&self.peer_id]).set(1);
             CIRCUIT_OPENED_COUNTER.inc();
 
             // Emit metrics
@@ -258,7 +262,7 @@ impl CircuitBreaker {
             self.failed_requests.store(0, Ordering::SeqCst);
 
             info!("Circuit breaker half-open for peer: {}", self.peer_id);
-            CIRCUIT_STATE_GAUGE.set(2);
+            CIRCUIT_STATE_GAUGE.with_label_values(&[&self.peer_id]).set(2);
 
             // Emit metrics
             crate::metrics::record_circuit_breaker_state(&self.peer_id, "half_open");
@@ -273,7 +277,7 @@ impl CircuitBreaker {
             *self.opened_at.write().await = None;
 
             info!("Circuit breaker closed for peer: {}", self.peer_id);
-            CIRCUIT_STATE_GAUGE.set(0);
+            CIRCUIT_STATE_GAUGE.with_label_values(&[&self.peer_id]).set(0);
 
             // Emit metrics
             crate::metrics::record_circuit_breaker_state(&self.peer_id, "closed");

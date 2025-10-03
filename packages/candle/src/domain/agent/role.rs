@@ -39,6 +39,7 @@ pub struct McpServerConfig {
 impl McpServerConfig {
     /// Create a new MCP server configuration
     #[inline]
+    #[must_use]
     pub fn new(
         server_type: String,
         bin_path: Option<String>,
@@ -73,18 +74,21 @@ impl McpServerConfig {
 
     /// Get the server type
     #[inline]
+    #[must_use]
     pub fn server_type(&self) -> &str {
         &self.server_type
     }
 
     /// Get the binary path
     #[inline]
+    #[must_use]
     pub fn bin_path(&self) -> Option<&str> {
         self.bin_path.as_deref()
     }
 
     /// Get the initialization command
     #[inline]
+    #[must_use]
     pub fn init_command(&self) -> Option<&str> {
         self.init_command.as_deref()
     }
@@ -123,6 +127,9 @@ pub trait CandleAgentRole: Send + Sync + fmt::Debug + Clone {
     /// Get the max tokens setting
     fn max_tokens(&self) -> Option<u64>;
 
+    /// Get the memory read timeout in milliseconds
+    fn memory_read_timeout(&self) -> Option<u64>;
+
     /// Get the system prompt
     fn system_prompt(&self) -> Option<&str>;
 
@@ -140,6 +147,7 @@ pub struct CandleAgentRoleImpl {
     completion_provider: Option<Arc<CandleCompletionProviderType>>,
     temperature: f64,
     max_tokens: Option<u64>,
+    memory_read_timeout: Option<u64>,
     system_prompt: Option<String>,
     /// Document context loading and management
     contexts: Option<ZeroOneOrMany<CandleDocument>>,
@@ -178,6 +186,7 @@ impl Clone for CandleAgentRoleImpl {
             completion_provider: self.completion_provider.clone(),
             temperature: self.temperature,
             max_tokens: self.max_tokens,
+            memory_read_timeout: self.memory_read_timeout,
             system_prompt: self.system_prompt.clone(),
             contexts: self.contexts.clone(),
             tool_executor: self.tool_executor.clone(), // Arc<UnifiedToolExecutor> can be cloned
@@ -204,6 +213,10 @@ impl CandleAgentRole for CandleAgentRoleImpl {
         self.max_tokens
     }
 
+    fn memory_read_timeout(&self) -> Option<u64> {
+        self.memory_read_timeout
+    }
+
     fn system_prompt(&self) -> Option<&str> {
         self.system_prompt.as_deref()
     }
@@ -214,6 +227,7 @@ impl CandleAgentRole for CandleAgentRoleImpl {
             completion_provider: None,
             temperature: 0.0,  // Default temperature to 0
             max_tokens: None,
+            memory_read_timeout: None,
             system_prompt: None,
             contexts: None,
             tool_executor: None,
@@ -370,6 +384,7 @@ impl CandleAgentRoleImpl {
     ///
     /// # Returns
     /// `AsyncStream` of tool execution results for `ystream` compatibility
+    #[must_use]
     pub fn execute_tool(&self, tool_name: &str, args: Value) -> ystream::AsyncStream<CandleJsonChunk> {
         if let Some(ref executor) = self.tool_executor {
             // Convert serde_json::Value to sweet_mcp_type::JsonValue
@@ -424,6 +439,7 @@ impl CandleAgentRoleImpl {
     /// # Returns
     /// Optional reference to MCP server configurations
     #[inline]
+    #[must_use]
     pub fn get_mcp_servers(&self) -> Option<&ZeroOneOrMany<McpServerConfig>> {
         self.mcp_servers.as_ref()
     }
@@ -447,6 +463,7 @@ impl CandleAgentRoleImpl {
     /// # Returns
     /// Optional reference to memory manager
     #[inline]
+    #[must_use]
     pub fn get_memory_manager(&self) -> Option<&Arc<dyn MemoryManager>> {
         self.memory.as_ref()
     }
@@ -518,6 +535,7 @@ pub struct CandleAgentConversation {
 impl CandleAgentConversation {
     /// Get the last message from the conversation
     #[inline]
+    #[must_use]
     pub fn last(&self) -> CandleAgentConversationMessage {
         CandleAgentConversationMessage {
             content: self
@@ -534,6 +552,7 @@ impl CandleAgentConversation {
 
     /// Get the latest user message from the conversation
     #[inline]
+    #[must_use]
     pub fn latest_user_message(&self) -> String {
         self.messages
             .as_ref()
@@ -557,6 +576,7 @@ pub struct CandleAgentConversationMessage {
 impl CandleAgentConversationMessage {
     /// Get the message content as a string slice
     #[inline]
+    #[must_use]
     pub fn message(&self) -> &str {
         &self.content
     }

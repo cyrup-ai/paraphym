@@ -237,6 +237,7 @@ impl CandleCommandError {
 
     /// Check if error is retriable - used for automatic retry logic
     #[inline]
+    #[must_use]
     pub fn is_retriable(&self) -> bool {
         matches!(
             self,
@@ -249,6 +250,7 @@ impl CandleCommandError {
 
     /// Check if error is a client error (user mistake) vs server error
     #[inline]
+    #[must_use]
     pub fn is_client_error(&self) -> bool {
         matches!(
             self,
@@ -264,6 +266,7 @@ impl CandleCommandError {
 
     /// Get error severity level for logging and monitoring
     #[inline]
+    #[must_use]
     pub fn severity(&self) -> ErrorSeverity {
         match self {
             Self::InternalError(_) => ErrorSeverity::Critical,
@@ -298,6 +301,7 @@ pub enum ErrorSeverity {
 impl ErrorSeverity {
     /// Get severity as string for logging
     #[inline]
+    #[must_use]
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Low => "LOW",
@@ -309,6 +313,7 @@ impl ErrorSeverity {
 
     /// Get severity as numeric value
     #[inline]
+    #[must_use]
     pub fn as_u8(&self) -> u8 {
         *self as u8
     }

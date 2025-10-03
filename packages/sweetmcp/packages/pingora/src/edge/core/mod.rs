@@ -19,8 +19,9 @@ pub fn edge_service(
     cfg: std::sync::Arc<crate::config::Config>,
     bridge_tx: tokio::sync::mpsc::Sender<crate::mcp_bridge::BridgeMsg>,
     peer_registry: crate::peer_discovery::PeerRegistry,
+    circuit_breaker_manager: std::sync::Arc<crate::circuit_breaker::CircuitBreakerManager>,
 ) -> EdgeService {
-    EdgeService::new(cfg, bridge_tx, peer_registry)
+    EdgeService::new(cfg, bridge_tx, peer_registry, circuit_breaker_manager)
 }
 
 /// Create a new EdgeServiceBuilder

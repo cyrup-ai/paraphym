@@ -22,9 +22,6 @@ pub trait WithMetrics {
     fn reset_metrics(&self);
 }
 
-/// A marker trait for SIMD-accelerated implementations
-pub trait SimdAccelerated: CosineSimilarity {}
-
 /// A trait for implementations that can be selected at runtime
 pub trait RuntimeSelectable: CosineSimilarity + WithMetrics + Send + Sync {
     /// Get the name of this implementation (e.g., "scalar", "avx2", "neon")

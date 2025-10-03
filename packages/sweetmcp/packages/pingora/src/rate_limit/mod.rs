@@ -7,6 +7,3 @@
 pub mod algorithms;
 pub mod distributed;
 pub mod limiter;
-
-// Re-export key types and functions for backward compatibility
-pub use limiter::AdvancedRateLimitManager;

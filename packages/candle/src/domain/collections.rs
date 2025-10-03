@@ -21,6 +21,7 @@ impl<T> ZeroOneOrMany<T> {
     }
 
     /// Create a new collection with many items
+    #[must_use]
     pub fn many(items: Vec<T>) -> Self {
         if items.is_empty() {
             Self::None

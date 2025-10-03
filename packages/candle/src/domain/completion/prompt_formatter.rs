@@ -31,6 +31,7 @@ impl Default for PromptFormatter {
 
 impl PromptFormatter {
     /// Create a new prompt formatter
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -72,6 +73,7 @@ impl PromptFormatter {
     /// - Memories are prepended to user prompt (not system prompt)
     /// - Clear sectioning helps LLM distinguish information sources
     /// - U-shaped attention pattern places important info at beginning/end
+    #[must_use]
     pub fn format_prompt(
         &self,
         system_prompt: Option<&str>,  // Added system prompt parameter
@@ -113,6 +115,7 @@ impl PromptFormatter {
     }
 
     /// Format memory section with retrieved memories
+    #[must_use]
     pub fn format_memory_section(&self, memories: &ZeroOneOrMany<RetrievalResult>) -> Option<String> {
         let memory_items = match memories {
             ZeroOneOrMany::None => return None,
@@ -248,7 +251,7 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
-    fn test_memory_context_sectioning() {
+    fn test_memory_context_sectioning() -> Result<(), Box<dyn std::error::Error>> {
         let formatter = PromptFormatter::new();
 
         // Create test memory
@@ -294,13 +297,14 @@ mod tests {
 
         // Verify order (memories first, then context, then user message)
         let memory_pos = result.find("RELEVANT MEMORIES")
-            .expect("Formatted prompt should contain 'RELEVANT MEMORIES' section");
+            .ok_or("Formatted prompt should contain 'RELEVANT MEMORIES' section")?;
         let context_pos = result.find("CONTEXT DOCUMENTS")
-            .expect("Formatted prompt should contain 'CONTEXT DOCUMENTS' section");
+            .ok_or("Formatted prompt should contain 'CONTEXT DOCUMENTS' section")?;
         let user_pos = result.find("User: What drink")
-            .expect("Formatted prompt should contain user message");
+            .ok_or("Formatted prompt should contain user message")?;
 
         assert!(memory_pos < context_pos);
         assert!(context_pos < user_pos);
+        Ok(())
     }
 }

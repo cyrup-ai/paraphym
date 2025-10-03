@@ -325,7 +325,7 @@ impl CandleAgentRoleImpl {
 
         ystream::AsyncStream::with_channel(move |sender| {
             // Inject relevant memory context with zero-allocation processing
-            let context_stream = self_clone.inject_memory_context(&message, &memory_manager_clone);
+            let context_stream = self_clone.inject_memory_context(&message, &memory_manager_clone, self_clone.memory_read_timeout());
 
             if let Some(context_injection) = context_stream.try_next() {
                 // Generate real AI response using Engine with TextGenerator
@@ -353,6 +353,58 @@ impl CandleAgentRoleImpl {
 
     /// Inject memory context with zero-allocation processing
     ///
+    /// Get timeout in milliseconds from builder API, environment, or default
+    fn get_memory_timeout_ms(timeout_ms: Option<u64>) -> u64 {
+        timeout_ms
+            .or_else(|| {
+                std::env::var("CANDLE_MEMORY_TIMEOUT_MS")
+                    .ok()
+                    .and_then(|v| v.parse::<u64>().ok())
+            })
+            .unwrap_or(5000)
+    }
+
+    /// Calculate average relevance score from retrieval results
+    #[allow(clippy::cast_precision_loss)]
+    fn calculate_avg_relevance(retrieval_results: &[RetrievalResult]) -> f64 {
+        if retrieval_results.is_empty() {
+            return 0.0;
+        }
+        let total: f32 = retrieval_results.iter().map(|r| r.score).sum();
+        f64::from(total / retrieval_results.len() as f32)
+    }
+
+    /// Convert memory node to retrieval result with metadata
+    fn memory_node_to_retrieval_result(memory_node: &MemoryNode) -> RetrievalResult {
+        let score = memory_node.relevance_score
+            .unwrap_or(memory_node.metadata.importance);
+        
+        let mut metadata = std::collections::HashMap::new();
+        metadata.insert("content".to_string(), serde_json::Value::String(
+            memory_node.content.text.clone()
+        ));
+        metadata.insert("memory_type".to_string(), serde_json::Value::String(
+            format!("{:?}", memory_node.memory_type)
+        ));
+        metadata.insert("importance".to_string(), serde_json::Value::Number(
+            serde_json::Number::from_f64(f64::from(memory_node.metadata.importance))
+                .unwrap_or_else(|| serde_json::Number::from(0))
+        ));
+        if let Some(relevance) = memory_node.relevance_score {
+            metadata.insert("relevance_score".to_string(), serde_json::Value::Number(
+                serde_json::Number::from_f64(f64::from(relevance))
+                    .unwrap_or_else(|| serde_json::Number::from(0))
+            ));
+        }
+
+        RetrievalResult {
+            id: memory_node.id.clone(),
+            score,
+            method: crate::memory::core::ops::retrieval::RetrievalMethod::Semantic,
+            metadata,
+        }
+    }
+
     /// # Arguments
     /// * `message` - User message for context relevance
     /// * `memory_manager` - Memory manager for queries
@@ -370,6 +422,7 @@ impl CandleAgentRoleImpl {
         &self,
         message: &str,
         memory_manager: &Arc<dyn MemoryManager>,
+        timeout_ms: Option<u64>,
     ) -> ystream::AsyncStream<ContextInjectionResult> {
         let message = message.to_string();
         let memory_manager_clone = memory_manager.clone();
@@ -384,11 +437,16 @@ impl CandleAgentRoleImpl {
             let memory_stream = memory_manager_clone.search_by_content(&message);
 
             // Collect results from the sophisticated memory system
-            let (retrieval_tx, retrieval_rx) = std::sync::mpsc::channel::<Vec<RetrievalResult>>();
+            let (retrieval_tx, retrieval_rx) = std::sync::mpsc::channel::<Result<Vec<RetrievalResult>, String>>();
 
             ystream::spawn_task(move || {
-                let runtime = shared_runtime()
-                    .expect("Tokio runtime not initialized - required for memory operations");
+                let Some(runtime) = shared_runtime() else {
+                    let error_msg = "Tokio runtime not initialized - memory retrieval cannot proceed";
+                    log::error!("{error_msg}");
+                    // Send error to prevent the receiver from blocking and allow error detection
+                    let _ = retrieval_tx.send(Err(error_msg.to_string()));
+                    return;
+                };
                 
                 runtime.block_on(async move {
                     use futures_util::StreamExt;
@@ -403,60 +461,35 @@ impl CandleAgentRoleImpl {
                         }
 
                         if let Ok(memory_node) = memory_result {
-                            // Use the ACTUAL relevance_score from vector search, or fall back to importance
-                            let score = memory_node.relevance_score
-                                .unwrap_or(memory_node.metadata.importance);
-                            
-                            let retrieval_result = RetrievalResult {
-                                id: memory_node.id.clone(),
-                                score, // Now using the actual cosine similarity score!
-                                method: crate::memory::core::ops::retrieval::RetrievalMethod::Semantic,
-                                metadata: {
-                                    let mut metadata = std::collections::HashMap::new();
-                                    metadata.insert("content".to_string(), serde_json::Value::String(
-                                        memory_node.content.text.clone()
-                                    ));
-                                    metadata.insert("memory_type".to_string(), serde_json::Value::String(
-                                        format!("{:?}", memory_node.memory_type)
-                                    ));
-                                    metadata.insert("importance".to_string(), serde_json::Value::Number(
-                                        serde_json::Number::from_f64(f64::from(memory_node.metadata.importance))
-                                            .unwrap_or_else(|| serde_json::Number::from(0))
-                                    ));
-                                    // Also include the relevance score in metadata
-                                    if let Some(relevance) = memory_node.relevance_score {
-                                        metadata.insert("relevance_score".to_string(), serde_json::Value::Number(
-                                            serde_json::Number::from_f64(f64::from(relevance))
-                                                .unwrap_or_else(|| serde_json::Number::from(0))
-                                        ));
-                                    }
-                                    metadata
-                                },
-                            };
-                            results.push(retrieval_result);
+                            results.push(Self::memory_node_to_retrieval_result(&memory_node));
                         }
                     }
 
-                    let _ = retrieval_tx.send(results);
+                    let _ = retrieval_tx.send(Ok(results));
                 });
             });
 
-            // Receive results with timeout
-            let retrieval_results = retrieval_rx.recv_timeout(
-                std::time::Duration::from_millis(1000)
-            ).unwrap_or_else(|_| Vec::new());
+            // Receive results with configurable timeout
+            let timeout_ms = Self::get_memory_timeout_ms(timeout_ms);
+
+            let retrieval_results = match retrieval_rx.recv_timeout(
+                std::time::Duration::from_millis(timeout_ms)
+            ) {
+                Ok(Ok(results)) => results,
+                Ok(Err(e)) => {
+                    log::error!("Memory retrieval failed: {e}");
+                    Vec::new()
+                }
+                Err(_) => {
+                    log::warn!(
+                        "Memory retrieval timed out - context may be incomplete (timeout_ms: {timeout_ms}, message: {message:?})"
+                    );
+                    Vec::new()
+                }
+            };
 
             let memory_nodes_used = retrieval_results.len();
-            
-            // Trust the MemoryManager's scoring - it's already sophisticated
-            // Just calculate a simple average for the overall context relevance
-            #[allow(clippy::cast_precision_loss)]
-            let avg_relevance_score = if memory_nodes_used > 0 {
-                let total: f32 = retrieval_results.iter().map(|r| r.score).sum();
-                f64::from(total / memory_nodes_used as f32)
-            } else {
-                0.0
-            };
+            let avg_relevance_score = Self::calculate_avg_relevance(&retrieval_results);
 
             // Use PromptFormatter to format memories properly
             let formatter = PromptFormatter::new()
@@ -492,6 +525,7 @@ impl CandleAgentRoleImpl {
     ///
     /// # Performance
     /// Zero allocation with lock-free atomic counters for memory node tracking
+    #[must_use]
     pub fn memorize_conversation(
         &self,
         user_message: &str,

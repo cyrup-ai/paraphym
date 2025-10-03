@@ -75,11 +75,13 @@ pub enum RouterError {
 
 impl SweetMcpRouter {
     /// Create a new `SweetMCP` router with empty configuration
+    #[must_use]
     pub fn new() -> Self {
         Self::with_configs(Vec::new(), None)
     }
 
     /// Create a new `SweetMCP` router with plugin and `Cylo` backend configurations
+    #[must_use]
     pub fn with_configs(
         plugin_configs: Vec<PluginConfig>,
         cylo_config: Option<CyloBackendConfig>,
@@ -160,6 +162,7 @@ impl SweetMcpRouter {
     }
 
     /// Execute tool and return `ystream` for compatibility
+    #[must_use]
     pub fn call_tool_stream(&self, tool_name: &str, args: JsonValue) -> AsyncStream<CandleJsonChunk> {
         let tool_name = tool_name.to_string();
         let router = self.clone_for_async();

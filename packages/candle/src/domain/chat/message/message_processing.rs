@@ -41,6 +41,7 @@ pub enum SanitizationError {
 /// # Returns
 /// Returns an `AsyncStream` that will emit the processed message.
 /// The `on_chunk` handler should validate the processed message.
+#[must_use]
 pub fn process_message(message: CandleMessage) -> AsyncStream<CandleMessage> {
     AsyncStream::with_channel(move |sender| {
         let mut processed_message = message;
@@ -76,6 +77,7 @@ pub fn process_message(message: CandleMessage) -> AsyncStream<CandleMessage> {
 /// # Returns
 /// Returns an `AsyncStream` that will emit the message if valid.
 /// Invalid messages will be handled by the `on_chunk` error handler.
+#[must_use]
 pub fn validate_message(message: CandleMessage) -> AsyncStream<CandleMessage> {
     AsyncStream::with_channel(move |sender| {
         // Always emit the message - the `on_chunk` handler decides validation behavior
@@ -207,9 +209,10 @@ mod tests {
     }
 
     #[test]
-    fn test_sanitize_content() {
-        assert_eq!(sanitize_content("  Hello, world!  ").unwrap(), "Hello, world!");
-        assert_eq!(sanitize_content("").unwrap(), "");
-        assert_eq!(sanitize_content("  ").unwrap(), "");
+    fn test_sanitize_content() -> Result<(), Box<dyn std::error::Error>> {
+        assert_eq!(sanitize_content("  Hello, world!  ")?, "Hello, world!");
+        assert_eq!(sanitize_content("")?, "");
+        assert_eq!(sanitize_content("  ")?, "");
+        Ok(())
     }
 }

@@ -41,6 +41,7 @@ pub struct SimilarityResult {
 impl SimilarityResult {
     /// Create a new similarity result
     #[inline]
+    #[must_use]
     pub fn new(score: f32, is_similar: bool, metric: SimilarityMetric) -> Self {
         Self {
             score,
@@ -52,6 +53,7 @@ impl SimilarityResult {
 
     /// Create a new similarity result with distance
     #[inline]
+    #[must_use]
     pub fn with_distance(
         score: f32,
         is_similar: bool,
@@ -68,6 +70,7 @@ impl SimilarityResult {
 
     /// Check if the similarity meets the given threshold
     #[inline]
+    #[must_use]
     pub fn meets_threshold(&self, threshold: f32) -> bool {
         match self.metric {
             // For similarity metrics, higher is better

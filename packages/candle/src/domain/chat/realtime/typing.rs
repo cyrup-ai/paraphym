@@ -16,6 +16,7 @@ use tokio::sync::broadcast;
 use cyrup_sugars::prelude::MessageChunk;
 
 use crate::domain::context::chunk::CandleCollectionChunk;
+use crate::domain::util::unix_timestamp_nanos;
 
 use super::events::RealTimeEvent;
 
@@ -44,10 +45,7 @@ impl TypingState {
     /// Create a new typing state with current timestamp
     #[inline]
     pub fn new(user_id: String, session_id: String) -> Self {
-        let now_nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0);
+        let now_nanos = unix_timestamp_nanos();
 
         Self {
             user_id,
@@ -63,10 +61,7 @@ impl TypingState {
     /// Start typing with atomic timestamp update
     #[inline]
     pub fn start_typing(&self) {
-        let now_nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0);
+        let now_nanos = unix_timestamp_nanos();
 
         self.last_activity.store(now_nanos, Ordering::Release);
         self.is_typing.store(true, Ordering::Release);
@@ -76,10 +71,7 @@ impl TypingState {
     /// Stop typing with duration calculation
     #[inline]
     pub fn stop_typing(&self) {
-        let now_nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0);
+        let now_nanos = unix_timestamp_nanos();
 
         // Calculate typing duration if we were typing
         if self.is_typing.load(Ordering::Acquire) {
@@ -98,10 +90,7 @@ impl TypingState {
     /// Check if typing has expired based on nanosecond precision
     #[inline]
     pub fn is_expired(&self, expiry_nanos: u64) -> bool {
-        let now_nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0);
+        let now_nanos = unix_timestamp_nanos();
 
         let last_activity = self.last_activity.load(Ordering::Acquire);
         now_nanos.saturating_sub(last_activity) > expiry_nanos
@@ -139,10 +128,7 @@ impl TypingState {
     #[inline]
     #[allow(dead_code)] // Statistics API method
     pub fn session_duration_nanos(&self) -> u64 {
-        let now_nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0);
+        let now_nanos = unix_timestamp_nanos();
 
         let start = self.session_start.load(Ordering::Acquire);
         now_nanos.saturating_sub(start)
@@ -152,10 +138,7 @@ impl TypingState {
     #[inline]
     #[allow(dead_code)] // Statistics API method
     pub fn touch_activity(&self) {
-        let now_nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0);
+        let now_nanos = unix_timestamp_nanos();
 
         self.last_activity.store(now_nanos, Ordering::Release);
     }
@@ -167,10 +150,10 @@ impl TypingState {
         TypingSessionStatistics {
             user_id: self.user_id.clone(),
             session_id: self.session_id.clone(),
-            total_typing_duration_nanos: self.total_typing_duration_nanos(),
+            total_typing_duration: Duration::from_nanos(self.total_typing_duration_nanos()),
             total_typing_duration_seconds: self.total_typing_duration_seconds(),
             event_count: self.event_count(),
-            session_duration_nanos: self.session_duration_nanos(),
+            session_duration: Duration::from_nanos(self.session_duration_nanos()),
             is_currently_typing: self.is_typing.load(Ordering::Acquire),
             last_activity_nanos: self.last_activity.load(Ordering::Acquire),
             session_start_nanos: self.session_start.load(Ordering::Acquire),
@@ -179,15 +162,15 @@ impl TypingState {
 }
 
 /// Typing session statistics snapshot
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(dead_code)] // Statistics API struct
 pub struct TypingSessionStatistics {
     pub user_id: String,
     pub session_id: String,
-    pub total_typing_duration_nanos: u64,
+    pub total_typing_duration: Duration,
     pub total_typing_duration_seconds: f64,
     pub event_count: u64,
-    pub session_duration_nanos: u64,
+    pub session_duration: Duration,
     pub is_currently_typing: bool,
     pub last_activity_nanos: u64,
     pub session_start_nanos: u64,
@@ -214,6 +197,7 @@ pub struct TypingIndicator {
 impl TypingIndicator {
     /// Create a new typing indicator with nanosecond precision
     #[inline]
+    #[must_use]
     pub fn new(expiry_duration_secs: u64, cleanup_interval_secs: u64) -> Self {
         let (event_broadcaster, _) = broadcast::channel(10000); // Larger buffer for performance
 
@@ -229,6 +213,7 @@ impl TypingIndicator {
     }
 
     /// Start typing indicator with zero-allocation key generation
+    #[must_use]
     pub fn start_typing(
         &self,
         user_id: String,
@@ -263,6 +248,7 @@ impl TypingIndicator {
     }
 
     /// Stop typing indicator with event emission
+    #[must_use]
     pub fn stop_typing(
         &self,
         user_id: String,
@@ -288,6 +274,7 @@ impl TypingIndicator {
     }
 
     /// Get currently typing users in a session
+    #[must_use]
     pub fn get_typing_users_stream(&self, session_id: String) -> AsyncStream<CandleCollectionChunk<Vec<String>>> {
         let typing_states = self.typing_states.clone();
 
@@ -309,6 +296,7 @@ impl TypingIndicator {
     }
 
     /// Start cleanup task with lock-free background processing
+    #[must_use]
     pub fn start_cleanup_task(&self) -> AsyncStream<TypingCleanupEvent> {
         if self
             .cleanup_task_active
@@ -364,7 +352,8 @@ impl TypingIndicator {
                     // Update active users counter efficiently
                     if expired_count > 0 {
                         let current = active_users.get();
-                        let new_count = current.saturating_sub(expired_count as usize);
+                        let expired_usize = usize::try_from(expired_count).unwrap_or(usize::MAX);
+                        let new_count = current.saturating_sub(expired_usize);
                         active_users.reset();
                         for _ in 0..new_count {
                             active_users.inc();
@@ -375,11 +364,8 @@ impl TypingIndicator {
                     let cleanup_event = TypingCleanupEvent {
                         expired_count,
                         remaining_active: active_users.get() as u64,
-                        cleanup_duration_nanos: cleanup_interval.as_nanos() as u64,
-                        timestamp: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| d.as_nanos() as u64)
-                            .unwrap_or(0),
+                        cleanup_duration: cleanup_interval,
+                        timestamp: unix_timestamp_nanos(),
                     };
 
                     emit!(sender, cleanup_event);
@@ -401,12 +387,14 @@ impl TypingIndicator {
 
     /// Subscribe to typing events with zero-allocation receiver
     #[inline]
+    #[must_use]
     pub fn subscribe(&self) -> broadcast::Receiver<RealTimeEvent> {
         self.event_broadcaster.subscribe()
     }
 
     /// Get comprehensive typing statistics
     #[inline]
+    #[must_use]
     pub fn get_statistics(&self) -> TypingStatistics {
         TypingStatistics {
             active_users: self.active_users.get(),
@@ -435,11 +423,13 @@ impl TypingIndicator {
 
     /// Get active typing states count
     #[inline]
+    #[must_use]
     pub fn active_states_count(&self) -> usize {
         self.typing_states.len()
     }
 
     /// Check if user is typing in any session
+    #[must_use]
     pub fn is_user_typing(&self, user_id: &String) -> bool {
         for entry in self.typing_states.iter() {
             let typing_state = entry.value();
@@ -451,6 +441,7 @@ impl TypingIndicator {
     }
 
     /// Get typing sessions for a user
+    #[must_use]
     pub fn get_user_typing_sessions(&self, user_id: &String) -> Vec<String> {
         let mut sessions = Vec::new();
         for entry in self.typing_states.iter() {
@@ -524,8 +515,8 @@ pub struct TypingCleanupEvent {
     pub expired_count: u64,
     /// Number of remaining active states
     pub remaining_active: u64,
-    /// Duration of cleanup operation in nanoseconds
-    pub cleanup_duration_nanos: u64,
+    /// Duration of cleanup operation
+    pub cleanup_duration: Duration,
     /// Event timestamp in nanoseconds
     pub timestamp: u64,
 }
@@ -533,9 +524,8 @@ pub struct TypingCleanupEvent {
 impl TypingCleanupEvent {
     /// Get cleanup duration in seconds
     #[inline]
-    #[allow(clippy::cast_precision_loss)] // Acceptable for duration conversion
     pub fn cleanup_duration_seconds(&self) -> f64 {
-        self.cleanup_duration_nanos as f64 / 1_000_000_000.0
+        self.cleanup_duration.as_secs_f64()
     }
 }
 
@@ -544,11 +534,8 @@ impl MessageChunk for TypingCleanupEvent {
         Self {
             expired_count: 0,
             remaining_active: 0,
-            cleanup_duration_nanos: 0,
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos() as u64)
-                .unwrap_or(0),
+            cleanup_duration: Duration::ZERO,
+            timestamp: unix_timestamp_nanos(),
         }
     }
     

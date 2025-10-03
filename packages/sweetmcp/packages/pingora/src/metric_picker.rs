@@ -14,8 +14,8 @@ use pingora_load_balancing::Backend;
 
 /// Metrics-based backend picker that selects the backend with lowest load
 pub struct MetricPicker {
-    backends: Vec<Backend>,
-    load_values: Vec<Arc<AtomicU64>>, // f64 bits representation
+    pub backends: Vec<Backend>,
+    pub load_values: Vec<Arc<AtomicU64>>, // f64 bits representation
     round_robin_counter: AtomicUsize,
 }
 

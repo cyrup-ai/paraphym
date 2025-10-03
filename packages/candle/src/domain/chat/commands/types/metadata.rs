@@ -4,11 +4,11 @@
 //! with owned strings allocated once for maximum performance. No Arc usage, no locking.
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
 use super::parameters::ParameterInfo;
+use crate::domain::util::unix_timestamp_micros;
 
 /// Command information for command registry with owned strings allocated once
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,6 +157,7 @@ impl CommandInfo {
 
     /// Check if command matches search query - zero allocation search
     #[inline]
+    #[must_use]
     pub fn matches_search(&self, query: &str) -> bool {
         let query_lower = query.to_lowercase();
 
@@ -175,6 +176,7 @@ impl CommandInfo {
 
     /// Get command signature for display - minimal allocation
     #[inline]
+    #[must_use]
     pub fn signature(&self) -> String {
         if self.parameters.is_empty() {
             self.name.clone()
@@ -213,6 +215,7 @@ pub enum StabilityLevel {
 impl StabilityLevel {
     /// Get stability as string for display
     #[inline]
+    #[must_use]
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Stable => "stable",
@@ -225,6 +228,7 @@ impl StabilityLevel {
 
     /// Check if stability level allows production use
     #[inline]
+    #[must_use]
     pub fn is_production_ready(&self) -> bool {
         matches!(self, Self::Stable | Self::Beta)
     }
@@ -264,11 +268,9 @@ pub struct ResourceUsage {
 impl ResourceUsage {
     /// Create new resource usage tracker with current timestamp
     #[inline]
+    #[must_use]
     pub fn new_with_start_time() -> Self {
-        let start_time_us = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_micros() as u64)
-            .unwrap_or(0);
+        let start_time_us = unix_timestamp_micros();
 
         Self {
             memory_bytes: 0,
@@ -290,28 +292,21 @@ impl ResourceUsage {
     /// Finalize resource tracking with end timestamp
     #[inline]
     pub fn finalize(&mut self) {
-        self.end_time_us = Some(
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_micros() as u64)
-                .unwrap_or(self.start_time_us),
-        );
+        self.end_time_us = Some(unix_timestamp_micros());
     }
 
     /// Get execution duration in microseconds
     #[inline]
+    #[must_use]
     pub fn duration_us(&self) -> u64 {
-        self.end_time_us.unwrap_or_else(|| {
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_micros() as u64)
-                .unwrap_or(self.start_time_us)
-        }) - self.start_time_us
+        self.end_time_us.unwrap_or_else(unix_timestamp_micros)
+            .saturating_sub(self.start_time_us)
     }
 
     /// Get execution duration as human readable string
     #[allow(clippy::cast_precision_loss)] // Acceptable for display formatting
     #[inline]
+    #[must_use]
     pub fn duration_human(&self) -> String {
         let duration_us = self.duration_us();
 
@@ -387,6 +382,7 @@ impl ResourceUsage {
 
     /// Calculate cache hit ratio as percentage
     #[inline]
+    #[must_use]
     pub fn cache_hit_ratio(&self) -> f64 {
         let total = self.cache_hits + self.cache_misses;
         if total == 0 {
@@ -399,6 +395,7 @@ impl ResourceUsage {
     /// Get memory efficiency metric (operations per MB)
     #[allow(clippy::cast_precision_loss)] // Acceptable for metrics calculations
     #[inline]
+    #[must_use]
     pub fn memory_efficiency(&self) -> f64 {
         if self.peak_memory_bytes == 0 {
             0.0
@@ -411,6 +408,7 @@ impl ResourceUsage {
 
     /// Check if execution had any issues (errors or excessive resource usage)
     #[inline]
+    #[must_use]
     pub fn has_issues(&self) -> bool {
         self.error_count > 0 ||
         self.peak_memory_bytes > 100 * 1024 * 1024 || // > 100MB
@@ -439,6 +437,7 @@ pub struct PerformanceMetrics {
 impl PerformanceMetrics {
     /// Create new performance metrics tracker
     #[inline]
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             total_executions: AtomicU64::new(0),

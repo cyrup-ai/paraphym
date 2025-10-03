@@ -238,6 +238,7 @@ pub struct TermFrequency {
 
 impl TermFrequency {
     /// Calculate TF-IDF score
+    #[must_use]
     pub fn calculate_tfidf(&self) -> f32 {
         let tf = self.tf;
         #[allow(clippy::cast_precision_loss)]

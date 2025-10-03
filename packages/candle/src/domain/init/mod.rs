@@ -75,6 +75,7 @@ pub async fn initialize_memory_service_with_config(
 ///
 /// # Returns
 /// Default configuration for local `SurrealDB` with cognitive features
+#[must_use]
 pub fn get_default_memory_config() -> MemoryConfig {
     MemoryConfig::default()
 }

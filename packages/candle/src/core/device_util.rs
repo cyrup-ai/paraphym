@@ -6,8 +6,13 @@
 //! 3. CPU (fallback) - Always available
 
 use candle_core::Device;
-use candle_core::utils::{cuda_is_available, metal_is_available};
-use log::{info, warn};
+#[cfg(feature = "cuda")]
+use candle_core::utils::cuda_is_available;
+#[cfg(feature = "metal")]
+use candle_core::utils::metal_is_available;
+use log::info;
+#[cfg(any(feature = "cuda", feature = "metal"))]
+use log::warn;
 
 /// Detects and returns the best available compute device.
 ///

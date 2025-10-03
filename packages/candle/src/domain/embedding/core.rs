@@ -118,12 +118,14 @@ impl EmbeddingResponse {
 
     /// Get the first embedding vector if available
     #[inline]
+    #[must_use]
     pub fn first_embedding(&self) -> Option<&[f64]> {
         self.data.first().map(|d| d.embedding.as_slice())
     }
 
     /// Get all embeddings as a slice of slices
     #[inline]
+    #[must_use]
     pub fn all_embeddings(&self) -> Vec<&[f64]> {
         self.data.iter().map(|d| d.embedding.as_slice()).collect()
     }

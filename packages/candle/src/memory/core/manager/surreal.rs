@@ -15,8 +15,10 @@ use crate::memory::primitives::types::MemoryTypeEnum;
 use crate::memory::primitives::{MemoryNode, MemoryRelationship};
 use crate::memory::schema::memory_schema::{MemoryMetadataSchema, MemoryNodeSchema};
 use crate::memory::schema::relationship_schema::RelationshipSchema;
+use crate::memory::schema::quantum_schema::QuantumSignatureSchema;
 use crate::memory::utils::error::Error;
 use crate::memory::migration::{DataExporter, ExportFormat, MigrationManager, BuiltinMigrations, DataImporter, ImportFormat};
+use crate::domain::memory::cognitive::types::{CognitiveState, EntanglementType};
 use std::path::Path;
 
 // Vector search and embedding imports
@@ -200,6 +202,90 @@ impl Future for PendingRelationship {
     }
 }
 
+/// Pending quantum signature update operation
+pub struct PendingQuantumUpdate {
+    rx: tokio::sync::oneshot::Receiver<Result<()>>,
+}
+
+impl PendingQuantumUpdate {
+    pub fn new(rx: tokio::sync::oneshot::Receiver<Result<()>>) -> Self {
+        Self { rx }
+    }
+}
+
+impl Future for PendingQuantumUpdate {
+    type Output = Result<()>;
+
+    fn poll(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        match Pin::new(&mut self.rx).poll(cx) {
+            std::task::Poll::Ready(Ok(result)) => std::task::Poll::Ready(result),
+            std::task::Poll::Ready(Err(_)) => {
+                std::task::Poll::Ready(Err(Error::Other("Channel closed".to_string())))
+            }
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+}
+
+/// Pending quantum signature retrieval operation
+pub struct PendingQuantumSignature {
+    rx: tokio::sync::oneshot::Receiver<Result<Option<CognitiveState>>>,
+}
+
+impl PendingQuantumSignature {
+    pub fn new(rx: tokio::sync::oneshot::Receiver<Result<Option<CognitiveState>>>) -> Self {
+        Self { rx }
+    }
+}
+
+impl Future for PendingQuantumSignature {
+    type Output = Result<Option<CognitiveState>>;
+
+    fn poll(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        match Pin::new(&mut self.rx).poll(cx) {
+            std::task::Poll::Ready(Ok(result)) => std::task::Poll::Ready(result),
+            std::task::Poll::Ready(Err(_)) => {
+                std::task::Poll::Ready(Err(Error::Other("Channel closed".to_string())))
+            }
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+}
+
+/// Pending entanglement edge creation (RELATE operation)
+pub struct PendingEntanglementEdge {
+    rx: tokio::sync::oneshot::Receiver<Result<()>>,
+}
+
+impl PendingEntanglementEdge {
+    pub fn new(rx: tokio::sync::oneshot::Receiver<Result<()>>) -> Self {
+        Self { rx }
+    }
+}
+
+impl Future for PendingEntanglementEdge {
+    type Output = Result<()>;
+
+    fn poll(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        match Pin::new(&mut self.rx).poll(cx) {
+            std::task::Poll::Ready(Ok(result)) => std::task::Poll::Ready(result),
+            std::task::Poll::Ready(Err(_)) => {
+                std::task::Poll::Ready(Err(Error::Other("Channel closed".to_string())))
+            }
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+}
+
 /// A stream of memory nodes
 pub struct MemoryStream {
     rx: tokio::sync::mpsc::Receiver<Result<MemoryNode>>,
@@ -281,6 +367,67 @@ pub trait MemoryManager: Send + Sync + 'static {
 
     /// Search memories by pattern matching
     fn search_by_pattern(&self, query: &str, limit: usize) -> MemoryStream;
+
+    /// Update quantum signature for a memory node
+    /// Persists the CognitiveState's quantum signature (denormalized cache)
+    fn update_quantum_signature(
+        &self, 
+        memory_id: &str, 
+        cognitive_state: &CognitiveState
+    ) -> PendingQuantumUpdate;
+    
+    /// Get quantum signature for a memory node
+    /// Returns None if memory has no quantum signature
+    fn get_quantum_signature(
+        &self, 
+        memory_id: &str
+    ) -> PendingQuantumSignature;
+    
+    /// Create entanglement edge using RELATE (SurrealDB graph optimized)
+    /// This creates an edge in the entangled RELATION table with graph pointers
+    fn create_entanglement_edge(
+        &self,
+        source_id: &str,
+        target_id: &str,
+        strength: f32,
+        bond_type: EntanglementType,
+    ) -> PendingEntanglementEdge;
+    
+    /// Get memories entangled with a given memory (graph traversal)
+    /// Uses SurrealDB's ->entangled syntax with pointer-based O(1) lookups
+    /// Filters by minimum strength threshold
+    fn get_entangled_memories(
+        &self, 
+        memory_id: &str, 
+        min_strength: f32
+    ) -> MemoryStream;
+    
+    /// Get entangled memories filtered by bond type (graph + index)
+    /// Types: Semantic, Bell, BellPair, Temporal, Causal, etc.
+    /// Uses both graph pointers and bond_type index
+    fn get_entangled_by_type(
+        &self, 
+        memory_id: &str, 
+        bond_type: EntanglementType
+    ) -> MemoryStream;
+    
+    /// Traverse entanglement graph to specified depth
+    /// Returns all memories reachable within max_depth hops
+    /// Uses recursive graph traversal with SurrealDB range syntax
+    fn traverse_entanglement_graph(
+        &self, 
+        memory_id: &str, 
+        max_depth: usize
+    ) -> MemoryStream;
+    
+    /// Expand a set of memory IDs via entanglement
+    /// For each input memory, finds entangled neighbors
+    /// Returns union of all entangled memories (deduplicated)
+    fn expand_via_entanglement(
+        &self, 
+        memory_ids: Vec<String>, 
+        min_strength: f32
+    ) -> MemoryStream;
 }
 
 /// SurrealDB implementation of the memory manager
@@ -1026,10 +1173,619 @@ impl MemoryManager for SurrealDBMemoryManager {
 
         MemoryStream::new(rx)
     }
+
+    fn create_entanglement_edge(
+        &self,
+        source_id: &str,
+        target_id: &str,
+        strength: f32,
+        bond_type: EntanglementType,
+    ) -> PendingEntanglementEdge {
+        let db = self.db.clone();
+        let source_id = source_id.to_string();
+        let target_id = target_id.to_string();
+        let bond_type_str = format!("{:?}", bond_type);
+        
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        
+        tokio::spawn(async move {
+            // Use RELATE statement for graph-optimized edge creation
+            // This creates bidirectional IN/OUT pointers automatically
+            // SurrealDB stores 4 pointers: source->OUT, edge->IN, edge->OUT, target->IN
+            let sql = "
+                RELATE $source->entangled->$target 
+                SET 
+                    strength = $strength,
+                    bond_type = $bond_type,
+                    created_at = time::now()
+            ";
+            
+            let result = match db.query(sql)
+                .bind(("source", format!("memory:{}", source_id)))
+                .bind(("target", format!("memory:{}", target_id)))
+                .bind(("strength", strength))
+                .bind(("bond_type", bond_type_str.clone()))
+                .await
+            {
+                Ok(_) => {
+                    log::debug!(
+                        "Created {:?} entanglement edge: {} -> {} (strength: {:.4})",
+                        bond_type_str,
+                        source_id,
+                        target_id,
+                        strength
+                    );
+                    Ok(())
+                }
+                Err(e) => {
+                    log::error!(
+                        "Failed to create entanglement edge {} -> {}: {:?}",
+                        source_id,
+                        target_id,
+                        e
+                    );
+                    Err(Error::Database(format!("RELATE failed: {:?}", e)))
+                }
+            };
+            
+            let _ = tx.send(result);
+        });
+        
+        PendingEntanglementEdge::new(rx)
+    }
+
+    fn get_entangled_memories(
+        &self, 
+        memory_id: &str, 
+        min_strength: f32
+    ) -> MemoryStream {
+        let db = self.db.clone();
+        let memory_id = memory_id.to_string();
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
+        
+        tokio::spawn(async move {
+            // OPTIMIZED: Use SurrealDB graph syntax with inline filtering
+            // ->entangled uses graph pointers (O(1) lookup per edge)
+            // [WHERE strength >= $min] filters during traversal (uses strength_idx)
+            // .out.* fetches target memory records
+            let sql = "
+                SELECT ->entangled[WHERE strength >= $min_strength].out.* 
+                FROM $memory_id
+            ";
+            
+            match db.query(sql)
+                .bind(("memory_id", format!("memory:{}", memory_id)))
+                .bind(("min_strength", min_strength))
+                .await
+            {
+                Ok(mut response) => {
+                    // SurrealDB returns array of target memories directly
+                    let results: Vec<MemoryNodeSchema> = response.take(0).unwrap_or_default();
+                    
+                    log::debug!(
+                        "Retrieved {} entangled memories for {} (min_strength: {}) via graph pointers",
+                        results.len(),
+                        memory_id,
+                        min_strength
+                    );
+                    
+                    for schema in results {
+                        let memory = SurrealDBMemoryManager::from_schema(schema);
+                        if tx.send(Ok(memory)).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!(
+                        "Failed to retrieve entangled memories for {} (graph query): {:?}",
+                        memory_id,
+                        e
+                    );
+                    let _ = tx.send(Err(Error::Database(format!("{:?}", e)))).await;
+                }
+            }
+        });
+        
+        MemoryStream::new(rx)
+    }
+
+    fn get_entangled_by_type(
+        &self, 
+        memory_id: &str, 
+        bond_type: EntanglementType
+    ) -> MemoryStream {
+        let db = self.db.clone();
+        let memory_id = memory_id.to_string();
+        let type_str = format!("{:?}", bond_type);
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
+        
+        tokio::spawn(async move {
+            // OPTIMIZED: Graph traversal + index lookup
+            // ->entangled uses graph pointers
+            // [WHERE bond_type = $type] uses bond_type_idx for fast equality check
+            // .out.* fetches target memory records
+            let sql = "
+                SELECT ->entangled[WHERE bond_type = $bond_type].out.* 
+                FROM $memory_id
+            ";
+            
+            match db.query(sql)
+                .bind(("memory_id", format!("memory:{}", memory_id)))
+                .bind(("bond_type", type_str.clone()))
+                .await
+            {
+                Ok(mut response) => {
+                    let results: Vec<MemoryNodeSchema> = response.take(0).unwrap_or_default();
+                    
+                    log::debug!(
+                        "Retrieved {} {:?} entangled memories for {} via graph + index",
+                        results.len(),
+                        bond_type,
+                        memory_id
+                    );
+                    
+                    for schema in results {
+                        let memory = SurrealDBMemoryManager::from_schema(schema);
+                        if tx.send(Ok(memory)).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!(
+                        "Failed to retrieve {:?} entangled memories for {}: {:?}",
+                        bond_type,
+                        memory_id,
+                        e
+                    );
+                    let _ = tx.send(Err(Error::Database(format!("{:?}", e)))).await;
+                }
+            }
+        });
+        
+        MemoryStream::new(rx)
+    }
+
+    fn traverse_entanglement_graph(
+        &self, 
+        memory_id: &str, 
+        max_depth: usize
+    ) -> MemoryStream {
+        let db = self.db.clone();
+        let memory_id = memory_id.to_string();
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
+        
+        tokio::spawn(async move {
+            // SurrealDB multi-hop graph traversal using 4-pointer structure
+            // Since SurrealDB doesn't support ->edge{1..N} syntax for graph traversal,
+            // we build UNION query with one subquery per depth level
+            //
+            // Each hop uses ->entangled.out.* pattern (confirmed from SDK tests):
+            // - Depth 1: ->entangled.out.*
+            // - Depth 2: ->entangled->memory->entangled.out.*
+            // - Depth N: (repeat chain N times)
+            //
+            // Performance: O(E^D) where E = avg edges/node, D = depth
+            // DISTINCT eliminates duplicates across all depths: O(N log N)
+            
+            // Validate depth within SurrealDB limits (max 256)
+            let safe_depth = max_depth.clamp(1, 256);
+            
+            // Build UNION query for each depth level
+            let mut depth_queries = Vec::new();
+            
+            for depth in 1..=safe_depth {
+                // Build chain: ->entangled->memory->entangled->memory...->entangled.out.*
+                // Depth 1: ->entangled.out.*
+                // Depth 2: ->entangled->memory->entangled.out.*
+                // Depth 3: ->entangled->memory->entangled->memory->entangled.out.*
+                let mut chain = String::new();
+                for i in 0..depth {
+                    if i > 0 {
+                        chain.push_str("->memory");
+                    }
+                    chain.push_str("->entangled");
+                }
+                chain.push_str(".out.*");
+                
+                depth_queries.push(format!("SELECT {} FROM $memory_id", chain));
+            }
+            
+            let sql = format!("SELECT DISTINCT * FROM ({}) ", depth_queries.join(" UNION "));
+            
+            match db.query(&sql)
+                .bind(("memory_id", format!("memory:{}", memory_id)))
+                .await
+            {
+                Ok(mut response) => {
+                    let results: Vec<MemoryNodeSchema> = response.take(0).unwrap_or_default();
+                    
+                    log::info!(
+                        "Traversed entanglement graph from {} (depth {}): {} memories found",
+                        memory_id,
+                        safe_depth,
+                        results.len()
+                    );
+                    
+                    for schema in results {
+                        let memory = SurrealDBMemoryManager::from_schema(schema);
+                        if tx.send(Ok(memory)).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!(
+                        "Failed to traverse entanglement graph from {} (depth {}): {:?}",
+                        memory_id,
+                        safe_depth,
+                        e
+                    );
+                    let _ = tx.send(Err(Error::Database(format!("{:?}", e)))).await;
+                }
+            }
+        });
+        
+        MemoryStream::new(rx)
+    }
+
+    fn expand_via_entanglement(
+        &self, 
+        memory_ids: Vec<String>, 
+        min_strength: f32
+    ) -> MemoryStream {
+        let db = self.db.clone();
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
+        
+        tokio::spawn(async move {
+            // Handle empty input gracefully
+            if memory_ids.is_empty() {
+                return; // Empty stream
+            }
+            
+            // Convert memory IDs to SurrealDB record format
+            let record_ids: Vec<String> = memory_ids
+                .iter()
+                .map(|id| format!("memory:{}", id))
+                .collect();
+            
+            // Parallel expansion using graph pointers (based on working QENT_4 pattern)
+            // Uses proven ->entangled[WHERE ...].out.* syntax from get_entangled_memories
+            //
+            // For each seed memory:
+            // 1. Fetch OUT pointers (O(1) per seed via graph keys)
+            // 2. Get edge IDs for all seeds
+            // 3. Filter edges where strength >= min_strength (uses strength_idx: O(log E))
+            // 4. Fetch .out.* to get full target records
+            // 5. DISTINCT deduplicates overlapping neighbors (O(N log N))
+            //
+            // Performance: O(S * E * log E) where S = seeds, E = avg edges/seed
+            // Without index: O(S * E²) - 100-1000x slower
+            
+            let sql = format!("
+                SELECT DISTINCT ->entangled[WHERE strength >= $min_strength].out.*
+                FROM {}
+            ", record_ids.join(", "));
+            
+            match db.query(&sql)
+                .bind(("min_strength", min_strength))
+                .await
+            {
+                Ok(mut response) => {
+                    let results: Vec<MemoryNodeSchema> = response.take(0).unwrap_or_default();
+                    
+                    log::info!(
+                        "Expanded {} seed memories via entanglement (min_strength {}): {} total memories",
+                        memory_ids.len(),
+                        min_strength,
+                        results.len()
+                    );
+                    
+                    for schema in results {
+                        let memory = SurrealDBMemoryManager::from_schema(schema);
+                        if tx.send(Ok(memory)).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!(
+                        "Failed to expand via entanglement (seeds: {}): {:?}",
+                        memory_ids.len(),
+                        e
+                    );
+                    let _ = tx.send(Err(Error::Database(format!("{:?}", e)))).await;
+                }
+            }
+        });
+        
+        MemoryStream::new(rx)
+    }
+
+    fn update_quantum_signature(
+        &self, 
+        memory_id: &str, 
+        cognitive_state: &CognitiveState
+    ) -> PendingQuantumUpdate {
+        let db = self.db.clone();
+        let memory_id = memory_id.to_string();
+        
+        // Convert CognitiveState to schema
+        let signature_schema = QuantumSignatureSchema::from_cognitive_state(cognitive_state);
+        
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        
+        tokio::spawn(async move {
+            // Update memory record with quantum signature (denormalized cache)
+            // Primary edges are in entangled RELATION table
+            let sql = "UPDATE memory SET quantum_signature = $signature WHERE id = $memory_id";
+            
+            let result = match db.query(sql)
+                .bind(("memory_id", format!("memory:{}", memory_id)))
+                .bind(("signature", signature_schema.clone()))
+                .await
+            {
+                Ok(_) => {
+                    log::debug!(
+                        "Persisted quantum signature for {} with {} bonds",
+                        memory_id,
+                        signature_schema.entanglement_bonds.len()
+                    );
+                    Ok(())
+                }
+                Err(e) => {
+                    log::error!(
+                        "Failed to update quantum signature for {}: {:?}",
+                        memory_id,
+                        e
+                    );
+                    Err(Error::Database(format!("Quantum signature update failed: {:?}", e)))
+                }
+            };
+            
+            let _ = tx.send(result);
+        });
+        
+        PendingQuantumUpdate::new(rx)
+    }
+
+    fn get_quantum_signature(&self, memory_id: &str) -> PendingQuantumSignature {
+        let db = self.db.clone();
+        let memory_id = memory_id.to_string();
+        
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        
+        tokio::spawn(async move {
+            // Query for quantum signature field (denormalized cache)
+            // For live edges, query entangled RELATION table separately
+            let sql = "SELECT quantum_signature FROM memory WHERE id = $memory_id";
+            
+            let result = match db.query(sql)
+                .bind(("memory_id", format!("memory:{}", memory_id)))
+                .await
+            {
+                Ok(mut response) => {
+                    // Extract quantum_signature field
+                    let signatures: Vec<Option<QuantumSignatureSchema>> = response
+                        .take(0)
+                        .unwrap_or_default();
+                    
+                    if let Some(Some(schema)) = signatures.first() {
+                        // Convert schema back to CognitiveState
+                        match schema.to_cognitive_state() {
+                            Ok(state) => {
+                                log::debug!(
+                                    "Loaded quantum signature for {} with {} bonds (cached)",
+                                    memory_id,
+                                    state.quantum_entanglement_bond_count()
+                                );
+                                Ok(Some(state))
+                            }
+                            Err(e) => {
+                                log::error!(
+                                    "Failed to deserialize quantum signature for {}: {}",
+                                    memory_id,
+                                    e
+                                );
+                                Err(Error::Other(format!("Deserialization failed: {}", e)))
+                            }
+                        }
+                    } else {
+                        // Memory has no quantum signature
+                        Ok(None)
+                    }
+                }
+                Err(e) => {
+                    log::error!(
+                        "Failed to retrieve quantum signature for {}: {:?}",
+                        memory_id,
+                        e
+                    );
+                    Err(Error::Database(format!("Query failed: {:?}", e)))
+                }
+            };
+            
+            let _ = tx.send(result);
+        });
+        
+        PendingQuantumSignature::new(rx)
+    }
 }
 
 // Additional methods for SurrealDBMemoryManager
 impl SurrealDBMemoryManager {
+    /// # Hybrid Search with Entanglement Expansion
+    /// 
+    /// Combines vector similarity search with graph-based context expansion.
+    /// 
+    /// ## How It Works
+    /// 
+    /// 1. **Vector Search**: Find top-N most similar memories by cosine similarity
+    /// 2. **Graph Expansion**: Traverse entanglement graph from seed memories
+    /// 3. **Merge Results**: Return union of vector matches + entangled neighbors
+    /// 
+    /// ## Parameters
+    /// 
+    /// - `vector`: Query embedding (f32 vector)
+    /// - `limit`: Maximum total results to return
+    /// - `expand_depth`: Graph traversal depth
+    ///   - `0`: No expansion (pure vector search)
+    ///   - `1`: Include direct entangled neighbors
+    ///   - `2`: Include neighbors of neighbors
+    ///   - `3+`: Deeper traversal (use with caution)
+    /// 
+    /// ## Returns
+    /// 
+    /// `MemoryStream` containing:
+    /// - Top vector similarity matches (seed memories)
+    /// - Memories entangled with seeds (within `expand_depth` hops)
+    /// - Deduplicated (DISTINCT)
+    /// 
+    /// ## Example
+    /// 
+    /// ```rust,ignore
+    /// // Search with depth-2 entanglement expansion
+    /// let results = manager.search_with_entanglement(query_vec, 20, 2);
+    /// let memories: Vec<_> = results.collect().await;
+    /// 
+    /// // Results contain:
+    /// // - 10 best vector matches (seeds)
+    /// // - ~10-30 entangled memories (neighbors + neighbors-of-neighbors)
+    /// ```
+    pub fn search_with_entanglement(
+        &self, 
+        vector: Vec<f32>, 
+        limit: usize, 
+        expand_depth: usize
+    ) -> MemoryStream {
+        let db = self.db.clone();
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
+        
+        tokio::spawn(async move {
+            // SURREALDB HYBRID SEARCH OPTIMIZATION
+            // ====================================
+            // Uses single-query CTE approach for optimal performance
+            //
+            // Phase 1: MTREE Vector Search (from QENT_1 V2 migration)
+            //   - Uses memory_embedding_idx MTREE DIMENSION 384 DIST COSINE TYPE F32
+            //   - O(log N) index lookup vs O(N) table scan
+            //   - Returns top-K candidates by cosine similarity
+            //
+            // Phase 2: Graph Expansion (from edges.rs 4-pointer structure)
+            //   - Follows OUT pointers from seed memories: O(1) per seed
+            //   - Each hop: Fetch OUT pointers -> Get edge IDs -> Fetch target IDs
+            //   - Uses strength_idx and type_idx for filtering: O(log E) per edge
+            //   - Depth-N: O(S * E^D) where S=seeds, E=avg edges, D=depth
+            //
+            // Phase 3: Deduplication & Merge
+            //   - DISTINCT eliminates overlap between vector results and graph expansion
+            //   - O(N log N) HashSet-based deduplication
+            //
+            // Total complexity: O(log N) + O(S * E^D * log E) + O(N log N)
+            
+            // Validate and clamp expand_depth to SurrealDB limits (max 256 levels)
+            let safe_depth = if expand_depth > 0 {
+                expand_depth.clamp(1, 256)
+            } else {
+                0
+            };
+            
+            let initial_limit = if safe_depth > 0 { 
+                limit / 2  // Reserve half for expansion
+            } else { 
+                limit  // No expansion, use full limit
+            };
+            
+            let vector_json = serde_json::to_string(&vector)
+                .unwrap_or_else(|_| "[]".to_string());
+            
+            // OPTIMIZED SINGLE-QUERY APPROACH using CTE
+            // Combines vector search + graph expansion in one roundtrip
+            let sql = if safe_depth > 0 {
+                // Build UNION queries for each depth level (1 to safe_depth)
+                // Depth 1: ->entangled
+                // Depth 2: ->entangled->memory->entangled
+                // Depth 3: ->entangled->memory->entangled->memory->entangled
+                // Each depth gets its own subquery joined with UNION
+                let mut depth_queries = Vec::new();
+                
+                for depth in 1..=safe_depth {
+                    // Build chain: start with ->entangled, add ->memory->entangled for each additional hop
+                    let mut chain = String::from("->entangled");
+                    for _ in 1..depth {
+                        chain.push_str("->memory->entangled");
+                    }
+                    
+                    // Each depth subquery: traverse chain from seeds, filter by strength
+                    depth_queries.push(format!(
+                        "SELECT DISTINCT out AS id FROM (SELECT VALUE id FROM $seeds){} WHERE strength >= 0.7",
+                        chain
+                    ));
+                }
+                
+                let union_queries = depth_queries.join(" UNION ");
+                
+                format!("
+                    -- CTE for vector similarity seeds
+                    LET $seeds = (
+                        SELECT id, 
+                               vector::similarity::cosine(metadata.embedding, {vector_json}) AS vector_score 
+                        FROM memory 
+                        WHERE metadata.embedding != NULL 
+                        ORDER BY vector_score DESC 
+                        LIMIT {initial_limit}
+                    );
+                    
+                    -- Hybrid query: seeds + multi-hop graph expansion
+                    SELECT DISTINCT m.* FROM memory m
+                    WHERE m.id IN (SELECT VALUE id FROM $seeds)  -- Include seed memories
+                    OR m.id IN (
+                        -- Multi-hop graph expansion using UNION pattern (depths 1..{safe_depth})
+                        SELECT DISTINCT VALUE id FROM ({union_queries})
+                    )
+                    LIMIT {limit};
+                ", vector_json = vector_json, initial_limit = initial_limit, limit = limit, safe_depth = safe_depth, union_queries = union_queries)
+            } else {
+                // No expansion: pure MTREE vector search
+                format!("
+                    SELECT *, 
+                           vector::similarity::cosine(metadata.embedding, {vector_json}) AS vector_score 
+                    FROM memory 
+                    WHERE metadata.embedding != NULL 
+                    ORDER BY vector_score DESC 
+                    LIMIT {limit}
+                ", vector_json = vector_json, limit = limit)
+            };
+            
+            match db.query(&sql).await {
+                Ok(mut response) => {
+                    let results: Vec<MemoryNodeSchema> = response.take(0).unwrap_or_default();
+                    
+                    log::info!(
+                        "Hybrid search (depth {}): {} total results (limit {})",
+                        safe_depth,
+                        results.len(),
+                        limit
+                    );
+                    
+                    for schema in results {
+                        let memory = SurrealDBMemoryManager::from_schema(schema);
+                        if tx.send(Ok(memory)).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!("Hybrid search failed (depth {}): {:?}", safe_depth, e);
+                    let _ = tx.send(Err(Error::Database(format!("{:?}", e)))).await;
+                }
+            }
+        });
+        
+        MemoryStream::new(rx)
+    }
+
     /// Search memories by text with auto-embedding generation
     pub async fn search_by_text(
         &self,

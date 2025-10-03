@@ -69,6 +69,7 @@ impl Default for EmbeddingConfig {
 
 impl EmbeddingConfig {
     /// Create a new embedding configuration with default values
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -272,12 +273,14 @@ impl EmbeddingConfig {
     }
 
     /// Check if a specific dimension is supported by the configured model
+    #[must_use]
     pub fn is_dimension_supported(&self, dimension: usize) -> bool {
         let model_name = self.model.as_deref().unwrap_or("bert");
         Self::validate_dimension_for_model(dimension, model_name).is_ok()
     }
 
     /// Get all supported dimensions for the configured model
+    #[must_use]
     pub fn get_supported_dimensions(&self) -> Vec<usize> {
         let model_name = self.model.as_deref().unwrap_or("bert");
         let normalized_name = Self::normalize_model_name(model_name);

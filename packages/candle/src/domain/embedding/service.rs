@@ -46,6 +46,7 @@ pub struct EmbeddingPool {
 impl EmbeddingPool {
     /// Create new embedding pool with specified capacity
     #[inline]
+    #[must_use]
     pub fn new(dimension: usize, capacity: usize) -> Self {
         let pool = Self {
             available: crossbeam_queue::ArrayQueue::new(capacity),
@@ -97,6 +98,7 @@ pub struct InMemoryEmbeddingCache {
 impl InMemoryEmbeddingCache {
     /// Create new embedding cache with specified dimension
     #[inline]
+    #[must_use]
     pub fn new(dimension: usize) -> Self {
         Self {
             cache: std::sync::RwLock::new(HashMap::with_capacity(1000)),

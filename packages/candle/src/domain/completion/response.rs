@@ -33,41 +33,49 @@ pub struct CompletionResponse<'a> {
 
 impl CompletionResponse<'_> {
     /// Get the completion text
+    #[must_use]
     pub fn text(&self) -> &str {
         &self.text
     }
 
     /// Get the model name
+    #[must_use]
     pub fn model(&self) -> &str {
         &self.model
     }
 
     /// Get the provider name if available
+    #[must_use]
     pub fn provider(&self) -> Option<&str> {
         self.provider.as_deref()
     }
 
     /// Get the finish reason if available
+    #[must_use]
     pub fn finish_reason(&self) -> Option<&str> {
         self.finish_reason.as_deref()
     }
 
     /// Get the response time in milliseconds if available
+    #[must_use]
     pub fn response_time_ms(&self) -> Option<u64> {
         self.response_time_ms
     }
 
     /// Get the token usage if available
+    #[must_use]
     pub fn usage(&self) -> Option<&Usage> {
         self.usage.as_ref()
     }
 
     /// Get the generation time in milliseconds if available
+    #[must_use]
     pub fn generation_time_ms(&self) -> Option<u32> {
         self.generation_time_ms
     }
 
     /// Get the tokens per second throughput if available
+    #[must_use]
     pub fn tokens_per_second(&self) -> Option<f64> {
         self.tokens_per_second
     }
@@ -83,6 +91,7 @@ impl CompletionResponse<'_> {
     }
 
     /// Get the number of tokens generated (output tokens) if available
+    #[must_use]
     pub fn tokens_generated(&self) -> Option<u32> {
         self.usage.as_ref().map(|u| u.output_tokens)
     }
@@ -149,6 +158,7 @@ pub struct CompactCompletionResponse {
 
 impl CompactCompletionResponse {
     /// Convert back to a standard `CompletionResponse`
+    #[must_use]
     pub fn into_standard(self) -> CompletionResponse<'static> {
         CompletionResponse {
             text: Cow::Owned((*self.content).to_owned()),

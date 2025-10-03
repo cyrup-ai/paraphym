@@ -38,6 +38,7 @@ impl Default for CandleConversationTagger {
 
 impl CandleConversationTagger {
     /// Create a new conversation tagger
+    #[must_use]
     pub fn new() -> Self {
         Self {
             tags: SkipMap::new(),

@@ -15,7 +15,11 @@ fn test_new_memory() {
     assert_eq!(memory.content, content);
     assert_eq!(memory.memory_type, memory_type.to_string());
     assert!(memory.embedding.is_none());
-    assert!(memory.metadata.as_object().unwrap().is_empty());
+    if let Some(obj) = memory.metadata.as_object() {
+        assert!(obj.is_empty());
+    } else {
+        panic!("Expected metadata to be an object");
+    }
     assert!(memory.created_at < Utc::now());
     assert_eq!(memory.created_at, memory.updated_at);
     assert_eq!(memory.created_at, memory.last_accessed_at);

@@ -15,6 +15,7 @@ use uuid::Uuid;
 use super::types::{
     BaseMemory, MemoryContent, MemoryError, MemoryResult, MemoryTypeEnum, RelationshipType,
 };
+use crate::domain::util::unix_timestamp_nanos;
 
 /// High-performance memory node with concurrent design
 ///
@@ -55,6 +56,7 @@ pub struct AlignedEmbedding {
 impl AlignedEmbedding {
     /// Create new aligned embedding with SIMD optimization
     #[inline]
+    #[must_use]
     pub fn new(data: Vec<f32>) -> Self {
         let dimension = data.len();
         Self { data, dimension }
@@ -62,18 +64,21 @@ impl AlignedEmbedding {
 
     /// Get embedding data as slice for SIMD operations
     #[inline]
+    #[must_use]
     pub fn as_slice(&self) -> &[f32] {
         &self.data
     }
 
     /// Convert to Vec for compatibility
     #[inline]
+    #[must_use]
     pub fn to_vec(&self) -> Vec<f32> {
         self.data.clone()
     }
 
     /// Calculate dot product with SIMD optimization hint
     #[inline]
+    #[must_use]
     pub fn dot_product(&self, other: &Self) -> Option<f32> {
         if self.dimension != other.dimension {
             return None;
@@ -91,6 +96,7 @@ impl AlignedEmbedding {
 
     /// Calculate cosine similarity with SIMD optimization
     #[inline]
+    #[must_use]
     pub fn cosine_similarity(&self, other: &Self) -> Option<f32> {
         if self.dimension != other.dimension {
             return None;
@@ -126,6 +132,7 @@ pub struct MemoryNodeMetadata {
 impl MemoryNodeMetadata {
     /// Create new metadata with default values
     #[inline]
+    #[must_use]
     pub fn new() -> Self {
         Self {
             importance: 0.5,
@@ -189,6 +196,7 @@ impl Default for MemoryNodeStats {
 impl MemoryNodeStats {
     /// Create new stats with zero counters
     #[inline]
+    #[must_use]
     pub fn new() -> Self {
         Self {
             access_count: AtomicU64::new(0),
@@ -218,10 +226,7 @@ impl MemoryNodeStats {
     /// Update last access timestamp atomically
     #[inline]
     fn update_last_access(&self) {
-        let now_nanos = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0);
+        let now_nanos = unix_timestamp_nanos();
         self.last_access_nanos.store(now_nanos, Ordering::Relaxed);
     }
 
@@ -277,6 +282,7 @@ pub struct MemoryRelationshipEntry {
 impl MemoryRelationshipEntry {
     /// Create new relationship entry
     #[inline]
+    #[must_use]
     pub fn new(target_id: Uuid, relationship_type: RelationshipType, strength: f32) -> Self {
         Self {
             target_id,

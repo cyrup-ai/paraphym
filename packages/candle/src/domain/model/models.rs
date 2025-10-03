@@ -20,6 +20,7 @@ pub enum DomainModelType {
 
 impl CandleDomainModel {
     /// Create text generation model
+    #[must_use]
     pub fn text_generation(model: LocalTextProvider) -> Self {
         Self {
             model_type: DomainModelType::TextGeneration(model),
@@ -27,6 +28,7 @@ impl CandleDomainModel {
     }
 
     /// Create embedding model
+    #[must_use]
     pub fn embedding(model: LocalEmbeddingProvider) -> Self {
         Self {
             model_type: DomainModelType::Embedding(model),
@@ -34,16 +36,19 @@ impl CandleDomainModel {
     }
 
     /// Check if this is a text generation model
+    #[must_use]
     pub fn is_text_generation(&self) -> bool {
         matches!(self.model_type, DomainModelType::TextGeneration(_))
     }
 
     /// Check if this is an embedding model
+    #[must_use]
     pub fn is_embedding(&self) -> bool {
         matches!(self.model_type, DomainModelType::Embedding(_))
     }
 
     /// Get model name
+    #[must_use]
     pub fn name(&self) -> &'static str {
         match &self.model_type {
             DomainModelType::TextGeneration(model) => model.name(),

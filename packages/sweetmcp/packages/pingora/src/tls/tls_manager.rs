@@ -8,6 +8,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use rustls::{ClientConfig, RootCertStore};
+use rustls::client::WantsClientCert;
 // ServerName import removed - not used
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
@@ -130,6 +131,10 @@ pub struct TlsConfig {
     pub connect_timeout: Duration,
     /// Certificate validation timeout
     pub validation_timeout: Duration,
+    /// Client certificate path for mTLS authentication
+    pub client_cert_path: Option<std::path::PathBuf>,
+    /// Client private key path for mTLS authentication
+    pub client_key_path: Option<std::path::PathBuf>,
 }
 
 impl Default for TlsConfig {
@@ -141,6 +146,8 @@ impl Default for TlsConfig {
             enable_early_data: true,
             connect_timeout: Duration::from_secs(5),
             validation_timeout: Duration::from_secs(3),
+            client_cert_path: None,
+            client_key_path: None,
         }
     }
 }
@@ -598,7 +605,7 @@ impl TlsManager {
         if self.config.enable_crl {
             self.create_client_config_with_crl(root_store)
         } else {
-            Ok(Self::create_client_config_standard(root_store))
+            self.create_client_config_standard(root_store)
         }
     }
 
@@ -614,9 +621,9 @@ impl TlsManager {
 
         if crls.is_empty() {
             tracing::debug!("No CRLs available, using standard verification");
-            Ok(ClientConfig::builder()
-                .with_root_certificates(root_store)
-                .with_no_client_auth())
+            let builder = ClientConfig::builder()
+                .with_root_certificates(root_store);
+            self.finalize_client_config_builder(builder)
         } else {
             tracing::debug!(
                 "TLS: Building WebPkiServerVerifier with {} CRLs",
@@ -630,18 +637,18 @@ impl TlsManager {
                 })?;
             tracing::debug!("TLS: WebPkiServerVerifier built successfully");
 
-            Ok(ClientConfig::builder()
-                .with_webpki_verifier(verifier)
-                .with_no_client_auth())
+            let builder = ClientConfig::builder()
+                .with_webpki_verifier(verifier);
+            self.finalize_client_config_builder(builder)
         }
     }
 
     /// Create client config with standard verification
-    fn create_client_config_standard(root_store: RootCertStore) -> ClientConfig {
+    fn create_client_config_standard(&self, root_store: RootCertStore) -> Result<ClientConfig, TlsError> {
         tracing::debug!("Configuring TLS with standard rustls verification");
-        ClientConfig::builder()
-            .with_root_certificates(root_store)
-            .with_no_client_auth()
+        let builder = ClientConfig::builder()
+            .with_root_certificates(root_store);
+        self.finalize_client_config_builder(builder)
     }
 
     /// Configure client config with early data and ALPN protocols
@@ -663,6 +670,53 @@ impl TlsManager {
             b"http/1.1".to_vec(), // HTTP/1.1 (final fallback)
         ];
         tracing::debug!("TLS: Client config configured successfully");
+    }
+
+    /// Finalize client config builder with client authentication if configured
+    ///
+    /// # Errors
+    /// Returns `TlsError` if:
+    /// - Client certificate or key files cannot be read
+    /// - Certificate or key PEM parsing fails
+    /// - Certificate chain construction fails
+    fn finalize_client_config_builder(
+        &self,
+        builder: rustls::ConfigBuilder<ClientConfig, WantsClientCert>,
+    ) -> Result<ClientConfig, TlsError> {
+        if let (Some(cert_path), Some(key_path)) = 
+            (&self.config.client_cert_path, &self.config.client_key_path) 
+        {
+            tracing::info!("Loading client certificate for mTLS from {:?}", cert_path);
+            
+            // Load client certificate and key files
+            let cert_pem = std::fs::read(cert_path)
+                .map_err(|e| TlsError::Internal(format!("Failed to read client cert: {e}")))?;
+            let key_pem = std::fs::read(key_path)
+                .map_err(|e| TlsError::Internal(format!("Failed to read client key: {e}")))?;
+            
+            // Parse certificates from PEM
+            let certs: Vec<rustls::pki_types::CertificateDer> = rustls_pemfile::certs(&mut cert_pem.as_slice())
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| TlsError::Internal(format!("Failed to parse client cert PEM: {e}")))?;
+            
+            if certs.is_empty() {
+                return Err(TlsError::Internal("No certificates found in client cert file".to_string()));
+            }
+            
+            // Parse private key from PEM
+            let key = rustls_pemfile::private_key(&mut key_pem.as_slice())
+                .map_err(|e| TlsError::Internal(format!("Failed to parse client key PEM: {e}")))?
+                .ok_or_else(|| TlsError::Internal("No private key found in key file".to_string()))?;
+            
+            tracing::info!("Successfully loaded {} client certificate(s) for mTLS", certs.len());
+            
+            // Build config with client authentication
+            Ok(builder.with_client_auth_cert(certs, key)
+                .map_err(|e| TlsError::Internal(format!("Failed to configure client auth: {e}")))?)
+        } else {
+            tracing::debug!("No client certificates configured, using standard server auth only");
+            Ok(builder.with_no_client_auth())
+        }
     }
 }
 

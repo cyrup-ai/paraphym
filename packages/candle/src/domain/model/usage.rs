@@ -46,6 +46,7 @@ impl CandleUsage {
 
     /// Returns whether no tokens have been used
     #[inline]
+    #[must_use]
     pub const fn is_zero(&self) -> bool {
         self.input_tokens == 0 && self.output_tokens == 0
     }
@@ -56,6 +57,7 @@ impl CandleUsage {
         since = "0.1.0",
         note = "Use `input_tokens` instead for HTTP3 API standardization"
     )]
+    #[must_use]
     pub const fn prompt_tokens(&self) -> u32 {
         self.input_tokens
     }
@@ -66,6 +68,7 @@ impl CandleUsage {
         since = "0.1.0",
         note = "Use `output_tokens` instead for HTTP3 API standardization"
     )]
+    #[must_use]
     pub const fn completion_tokens(&self) -> u32 {
         self.output_tokens
     }

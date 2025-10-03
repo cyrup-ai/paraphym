@@ -29,6 +29,7 @@ impl Default for CommandRegistry {
 
 impl CommandRegistry {
     /// Create a new command registry
+    #[must_use]
     pub fn new() -> Self {
         Self {
             commands: Arc::new(SkipMap::new()),
@@ -143,6 +144,7 @@ impl CommandRegistry {
     }
 
     /// Get command information
+    #[must_use]
     pub fn get_command(&self, name: &str) -> Option<CommandInfo> {
         let command_name = name.to_string();
 
@@ -163,12 +165,14 @@ impl CommandRegistry {
     }
 
     /// Check if command exists
+    #[must_use]
     pub fn has_command(&self, name: &str) -> bool {
         let command_name = name.to_string();
         self.commands.contains_key(&command_name) || self.aliases.contains_key(&command_name)
     }
 
     /// List all registered commands
+    #[must_use]
     pub fn list_commands(&self) -> Vec<CommandInfo> {
         self.commands
             .iter()
@@ -177,6 +181,7 @@ impl CommandRegistry {
     }
 
     /// List commands by category
+    #[must_use]
     pub fn list_commands_by_category(&self, category: &str) -> Vec<CommandInfo> {
         let category_key = category.to_string();
 
@@ -192,6 +197,7 @@ impl CommandRegistry {
     }
 
     /// List all categories
+    #[must_use]
     pub fn list_categories(&self) -> Vec<String> {
         self.categories
             .iter()
@@ -200,6 +206,7 @@ impl CommandRegistry {
     }
 
     /// Get command suggestions for auto-completion
+    #[must_use]
     pub fn get_suggestions(&self, prefix: &str) -> Vec<String> {
         let mut suggestions = Vec::new();
 
@@ -224,6 +231,7 @@ impl CommandRegistry {
     }
 
     /// Search commands by keyword
+    #[must_use]
     pub fn search_commands(&self, keyword: &str) -> Vec<CommandInfo> {
         let keyword_lower = keyword.to_lowercase();
 
@@ -240,6 +248,7 @@ impl CommandRegistry {
     }
 
     /// Get command statistics
+    #[must_use]
     pub fn get_statistics(&self) -> CommandRegistryStats {
         let total_commands = self.commands.len();
         let total_aliases = self.aliases.len();
@@ -319,11 +328,13 @@ impl CommandRegistry {
     }
 
     /// Get command count
+    #[must_use]
     pub fn command_count(&self) -> usize {
         self.commands.len()
     }
 
     /// Get alias count
+    #[must_use]
     pub fn alias_count(&self) -> usize {
         self.aliases.len()
     }
@@ -385,6 +396,7 @@ static GLOBAL_REGISTRY: std::sync::LazyLock<CommandRegistry> =
     std::sync::LazyLock::new(CommandRegistry::new);
 
 /// Get global command registry
+#[must_use]
 pub fn get_global_registry() -> &'static CommandRegistry {
     &GLOBAL_REGISTRY
 }
@@ -399,21 +411,25 @@ pub fn register_global_command(info: &CommandInfo) -> Result<(), CandleCommandEr
 }
 
 /// Get command from global registry
+#[must_use]
 pub fn get_global_command(name: &str) -> Option<CommandInfo> {
     get_global_registry().get_command(name)
 }
 
 /// Check if command exists in global registry
+#[must_use]
 pub fn has_global_command(name: &str) -> bool {
     get_global_registry().has_command(name)
 }
 
 /// Get suggestions from global registry
+#[must_use]
 pub fn get_global_suggestions(prefix: &str) -> Vec<String> {
     get_global_registry().get_suggestions(prefix)
 }
 
 /// Search commands in global registry
+#[must_use]
 pub fn search_global_commands(keyword: &str) -> Vec<CommandInfo> {
     get_global_registry().search_commands(keyword)
 }

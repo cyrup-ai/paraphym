@@ -26,6 +26,7 @@ pub struct FilterRegistry {
 
 impl FilterRegistry {
     /// Create a new filter registry
+    #[must_use]
     pub fn new() -> Self {
         Self {
             filters: std::collections::HashMap::new(),
@@ -33,6 +34,7 @@ impl FilterRegistry {
     }
 
     /// Create a registry with default filters
+    #[must_use]
     pub fn with_defaults() -> Self {
         let mut registry = Self::new();
         registry.register_default_filters();
@@ -45,6 +47,7 @@ impl FilterRegistry {
     }
 
     /// Get a filter by name
+    #[must_use]
     pub fn get(&self, name: &str) -> Option<&FilterFunction> {
         self.filters.get(name)
     }

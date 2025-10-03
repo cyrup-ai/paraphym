@@ -51,6 +51,7 @@ pub struct MemoryStore {
 
 impl MemoryStore {
     /// Create a new memory store
+    #[must_use]
     pub fn new() -> Self {
         Self {
             templates: std::sync::RwLock::new(HashMap::new()),

@@ -14,6 +14,7 @@ pub mod validation;
 // Re-export main Candle types and functions for convenience
 // Global Candle command executor functionality
 use std::sync::{Arc, RwLock};
+use crate::domain::util::unix_timestamp_micros;
 
 pub use execution::CommandExecutor;
 
@@ -66,6 +67,7 @@ pub fn parse_candle_command(input: &str) -> CommandResult<ImmutableChatCommand> 
 }
 
 /// Execute Candle command using global executor - STREAMING VERSION (streams-only architecture)
+#[must_use]
 pub fn execute_candle_command_async(command: ImmutableChatCommand) -> AsyncStream<CommandEvent> {
     AsyncStream::with_channel(move |sender| {
         if let Some(executor) = get_candle_command_executor() {
@@ -81,10 +83,7 @@ pub fn execute_candle_command_async(command: ImmutableChatCommand) -> AsyncStrea
                 error_code: 1001,
                 duration_us: 0,
                 resource_usage: crate::domain::chat::commands::types::metadata::ResourceUsage::new_with_start_time(),
-                timestamp_us: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_micros() as u64
+                timestamp_us: unix_timestamp_micros()
             });
         }
     })
@@ -92,6 +91,7 @@ pub fn execute_candle_command_async(command: ImmutableChatCommand) -> AsyncStrea
 
 /// Execute Candle command using global executor - STREAMING VERSION (streams-only architecture)
 /// Note: Sync version removed - use streaming architecture only
+#[must_use]
 pub fn execute_candle_command(command: ImmutableChatCommand) -> AsyncStream<CommandEvent> {
     AsyncStream::with_channel(move |sender| {
         if let Some(executor) = get_candle_command_executor() {
@@ -107,16 +107,14 @@ pub fn execute_candle_command(command: ImmutableChatCommand) -> AsyncStream<Comm
                 error_code: 1001,
                 duration_us: 0,
                 resource_usage: crate::domain::chat::commands::types::metadata::ResourceUsage::new_with_start_time(),
-                timestamp_us: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_micros() as u64
+                timestamp_us: unix_timestamp_micros()
             });
         }
     })
 }
 
 /// Parse and execute Candle command using global executor - STREAMING VERSION (streams-only architecture)
+#[must_use]
 pub fn parse_and_execute_candle_command_async(input: &str) -> AsyncStream<CommandEvent> {
     let input_str = input.to_string();
     AsyncStream::with_channel(move |sender| {
@@ -133,10 +131,7 @@ pub fn parse_and_execute_candle_command_async(input: &str) -> AsyncStream<Comman
                 error_code: 1001,
                 duration_us: 0,
                 resource_usage: crate::domain::chat::commands::types::metadata::ResourceUsage::new_with_start_time(),
-                timestamp_us: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_micros() as u64
+                timestamp_us: unix_timestamp_micros()
             });
         }
     })
@@ -144,6 +139,7 @@ pub fn parse_and_execute_candle_command_async(input: &str) -> AsyncStream<Comman
 
 /// Parse and execute Candle command using global executor - STREAMING VERSION (streams-only architecture)
 /// Note: Sync version removed - use streaming architecture only
+#[must_use]
 pub fn parse_and_execute_candle_command(input: &str) -> AsyncStream<CommandEvent> {
     let input_str = input.to_string();
     AsyncStream::with_channel(move |sender| {
@@ -160,10 +156,7 @@ pub fn parse_and_execute_candle_command(input: &str) -> AsyncStream<CommandEvent
                 error_code: 1001,
                 duration_us: 0,
                 resource_usage: crate::domain::chat::commands::types::metadata::ResourceUsage::new_with_start_time(),
-                timestamp_us: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_micros() as u64
+                timestamp_us: unix_timestamp_micros()
             });
         }
     })

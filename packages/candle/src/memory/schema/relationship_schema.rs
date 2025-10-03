@@ -292,16 +292,14 @@ mod tests {
     }
 
     #[test]
-    fn test_relationship_metadata() {
+    fn test_relationship_metadata() -> Result<(), Box<dyn std::error::Error>> {
         let mut relationship = Relationship::new("source-id", "target-id", "related_to");
 
         // Set metadata value
         relationship
-            .set_metadata_value("number", 42)
-            .expect("should set metadata number");
+            .set_metadata_value("number", 42)?;
         relationship
-            .set_metadata_value("string", "value")
-            .expect("should set metadata string");
+            .set_metadata_value("string", "value")?;
 
         // Get metadata value
         assert_eq!(relationship.get_metadata_value::<i32>("number"), Some(42));
@@ -314,19 +312,18 @@ mod tests {
         // Remove metadata value
         relationship.remove_metadata_value("number");
         assert_eq!(relationship.get_metadata_value::<i32>("number"), None);
+        Ok(())
     }
 
     #[test]
-    fn test_relationship_additional_fields() {
+    fn test_relationship_additional_fields() -> Result<(), Box<dyn std::error::Error>> {
         let mut relationship = Relationship::new("source-id", "target-id", "related_to");
 
         // Set additional field
         relationship
-            .set_additional_field("field1", 123)
-            .expect("should set additional field1");
+            .set_additional_field("field1", 123)?;
         relationship
-            .set_additional_field("field2", "value")
-            .expect("should set additional field2");
+            .set_additional_field("field2", "value")?;
 
         // Get additional field
         assert_eq!(
@@ -345,6 +342,7 @@ mod tests {
         // Remove additional field
         relationship.remove_additional_field("field1");
         assert_eq!(relationship.get_additional_field::<i32>("field1"), None);
+        Ok(())
     }
 
     #[test]
@@ -377,15 +375,13 @@ mod tests {
     }
 
     #[test]
-    fn test_relationship_serialization() {
+    fn test_relationship_serialization() -> Result<(), Box<dyn std::error::Error>> {
         let relationship = Relationship::new("source-id", "target-id", "related_to")
             .with_metadata(serde_json::json!({"key": "value"}))
             .with_strength(0.75);
 
-        let json =
-            serde_json::to_string(&relationship).expect("should serialize relationship to JSON");
-        let deserialized: Relationship =
-            serde_json::from_str(&json).expect("should deserialize relationship from JSON");
+        let json = serde_json::to_string(&relationship)?;
+        let deserialized: Relationship = serde_json::from_str(&json)?;
 
         assert_eq!(deserialized.id, relationship.id);
         assert_eq!(deserialized.source_id, relationship.source_id);
@@ -396,5 +392,6 @@ mod tests {
         );
         assert_eq!(deserialized.metadata, relationship.metadata);
         assert_eq!(deserialized.strength, relationship.strength);
+        Ok(())
     }
 }

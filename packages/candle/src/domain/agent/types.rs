@@ -23,6 +23,7 @@ pub struct CandleAdditionalParams {
 
 impl CandleAdditionalParams {
     /// Create a new empty set of additional parameters
+    #[must_use]
     pub fn new() -> Self {
         Self {
             params: HashMap::new(),
@@ -30,11 +31,13 @@ impl CandleAdditionalParams {
     }
 
     /// Create from a map of parameters
+    #[must_use]
     pub fn from_map(params: HashMap<String, Value>) -> Self {
         Self { params }
     }
 
     /// Get a parameter value by key
+    #[must_use]
     pub fn get(&self, key: &str) -> Option<&Value> {
         self.params.get(key)
     }
@@ -45,11 +48,13 @@ impl CandleAdditionalParams {
     }
 
     /// Check if a parameter exists
+    #[must_use]
     pub fn contains_key(&self, key: &str) -> bool {
         self.params.contains_key(key)
     }
 
     /// Get a reference to the underlying parameters
+    #[must_use]
     pub fn as_map(&self) -> &HashMap<String, Value> {
         &self.params
     }
@@ -100,6 +105,7 @@ impl CandleAgent {
     }
 
     /// Get the agent's name
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.config.name
     }
@@ -135,11 +141,13 @@ pub struct AgentConversation {
 
 impl AgentConversation {
     /// Create a new empty agent conversation
+    #[must_use]
     pub fn new() -> Self {
         Self { messages: None }
     }
 
     /// Get the last message from the conversation
+    #[must_use]
     pub fn last(&self) -> AgentConversationMessage {
         AgentConversationMessage {
             content: self
@@ -169,6 +177,7 @@ pub struct AgentConversationMessage {
 
 impl AgentConversationMessage {
     /// Get the message content as a string slice
+    #[must_use]
     pub fn message(&self) -> &str {
         &self.content
     }

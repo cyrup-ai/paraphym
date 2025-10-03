@@ -33,27 +33,27 @@ use crate::service::sse::{
 
 /// SSE server state shared across handlers
 #[derive(Debug, Clone)]
-struct ServerState {
+pub struct ServerState {
     /// Session manager for tracking SSE connections
-    session_manager: Arc<SessionManager>,
+    pub session_manager: Arc<SessionManager>,
     /// Bridge for communicating with MCP server
-    mcp_bridge: Arc<McpBridge>,
+    pub mcp_bridge: Arc<McpBridge>,
     /// SSE encoder for formatting events
-    encoder: SseEncoder,
+    pub encoder: SseEncoder,
     /// Server configuration
-    config: SseConfig,
+    pub config: SseConfig,
 }
 
 /// Query parameters for the messages endpoint
 #[derive(Debug, Deserialize)]
-struct MessagesQuery {
-    session_id: String,
+pub struct MessagesQuery {
+    pub session_id: String,
 }
 
 /// SSE server implementation
 #[derive(Debug)]
 pub struct SseServer {
-    config: SseConfig,
+    pub config: SseConfig,
 }
 
 impl SseServer {
@@ -126,7 +126,7 @@ impl SseServer {
     }
 
     /// Build CORS layer based on configuration
-    fn build_cors_layer(&self) -> CorsLayer {
+    pub fn build_cors_layer(&self) -> CorsLayer {
         let mut cors = CorsLayer::new()
             .allow_methods([axum::http::Method::GET, axum::http::Method::POST])
             .allow_headers([
@@ -316,54 +316,4 @@ struct HealthResponse {
     mcp_server_healthy: bool,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::service::sse::SseConfig;
 
-    #[test]
-    fn test_server_creation() {
-        let config = SseConfig::default();
-        let server = SseServer::new(config);
-        assert_eq!(server.config.port, 8080);
-    }
-
-    #[test]
-    fn test_cors_configuration() {
-        let config = SseConfig {
-            cors_origins: vec!["*".to_string()],
-            ..Default::default()
-        };
-        let server = SseServer::new(config);
-        let _cors_layer = server.build_cors_layer();
-        // CORS layer creation should not panic
-    }
-
-    #[test]
-    fn test_messages_query_parsing() {
-        use serde_urlencoded;
-
-        let query_str = "session_id=abc123";
-        let query: MessagesQuery = serde_urlencoded::from_str(query_str).unwrap();
-        assert_eq!(query.session_id, "abc123");
-    }
-
-    #[tokio::test]
-    async fn test_server_state_creation() {
-        let config = SseConfig::default();
-        let session_manager = Arc::new(SessionManager::default());
-        let mcp_bridge = Arc::new(
-            McpBridge::new("http://localhost:3000".to_string(), Duration::from_secs(30)).unwrap(),
-        );
-        let encoder = SseEncoder::new();
-
-        let state = ServerState {
-            session_manager,
-            mcp_bridge,
-            encoder,
-            config,
-        };
-
-        assert_eq!(state.config.port, 8080);
-    }
-}

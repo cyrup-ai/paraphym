@@ -37,6 +37,7 @@ pub enum SettingsCategory {
 impl SettingsCategory {
     /// Get category name as static string for zero allocation
     #[inline]
+    #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::General => "general",
@@ -87,6 +88,7 @@ pub enum OutputType {
 impl OutputType {
     /// Get type name as static string for zero allocation
     #[inline]
+    #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Text => "text",
@@ -107,6 +109,7 @@ impl OutputType {
 
     /// Get MIME type for HTTP responses
     #[inline]
+    #[must_use]
     pub const fn mime_type(&self) -> &'static str {
         match self {
             Self::Text | Self::Log | Self::Error => "text/plain",
@@ -164,6 +167,7 @@ impl CommandExecutionResult {
 
     /// Create data result with JSON value
     #[inline]
+    #[must_use]
     pub fn data(value: serde_json::Value) -> Self {
         Self::Data(value)
     }
@@ -180,6 +184,7 @@ impl CommandExecutionResult {
 
     /// Create multiple results
     #[inline]
+    #[must_use]
     pub fn multiple(results: Vec<CommandExecutionResult>) -> Self {
         Self::Multiple(results)
     }
@@ -206,6 +211,7 @@ impl CommandExecutionResult {
 
     /// Check if result indicates success
     #[inline]
+    #[must_use]
     pub fn is_success(&self) -> bool {
         matches!(
             self,
@@ -219,6 +225,7 @@ impl CommandExecutionResult {
 
     /// Check if result indicates error
     #[inline]
+    #[must_use]
     pub fn is_error(&self) -> bool {
         matches!(self, Self::Error(_))
     }
@@ -456,6 +463,7 @@ impl Default for ImmutableChatCommand {
 impl ImmutableChatCommand {
     /// Get command name as static string for zero allocation dispatch
     #[inline]
+    #[must_use]
     pub const fn command_name(&self) -> &'static str {
         match self {
             Self::Help { .. } => "help",
@@ -486,6 +494,7 @@ impl ImmutableChatCommand {
 
     /// Check if command requires confirmation - zero allocation check
     #[inline]
+    #[must_use]
     pub const fn requires_confirmation(&self) -> bool {
         matches!(
             self,
@@ -499,6 +508,7 @@ impl ImmutableChatCommand {
 
     /// Check if command modifies state - zero allocation check
     #[inline]
+    #[must_use]
     pub const fn is_mutating(&self) -> bool {
         matches!(
             self,
@@ -518,6 +528,7 @@ impl ImmutableChatCommand {
 
     /// Check if command requires network access - zero allocation check
     #[inline]
+    #[must_use]
     pub const fn requires_network(&self) -> bool {
         matches!(
             self,
@@ -527,12 +538,14 @@ impl ImmutableChatCommand {
 
     /// Check if command can be executed offline - zero allocation check
     #[inline]
+    #[must_use]
     pub const fn is_offline_capable(&self) -> bool {
         !self.requires_network()
     }
 
     /// Get command priority for execution scheduling - zero allocation
     #[inline]
+    #[must_use]
     pub const fn priority(&self) -> u8 {
         match self {
             Self::Chat { priority, .. } => *priority,
@@ -692,6 +705,7 @@ impl ImmutableChatCommand {
 
     /// Get estimated execution time in milliseconds for scheduling
     #[inline]
+    #[must_use]
     pub const fn estimated_duration_ms(&self) -> u64 {
         match self {
             Self::Help { .. } => 100,
@@ -710,6 +724,7 @@ impl ImmutableChatCommand {
 
     /// Get memory requirements in bytes for resource planning
     #[inline]
+    #[must_use]
     pub const fn memory_requirement_bytes(&self) -> u64 {
         match self {
             Self::Export { .. } => 50 * 1024 * 1024, // 50MB for large exports
@@ -729,6 +744,7 @@ impl ImmutableChatCommand {
 
     /// Check if command can be parallelized with other commands
     #[inline]
+    #[must_use]
     pub const fn is_parallelizable(&self) -> bool {
         matches!(
             self,

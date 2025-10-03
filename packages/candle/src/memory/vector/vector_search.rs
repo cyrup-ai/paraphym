@@ -22,6 +22,12 @@ use crate::memory::vector::embedding_model::EmbeddingModel;
 use crate::memory::vector::vector_store::VectorStore;
 use crate::providers::bert_embedding::CandleBertEmbeddingProvider;
 
+use crate::domain::memory::cognitive::types::{
+    CognitiveProcessor,
+    CognitiveProcessorConfig,
+    DecisionOutcome,
+};
+
 /// Convert static string to Option<String> for embedding tasks
 #[inline]
 fn task_string(task: &'static str) -> Option<String> {
@@ -50,6 +56,8 @@ pub struct SearchResult {
     pub rank: Option<usize>,
     /// Combined score from multiple search strategies (for hybrid search)
     pub combined_score: Option<f32>,
+    /// Cognitive processor decision confidence (0.0 to 1.0)
+    pub decision_confidence: Option<f32>,
 }
 
 impl SearchResult {
@@ -62,6 +70,7 @@ impl SearchResult {
             metadata: None,
             rank: None,
             combined_score: None,
+            decision_confidence: None,
         }
     }
 
@@ -79,6 +88,7 @@ impl SearchResult {
             metadata: Some(metadata),
             rank: None,
             combined_score: None,
+            decision_confidence: None,
         }
     }
 
@@ -93,6 +103,13 @@ impl SearchResult {
     #[must_use]
     pub fn with_combined_score(mut self, score: f32) -> Self {
         self.combined_score = Some(score);
+        self
+    }
+
+    /// Set the decision confidence from cognitive processor
+    #[must_use]
+    pub fn with_decision_confidence(mut self, confidence: f32) -> Self {
+        self.decision_confidence = Some(confidence);
         self
     }
 
@@ -220,6 +237,8 @@ pub struct VectorSearch {
     embedding_model: Arc<dyn EmbeddingModel>,
     /// Default search options
     default_options: SearchOptions,
+    /// Cognitive processor for intelligent result filtering and adaptive thresholds
+    cognitive_processor: Arc<CognitiveProcessor>,
 }
 
 impl VectorSearch {
@@ -232,10 +251,18 @@ impl VectorSearch {
     /// # Returns
     /// New VectorSearch instance
     pub fn new(store: Arc<dyn VectorStore>, embedding_model: Arc<dyn EmbeddingModel>) -> Self {
+        let processor_config = CognitiveProcessorConfig {
+            batch_size: 32,
+            decision_threshold: 0.7,  // Matches SearchOptions::default() min_similarity
+            learning_rate: 0.01,
+            max_iterations: 1000,
+        };
+        
         Self {
             store,
             embedding_model,
             default_options: SearchOptions::default(),
+            cognitive_processor: Arc::new(CognitiveProcessor::new(processor_config)),
         }
     }
 
@@ -248,10 +275,13 @@ impl VectorSearch {
     /// Result containing new VectorSearch instance with BERT embeddings
     pub async fn with_bert_embeddings(store: Arc<dyn VectorStore>) -> Result<Self> {
         let bert_provider = create_shared_bert_provider().await?;
+        let processor_config = CognitiveProcessorConfig::default(); // Uses 0.7 threshold
+        
         Ok(Self {
             store,
             embedding_model: bert_provider as Arc<dyn EmbeddingModel>,
             default_options: SearchOptions::default(),
+            cognitive_processor: Arc::new(CognitiveProcessor::new(processor_config)),
         })
     }
 
@@ -261,10 +291,20 @@ impl VectorSearch {
         embedding_model: Arc<dyn EmbeddingModel>,
         default_options: SearchOptions,
     ) -> Self {
+        // Extract threshold from options for processor config (adaptive threshold principle)
+        let decision_threshold = default_options.min_similarity.unwrap_or(0.7);
+        let processor_config = CognitiveProcessorConfig {
+            batch_size: 32,
+            decision_threshold,
+            learning_rate: 0.01,
+            max_iterations: 1000,
+        };
+        
         Self {
             store,
             embedding_model,
             default_options,
+            cognitive_processor: Arc::new(CognitiveProcessor::new(processor_config)),
         }
     }
 
@@ -329,11 +369,58 @@ impl VectorSearch {
         // Search in vector store (synchronous)
         let results = self.store.search(embedding, limit, filters)?;
 
-        // Apply minimum similarity threshold if specified
-        let filtered_results = if let Some(threshold) = options.min_similarity {
+        // Use cognitive processor for intelligent result filtering
+        let filtered_results = if options.min_similarity.is_some() {
             results
                 .into_iter()
-                .filter(|(_, _, similarity, _)| *similarity >= threshold)
+                .filter(|(_, vector, similarity, _)| {
+                    // Use processor to make decision about this result
+                    match self.cognitive_processor.process(vector) {
+                        Ok(decision) => {
+                            match decision.outcome {
+                                DecisionOutcome::Accept => {
+                                    tracing::debug!(
+                                        "CognitiveProcessor ACCEPT: similarity={:.4}, confidence={:.4}",
+                                        similarity,
+                                        decision.confidence
+                                    );
+                                    true // Include this result
+                                }
+                                DecisionOutcome::Defer => {
+                                    // Medium confidence - skip for now (VECCOG_4 may add defer queue)
+                                    tracing::debug!(
+                                        "CognitiveProcessor DEFER: similarity={:.4}, confidence={:.4}",
+                                        similarity,
+                                        decision.confidence
+                                    );
+                                    false // Exclude for now
+                                }
+                                DecisionOutcome::Reject => {
+                                    tracing::trace!(
+                                        "CognitiveProcessor REJECT: similarity={:.4}, confidence={:.4}",
+                                        similarity,
+                                        decision.confidence
+                                    );
+                                    false // Exclude this result
+                                }
+                                DecisionOutcome::RequestInfo => {
+                                    // This outcome is never returned by make_decision()
+                                    // but handle it defensively
+                                    tracing::debug!(
+                                        "CognitiveProcessor REQUEST_INFO: similarity={:.4}",
+                                        similarity
+                                    );
+                                    false // Skip for now
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            // Fallback to similarity threshold on processor error
+                            tracing::warn!("CognitiveProcessor error, using fallback: {}", e);
+                            *similarity >= options.min_similarity.unwrap_or(0.7)
+                        }
+                    }
+                })
                 .collect::<Vec<_>>()
         } else {
             results
@@ -344,6 +431,12 @@ impl VectorSearch {
             .into_iter()
             .enumerate()
             .map(|(index, (id, vector, similarity, metadata))| {
+                // Get decision confidence from processor
+                let decision_confidence = self.cognitive_processor
+                    .process(&vector)
+                    .ok()
+                    .map(|decision| decision.confidence);
+                
                 let vector = if options.include_vectors.unwrap_or(false) {
                     vector
                 } else {
@@ -363,6 +456,7 @@ impl VectorSearch {
                     metadata,
                     rank: None,
                     combined_score: None,
+                    decision_confidence,
                 };
 
                 if options.include_rank.unwrap_or(false) {
@@ -418,10 +512,12 @@ impl VectorSearch {
             let handle = thread::spawn(move || {
                 // Use the actual embedding model for consistency
                 // Even though we don't need it for pure vector search, it's available
+                let processor_config = CognitiveProcessorConfig::default();
                 let search = VectorSearch {
                     store,
                     embedding_model,
                     default_options: SearchOptions::default(),
+                    cognitive_processor: Arc::new(CognitiveProcessor::new(processor_config)),
                 };
 
                 let result = search.search_by_embedding(&embedding, options);
@@ -618,6 +714,7 @@ impl HybridSearch {
                     metadata: result.metadata,
                     rank: result.rank,
                     combined_score: Some(weighted_similarity),
+                    decision_confidence: result.decision_confidence,
                 },
             );
         }
@@ -640,6 +737,7 @@ impl HybridSearch {
                         metadata: existing.metadata.or(result.metadata), // Merge metadata
                         rank: None,                                      // Will be recomputed
                         combined_score: Some(new_combined_score),
+                        decision_confidence: existing.decision_confidence,
                     },
                 );
             } else {
@@ -653,6 +751,7 @@ impl HybridSearch {
                         metadata: result.metadata,
                         rank: result.rank,
                         combined_score: Some(weighted_similarity),
+                        decision_confidence: result.decision_confidence,
                     },
                 );
             }
@@ -725,6 +824,7 @@ impl VectorSearch {
             store: Arc::clone(&self.store),
             embedding_model: Arc::clone(&self.embedding_model),
             default_options: self.default_options.clone(),
+            cognitive_processor: Arc::clone(&self.cognitive_processor),
         }
     }
 }

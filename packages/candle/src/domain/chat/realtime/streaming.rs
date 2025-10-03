@@ -17,6 +17,7 @@ use cyrup_sugars::prelude::MessageChunk;
 
 use super::events::RealTimeEvent;
 // Use the domain's RealTimeError
+use crate::domain::util::unix_timestamp_nanos;
 use crate::domain::chat::message::types::{
     CandleMessage as Message, CandleMessageRole as MessageRole,
 };
@@ -74,6 +75,7 @@ impl MessageChunk for LiveUpdateMessage {
 impl LiveUpdateMessage {
     /// Create a new live update message with current timestamp
     #[inline]
+    #[must_use]
     pub fn new(
         id: String,
         content: String,
@@ -82,14 +84,11 @@ impl LiveUpdateMessage {
         user_id: String,
         priority: MessagePriority,
     ) -> Self {
-        let timestamp_nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0);
+        let timestamp_nanos = unix_timestamp_nanos();
 
-        let size_bytes =
-            (id.len() + content.len() + message_type.len() + session_id.len() + user_id.len())
-                as u32;
+        let size_bytes = u32::try_from(
+            id.len() + content.len() + message_type.len() + session_id.len() + user_id.len()
+        ).unwrap_or(u32::MAX);
 
         Self {
             id,
@@ -109,7 +108,7 @@ impl LiveUpdateMessage {
     #[must_use]
     #[inline]
     pub fn with_metadata(mut self, metadata: String) -> Self {
-        self.size_bytes += metadata.len() as u32;
+        self.size_bytes += u32::try_from(metadata.len()).unwrap_or(u32::MAX);
         self.metadata = Some(metadata);
         self
     }
@@ -117,28 +116,29 @@ impl LiveUpdateMessage {
     /// Get timestamp in seconds
     #[allow(clippy::cast_precision_loss)] // Acceptable for timestamp conversion
     #[inline]
+    #[must_use]
     pub fn timestamp_seconds(&self) -> f64 {
         self.timestamp_nanos as f64 / 1_000_000_000.0
     }
 
     /// Get message age in nanoseconds
     #[inline]
+    #[must_use]
     pub fn age_nanos(&self) -> u64 {
-        let now_nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0);
+        let now_nanos = unix_timestamp_nanos();
 
         now_nanos.saturating_sub(self.timestamp_nanos)
     }
 
     /// Check if message has expired based on TTL
     #[inline]
+    #[must_use]
     pub fn is_expired(&self, ttl_nanos: u64) -> bool {
         self.age_nanos() > ttl_nanos
     }
 
     /// Convert to `RealTimeEvent` for broadcasting
+    #[must_use]
     pub fn to_real_time_event(&self) -> RealTimeEvent {
         // Create a basic Message for the event
         let message = Message::new(
@@ -167,6 +167,7 @@ pub enum MessagePriority {
 impl MessagePriority {
     /// Get priority weight for ordering (higher = more important)
     #[inline]
+    #[must_use]
     pub const fn weight(&self) -> u8 {
         match self {
             Self::Low => 1,
@@ -178,6 +179,7 @@ impl MessagePriority {
 
     /// Convert to atomic representation
     #[inline]
+    #[must_use]
     pub const fn to_atomic(&self) -> u8 {
         match self {
             Self::Low => 0,
@@ -189,6 +191,7 @@ impl MessagePriority {
 
     /// Convert from atomic representation
     #[inline]
+    #[must_use]
     pub const fn from_atomic(value: u8) -> Self {
         match value {
             0 => Self::Low,
@@ -264,10 +267,7 @@ impl StreamSubscriber {
     /// Create new stream subscriber
     #[inline]
     pub fn new(id: String) -> Self {
-        let now_nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0);
+        let now_nanos = unix_timestamp_nanos();
 
         Self {
             id,
@@ -337,10 +337,7 @@ impl StreamSubscriber {
     /// Get subscription duration in nanoseconds
     #[inline]
     pub fn subscription_duration_nanos(&self) -> u64 {
-        let now_nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0);
+        let now_nanos = unix_timestamp_nanos();
 
         now_nanos.saturating_sub(self.subscribed_at)
     }
@@ -349,6 +346,7 @@ impl StreamSubscriber {
 impl LiveMessageStreamer {
     /// Create new live message streamer
     #[inline]
+    #[must_use]
     pub fn new(
         queue_size_limit: usize,
         backpressure_threshold: usize,
@@ -375,6 +373,7 @@ impl LiveMessageStreamer {
     }
 
     /// Send live update message with backpressure handling
+    #[must_use]
     pub fn send_message(&self, mut message: LiveUpdateMessage) -> AsyncStream<StreamingResult> {
         let message_queue = if message.priority >= MessagePriority::High {
             self.priority_queue.clone()
@@ -445,6 +444,7 @@ impl LiveMessageStreamer {
     }
 
     /// Subscribe to live updates with filtering
+    #[must_use]
     pub fn subscribe(&self, subscriber: StreamSubscriber) -> AsyncStream<LiveUpdateMessage> {
         let subscriber_arc = Arc::new(subscriber);
         let subscriber_id = subscriber_arc.id.clone();
@@ -457,6 +457,7 @@ impl LiveMessageStreamer {
     }
 
     /// Unsubscribe from live updates
+    #[must_use]
     pub fn unsubscribe(&self, subscriber_id: &str) -> AsyncStream<UnsubscribeResult> {
         let subscribers = self.subscribers.clone();
         let subscriber_counter = self.subscriber_counter.clone();
@@ -487,6 +488,7 @@ impl LiveMessageStreamer {
 
     /// Start message processing task with lock-free distribution
     #[allow(clippy::cast_precision_loss)] // Acceptable for rate calculations
+    #[must_use]
     pub fn start_processing(&self) -> AsyncStream<ProcessingEvent> {
         if self
             .processing_active
@@ -595,6 +597,7 @@ impl LiveMessageStreamer {
 
     /// Get current backpressure threshold
     #[inline]
+    #[must_use]
     pub fn get_backpressure_threshold(&self) -> usize {
         self.backpressure_threshold.load(Ordering::Acquire)
     }
@@ -607,6 +610,7 @@ impl LiveMessageStreamer {
     }
 
     /// Get comprehensive streaming statistics
+    #[must_use]
     pub fn get_statistics(&self) -> StreamingStatistics {
         StreamingStatistics {
             total_messages: self.message_counter.load(Ordering::Acquire),
@@ -623,6 +627,7 @@ impl LiveMessageStreamer {
 
     /// Subscribe to real-time events
     #[inline]
+    #[must_use]
     pub fn subscribe_to_events(&self) -> broadcast::Receiver<RealTimeEvent> {
         self.event_broadcaster.subscribe()
     }

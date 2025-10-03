@@ -215,6 +215,7 @@ impl DomainCommandExecutorEnum {
 
     /// Get command info using enum dispatch - zero allocation
     #[inline]
+    #[must_use]
     pub fn get_info(&self) -> &CommandInfo {
         match self {
             Self::Help(executor) => executor.get_info(),
@@ -245,6 +246,7 @@ impl DomainCommandExecutorEnum {
 
     /// Get command name using enum dispatch - zero allocation
     #[inline]
+    #[must_use]
     pub fn name(&self) -> &'static str {
         match self {
             Self::Help(_) => "help",
@@ -291,6 +293,7 @@ pub struct DomainCommandRegistry {
 impl DomainCommandRegistry {
     /// Create a new empty command registry with zero allocation
     #[inline]
+    #[must_use]
     pub fn new() -> Self {
         Self {
             commands: SkipMap::new(),
@@ -441,6 +444,7 @@ pub struct RegistryStatistics {
 impl RegistryStatistics {
     /// Create new registry statistics
     #[inline]
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             commands: AtomicU64::new(0),

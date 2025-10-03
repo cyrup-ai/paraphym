@@ -18,6 +18,7 @@ pub struct CandleAdditionalParams {
 
 impl CandleAdditionalParams {
     /// Create a new empty additional parameters set
+    #[must_use]
     pub fn new() -> Self {
         Self {
             params: HashMap::new(),
@@ -25,6 +26,7 @@ impl CandleAdditionalParams {
     }
 
     /// Create from key-value pairs
+    #[must_use]
     pub fn from_pairs(pairs: Vec<(String, String)>) -> Self {
         Self {
             params: pairs.into_iter().collect(),
@@ -32,6 +34,7 @@ impl CandleAdditionalParams {
     }
 
     /// Create from a JSON value map (converts values to strings)
+    #[must_use]
     pub fn from_json_map(map: std::collections::HashMap<String, serde_json::Value>) -> Self {
         let params = map.into_iter().map(|(k, v)| (k, v.to_string())).collect();
         Self { params }
@@ -45,6 +48,7 @@ impl CandleAdditionalParams {
     }
 
     /// Get a parameter value
+    #[must_use]
     pub fn get(&self, key: &str) -> Option<&String> {
         self.params.get(key)
     }
@@ -93,6 +97,7 @@ pub struct CandleMetadata {
 
 impl CandleMetadata {
     /// Create a new empty metadata set
+    #[must_use]
     pub fn new() -> Self {
         Self {
             metadata: HashMap::new(),
@@ -100,6 +105,7 @@ impl CandleMetadata {
     }
 
     /// Create from key-value pairs
+    #[must_use]
     pub fn from_pairs(pairs: Vec<(String, String)>) -> Self {
         Self {
             metadata: pairs.into_iter().collect(),
@@ -107,6 +113,7 @@ impl CandleMetadata {
     }
 
     /// Create from a JSON value map (converts values to strings)
+    #[must_use]
     pub fn from_json_map(map: std::collections::HashMap<String, serde_json::Value>) -> Self {
         let metadata = map.into_iter().map(|(k, v)| (k, v.to_string())).collect();
         Self { metadata }
@@ -120,6 +127,7 @@ impl CandleMetadata {
     }
 
     /// Get metadata value
+    #[must_use]
     pub fn get(&self, key: &str) -> Option<&String> {
         self.metadata.get(key)
     }

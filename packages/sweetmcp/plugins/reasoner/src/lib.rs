@@ -88,8 +88,251 @@ pub struct StrategyMetrics {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
-// Simplified reasoner for the WASM plugin. In a real implementation,
-// this would include all the strategy implementations.
+// WASM-compatible strategy trait for scoring thoughts
+trait WasmStrategy: Send + Sync {
+    fn name(&self) -> &str;
+    
+    /// Calculate score for a thought node
+    fn calculate_score(
+        &self,
+        thought: &str,
+        parent_thought: Option<&str>,
+        depth: usize,
+        request: &ReasoningRequest,
+    ) -> f64;
+}
+
+// Beam Search WASM Strategy
+struct BeamSearchWasm {
+    beam_width: usize,
+}
+
+impl BeamSearchWasm {
+    fn new(beam_width: Option<usize>) -> Self {
+        Self {
+            beam_width: beam_width.unwrap_or(3),
+        }
+    }
+    
+    fn logical_score(&self, thought: &str) -> f64 {
+        let mut score = 0.0;
+        let lower = thought.to_lowercase();
+        
+        // Length/complexity bonus (max 0.3)
+        score += (thought.len() as f64 / 200.0).min(0.3);
+        
+        // Logical connectors (0.2 bonus)
+        if lower.contains("therefore") || lower.contains("because") || lower.contains("if") 
+            || lower.contains("then") || lower.contains("thus") || lower.contains("hence") 
+            || lower.contains("so") || lower.contains("since") || lower.contains("consequently") {
+            score += 0.2;
+        }
+        
+        // Mathematical/logical expressions (0.2 bonus)
+        if thought.contains('+') || thought.contains('-') || thought.contains('*') 
+            || thought.contains('/') || thought.contains('=') || thought.contains('<') 
+            || thought.contains('>') || thought.contains("->") || thought.contains("=>") {
+            score += 0.2;
+        }
+        
+        score
+    }
+    
+    fn coherence_score(&self, thought: &str, parent_thought: &str) -> f64 {
+        use std::collections::HashSet;
+        
+        let parent_terms: HashSet<String> = parent_thought
+            .to_lowercase()
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect();
+        
+        let child_terms: Vec<String> = thought
+            .to_lowercase()
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect();
+        
+        if child_terms.is_empty() {
+            return 0.0;
+        }
+        
+        let shared = child_terms
+            .iter()
+            .filter(|t| parent_terms.contains(*t))
+            .count();
+        
+        (shared as f64 / child_terms.len() as f64).min(1.0)
+    }
+}
+
+impl WasmStrategy for BeamSearchWasm {
+    fn name(&self) -> &str {
+        "beam_search"
+    }
+    
+    fn calculate_score(
+        &self,
+        thought: &str,
+        parent_thought: Option<&str>,
+        depth: usize,
+        _request: &ReasoningRequest,
+    ) -> f64 {
+        let logical = self.logical_score(thought);
+        let coherence = parent_thought
+            .map(|p| self.coherence_score(thought, p))
+            .unwrap_or(0.5);
+        let depth_penalty = (1.0 - (depth as f64 / 10.0) * 0.2).max(0.0);
+        
+        // Beam search favors logical structure and coherence
+        (logical * 0.4 + coherence * 0.4 + depth_penalty * 0.2).min(1.0)
+    }
+}
+
+// MCTS WASM Strategy
+struct MCTSWasm {
+    num_simulations: usize,
+    exploration_constant: f64,
+}
+
+impl MCTSWasm {
+    fn new(num_simulations: Option<usize>) -> Self {
+        Self {
+            num_simulations: num_simulations.unwrap_or(50),
+            exploration_constant: 1.414, // sqrt(2)
+        }
+    }
+}
+
+impl WasmStrategy for MCTSWasm {
+    fn name(&self) -> &str {
+        "mcts"
+    }
+    
+    fn calculate_score(
+        &self,
+        thought: &str,
+        parent_thought: Option<&str>,
+        depth: usize,
+        request: &ReasoningRequest,
+    ) -> f64 {
+        let lower = thought.to_lowercase();
+        
+        // Exploitation: intrinsic thought quality
+        let quality = {
+            let length_score = (thought.len() as f64 / 200.0).min(0.3);
+            let logical_score = if lower.contains("therefore") 
+                || lower.contains("because") 
+                || lower.contains("thus") {
+                0.3
+            } else {
+                0.0
+            };
+            let coherence = if parent_thought.is_some() {
+                0.2 // Simplified coherence
+            } else {
+                0.1
+            };
+            length_score + logical_score + coherence
+        };
+        
+        // Exploration: UCB1 formula
+        // score = quality + C * sqrt(ln(N) / n)
+        let n = request.thought_number as f64;
+        let total_n = request.total_thoughts as f64;
+        let exploration_bonus = if n > 0.0 && total_n > 0.0 {
+            self.exploration_constant * ((total_n.ln()) / n).sqrt()
+        } else {
+            0.0
+        };
+        
+        // Depth penalty
+        let depth_penalty = (1.0 - (depth as f64 / 10.0) * 0.15).max(0.0);
+        
+        ((quality + exploration_bonus * 0.3) * depth_penalty).min(1.0)
+    }
+}
+
+// MCTS 002 Alpha Variant
+struct MCTS002AlphaWasm {
+    base: MCTSWasm,
+}
+
+impl MCTS002AlphaWasm {
+    fn new(num_simulations: Option<usize>) -> Self {
+        Self {
+            base: MCTSWasm::new(num_simulations),
+        }
+    }
+}
+
+impl WasmStrategy for MCTS002AlphaWasm {
+    fn name(&self) -> &str {
+        "mcts_002_alpha"
+    }
+    
+    fn calculate_score(
+        &self,
+        thought: &str,
+        parent_thought: Option<&str>,
+        depth: usize,
+        request: &ReasoningRequest,
+    ) -> f64 {
+        // Alpha variant: Higher exploration constant
+        let mut score = self.base.calculate_score(thought, parent_thought, depth, request);
+        score *= 1.1; // 10% boost for alpha exploration
+        score.min(1.0)
+    }
+}
+
+// MCTS 002 Alt Alpha Variant
+struct MCTS002AltAlphaWasm {
+    base: MCTSWasm,
+}
+
+impl MCTS002AltAlphaWasm {
+    fn new(num_simulations: Option<usize>) -> Self {
+        Self {
+            base: MCTSWasm::new(num_simulations),
+        }
+    }
+}
+
+impl WasmStrategy for MCTS002AltAlphaWasm {
+    fn name(&self) -> &str {
+        "mcts_002alt_alpha"
+    }
+    
+    fn calculate_score(
+        &self,
+        thought: &str,
+        parent_thought: Option<&str>,
+        depth: usize,
+        request: &ReasoningRequest,
+    ) -> f64 {
+        // Alt variant: Balanced exploration-exploitation
+        let base_score = self.base.calculate_score(thought, parent_thought, depth, request);
+        let length_bonus = (thought.len() as f64 / 150.0).min(0.15);
+        (base_score + length_bonus).min(1.0)
+    }
+}
+
+// Strategy factory function
+fn create_strategy(request: &ReasoningRequest) -> Box<dyn WasmStrategy> {
+    let strategy_type = request.strategy_type.as_deref().unwrap_or("beam_search");
+    
+    match strategy_type {
+        "beam_search" => Box::new(BeamSearchWasm::new(request.beam_width)),
+        "mcts" => Box::new(MCTSWasm::new(request.num_simulations)),
+        "mcts_002_alpha" => Box::new(MCTS002AlphaWasm::new(request.num_simulations)),
+        "mcts_002alt_alpha" => Box::new(MCTS002AltAlphaWasm::new(request.num_simulations)),
+        _ => Box::new(BeamSearchWasm::new(request.beam_width)), // Default fallback
+    }
+}
+
+// WASM-compatible reasoner with strategy pattern implementation
 pub struct SimpleReasoner {
     nodes: HashMap<String, ThoughtNode>,
 }
@@ -102,17 +345,26 @@ impl SimpleReasoner {
     }
 
     pub fn process_thought(&mut self, request: ReasoningRequest) -> ReasoningResponse {
-        // Generate a unique ID for this thought
         let node_id = Uuid::new_v4().to_string();
-
-        // Default strategy
-        let strategy = request
-            .strategy_type
-            .unwrap_or_else(|| "beam_search".to_string());
-
-        // Calculate score (in a real implementation, this would use the selected strategy)
-        let score = 0.7 + (request.thought_number as f64 * 0.05);
-
+        
+        // Create strategy based on request
+        let strategy = create_strategy(&request);
+        
+        // Get parent thought text if parent exists
+        let parent_thought = request
+            .parent_id
+            .as_ref()
+            .and_then(|id| self.nodes.get(id))
+            .map(|node| node.thought.clone());
+        
+        // Calculate score using selected strategy
+        let score = strategy.calculate_score(
+            &request.thought,
+            parent_thought.as_deref(),
+            request.thought_number.saturating_sub(1),
+            &request,
+        );
+        
         // Create the node
         let node = ThoughtNode {
             id: node_id.clone(),
@@ -123,17 +375,17 @@ impl SimpleReasoner {
             parent_id: request.parent_id.clone(),
             is_complete: !request.next_thought_needed,
         };
-
+        
         // Add to parent's children if it exists
         if let Some(parent_id) = &request.parent_id {
             if let Some(parent) = self.nodes.get_mut(parent_id) {
                 parent.children.push(node_id.clone());
             }
         }
-
+        
         // Store the node
         self.nodes.insert(node_id.clone(), node.clone());
-
+        
         // Generate response
         ReasoningResponse {
             node_id,
@@ -144,7 +396,7 @@ impl SimpleReasoner {
             next_thought_needed: request.next_thought_needed,
             possible_paths: Some(1),
             best_score: Some(score),
-            strategy_used: Some(strategy),
+            strategy_used: Some(strategy.name().to_string()),
         }
     }
 

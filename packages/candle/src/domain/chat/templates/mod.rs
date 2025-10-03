@@ -77,6 +77,7 @@ pub fn store_template(template: ChatTemplate) -> TemplateResult<()> {
 }
 
 /// Get a template from global manager
+#[must_use]
 pub fn get_template(name: &str) -> Option<ChatTemplate> {
     let manager = get_template_manager();
     manager.get(name).ok()
@@ -128,6 +129,7 @@ pub fn render<S: std::hash::BuildHasher>(
 }
 
 /// Create template from string
+#[must_use]
 pub fn create_template(name: &str, content: &str) -> ChatTemplate {
     template(name, content)
 }

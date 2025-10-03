@@ -20,6 +20,7 @@ pub enum DomainProviderType {
 
 impl CandleDomainProvider {
     /// Create text generation provider
+    #[must_use]
     pub fn text_generation(provider: LocalTextProvider) -> Self {
         Self {
             provider_type: DomainProviderType::TextGeneration(provider),
@@ -27,6 +28,7 @@ impl CandleDomainProvider {
     }
 
     /// Create embedding provider  
+    #[must_use]
     pub fn embedding(provider: LocalEmbeddingProvider) -> Self {
         Self {
             provider_type: DomainProviderType::Embedding(provider),
@@ -34,11 +36,13 @@ impl CandleDomainProvider {
     }
 
     /// Check if this is a text generation provider
+    #[must_use]
     pub fn is_text_generation(&self) -> bool {
         matches!(self.provider_type, DomainProviderType::TextGeneration(_))
     }
 
     /// Check if this is an embedding provider
+    #[must_use]
     pub fn is_embedding(&self) -> bool {
         matches!(self.provider_type, DomainProviderType::Embedding(_))
     }

@@ -57,6 +57,7 @@ impl ChatSearcher {
     }
 
     /// Search messages with SIMD optimization (streaming individual results)
+    #[must_use]
     pub fn search_stream(&self, query: SearchQuery) -> AsyncStream<SearchResult> {
         let self_clone = self.clone();
         let query_terms = query.terms.clone();
@@ -249,11 +250,13 @@ impl ChatSearcher {
     }
 
     /// Add message to search index (streaming)
+    #[must_use]
     pub fn add_message_stream(&self, message: SearchChatMessage) -> AsyncStream<index::IndexResult> {
         self.index.add_message_stream(message)
     }
 
     /// Export search results
+    #[must_use]
     pub fn export_results(
         &self,
         results: Vec<SearchResult>,
@@ -263,6 +266,7 @@ impl ChatSearcher {
     }
 
     /// Get search statistics
+    #[must_use]
     pub fn get_statistics(&self) -> SearchStatistics {
         self.index.get_statistics()
     }

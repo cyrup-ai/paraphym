@@ -8,6 +8,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use super::memory::MemoryConfig;
+use crate::domain::util::unix_timestamp_nanos;
 use super::super::SurrealDBMemoryManager;
 use crate::domain::init::globals::{CONFIG_CACHE, LOCAL_CONFIG};
 
@@ -34,10 +35,7 @@ impl MemoryMetadata {
     /// Create new memory metadata
     #[inline]
     pub fn new(id: impl Into<String>, memory_type: impl Into<String>, size_bytes: u64) -> Self {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0);
+        let now = unix_timestamp_nanos();
 
         Self {
             id: id.into(),
@@ -53,10 +51,7 @@ impl MemoryMetadata {
     /// Update access timestamp and count
     #[inline]
     pub fn touch(&mut self) {
-        self.last_accessed_nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0);
+        self.last_accessed_nanos = unix_timestamp_nanos();
         self.access_count += 1;
     }
 
@@ -69,6 +64,7 @@ impl MemoryMetadata {
 
 /// Get cached configuration from thread-local storage with zero-allocation access
 #[inline]
+#[must_use]
 pub fn get_cached_config() -> Arc<MemoryConfig> {
     LOCAL_CONFIG.with(|config| {
         let mut config_ref = config.borrow_mut();

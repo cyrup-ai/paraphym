@@ -158,6 +158,10 @@ pub trait CandleAgentRoleBuilder: Sized + Send {
     #[must_use]
     fn max_tokens(self, max: u64) -> impl CandleAgentRoleBuilder;
 
+    /// Set memory read timeout in milliseconds - EXACT syntax: .memory_read_timeout(5000)
+    #[must_use]
+    fn memory_read_timeout(self, timeout_ms: u64) -> impl CandleAgentRoleBuilder;
+
     /// Set system prompt - EXACT syntax: .system_prompt("...")
     #[must_use]
     fn system_prompt(self, prompt: impl Into<String>) -> impl CandleAgentRoleBuilder;
@@ -303,6 +307,7 @@ struct CandleAgentRoleBuilderImpl {
     name: String,
     temperature: f64,
     max_tokens: Option<u64>,
+    memory_read_timeout: Option<u64>,
     system_prompt: Option<String>,
     tools: ZeroOneOrMany<ToolInfo>,
     mcp_servers: Vec<McpServerConfig>,
@@ -315,6 +320,7 @@ impl std::fmt::Debug for CandleAgentRoleBuilderImpl {
             .field("name", &self.name)
             .field("temperature", &self.temperature)
             .field("max_tokens", &self.max_tokens)
+            .field("memory_read_timeout", &self.memory_read_timeout)
             .field("system_prompt", &self.system_prompt)
             .field("tools", &self.tools)
             .field("mcp_servers", &self.mcp_servers)
@@ -330,6 +336,7 @@ impl CandleAgentRoleBuilderImpl {
             name: name.into(),
             temperature: 0.7,  // Default temperature to 0.7
             max_tokens: None,
+            memory_read_timeout: None,
             system_prompt: None,
             tools: ZeroOneOrMany::none(),
             mcp_servers: Vec::new(),
@@ -352,6 +359,7 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
             name: self.name,
             temperature: self.temperature,
             max_tokens: self.max_tokens,
+            memory_read_timeout: self.memory_read_timeout,
             system_prompt: self.system_prompt,
             provider,
             tools: self.tools,
@@ -377,6 +385,12 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
     /// Set max tokens - EXACT syntax: .max_tokens(8000)
     fn max_tokens(mut self, max: u64) -> impl CandleAgentRoleBuilder {
         self.max_tokens = Some(max);
+        self
+    }
+
+    /// Set memory read timeout in milliseconds - EXACT syntax: .memory_read_timeout(5000)
+    fn memory_read_timeout(mut self, timeout_ms: u64) -> impl CandleAgentRoleBuilder {
+        self.memory_read_timeout = Some(timeout_ms);
         self
     }
 
@@ -557,6 +571,7 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
             provider: CandleCompletionProviderType::KimiK2(default_provider),
             temperature: self.temperature,
             max_tokens: self.max_tokens,
+            memory_read_timeout: self.memory_read_timeout,
             system_prompt: self.system_prompt,
             tools: self.tools,
             mcp_servers: self.mcp_servers,
@@ -621,6 +636,7 @@ pub struct CandleAgentBuilderImpl<P> {
     name: String,
     temperature: f64,
     max_tokens: Option<u64>,
+    memory_read_timeout: Option<u64>,
     system_prompt: Option<String>,
     provider: P,
     tools: ZeroOneOrMany<ToolInfo>,
@@ -634,6 +650,7 @@ impl<P: std::fmt::Debug> std::fmt::Debug for CandleAgentBuilderImpl<P> {
             .field("name", &self.name)
             .field("temperature", &self.temperature)
             .field("max_tokens", &self.max_tokens)
+            .field("memory_read_timeout", &self.memory_read_timeout)
             .field("system_prompt", &self.system_prompt)
             .field("provider", &self.provider)
             .field("tools", &self.tools)
@@ -660,6 +677,7 @@ where
             name: self.name,
             temperature: self.temperature,
             max_tokens: self.max_tokens,
+            memory_read_timeout: self.memory_read_timeout,
             system_prompt: self.system_prompt,
             provider,
             tools: self.tools,
@@ -682,6 +700,11 @@ where
 
     fn max_tokens(mut self, max: u64) -> impl CandleAgentRoleBuilder {
         self.max_tokens = Some(max);
+        self
+    }
+
+    fn memory_read_timeout(mut self, timeout_ms: u64) -> impl CandleAgentRoleBuilder {
+        self.memory_read_timeout = Some(timeout_ms);
         self
     }
 
@@ -800,6 +823,7 @@ where
         let provider = self.provider;
         let temperature = self.temperature;
         let max_tokens = self.max_tokens.unwrap_or(1000);
+        let _memory_read_timeout = self.memory_read_timeout;
         let system_prompt = self.system_prompt.clone();
         let tools = self.tools;
         let mcp_servers = self.mcp_servers;

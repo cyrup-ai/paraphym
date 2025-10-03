@@ -486,11 +486,13 @@ impl CompletionChunk {
     }
 
     /// Check if this chunk contains text content
+    #[must_use]
     pub fn has_text(&self) -> bool {
         matches!(self, Self::Text(_) | Self::Complete { .. })
     }
 
     /// Extract text content if available
+    #[must_use]
     pub fn text_content(&self) -> Option<&str> {
         match self {
             Self::Text(text) | Self::Complete { text, .. } => Some(text),
@@ -499,11 +501,13 @@ impl CompletionChunk {
     }
 
     /// Check if this is a completion chunk
+    #[must_use]
     pub fn is_complete(&self) -> bool {
         matches!(self, Self::Complete { .. })
     }
 
     /// Check if this is an error chunk
+    #[must_use]
     pub fn is_error(&self) -> bool {
         matches!(self, Self::Error(_))
     }
@@ -757,6 +761,7 @@ impl Default for CandleRefreshResult {
 
 impl CandleRefreshResult {
     /// Create a successful refresh result
+    #[must_use]
     pub fn success() -> Self {
         Self {
             success: true,
@@ -806,6 +811,7 @@ impl Default for CandleMemoryOperationResult {
 
 impl CandleMemoryOperationResult {
     /// Create a successful operation result
+    #[must_use]
     pub fn success() -> Self {
         Self {
             success: true,

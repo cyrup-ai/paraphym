@@ -6,6 +6,7 @@ use crossbeam_utils::CachePadded;
 use serde::{Deserialize, Serialize};
 
 use super::super::primitives::types::{MemoryError, MemoryResult};
+use crate::domain::util::unix_timestamp_nanos;
 
 /// Database configuration with connection pool optimization
 ///
@@ -55,6 +56,7 @@ pub enum DatabaseType {
 impl DatabaseType {
     /// Get default port for database type
     #[inline]
+    #[must_use]
     pub const fn default_port(&self) -> u16 {
         match self {
             Self::SurrealDB => 8000,
@@ -65,6 +67,7 @@ impl DatabaseType {
 
     /// Check if database type supports connection pooling
     #[inline]
+    #[must_use]
     pub const fn supports_pooling(&self) -> bool {
         match self {
             Self::SurrealDB | Self::PostgreSQL => true,
@@ -74,6 +77,7 @@ impl DatabaseType {
 
     /// Get recommended pool size for database type
     #[inline]
+    #[must_use]
     pub fn recommended_pool_size(&self) -> usize {
         match self {
             Self::SurrealDB => num_cpus::get() * 4,  // I/O intensive
@@ -115,6 +119,7 @@ pub struct PoolConfig {
 impl PoolConfig {
     /// Create optimized pool configuration
     #[inline]
+    #[must_use]
     pub fn optimized(db_type: DatabaseType) -> Self {
         let cpu_count = num_cpus::get();
         let max_size = db_type.recommended_pool_size();
@@ -131,6 +136,7 @@ impl PoolConfig {
 
     /// Create minimal pool configuration for testing
     #[inline]
+    #[must_use]
     pub fn minimal() -> Self {
         Self {
             min_size: 1,
@@ -166,6 +172,7 @@ pub struct TimeoutConfig {
 impl TimeoutConfig {
     /// Create optimized timeout configuration
     #[inline]
+    #[must_use]
     pub fn optimized() -> Self {
         Self {
             connect_timeout: Duration::from_secs(10),
@@ -177,6 +184,7 @@ impl TimeoutConfig {
 
     /// Create fast timeout configuration for testing
     #[inline]
+    #[must_use]
     pub fn fast() -> Self {
         Self {
             connect_timeout: Duration::from_millis(500),
@@ -233,6 +241,7 @@ impl HealthCheckConfig {
 
     /// Create disabled health check configuration
     #[inline]
+    #[must_use]
     pub fn disabled() -> Self {
         Self {
             enabled: false,
@@ -263,6 +272,7 @@ pub struct DatabaseHealthStatus {
 impl DatabaseHealthStatus {
     /// Create new health status tracker
     #[inline]
+    #[must_use]
     pub fn new() -> Self {
         Self {
             is_healthy: CachePadded::new(AtomicBool::new(true)),
@@ -337,10 +347,7 @@ impl DatabaseHealthStatus {
     /// Update timestamp atomically
     #[inline]
     fn update_timestamp(&self) {
-        let now_nanos = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0);
+        let now_nanos = unix_timestamp_nanos();
         self.last_check_nanos.store(now_nanos, Ordering::Relaxed);
     }
 }
@@ -481,6 +488,7 @@ impl DatabaseConfig {
     }
 
     /// Get connection URL with credentials (if provided)
+    #[must_use]
     pub fn connection_url(&self) -> String {
         match (&self.username, &self.password) {
             (Some(username), Some(password)) => {
@@ -498,12 +506,14 @@ impl DatabaseConfig {
 
     /// Check if configuration supports connection pooling
     #[inline]
+    #[must_use]
     pub fn supports_pooling(&self) -> bool {
         self.db_type.supports_pooling()
     }
 
     /// Create health status tracker
     #[inline]
+    #[must_use]
     pub fn create_health_status(&self) -> DatabaseHealthStatus {
         DatabaseHealthStatus::new()
     }

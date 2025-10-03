@@ -44,6 +44,7 @@ pub mod types {
 
     impl CandleMessage {
         /// Create a new Candle message with the given role and content
+        #[must_use]
         pub fn new(id: u64, role: CandleMessageRole, content: &[u8]) -> Self {
             Self {
                 role,
@@ -159,11 +160,13 @@ pub mod types {
         }
 
         /// Check if this chunk contains text content
+        #[must_use]
         pub fn has_text(&self) -> bool {
             matches!(self, Self::Text(_) | Self::Complete { .. })
         }
 
         /// Extract text content if available
+        #[must_use]
         pub fn text_content(&self) -> Option<&str> {
             match self {
                 Self::Text(text) | Self::Complete { text, .. } => Some(text),
@@ -172,11 +175,13 @@ pub mod types {
         }
 
         /// Check if this is a completion chunk
+        #[must_use]
         pub fn is_complete(&self) -> bool {
             matches!(self, Self::Complete { .. })
         }
 
         /// Check if this is an error chunk
+        #[must_use]
         pub fn is_error(&self) -> bool {
             matches!(self, Self::Error(_))
         }
@@ -388,6 +393,7 @@ pub mod media {
 
     impl CandleMediaType {
         /// Create a `CandleMediaType` from a `MIME` type string
+        #[must_use]
         pub fn from_mime_type(mime_type: &str) -> Option<Self> {
             match mime_type {
                 // Image types
@@ -430,6 +436,7 @@ pub mod media {
         }
 
         /// Convert to MIME type string
+        #[must_use]
         pub fn to_mime_type(&self) -> String {
             match self {
                 CandleMediaType::Image(img) => match img {
@@ -521,6 +528,7 @@ pub mod processing {
     }
 
     /// Format a Candle message for display
+    #[must_use]
     pub fn candle_format_message(message: &CandleMessage) -> String {
         format!("{}: {}", message.role, message.content)
     }
@@ -558,7 +566,7 @@ mod tests {
     }
 
     #[test]
-    fn test_candle_message_processing() {
+    fn test_candle_message_processing() -> Result<(), Box<dyn std::error::Error>> {
         let mut message = CandleMessage {
             role: CandleMessageRole::User,
             content: "  Hello, world!  ".to_string(),
@@ -566,7 +574,8 @@ mod tests {
             timestamp: None,
         };
 
-        processing::candle_process_message(&mut message).unwrap();
+        processing::candle_process_message(&mut message)?;
         assert_eq!(message.content, "Hello, world!");
+        Ok(())
     }
 }

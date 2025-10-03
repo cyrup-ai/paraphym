@@ -191,7 +191,9 @@ mod tests {
     #[test]
     fn test_apply_temperature() {
         let mut logits = [1.0, 2.0, 3.0];
-        apply_temperature_scaling_simd(&mut logits, 0.5).unwrap();
+        if let Err(e) = apply_temperature_scaling_simd(&mut logits, 0.5) {
+            panic!("Temperature scaling failed: {}", e);
+        }
         assert_float_eq!(logits[0], 2.0, abs <= 1e-6);
         assert_float_eq!(logits[1], 4.0, abs <= 1e-6);
         assert_float_eq!(logits[2], 6.0, abs <= 1e-6);
@@ -207,7 +209,9 @@ mod tests {
     #[test]
     fn test_normalize_probabilities() {
         let mut logits = [1.0, 2.0, 3.0];
-        normalize_probabilities_simd(&mut logits).unwrap();
+        if let Err(e) = normalize_probabilities_simd(&mut logits) {
+            panic!("Normalization failed: {}", e);
+        }
         let sum: f32 = logits.iter().sum();
         assert_float_eq!(sum, 1.0, abs <= 1e-6);
     }

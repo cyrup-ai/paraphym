@@ -116,7 +116,7 @@ impl Default for Config {
             metrics_bind: "127.0.0.1:9090".to_string(),
             jwt_expiry: Duration::from_secs(3600),
             health_check_interval: Duration::from_secs(5),
-            circuit_breaker_threshold: 5,
+            circuit_breaker_threshold: 50,
             request_timeout: Duration::from_secs(30),
             rate_limit: RateLimitConfig {
                 per_user_rps: 100,
@@ -219,7 +219,7 @@ impl Config {
             .context("Invalid SWEETMCP_HEALTH_CHECK_INTERVAL format")?;
 
         let circuit_breaker_threshold = env::var("SWEETMCP_CIRCUIT_BREAKER_THRESHOLD")
-            .unwrap_or_else(|_| "5".to_string())
+            .unwrap_or_else(|_| "50".to_string())
             .parse()
             .context("Invalid SWEETMCP_CIRCUIT_BREAKER_THRESHOLD value")?;
 

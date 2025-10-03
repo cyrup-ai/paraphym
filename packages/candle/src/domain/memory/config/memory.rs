@@ -195,24 +195,28 @@ pub enum MemoryPermissionFlags {
 impl MemoryPermissionFlags {
     /// Check if has read permission
     #[inline]
+    #[must_use]
     pub const fn can_read(self) -> bool {
         !matches!(self, Self::None)
     }
 
     /// Check if has write permission
     #[inline]
+    #[must_use]
     pub const fn can_write(self) -> bool {
         matches!(self, Self::ReadWrite | Self::ReadWriteDelete | Self::Admin)
     }
 
     /// Check if has delete permission
     #[inline]
+    #[must_use]
     pub const fn can_delete(self) -> bool {
         matches!(self, Self::ReadWriteDelete | Self::Admin)
     }
 
     /// Check if has admin permission
     #[inline]
+    #[must_use]
     pub const fn is_admin(self) -> bool {
         matches!(self, Self::Admin)
     }
@@ -282,11 +286,13 @@ impl Default for MemoryAccessPermissions {
 
 impl MemoryConfig {
     /// Create a new memory configuration with default values
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Create a memory configuration optimized for development
+    #[must_use]
     pub fn development() -> Self {
         let mut config = Self::default();
         config.performance.max_concurrent_operations = 2;
@@ -298,6 +304,7 @@ impl MemoryConfig {
     }
 
     /// Create a memory configuration optimized for production
+    #[must_use]
     pub fn production() -> Self {
         let mut config = Self::default();
         config.performance.max_concurrent_operations = num_cpus::get() * 8;

@@ -664,14 +664,20 @@ mod tests {
             "required": ["name"]
         });
 
-        let regex = regex_from_value(&schema, None, None).expect("Should generate regex");
+        let regex = match regex_from_value(&schema, None, None) {
+            Ok(r) => r,
+            Err(e) => panic!("Should generate regex: {}", e),
+        };
         assert!(regex.contains("name"));
         assert!(regex.contains("age"));
     }
 
     #[test]
     fn test_schema_from_serde_type() {
-        let regex = regex_from_schema::<TestStruct>().expect("Should generate regex from serde type");
+        let regex = match regex_from_schema::<TestStruct>() {
+            Ok(r) => r,
+            Err(e) => panic!("Should generate regex from serde type: {}", e),
+        };
         assert!(regex.contains("name"));
         assert!(regex.contains("age"));
         assert!(regex.contains("active"));
@@ -683,7 +689,10 @@ mod tests {
             "enum": ["red", "green", "blue"]
         });
 
-        let regex = regex_from_value(&schema, None, None).expect("Should generate regex");
+        let regex = match regex_from_value(&schema, None, None) {
+            Ok(r) => r,
+            Err(e) => panic!("Should generate regex: {}", e),
+        };
         assert!(regex.contains("red"));
         assert!(regex.contains("green"));
         assert!(regex.contains("blue"));
@@ -698,7 +707,10 @@ mod tests {
             "maxItems": 3
         });
 
-        let regex = regex_from_value(&schema, None, None).expect("Should generate regex");
+        let regex = match regex_from_value(&schema, None, None) {
+            Ok(r) => r,
+            Err(e) => panic!("Should generate regex: {}", e),
+        };
         assert!(regex.starts_with(r"\["));
         assert!(regex.ends_with(r"\]"));
     }

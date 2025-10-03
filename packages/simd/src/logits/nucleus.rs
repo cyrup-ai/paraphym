@@ -84,8 +84,9 @@ mod tests {
     fn test_nucleus_sampling() {
         let mut logits = vec![0.1, 0.2, 0.3, 0.4];
 
-        prepare_nucleus_sampling_simd(&mut logits, 0.5)
-            .expect("Nucleus sampling preparation should succeed with valid inputs");
+        if let Err(e) = prepare_nucleus_sampling_simd(&mut logits, 0.5) {
+            panic!("Nucleus sampling preparation should succeed with valid inputs: {}", e);
+        }
 
         // Verify the correct top elements are kept (indices 2,3 masked 0,1 for top_p=0.5)
         assert_eq!(
@@ -106,8 +107,10 @@ mod tests {
     fn test_sample_from_nucleus() {
         let probs = vec![0.1, 0.2, 0.3, 0.4];
         let mut rng = rand::rng();
-        let idx = sample_from_nucleus(&probs, &mut rng)
-            .expect("Sampling from nucleus should succeed with valid probabilities");
+        let idx = match sample_from_nucleus(&probs, &mut rng) {
+            Ok(i) => i,
+            Err(e) => panic!("Sampling from nucleus should succeed with valid probabilities: {}", e),
+        };
         assert!(idx < probs.len());
     }
 }

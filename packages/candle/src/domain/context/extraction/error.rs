@@ -48,6 +48,7 @@ impl ExtractionError {
     }
 
     /// Create a new missing fields error
+    #[must_use]
     pub fn missing_fields(fields: &[&str]) -> Self {
         Self::MissingFields {
             fields: fields.iter().map(|&s| s.to_string()).collect(),
@@ -55,26 +56,3 @@ impl ExtractionError {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_validation_error() {
-        let err = ExtractionError::validation_failed("Invalid format");
-        assert!(
-            matches!(err, ExtractionError::ValidationFailed { reason } if reason == "Invalid format")
-        );
-    }
-
-    #[test]
-    fn test_missing_fields_error() {
-        let err = ExtractionError::missing_fields(&["name", "age"]);
-        match err {
-            ExtractionError::MissingFields { fields } => {
-                assert_eq!(fields, vec!["name", "age"]);
-            }
-            _ => panic!("Expected MissingFields error"),
-        }
-    }
-}

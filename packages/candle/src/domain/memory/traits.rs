@@ -22,6 +22,7 @@ impl MemoryLookupResult {
     }
     
     /// Create a result with no memory node found
+    #[must_use]
     pub fn not_found() -> Self {
         Self { memory: None }
     }

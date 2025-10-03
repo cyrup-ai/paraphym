@@ -1,5 +1,6 @@
-use super::schema_introspection::SchemaIntrospector;
-use super::types::GraphQLTypeKind;
+use sweetmcp::normalize::schema_introspection::SchemaIntrospector;
+use sweetmcp::normalize::types::GraphQLTypeKind;
+use sweetmcp::normalize::parsers::create_basic_schema_types;
 
 #[tokio::test]
 async fn test_schema_introspector_creation() {
@@ -24,8 +25,6 @@ async fn test_cache_cleanup() {
 
 #[test]
 fn test_create_basic_schema_types() {
-    use super::parsers::create_basic_schema_types;
-
     let schema_types = create_basic_schema_types();
 
     // Verify all basic types are present

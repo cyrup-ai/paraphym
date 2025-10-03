@@ -35,6 +35,7 @@ pub struct TemplateCompiler {
 
 impl TemplateCompiler {
     /// Create a new template compiler
+    #[must_use]
     pub fn new() -> Self {
         Self {
             config: CompilerConfig::default(),
@@ -42,6 +43,7 @@ impl TemplateCompiler {
     }
 
     /// Create compiler with configuration
+    #[must_use]
     pub fn with_config(config: CompilerConfig) -> Self {
         Self { config }
     }
@@ -235,6 +237,7 @@ impl TemplateCompiler {
     }
 
     /// Get compiler configuration
+    #[must_use]
     pub fn config(&self) -> &CompilerConfig {
         &self.config
     }

@@ -161,6 +161,7 @@ pub struct ValidationReport {
 
 impl ValidationReport {
     /// Create a new empty validation report
+    #[must_use]
     pub fn new() -> Self {
         Self {
             issues: Vec::new(),
@@ -178,6 +179,7 @@ impl ValidationReport {
     }
 
     /// Check if there are any critical errors
+    #[must_use]
     pub fn has_critical_errors(&self) -> bool {
         self.issues
             .iter()
@@ -185,6 +187,7 @@ impl ValidationReport {
     }
 
     /// Check if there are any errors (Error or Critical)
+    #[must_use]
     pub fn has_errors(&self) -> bool {
         self.issues
             .iter()
@@ -192,6 +195,7 @@ impl ValidationReport {
     }
 
     /// Get issues by severity level
+    #[must_use]
     pub fn get_issues_by_severity(&self, severity: ValidationSeverity) -> Vec<&ValidationIssue> {
         self.issues
             .iter()
@@ -200,6 +204,7 @@ impl ValidationReport {
     }
 
     /// Generate a summary report
+    #[must_use]
     pub fn summary(&self) -> String {
         let critical = self
             .get_issues_by_severity(ValidationSeverity::Critical)
@@ -235,11 +240,13 @@ impl ValidationReport {
     }
 
     /// Check if the model is production-ready
+    #[must_use]
     pub fn is_production_ready(&self) -> bool {
         self.is_production_ready
     }
 
     /// Get all issues
+    #[must_use]
     pub fn issues(&self) -> &[ValidationIssue] {
         &self.issues
     }

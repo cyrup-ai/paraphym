@@ -96,84 +96,98 @@ pub struct CandleModelInfo {
 impl CandleModelInfo {
     /// Get the full model identifier as "provider:name"
     #[inline]
+    #[must_use]
     pub fn id(&self) -> &'static str {
         self.name
     }
 
     /// Get the provider name
     #[inline]
+    #[must_use]
     pub fn provider(&self) -> &'static str {
         self.provider_name
     }
 
     /// Get the model name
     #[inline]
+    #[must_use]
     pub fn name(&self) -> &'static str {
         self.name
     }
 
     /// Check if the model supports vision
     #[inline]
+    #[must_use]
     pub fn has_vision(&self) -> bool {
         self.supports_vision
     }
 
     /// Check if the model supports function calling
     #[inline]
+    #[must_use]
     pub fn has_function_calling(&self) -> bool {
         self.supports_function_calling
     }
 
     /// Check if the model supports streaming
     #[inline]
+    #[must_use]
     pub fn has_streaming(&self) -> bool {
         self.supports_streaming
     }
 
     /// Check if the model supports embeddings
     #[inline]
+    #[must_use]
     pub fn has_embeddings(&self) -> bool {
         self.supports_embeddings
     }
 
     /// Check if the model requires `max_tokens` to be specified
     #[inline]
+    #[must_use]
     pub fn requires_max_tokens(&self) -> bool {
         self.requires_max_tokens
     }
 
     /// Check if the model supports thinking/reasoning
     #[inline]
+    #[must_use]
     pub fn has_thinking(&self) -> bool {
         self.supports_thinking
     }
 
     /// Get the optimal thinking budget if supported
     #[inline]
+    #[must_use]
     pub fn thinking_budget(&self) -> Option<u32> {
         self.optimal_thinking_budget
     }
 
     /// Get the model's short CLI identifier
     #[inline]
+    #[must_use]
     pub fn model_id(&self) -> &'static str {
         self.model_id
     }
 
     /// Get the `HuggingFace` repository URL for automatic downloads
     #[inline]
+    #[must_use]
     pub fn hf_repo_url(&self) -> &'static str {
         self.hf_repo_url
     }
 
     /// Get the model's quantization format
     #[inline]
+    #[must_use]
     pub fn quantization(&self) -> &'static str {
         self.quantization
     }
 
     /// Get the price for a given number of input tokens
     #[inline]
+    #[must_use]
     pub fn price_for_input(&self, tokens: u32) -> Option<f64> {
         self.input_price
             .map(|price| (price * f64::from(tokens)) / 1_000_000.0)
@@ -181,6 +195,7 @@ impl CandleModelInfo {
 
     /// Get the price for a given number of output tokens
     #[inline]
+    #[must_use]
     pub fn price_for_output(&self, tokens: u32) -> Option<f64> {
         self.output_price
             .map(|price| (price * f64::from(tokens)) / 1_000_000.0)
@@ -190,6 +205,7 @@ impl CandleModelInfo {
     ///
     /// This creates a `CandleModelCapabilities` struct from this `CandleModelInfo` instance.
     /// `CandleModelInfo` remains the single source of truth from YAML deserialization.
+    #[must_use]
     pub fn to_capabilities(&self) -> crate::domain::model::capabilities::CandleModelCapabilities {
         use crate::domain::model::capabilities::ModelCapabilityFlags;
         
@@ -289,6 +305,7 @@ pub struct CandleProviderModels {
 impl CandleProviderModels {
     /// Create a new provider model collection
     #[inline]
+    #[must_use]
     pub fn new(provider_name: &'static str) -> Self {
         Self {
             provider_name,
@@ -323,6 +340,7 @@ impl CandleProviderModels {
 
     /// Get a model by name
     #[inline]
+    #[must_use]
     pub fn get(&self, name: &str) -> Option<&CandleModelInfo> {
         self.models.iter().find(|m| m.name == name)
     }
@@ -335,6 +353,7 @@ impl CandleProviderModels {
 
     /// Get the provider name
     #[inline]
+    #[must_use]
     pub fn provider_name(&self) -> &'static str {
         self.provider_name
     }

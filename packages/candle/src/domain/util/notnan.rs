@@ -27,6 +27,7 @@ impl NotNan<f32> {
 
     /// Get the inner f32 value
     #[inline]
+    #[must_use]
     pub fn into_inner(self) -> f32 {
         self.0
     }
@@ -97,22 +98,24 @@ mod tests {
     }
 
     #[test]
-    fn test_notnan_ordering() {
-        let a = NotNan::new(1.0).unwrap();
-        let b = NotNan::new(2.0).unwrap();
-        let c = NotNan::new(1.0).unwrap();
+    fn test_notnan_ordering() -> Result<(), Box<dyn std::error::Error>> {
+        let a = NotNan::new(1.0)?;
+        let b = NotNan::new(2.0)?;
+        let c = NotNan::new(1.0)?;
 
         assert!(a < b);
         assert!(b > a);
         assert_eq!(a, c);
         assert!(a <= c);
         assert!(a >= c);
+        Ok(())
     }
 
     #[test]
-    fn test_notnan_into_inner() {
+    fn test_notnan_into_inner() -> Result<(), Box<dyn std::error::Error>> {
         let val = std::f32::consts::PI;
-        let not_nan = NotNan::new(val).unwrap();
+        let not_nan = NotNan::new(val)?;
         assert!((not_nan.into_inner() - val).abs() < f32::EPSILON);
+        Ok(())
     }
 }

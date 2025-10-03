@@ -95,6 +95,7 @@ impl<'a> CompletionCoreRequest<'a> {
     /// Create a new completion request from builder
     #[allow(clippy::too_many_arguments)]
     #[inline]
+    #[must_use]
     pub fn from_builder(
         prompt: ArrayVec<u8, MAX_PROMPT_SIZE>,
         max_tokens: u32,
@@ -121,25 +122,29 @@ impl<'a> CompletionCoreRequest<'a> {
 
     /// Get the prompt as a string slice
     #[inline]
+    #[must_use]
     pub fn prompt(&self) -> &[u8] {
         &self.prompt
     }
 
     /// Get the stop tokens
     #[inline]
+    #[must_use]
     pub fn stop_tokens(&self) -> &[&'a str] {
         &self.stop_tokens
     }
 
     /// Estimate token count for the prompt (fast approximation)
     #[inline]
+    #[must_use]
     pub fn estimate_token_count(&self) -> u32 {
         // Simple approximation: ~4 characters per token
-        (self.prompt.len() / 4) as u32
+        u32::try_from(self.prompt.len() / 4).unwrap_or(u32::MAX)
     }
 
     /// Create a new default completion request
     #[inline]
+    #[must_use]
     pub fn new() -> Self {
         Self {
             prompt: ArrayVec::new(),
@@ -220,6 +225,7 @@ impl Default for CompletionCoreResponse {
 impl CompletionCoreResponse {
     /// Create a new completion response from builder
     #[inline]
+    #[must_use]
     pub fn from_builder(
         text: ArrayVec<u8, MAX_RESPONSE_SIZE>,
         tokens_generated: u32,
@@ -299,6 +305,7 @@ impl CompletionCoreResponse {
 
     /// Create a new completion response
     #[inline]
+    #[must_use]
     pub fn new() -> Self {
         Self {
             text: ArrayVec::new(),
@@ -333,6 +340,7 @@ pub struct StreamingCoreResponse {
 impl StreamingCoreResponse {
     /// Create a new streaming response
     #[inline]
+    #[must_use]
     pub fn new(
         stream: Pin<Box<dyn Stream<Item = CompletionCoreResult<CompletionCoreResponse>> + Send>>,
     ) -> Self {
@@ -341,6 +349,7 @@ impl StreamingCoreResponse {
 
     /// Get the underlying stream
     #[inline]
+    #[must_use]
     pub fn into_stream(
         self,
     ) -> Pin<Box<dyn Stream<Item = CompletionCoreResult<CompletionCoreResponse>> + Send>> {
@@ -382,6 +391,7 @@ macro_rules! static_str {
 
 /// Performance hint for hot path optimization
 #[inline]
+#[must_use]
 pub const fn is_hot_path() -> bool {
     true
 }

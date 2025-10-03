@@ -4,28 +4,22 @@
 //! and zero-allocation patterns for production-ready performance.
 
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 use crossbeam_utils::CachePadded;
 use mime_guess::from_ext;
 use ystream::AsyncStream;
 
 use super::parsing::CommandParser;
+use crate::domain::util::unix_timestamp_micros;
 use super::types::actions::SearchScope;
 use super::types::commands::{CommandExecutionResult, ImmutableChatCommand, OutputType};
 use super::types::events::{CommandEvent, CommandExecutionContext};
 use super::types::metadata::ResourceUsage;
 
 /// Get current timestamp in microseconds since Unix epoch, with fallback for clock errors
-#[allow(clippy::cast_possible_truncation)]
 fn current_timestamp_us() -> u64 {
-    let micros = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_else(|_| std::time::Duration::from_secs(0))
-        .as_micros();
-    
-    // Saturate to u64::MAX if the value exceeds u64 range (year ~584,942) - intentional truncation with saturation
-    micros.min(u128::from(u64::MAX)) as u64
+    unix_timestamp_micros()
 }
 
 /// Command execution engine with streaming processing (zero-allocation, lock-free)
@@ -64,6 +58,7 @@ impl Default for CommandExecutor {
 
 impl CommandExecutor {
     /// Create a new command executor (zero-allocation, lock-free)
+    #[must_use]
     pub fn new() -> Self {
         Self {
             parser: CommandParser::new(),

@@ -3,12 +3,18 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use futures_util::stream::StreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
+use crate::domain::memory::cognitive::types::{
+    CognitiveProcessor,
+    CognitiveProcessorConfig,
+    DecisionOutcome,
+};
 use crate::memory::filter::MemoryFilter;
 use crate::memory::utils::Result;
 use crate::memory::vector::VectorStore;
@@ -83,6 +89,7 @@ pub struct HybridRetrieval<V: VectorStore> {
     vector_store: V,
     strategies: std::sync::Arc<Vec<std::sync::Arc<dyn RetrievalStrategy>>>,
     weights: std::sync::Arc<HashMap<String, f32>>,
+    cognitive_processor: Arc<CognitiveProcessor>,
 }
 
 impl<V: VectorStore> HybridRetrieval<V> {
@@ -93,10 +100,19 @@ impl<V: VectorStore> HybridRetrieval<V> {
         weights.insert("keyword".to_string(), 0.2);
         weights.insert("temporal".to_string(), 0.2);
 
+        // Initialize cognitive processor with 0.7 decision threshold
+        let processor_config = CognitiveProcessorConfig {
+            batch_size: 32,
+            decision_threshold: 0.7,
+            learning_rate: 0.01,
+            max_iterations: 1000,
+        };
+
         Self {
             vector_store,
             strategies: std::sync::Arc::new(Vec::new()),
             weights: std::sync::Arc::new(weights),
+            cognitive_processor: Arc::new(CognitiveProcessor::new(processor_config)),
         }
     }
 
@@ -119,21 +135,116 @@ impl<V: VectorStore> HybridRetrieval<V> {
         limit: usize,
     ) -> Result<Vec<RetrievalResult>> {
         let filter = crate::memory::filter::MemoryFilter::new();
+        
+        // COGNITIVE PROCESSING: Evaluate query embedding for confidence
+        // This determines if the query itself represents valid search intent
+        let query_decision = self.cognitive_processor.process(&query_vector);
+        
         let search_stream = self
             .vector_store
             .search(query_vector, limit, Some(filter));
         
         // Collect all results from the stream
         let results = search_stream.collect();
-        let retrieval_results = results
-            .into_iter()
-            .map(|result| RetrievalResult {
-                id: result.id,
-                method: RetrievalMethod::VectorSimilarity,
-                score: result.score,
-                metadata: HashMap::new(),
-            })
-            .collect();
+        
+        // Apply cognitive decision to filter and enhance results
+        let retrieval_results: Vec<RetrievalResult> = match query_decision {
+            Ok(decision) => {
+                match decision.outcome {
+                    DecisionOutcome::Accept => {
+                        // Include results with cognitive confidence weighting
+                        tracing::debug!(
+                            "HybridRetrieval: Query ACCEPTED with confidence {:.4}",
+                            decision.confidence
+                        );
+                        
+                        results
+                            .into_iter()
+                            .map(|result| {
+                                let mut metadata = HashMap::new();
+                                metadata.insert(
+                                    "cognitive_confidence".to_string(),
+                                    serde_json::json!(decision.confidence)
+                                );
+                                metadata.insert(
+                                    "cognitive_outcome".to_string(),
+                                    serde_json::json!("Accept")
+                                );
+                                
+                                // Weight similarity by cognitive confidence
+                                let weighted_score = result.score * decision.confidence;
+                                
+                                RetrievalResult {
+                                    id: result.id,
+                                    method: RetrievalMethod::VectorSimilarity,
+                                    score: weighted_score,
+                                    metadata,
+                                }
+                            })
+                            .collect()
+                    }
+                    DecisionOutcome::Defer => {
+                        // Include results with reduced confidence
+                        tracing::debug!(
+                            "HybridRetrieval: Query DEFERRED with confidence {:.4}",
+                            decision.confidence
+                        );
+                        
+                        results
+                            .into_iter()
+                            .map(|result| {
+                                let mut metadata = HashMap::new();
+                                metadata.insert(
+                                    "cognitive_confidence".to_string(),
+                                    serde_json::json!(decision.confidence)
+                                );
+                                metadata.insert(
+                                    "cognitive_outcome".to_string(),
+                                    serde_json::json!("Defer")
+                                );
+                                
+                                // Reduce score for deferred queries
+                                let reduced_score = result.score * 0.5;
+                                
+                                RetrievalResult {
+                                    id: result.id,
+                                    method: RetrievalMethod::VectorSimilarity,
+                                    score: reduced_score,
+                                    metadata,
+                                }
+                            })
+                            .collect()
+                    }
+                    DecisionOutcome::Reject | DecisionOutcome::RequestInfo => {
+                        // Filter out all results for rejected/uncertain queries
+                        tracing::debug!(
+                            "HybridRetrieval: Query {:?} with confidence {:.4} - filtering all results",
+                            decision.outcome,
+                            decision.confidence
+                        );
+                        Vec::new()
+                    }
+                }
+            }
+            Err(e) => {
+                // Fallback on cognitive processor error - return unfiltered results
+                tracing::warn!(
+                    "HybridRetrieval: Cognitive processor error: {} - using unfiltered results",
+                    e
+                );
+                
+                results
+                    .into_iter()
+                    .map(|result| RetrievalResult {
+                        id: result.id,
+                        method: RetrievalMethod::VectorSimilarity,
+                        score: result.score,
+                        metadata: HashMap::new(),
+                    })
+                    .collect()
+            }
+        };
+        
         Ok(retrieval_results)
     }
 }

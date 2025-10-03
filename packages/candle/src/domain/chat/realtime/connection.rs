@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::events::{ConnectionStatus, RealTimeEvent};
+use crate::domain::util::duration_to_nanos_u64;
 
 /// Connection state with atomic operations
 #[derive(Debug)]
@@ -48,9 +49,10 @@ pub struct ConnectionState {
 
 impl ConnectionState {
     /// Create a new connection state
+    #[must_use]
     pub fn new(user_id: String, session_id: String) -> Self {
         let now = Instant::now();
-        let now_nanos = now.elapsed().as_nanos() as u64;
+        let now_nanos = duration_to_nanos_u64(now.elapsed());
 
         Self {
             connection_id: Uuid::new_v4().to_string(),
@@ -70,7 +72,7 @@ impl ConnectionState {
 
     /// Update the last activity timestamp
     pub fn update_heartbeat(&self) {
-        let now_nanos = Instant::now().elapsed().as_nanos() as u64;
+        let now_nanos = duration_to_nanos_u64(Instant::now().elapsed());
         self.last_activity.store(now_nanos, Ordering::Release);
     }
 
@@ -80,7 +82,7 @@ impl ConnectionState {
             return false;
         }
 
-        let now_nanos = Instant::now().elapsed().as_nanos() as u64;
+        let now_nanos = duration_to_nanos_u64(Instant::now().elapsed());
         let last_activity = self.last_activity.load(Ordering::Acquire);
 
         now_nanos.saturating_sub(last_activity) < heartbeat_timeout * 1_000_000_000
@@ -201,6 +203,7 @@ pub struct ConnectionManager {
 
 impl ConnectionManager {
     /// Create a new connection manager
+    #[must_use]
     pub fn new(heartbeat_timeout: u64, health_check_interval: u64) -> Self {
         let (event_sender, event_receiver) = unbounded();
 

@@ -58,6 +58,7 @@ impl Default for CandleCompletionParams {
 
 impl CandleCompletionParams {
     /// Create new completion parameters
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }

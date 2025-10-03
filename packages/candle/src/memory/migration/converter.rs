@@ -347,7 +347,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_convert_0_1_0_to_0_2_0() {
+    fn test_convert_0_1_0_to_0_2_0() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let converter = DataConverter::new("0.1.0", "0.2.0");
 
         let metadata = ImportMetadata {
@@ -379,16 +379,16 @@ mod tests {
             metadata: serde_json::Value::Object(serde_json::Map::new()),
         };
         data.memories
-            .push(serde_json::to_value(memory).expect("Failed to serialize memory"));
+            .push(serde_json::to_value(memory)?);
 
         // Add a test relationship
         let relationship =
             crate::memory::schema::relationship_schema::Relationship::new("source", "target", "related_to");
         data.relationships
-            .push(serde_json::to_value(relationship).expect("Failed to serialize relationship"));
+            .push(serde_json::to_value(relationship)?);
 
         // Convert the data
-        let result = converter.convert(&data).expect("Failed to convert data");
+        let result = converter.convert(&data)?;
 
         // Check that the version was updated
         assert_eq!(result.metadata.format_version, "0.2.0");
@@ -401,7 +401,7 @@ mod tests {
                 assert_eq!(
                     metadata
                         .get("schema_version")
-                        .expect("Missing schema_version"),
+                        .ok_or_else(|| Box::<dyn std::error::Error>::from("Missing schema_version"))?,
                     &serde_json::json!("0.2.0")
                 );
             } else {
@@ -419,7 +419,7 @@ mod tests {
                 assert_eq!(
                     metadata
                         .get("schema_version")
-                        .expect("Missing schema_version"),
+                        .ok_or_else(|| Box::<dyn std::error::Error>::from("Missing schema_version"))?,
                     &serde_json::json!("0.2.0")
                 );
             } else {
@@ -428,10 +428,11 @@ mod tests {
         } else {
             panic!("Expected relationship to be an object");
         }
+        Ok(())
     }
 
     #[test]
-    fn test_convert_0_2_0_to_0_1_0() {
+    fn test_convert_0_2_0_to_0_1_0() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let converter = DataConverter::new("0.2.0", "0.1.0");
 
         let metadata = ImportMetadata {
@@ -467,7 +468,7 @@ mod tests {
             metadata: serde_json::Value::Object(memory_metadata),
         };
         data.memories
-            .push(serde_json::to_value(memory).expect("Failed to serialize memory"));
+            .push(serde_json::to_value(memory)?);
 
         // Add a test relationship with schema version
         let mut relationship =
@@ -477,10 +478,10 @@ mod tests {
         rel_metadata.insert("advanced_features".to_string(), serde_json::json!(true));
         relationship.metadata = serde_json::Value::Object(rel_metadata);
         data.relationships
-            .push(serde_json::to_value(relationship).expect("Failed to serialize relationship"));
+            .push(serde_json::to_value(relationship)?);
 
         // Convert the data
-        let result = converter.convert(&data).expect("Failed to convert data");
+        let result = converter.convert(&data)?;
 
         // Check that the version was updated
         assert_eq!(result.metadata.format_version, "0.1.0");
@@ -512,10 +513,11 @@ mod tests {
         } else {
             panic!("Expected relationship to be an object");
         }
+        Ok(())
     }
 
     #[test]
-    fn test_custom_conversion_rule() {
+    fn test_custom_conversion_rule() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let mut converter = DataConverter::new("custom", "target");
 
         converter.add_custom_rule("custom", "target", |data| {
@@ -540,9 +542,10 @@ mod tests {
         };
 
         // Convert using custom rule
-        let result = converter.convert(&data).expect("Failed to convert data");
+        let result = converter.convert(&data)?;
 
         // Check that the custom rule was applied
         assert_eq!(result.metadata.format_version, "custom-converted");
+        Ok(())
     }
 }

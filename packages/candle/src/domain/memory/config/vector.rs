@@ -83,6 +83,7 @@ pub enum VectorStoreType {
 impl VectorStoreType {
     /// Get recommended index type for vector store
     #[inline]
+    #[must_use]
     pub const fn recommended_index_type(&self) -> IndexType {
         match self {
             Self::FAISS | Self::Milvus => IndexType::IVFPQ,
@@ -94,6 +95,7 @@ impl VectorStoreType {
 
     /// Check if store supports batch operations
     #[inline]
+    #[must_use]
     pub const fn supports_batch_operations(&self) -> bool {
         match self {
             Self::SurrealDB | Self::FAISS | Self::HNSW | Self::Milvus | Self::Pinecone => true,
@@ -103,6 +105,7 @@ impl VectorStoreType {
 
     /// Get optimal batch size for store type
     #[inline]
+    #[must_use]
     pub const fn optimal_batch_size(&self) -> usize {
         match self {
             Self::SurrealDB | Self::HNSW => 1000,
@@ -115,6 +118,7 @@ impl VectorStoreType {
 
     /// Check if store supports real-time updates
     #[inline]
+    #[must_use]
     pub const fn supports_realtime_updates(&self) -> bool {
         match self {
             Self::SurrealDB | Self::Memory | Self::Milvus | Self::Pinecone => true,
@@ -158,6 +162,7 @@ pub enum DistanceMetric {
 impl DistanceMetric {
     /// Check if metric supports SIMD optimization
     #[inline]
+    #[must_use]
     pub const fn supports_simd(&self) -> bool {
         match self {
             Self::Cosine | Self::Euclidean | Self::DotProduct => true,
@@ -167,6 +172,7 @@ impl DistanceMetric {
 
     /// Get recommended SIMD instruction set for metric
     #[inline]
+    #[must_use]
     pub const fn recommended_simd_set(&self) -> SimdInstructionSet {
         match self {
             Self::Cosine | Self::DotProduct => SimdInstructionSet::AVX2,
@@ -177,6 +183,7 @@ impl DistanceMetric {
 
     /// Check if metric is symmetric
     #[inline]
+    #[must_use]
     pub const fn is_symmetric(&self) -> bool {
         match self {
             Self::Cosine | Self::Euclidean | Self::Manhattan | Self::Hamming | Self::Jaccard => {
@@ -188,6 +195,7 @@ impl DistanceMetric {
 
     /// Get value range for metric
     #[inline]
+    #[must_use]
     pub const fn value_range(&self) -> (f32, f32) {
         match self {
             Self::Cosine | Self::Jaccard => (-1.0, 1.0),
@@ -231,6 +239,7 @@ pub enum SimdInstructionSet {
 impl SimdInstructionSet {
     /// Get vector width in bytes
     #[inline]
+    #[must_use]
     pub const fn vector_width_bytes(&self) -> usize {
         match self {
             Self::None => 4,              // Single f32
@@ -242,11 +251,13 @@ impl SimdInstructionSet {
 
     /// Get number of f32 elements per vector
     #[inline]
+    #[must_use]
     pub const fn f32_elements_per_vector(&self) -> usize {
         self.vector_width_bytes() / 4
     }
 
     /// Check if instruction set is available on current CPU
+    #[must_use]
     pub fn is_available(&self) -> bool {
         match self {
             Self::None => true,
@@ -268,6 +279,7 @@ impl SimdInstructionSet {
     }
 
     /// Detect best available SIMD instruction set
+    #[must_use]
     pub fn detect_best_available() -> Self {
         #[cfg(target_arch = "x86_64")]
         {
@@ -321,6 +333,7 @@ pub enum IndexType {
 impl IndexType {
     /// Check if index type supports exact search
     #[inline]
+    #[must_use]
     pub const fn supports_exact_search(&self) -> bool {
         match self {
             Self::FlatIP | Self::FlatL2 => true,
@@ -330,6 +343,7 @@ impl IndexType {
 
     /// Get memory usage multiplier compared to raw vectors
     #[inline]
+    #[must_use]
     pub const fn memory_multiplier(&self) -> f32 {
         match self {
             Self::FlatIP | Self::FlatL2 => 1.0,
@@ -343,6 +357,7 @@ impl IndexType {
 
     /// Get build time complexity relative to vector count
     #[inline]
+    #[must_use]
     pub const fn build_complexity(&self) -> &'static str {
         match self {
             Self::FlatIP | Self::FlatL2 => "O(1)",
@@ -372,6 +387,7 @@ pub struct SimdConfig {
 impl SimdConfig {
     /// Create optimized SIMD configuration
     #[inline]
+    #[must_use]
     pub fn optimized() -> Self {
         let instruction_set = {
             // Removed unexpected cfg condition "simd-auto-detect" - feature does not exist
@@ -390,6 +406,7 @@ impl SimdConfig {
 
     /// Create disabled SIMD configuration
     #[inline]
+    #[must_use]
     pub fn disabled() -> Self {
         Self {
             instruction_set: SimdInstructionSet::None,
@@ -403,6 +420,7 @@ impl SimdConfig {
 
     /// Check if SIMD should be used for given dimension
     #[inline]
+    #[must_use]
     pub fn should_use_simd(&self, dimension: usize) -> bool {
         self.instruction_set != SimdInstructionSet::None
             && dimension >= self.simd_threshold
@@ -411,6 +429,7 @@ impl SimdConfig {
 
     /// Get optimal alignment for vectors
     #[inline]
+    #[must_use]
     pub fn optimal_alignment(&self) -> usize {
         self.force_alignment
             .unwrap_or_else(|| self.instruction_set.vector_width_bytes())
@@ -448,6 +467,7 @@ pub struct IndexConfig {
 
 impl IndexConfig {
     /// Create optimized configuration for index type
+    #[must_use]
     pub fn optimized(index_type: IndexType, dimension: usize, expected_vectors: usize) -> Self {
         match index_type {
             IndexType::FlatIP | IndexType::FlatL2 => Self {
@@ -509,6 +529,7 @@ impl IndexConfig {
     }
 
     /// Estimate memory usage in bytes
+    #[must_use]
     pub fn estimate_memory_usage(&self, dimension: usize, num_vectors: usize) -> usize {
         let base_size = num_vectors * dimension * 4; // f32 vectors
         // Use const match to convert f32 multiplier to integer ratio
@@ -603,6 +624,7 @@ pub struct PerformanceConfig {
 impl PerformanceConfig {
     /// Create optimized performance configuration
     #[inline]
+    #[must_use]
     pub fn optimized(store_type: VectorStoreType) -> Self {
         Self {
             num_threads: num_cpus::get(),
@@ -619,6 +641,7 @@ impl PerformanceConfig {
 
     /// Create minimal performance configuration for testing
     #[inline]
+    #[must_use]
     pub fn minimal() -> Self {
         Self {
             num_threads: 1,
@@ -671,6 +694,7 @@ pub enum AllocationStrategy {
 impl MemoryConfig {
     /// Create new memory configuration
     #[inline]
+    #[must_use]
     pub fn new(max_memory_bytes: usize) -> Self {
         Self {
             max_memory_bytes,
@@ -683,6 +707,7 @@ impl MemoryConfig {
 
     /// Record memory allocation
     #[inline]
+    #[must_use]
     pub fn allocate(&self, bytes: usize) -> bool {
         if self.track_usage {
             let current = self.current_usage.fetch_add(bytes, Ordering::Relaxed);
@@ -702,6 +727,7 @@ impl MemoryConfig {
 
     /// Get current memory usage
     #[inline]
+    #[must_use]
     pub fn current_usage(&self) -> usize {
         if self.track_usage {
             self.current_usage.load(Ordering::Relaxed)
@@ -712,12 +738,14 @@ impl MemoryConfig {
 
     /// Get available memory
     #[inline]
+    #[must_use]
     pub fn available_memory(&self) -> usize {
         self.max_memory_bytes.saturating_sub(self.current_usage())
     }
 
     /// Check if allocation would exceed limit
     #[inline]
+    #[must_use]
     pub fn would_exceed_limit(&self, bytes: usize) -> bool {
         if self.track_usage {
             self.current_usage() + bytes > self.max_memory_bytes
@@ -829,6 +857,7 @@ impl VectorStoreConfig {
     }
 
     /// Estimate memory usage for given number of vectors
+    #[must_use]
     pub fn estimate_memory_usage(&self, num_vectors: usize) -> usize {
         self.index_config
             .estimate_memory_usage(self.dimension, num_vectors)
@@ -836,12 +865,14 @@ impl VectorStoreConfig {
 
     /// Check if configuration supports SIMD operations
     #[inline]
+    #[must_use]
     pub fn supports_simd(&self) -> bool {
         self.distance_metric.supports_simd() && self.simd_config.should_use_simd(self.dimension)
     }
 
     /// Get optimal batch size for operations
     #[inline]
+    #[must_use]
     pub fn optimal_batch_size(&self) -> usize {
         self.performance_config.batch_size
     }

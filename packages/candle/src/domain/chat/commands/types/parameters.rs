@@ -344,6 +344,7 @@ impl ParameterType {
 
     /// Get type name as static string for zero allocation
     #[inline]
+    #[must_use]
     pub fn type_name(&self) -> &'static str {
         match self {
             Self::String => "string",
@@ -551,6 +552,7 @@ pub struct ParameterValidator {
 impl ParameterValidator {
     /// Create new validator with parameter definitions
     #[inline]
+    #[must_use]
     pub fn new(parameters: Vec<ParameterInfo>) -> Self {
         Self { parameters }
     }
@@ -590,12 +592,14 @@ impl ParameterValidator {
 
     /// Get parameter by name - zero allocation lookup
     #[inline]
+    #[must_use]
     pub fn get_parameter(&self, name: &str) -> Option<&ParameterInfo> {
         self.parameters.iter().find(|p| p.name == name)
     }
 
     /// Get all parameters - returns slice to avoid allocation
     #[inline]
+    #[must_use]
     pub fn parameters(&self) -> &[ParameterInfo] {
         &self.parameters
     }

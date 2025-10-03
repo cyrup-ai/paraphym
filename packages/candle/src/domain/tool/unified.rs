@@ -54,6 +54,7 @@ pub enum ToolError {
 
 impl UnifiedToolExecutor {
     /// Create a new unified tool executor
+    #[must_use]
     pub fn new(mcp_client: Option<Arc<dyn McpClient + Send + Sync>>) -> Self {
         Self {
             mcp_clients: Arc::new(tokio::sync::RwLock::new(if let Some(client) = mcp_client {
@@ -87,6 +88,7 @@ impl UnifiedToolExecutor {
     }
 
     /// Create unified tool executor with multiple MCP servers
+    #[must_use]
     pub fn with_mcp_servers(server_configs: Vec<McpServerConfig>) -> Self {
         Self {
             mcp_clients: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
@@ -211,6 +213,7 @@ impl UnifiedToolExecutor {
     }
 
     /// Execute tool and return ystream for compatibility with existing architecture
+    #[must_use]
     pub fn call_tool_stream(&self, tool_name: &str, args: JsonValue) -> AsyncStream<CandleJsonChunk> {
         let tool_name = tool_name.to_string();
         let executor = self.clone_for_async();

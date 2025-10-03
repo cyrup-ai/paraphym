@@ -78,6 +78,7 @@ impl<T: Send + 'static> ChannelSender<T> {
 
 /// Create a new channel for async communication using crossbeam for zero allocation
 #[inline]
+#[must_use]
 pub fn channel<T: Send + 'static>() -> (
     ChannelSender<T>,
     AsyncTask<std::result::Result<T, ChannelError>>,

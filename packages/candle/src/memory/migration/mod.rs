@@ -159,19 +159,18 @@ impl MigrationManager {
             if self.tracker.is_applied(version) {
                 if let Some(existing_record) = self.tracker.applied_migrations()
                     .iter()
-                    .find(|r| r.version == version) 
+                    .find(|r| r.version == version)
+                    && existing_record.checksum != checksum
                 {
-                    if existing_record.checksum != checksum {
-                        return Err(MigrationError::ValidationFailed(
-                            format!(
-                                "Migration v{} ({}) checksum mismatch: expected {}, found {}. Migration code may have been tampered with.",
-                                version,
-                                migration.name(),
-                                existing_record.checksum,
-                                checksum
-                            )
-                        ));
-                    }
+                    return Err(MigrationError::ValidationFailed(
+                        format!(
+                            "Migration v{} ({}) checksum mismatch: expected {}, found {}. Migration code may have been tampered with.",
+                            version,
+                            migration.name(),
+                            existing_record.checksum,
+                            checksum
+                        )
+                    ));
                 }
                 tracing::debug!(
                     "Migration v{} ({}) already applied, skipping",

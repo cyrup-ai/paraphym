@@ -190,6 +190,7 @@ pub enum LLMConfigError {
 
 impl LLMProvider {
     /// Get default endpoint for provider
+    #[must_use]
     pub fn default_endpoint(&self) -> Option<&'static str> {
         match self {
             Self::OpenAI => Some("https://api.openai.com/v1"),
@@ -200,11 +201,13 @@ impl LLMProvider {
     }
 
     /// Check if provider requires API key
+    #[must_use]
     pub fn requires_api_key(&self) -> bool {
         !matches!(self, Self::Local)
     }
 
     /// Get common models for provider
+    #[must_use]
     pub fn common_models(&self) -> &'static [&'static str] {
         match self {
             Self::OpenAI => &["gpt-4", "gpt-4-turbo", "gpt-3.5-turbo"],

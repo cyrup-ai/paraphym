@@ -201,7 +201,9 @@ mod tests {
     #[test]
     fn test_topk_filtering() {
         let mut logits = [3.0, 1.0, 4.0, 1.0, 5.0, 9.0, 2.0, 6.0];
-        topk_filtering_simd(&mut logits, 3).unwrap();
+        if let Err(e) = topk_filtering_simd(&mut logits, 3) {
+            panic!("Top-k filtering failed: {}", e);
+        }
 
         // Only top 3 values should remain
         let mut count = 0;
@@ -231,7 +233,9 @@ mod tests {
     #[test]
     fn test_topk_filtering_all() {
         let mut logits = [1.0, 2.0, 3.0];
-        topk_filtering_simd(&mut logits, 3).unwrap();
+        if let Err(e) = topk_filtering_simd(&mut logits, 3) {
+            panic!("Top-k filtering failed: {}", e);
+        }
         assert_eq!(logits, [1.0, 2.0, 3.0]);
     }
 }

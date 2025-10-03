@@ -159,6 +159,7 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static 
     }
 
     /// Get the provider reference
+    #[must_use]
     pub fn provider(&self) -> &Arc<dyn CompletionModel> {
         &self.provider
     }

@@ -392,50 +392,49 @@ mod tests {
 
     // ----- stringified JSON -----------------------------------------------
     #[test]
-    fn stringified_roundtrip() {
+    fn stringified_roundtrip() -> Result<(), Box<dyn std::error::Error>> {
         let original = Dummy {
             data: serde_json::json!({"k":"v"})};
-        let s = serde_json::to_string(&original).expect("Failed to serialize Dummy to JSON string");
+        let s = serde_json::to_string(&original)?;
         assert_eq!(s, r#"{"data":"{\"k\":\"v\"}"}"#);
-        let parsed: Dummy =
-            serde_json::from_str(&s).expect("Failed to deserialize JSON string back to Dummy");
+        let parsed: Dummy = serde_json::from_str(&s)?;
         assert_eq!(parsed, original);
+        Ok(())
     }
 
     // ----- string_or_vec ---------------------------------------------------
     #[test]
-    fn str_or_array_deserialise() {
+    fn str_or_array_deserialise() -> Result<(), Box<dyn std::error::Error>> {
         #[derive(Deserialize, PartialEq, Debug)]
         struct Wrapper {
             #[serde(deserialize_with = "string_or_vec")]
             v: Vec<u32>}
 
-        let w1: Wrapper =
-            serde_json::from_str(r#"{"v":"3"}"#).expect("Failed to parse string variant");
+        let w1: Wrapper = serde_json::from_str(r#"{"v":"3"}"#)?;
         assert_eq!(w1.v, vec![3]);
 
-        let w2: Wrapper =
-            serde_json::from_str(r#"{"v":[1,2,3]}"#).expect("Failed to parse array variant");
+        let w2: Wrapper = serde_json::from_str(r#"{"v":[1,2,3]}"#)?;
         assert_eq!(w2.v, vec![1, 2, 3]);
 
-        let w3: Wrapper =
-            serde_json::from_str(r#"{"v":null}"#).expect("Failed to parse null variant");
+        let w3: Wrapper = serde_json::from_str(r#"{"v":null}"#)?;
         assert!(w3.v.is_empty());
+        Ok(())
     }
 
     // ----- null_or_vec -----------------------------------------------------
     #[test]
-    fn null_or_array_deserialise() {
+    fn null_or_array_deserialise() -> Result<(), Box<dyn std::error::Error>> {
         #[derive(Deserialize, PartialEq, Debug)]
         struct Wrapper {
             #[serde(deserialize_with = "null_or_vec")]
             v: Vec<bool>}
 
-        let w1: Wrapper = serde_json::from_str(r#"{"v":[true,false]}"#).unwrap();
+        let w1: Wrapper = serde_json::from_str(r#"{"v":[true,false]}"#)?;
         assert_eq!(w1.v, vec![true, false]);
 
-        let w2: Wrapper = serde_json::from_str(r#"{"v":null}"#).unwrap();
+        let w2: Wrapper = serde_json::from_str(r#"{"v":null}"#)?;
         assert!(w2.v.is_empty());
+        Ok(())
     }
 
     // ----- utility functions -----------------------------------------------

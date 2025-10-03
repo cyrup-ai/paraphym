@@ -75,6 +75,7 @@ impl Default for CommandParser {
 
 impl CommandParser {
     /// Create a new command parser
+    #[must_use]
     pub fn new() -> Self {
         let mut parser = Self {
             commands: HashMap::new(),
@@ -841,6 +842,7 @@ impl CommandParser {
     }
 
     /// Get command suggestions for auto-completion
+    #[must_use]
     pub fn get_suggestions(&self, prefix: &str) -> Vec<String> {
         let mut suggestions = Vec::new();
 
@@ -863,6 +865,7 @@ impl CommandParser {
     }
 
     /// Get command information
+    #[must_use]
     pub fn get_command_info(&self, command: &str) -> Option<CommandInfo> {
         self.commands.get(command).cloned().or_else(|| {
             self.aliases
@@ -872,6 +875,7 @@ impl CommandParser {
     }
 
     /// Get command history
+    #[must_use]
     pub fn get_history(&self) -> Vec<String> {
         self.history.clone()
     }

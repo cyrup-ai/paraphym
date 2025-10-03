@@ -14,6 +14,7 @@ pub struct ResultRanker {
 
 impl ResultRanker {
     /// Create a new result ranker
+    #[must_use]
     pub fn new() -> Self {
         Self {
             algorithm: RankingAlgorithm::Bm25,

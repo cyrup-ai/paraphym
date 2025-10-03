@@ -163,12 +163,12 @@ mod tests {
     use super::*;
     
     #[test]
-    fn test_format_tools_for_selection() {
+    fn test_format_tools_for_selection() -> Result<(), Box<dyn std::error::Error>> {
         // Convert serde_json to simd_json by serializing and deserializing
-        let schema_json = serde_json::to_string(&json!({"type": "object"})).unwrap();
+        let schema_json = serde_json::to_string(&json!({"type": "object"}))?;
         let mut schema_bytes = schema_json.as_bytes().to_vec();
-        let input_schema = simd_json::to_owned_value(&mut schema_bytes).unwrap();
-        
+        let input_schema = simd_json::to_owned_value(&mut schema_bytes)?;
+
         let tools = vec![
             ToolInfo {
                 name: "calculator".to_string(),
@@ -181,19 +181,20 @@ mod tests {
                 input_schema,
             },
         ];
-        
+
         let formatted = format_tools_for_selection(&tools);
         assert!(formatted.contains("calculator: Perform calculations"));
         assert!(formatted.contains("search: Search the web"));
+        Ok(())
     }
     
     #[test]
-    fn test_get_selected_tool_schemas() {
+    fn test_get_selected_tool_schemas() -> Result<(), Box<dyn std::error::Error>> {
         // Convert serde_json to simd_json
-        let schema_json = serde_json::to_string(&json!({})).unwrap();
+        let schema_json = serde_json::to_string(&json!({}))?;
         let mut schema_bytes = schema_json.as_bytes().to_vec();
-        let input_schema = simd_json::to_owned_value(&mut schema_bytes).unwrap();
-        
+        let input_schema = simd_json::to_owned_value(&mut schema_bytes)?;
+
         let tools = vec![
             ToolInfo {
                 name: "tool1".to_string(),
@@ -206,9 +207,10 @@ mod tests {
                 input_schema,
             },
         ];
-        
+
         let selected = get_selected_tool_schemas(&vec!["tool1".to_string()], &tools);
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].name, "tool1");
+        Ok(())
     }
 }

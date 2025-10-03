@@ -85,6 +85,7 @@ pub enum CpuArchitecture {
 
 impl CpuFeatures {
     #[inline]
+    #[must_use]
     pub fn detect() -> Self {
         let mut features = CpuFeatureFlags::empty();
         
@@ -118,48 +119,56 @@ impl CpuFeatures {
     
     /// Check if a specific feature is available
     #[inline]
+    #[must_use]
     pub const fn has(&self, feature: CpuFeatureFlags) -> bool {
         self.features.contains(feature)
     }
     
     /// Check if AVX2 is available
     #[inline]
+    #[must_use]
     pub const fn has_avx2(&self) -> bool {
         self.features.contains(CpuFeatureFlags::AVX2)
     }
     
     /// Check if AVX512F is available
     #[inline]
+    #[must_use]
     pub const fn has_avx512f(&self) -> bool {
         self.features.contains(CpuFeatureFlags::AVX512F)
     }
     
     /// Check if AVX512BW is available
     #[inline]
+    #[must_use]
     pub const fn has_avx512bw(&self) -> bool {
         self.features.contains(CpuFeatureFlags::AVX512BW)
     }
     
     /// Check if AVX512VL is available
     #[inline]
+    #[must_use]
     pub const fn has_avx512vl(&self) -> bool {
         self.features.contains(CpuFeatureFlags::AVX512VL)
     }
     
     /// Check if FMA is available
     #[inline]
+    #[must_use]
     pub const fn has_fma(&self) -> bool {
         self.features.contains(CpuFeatureFlags::FMA)
     }
     
     /// Check if SSE4.2 is available
     #[inline]
+    #[must_use]
     pub const fn has_sse42(&self) -> bool {
         self.features.contains(CpuFeatureFlags::SSE42)
     }
     
     /// Check if NEON is available
     #[inline]
+    #[must_use]
     pub const fn has_neon(&self) -> bool {
         self.features.contains(CpuFeatureFlags::NEON)
     }
@@ -281,6 +290,7 @@ pub enum Op {
 /// Get memory operation performance statistics
 #[inline]
 #[allow(dead_code)] // TODO: Implement SIMD operations performance monitoring
+#[must_use]
 pub fn get_memory_ops_stats() -> (u64, u64, u64) {
     let simd_ops = (*SIMD_OPERATIONS_COUNT).get() as u64;
     let cache_hits = (*CACHE_HITS).get() as u64;
@@ -291,6 +301,7 @@ pub fn get_memory_ops_stats() -> (u64, u64, u64) {
 /// Check if embedding should use stack allocation
 #[inline]
 #[allow(dead_code)] // TODO: Implement stack vs heap allocation optimization
+#[must_use]
 pub fn should_use_stack_allocation(embedding_size: usize) -> bool {
     embedding_size <= MAX_STACK_EMBEDDING_SIZE
 }
@@ -298,6 +309,7 @@ pub fn should_use_stack_allocation(embedding_size: usize) -> bool {
 /// Get optimal vector pool allocation size
 #[inline]
 #[allow(dead_code)] // TODO: Implement vector pool size configuration
+#[must_use]
 pub fn get_vector_pool_size() -> usize {
     VECTOR_POOL_SIZE
 }

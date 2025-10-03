@@ -153,8 +153,8 @@ pub enum CandleContextEvent {
         source: String,
         /// Number of documents successfully loaded
         documents_loaded: usize,
-        /// Duration of the loading operation in nanoseconds
-        duration_nanos: u64,
+        /// Duration of the loading operation
+        duration: Duration,
         /// When the context loading operation completed
         timestamp: SystemTime,
     },
@@ -183,8 +183,8 @@ pub enum CandleContextEvent {
         query: String,
         /// Number of results returned by the search
         results_count: usize,
-        /// Duration of the search operation in nanoseconds
-        duration_nanos: u64,
+        /// Duration of the search operation
+        duration: Duration,
         /// When the search operation completed
         timestamp: SystemTime,
     },
@@ -357,6 +357,7 @@ impl Clone for CandleMemoryIntegration {
 impl CandleMemoryIntegration {
     /// Create new memory integration with owned strings
     #[inline]
+    #[must_use]
     pub fn new(manager_id: String, embedding_model: String, vector_dimension: usize) -> Self {
         Self {
             manager_id,
@@ -550,6 +551,7 @@ impl std::fmt::Debug for CandleStreamingContextProcessor {
 impl CandleStreamingContextProcessor {
     /// Create new streaming context processor
     #[inline]
+    #[must_use]
     pub fn new(processor_id: String) -> Self {
         Self {
             processor_id,
@@ -569,6 +571,7 @@ impl CandleStreamingContextProcessor {
 
     /// Create processor with event streaming
     #[inline]
+    #[must_use]
     pub fn with_streaming(processor_id: String) -> (Self, AsyncStream<CandleContextEvent>) {
         let stream = AsyncStream::with_channel(|_sender| {
             // Stream created for event processing
@@ -626,7 +629,7 @@ impl CandleStreamingContextProcessor {
                     context_type: "File".to_string(),
                     source: context.path.clone(),
                     documents_loaded: 1,
-                    duration_nanos: duration.as_nanos() as u64,
+                    duration,
                     timestamp: SystemTime::now(),
                 });
             }
@@ -819,7 +822,7 @@ impl CandleStreamingContextProcessor {
         // Convert extension to lowercase for case-insensitive matching
         let ext_lower = path.extension()
             .and_then(|ext| ext.to_str())
-            .map(|s| s.to_lowercase());
+            .map(str::to_lowercase);
         
         match ext_lower.as_deref() {
             Some("html" | "htm") => (
@@ -1507,7 +1510,7 @@ mod tests {
     use std::io::Write;
     use std::time::SystemTime;
     use tempfile::{NamedTempFile, TempDir};
-    use base64::{Engine as _, engine::general_purpose};
+    use base64::engine::general_purpose;
 
     /// Helper function to create a test file context
     fn create_test_context(path: String) -> CandleImmutableFileContext {
@@ -1698,11 +1701,11 @@ mod tests {
     }
 
     #[test]
-    fn test_csv_file() {
-        let mut temp_file = NamedTempFile::with_suffix(".csv").expect("Failed to create temp file");
+    fn test_csv_file() -> Result<(), Box<dyn std::error::Error>> {
+        let mut temp_file = NamedTempFile::with_suffix(".csv")?;
         let test_content = "name,age,city\nAlice,30,NYC\nBob,25,LA";
-        temp_file.write_all(test_content.as_bytes()).expect("Failed to write");
-        temp_file.flush().expect("Failed to flush");
+        temp_file.write_all(test_content.as_bytes())?;
+        temp_file.flush()?;
 
         let path = temp_file.path().to_string_lossy().to_string();
         let context = create_test_context(path);
@@ -1712,14 +1715,15 @@ mod tests {
         assert!(matches!(document.format, Some(CandleContentFormat::Csv)));
         assert!(matches!(document.media_type, Some(CandleDocumentMediaType::Csv)));
         assert!(document.error().is_none());
+        Ok(())
     }
 
     #[test]
-    fn test_xml_file() {
-        let mut temp_file = NamedTempFile::with_suffix(".xml").expect("Failed to create temp file");
+    fn test_xml_file() -> Result<(), Box<dyn std::error::Error>> {
+        let mut temp_file = NamedTempFile::with_suffix(".xml")?;
         let test_content = r#"<?xml version="1.0"?><root><item>Test</item></root>"#;
-        temp_file.write_all(test_content.as_bytes()).expect("Failed to write");
-        temp_file.flush().expect("Failed to flush");
+        temp_file.write_all(test_content.as_bytes())?;
+        temp_file.flush()?;
 
         let path = temp_file.path().to_string_lossy().to_string();
         let context = create_test_context(path);
@@ -1729,14 +1733,15 @@ mod tests {
         assert!(matches!(document.format, Some(CandleContentFormat::Xml)));
         assert!(matches!(document.media_type, Some(CandleDocumentMediaType::Xml)));
         assert!(document.error().is_none());
+        Ok(())
     }
 
     #[test]
-    fn test_yaml_file() {
-        let mut temp_file = NamedTempFile::with_suffix(".yaml").expect("Failed to create temp file");
+    fn test_yaml_file() -> Result<(), Box<dyn std::error::Error>> {
+        let mut temp_file = NamedTempFile::with_suffix(".yaml")?;
         let test_content = "key: value\nlist:\n  - item1\n  - item2";
-        temp_file.write_all(test_content.as_bytes()).expect("Failed to write");
-        temp_file.flush().expect("Failed to flush");
+        temp_file.write_all(test_content.as_bytes())?;
+        temp_file.flush()?;
 
         let path = temp_file.path().to_string_lossy().to_string();
         let context = create_test_context(path);
@@ -1746,14 +1751,15 @@ mod tests {
         assert!(matches!(document.format, Some(CandleContentFormat::Yaml)));
         assert!(matches!(document.media_type, Some(CandleDocumentMediaType::Yaml)));
         assert!(document.error().is_none());
+        Ok(())
     }
 
     #[test]
-    fn test_image_file() {
-        let mut temp_file = NamedTempFile::with_suffix(".png").expect("Failed to create temp file");
+    fn test_image_file() -> Result<(), Box<dyn std::error::Error>> {
+        let mut temp_file = NamedTempFile::with_suffix(".png")?;
         let png_header: Vec<u8> = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
-        temp_file.write_all(&png_header).expect("Failed to write");
-        temp_file.flush().expect("Failed to flush");
+        temp_file.write_all(&png_header)?;
+        temp_file.flush()?;
 
         let path = temp_file.path().to_string_lossy().to_string();
         let context = create_test_context(path);
@@ -1764,19 +1770,21 @@ mod tests {
         assert!(matches!(document.format, Some(CandleContentFormat::Base64)));
         assert!(matches!(document.media_type, Some(CandleDocumentMediaType::Image)));
         assert!(document.error().is_none());
+        Ok(())
     }
 
     #[test]
-    fn test_file_size_limit() {
-        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
-        temp_file.write_all(b"small content").expect("Failed to write");
-        temp_file.flush().expect("Failed to flush");
+    fn test_file_size_limit() -> Result<(), Box<dyn std::error::Error>> {
+        let mut temp_file = NamedTempFile::new()?;
+        temp_file.write_all(b"small content")?;
+        temp_file.flush()?;
 
         let path = temp_file.path().to_string_lossy().to_string();
         let context = create_test_context(path);
         let document = CandleStreamingContextProcessor::load_file_document(&context);
-        
+
         assert!(document.error().is_none());
         assert_eq!(document.data, "small content");
+        Ok(())
     }
 }

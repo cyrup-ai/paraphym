@@ -43,6 +43,7 @@ pub struct TemplateParser {
 
 impl TemplateParser {
     /// Create a new template parser with default configuration
+    #[must_use]
     pub fn new() -> Self {
         Self {
             config: ParserConfig::default(),
@@ -50,6 +51,7 @@ impl TemplateParser {
     }
 
     /// Create a new template parser with custom configuration
+    #[must_use]
     pub fn with_config(config: ParserConfig) -> Self {
         Self { config }
     }
@@ -806,10 +808,9 @@ mod tests {
     use crate::domain::chat::templates::core::{TemplateContext, CompiledTemplate};
 
     #[test]
-    fn test_simple_variable_parsing() {
+    fn test_simple_variable_parsing() -> Result<(), Box<dyn std::error::Error>> {
         let parser = TemplateParser::new();
-        let result = parser.parse("Hello {{name}}!")
-            .expect("Simple template should parse successfully");
+        let result = parser.parse("Hello {{name}}!")?;
 
         match result {
             TemplateAst::Block(nodes) => {
@@ -817,18 +818,19 @@ mod tests {
             }
             _ => panic!("Expected block AST"),
         }
+        Ok(())
     }
 
     #[test]
-    fn test_variable_extraction() {
+    fn test_variable_extraction() -> Result<(), Box<dyn std::error::Error>> {
         let parser = TemplateParser::new();
         let variables = parser
-            .extract_variables("Hello {{name}}, you have {{count}} messages.")
-            .expect("Variable extraction should succeed for valid template");
+            .extract_variables("Hello {{name}}, you have {{count}} messages.")?;
 
         assert_eq!(variables.len(), 2);
         assert!(variables.iter().any(|v| v.name.as_str() == "name"));
         assert!(variables.iter().any(|v| v.name.as_str() == "count"));
+        Ok(())
     }
 
     #[test]
@@ -838,57 +840,62 @@ mod tests {
     }
 
     #[test]
-    fn test_subtraction_associativity() {
+    fn test_subtraction_associativity() -> Result<(), Box<dyn std::error::Error>> {
         let parser = TemplateParser::new();
         let context = TemplateContext::new();
-        
-        let ast = parser.parse("{{ 10 - 3 - 2 }}").unwrap();
-        let result = CompiledTemplate::render_ast(&ast, &context).unwrap();
-        
+
+        let ast = parser.parse("{{ 10 - 3 - 2 }}")?;
+        let result = CompiledTemplate::render_ast(&ast, &context)?;
+
         assert_eq!(result.trim(), "5", "10 - 3 - 2 should be left-associative: (10-3)-2 = 5");
+        Ok(())
     }
 
     #[test]
-    fn test_division_associativity() {
+    fn test_division_associativity() -> Result<(), Box<dyn std::error::Error>> {
         let parser = TemplateParser::new();
         let context = TemplateContext::new();
-        
-        let ast = parser.parse("{{ 20 / 4 / 2 }}").unwrap();
-        let result = CompiledTemplate::render_ast(&ast, &context).unwrap();
-        
+
+        let ast = parser.parse("{{ 20 / 4 / 2 }}")?;
+        let result = CompiledTemplate::render_ast(&ast, &context)?;
+
         assert_eq!(result.trim(), "2.5", "20 / 4 / 2 should be left-associative: (20/4)/2 = 2.5");
+        Ok(())
     }
 
     #[test]
-    fn test_modulo_associativity() {
+    fn test_modulo_associativity() -> Result<(), Box<dyn std::error::Error>> {
         let parser = TemplateParser::new();
         let context = TemplateContext::new();
-        
-        let ast = parser.parse("{{ 17 % 5 % 2 }}").unwrap();
-        let result = CompiledTemplate::render_ast(&ast, &context).unwrap();
-        
+
+        let ast = parser.parse("{{ 17 % 5 % 2 }}")?;
+        let result = CompiledTemplate::render_ast(&ast, &context)?;
+
         assert_eq!(result.trim(), "0", "17 % 5 % 2 should be left-associative: (17%5)%2 = 0");
+        Ok(())
     }
 
     #[test]
-    fn test_precedence_with_associativity() {
+    fn test_precedence_with_associativity() -> Result<(), Box<dyn std::error::Error>> {
         let parser = TemplateParser::new();
         let context = TemplateContext::new();
-        
-        let ast = parser.parse("{{ 10 - 2 * 3 }}").unwrap();
-        let result = CompiledTemplate::render_ast(&ast, &context).unwrap();
-        
+
+        let ast = parser.parse("{{ 10 - 2 * 3 }}")?;
+        let result = CompiledTemplate::render_ast(&ast, &context)?;
+
         assert_eq!(result.trim(), "4", "10 - 2 * 3 should respect precedence: 10 - (2*3) = 4");
+        Ok(())
     }
 
     #[test]
-    fn test_parentheses_override_associativity() {
+    fn test_parentheses_override_associativity() -> Result<(), Box<dyn std::error::Error>> {
         let parser = TemplateParser::new();
         let context = TemplateContext::new();
-        
-        let ast = parser.parse("{{ 10 - (3 - 2) }}").unwrap();
-        let result = CompiledTemplate::render_ast(&ast, &context).unwrap();
-        
+
+        let ast = parser.parse("{{ 10 - (3 - 2) }}")?;
+        let result = CompiledTemplate::render_ast(&ast, &context)?;
+
         assert_eq!(result.trim(), "9", "10 - (3 - 2) should respect parentheses: 10 - 1 = 9");
+        Ok(())
     }
 }

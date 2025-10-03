@@ -129,59 +129,59 @@ struct SchemaData {
 }
 
 #[derive(Debug, Deserialize)]
-struct TypeData {
-    kind: String,
-    name: Option<String>,
-    description: Option<String>,
-    fields: Option<Vec<FieldData>>,
-    interfaces: Option<Vec<TypeRef>>,
+pub struct TypeData {
+    pub kind: String,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub fields: Option<Vec<FieldData>>,
+    pub interfaces: Option<Vec<TypeRef>>,
     #[serde(rename = "possibleTypes")]
-    possible_types: Option<Vec<TypeRef>>,
+    pub possible_types: Option<Vec<TypeRef>>,
     #[serde(rename = "enumValues")]
-    enum_values: Option<Vec<EnumValueData>>,
+    pub enum_values: Option<Vec<EnumValueData>>,
     #[serde(rename = "inputFields")]
-    input_fields: Option<Vec<InputValueData>>,
+    pub input_fields: Option<Vec<InputValueData>>,
 }
 
 #[derive(Debug, Deserialize)]
-struct FieldData {
-    name: String,
-    description: Option<String>,
+pub struct FieldData {
+    pub name: String,
+    pub description: Option<String>,
     #[serde(rename = "type")]
-    field_type: TypeRef,
-    args: Vec<InputValueData>,
+    pub field_type: TypeRef,
+    pub args: Vec<InputValueData>,
     #[serde(rename = "isDeprecated")]
-    is_deprecated: bool,
+    pub is_deprecated: bool,
     #[serde(rename = "deprecationReason")]
-    deprecation_reason: Option<String>,
+    pub deprecation_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
-struct TypeRef {
-    kind: String,
-    name: Option<String>,
+pub struct TypeRef {
+    pub kind: String,
+    pub name: Option<String>,
     #[serde(rename = "ofType")]
-    of_type: Option<Box<TypeRef>>,
+    pub of_type: Option<Box<TypeRef>>,
 }
 
 #[derive(Debug, Deserialize)]
-struct EnumValueData {
-    name: String,
-    description: Option<String>,
+pub struct EnumValueData {
+    pub name: String,
+    pub description: Option<String>,
     #[serde(rename = "isDeprecated")]
-    is_deprecated: bool,
+    pub is_deprecated: bool,
     #[serde(rename = "deprecationReason")]
-    deprecation_reason: Option<String>,
+    pub deprecation_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
-struct InputValueData {
-    name: String,
-    description: Option<String>,
+pub struct InputValueData {
+    pub name: String,
+    pub description: Option<String>,
     #[serde(rename = "type")]
-    input_type: TypeRef,
+    pub input_type: TypeRef,
     #[serde(rename = "defaultValue")]
-    default_value: Option<String>,
+    pub default_value: Option<String>,
 }
 
 /// Cached schema information for an upstream server
@@ -332,7 +332,7 @@ impl SchemaIntrospector {
     }
 
     /// Convert TypeData to GraphQLTypeInfo
-    fn convert_type_data_to_info(&self, type_data: &TypeData) -> Result<GraphQLTypeInfo> {
+    pub fn convert_type_data_to_info(&self, type_data: &TypeData) -> Result<GraphQLTypeInfo> {
         let name = type_data
             .name
             .as_ref()
@@ -420,61 +420,3 @@ impl Default for SchemaIntrospector {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_schema_introspector_creation() {
-        let introspector = SchemaIntrospector::new().expect("Failed to create introspector");
-        let (total, valid) = introspector.cache_stats().await;
-        assert_eq!(total, 0);
-        assert_eq!(valid, 0);
-    }
-
-    #[tokio::test]
-    async fn test_cached_schema_validity() {
-        let schema = CachedSchema {
-            types: HashMap::new(),
-            cached_at: Instant::now(),
-            ttl: Duration::from_secs(1),
-        };
-
-        assert!(schema.is_valid());
-
-        tokio::time::sleep(Duration::from_millis(1100)).await;
-        assert!(!schema.is_valid());
-    }
-
-    #[test]
-    fn test_type_kind_conversion() {
-        let introspector = SchemaIntrospector::new().expect("Failed to create introspector");
-
-        let type_data = TypeData {
-            kind: "OBJECT".to_string(),
-            name: Some("User".to_string()),
-            description: None,
-            fields: Some(vec![FieldData {
-                name: "id".to_string(),
-                description: None,
-                field_type: TypeRef {
-                    kind: "SCALAR".to_string(),
-                    name: Some("ID".to_string()),
-                    of_type: None,
-                },
-                args: vec![],
-                is_deprecated: false,
-                deprecation_reason: None,
-            }]),
-            interfaces: None,
-            possible_types: None,
-            enum_values: None,
-            input_fields: None,
-        };
-
-        let type_info = introspector.convert_type_data_to_info(&type_data).unwrap();
-        assert_eq!(type_info.name, "User");
-        assert_eq!(type_info.kind, GraphQLTypeKind::Object);
-        assert_eq!(type_info.fields, vec!["id"]);
-    }
-}

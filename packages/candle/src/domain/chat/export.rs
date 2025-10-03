@@ -7,6 +7,8 @@ use std::fmt::Write;
 use serde::{Deserialize, Serialize, Serializer, Deserializer};
 use thiserror::Error;
 
+use crate::domain::util::duration_to_micros_u64;
+
 /// String serialization helper
 mod arc_str_serde {
     use super::{Serializer, Deserializer, Deserialize};
@@ -163,6 +165,7 @@ pub type ExportResult<T> = Result<T, ExportError>;
 
 impl ChatExporter {
     /// Create a new chat exporter with default configuration
+    #[must_use]
     pub fn new() -> Self {
         Self {
             config: ExportConfig::default(),
@@ -171,6 +174,7 @@ impl ChatExporter {
     }
 
     /// Create a new chat exporter with custom configuration
+    #[must_use]
     pub fn with_config(config: ExportConfig) -> Self {
         Self {
             config,
@@ -219,7 +223,7 @@ impl ChatExporter {
         self.stats.total_bytes += content.len() as u64;
         self.stats.avg_export_time_us = ((self.stats.avg_export_time_us
             * (self.stats.total_exports - 1))
-            + export_time.as_micros() as u64)
+            + duration_to_micros_u64(export_time))
             / self.stats.total_exports;
 
         let (content_type, file_extension) = match self.config.format {
@@ -341,11 +345,13 @@ impl ChatExporter {
     }
 
     /// Get export statistics
+    #[must_use]
     pub fn stats(&self) -> &ExportStats {
         &self.stats
     }
 
     /// Get current configuration
+    #[must_use]
     pub fn config(&self) -> &ExportConfig {
         &self.config
     }

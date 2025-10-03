@@ -11,7 +11,7 @@ use tracing::{debug, info};
 
 use super::service::{EdgeService, EdgeServiceError};
 use crate::{
-    config::Config, peer_discovery::PeerRegistry, rate_limit::AdvancedRateLimitManager,
+    config::Config, peer_discovery::PeerRegistry, rate_limit::distributed::DistributedRateLimitManager,
     shutdown::ShutdownCoordinator,
 };
 
@@ -20,7 +20,7 @@ pub struct EdgeServiceBuilder {
     cfg: Option<Arc<Config>>,
     bridge_tx: Option<Sender<crate::mcp_bridge::BridgeMsg>>,
     peer_registry: Option<PeerRegistry>,
-    custom_rate_limiter: Option<Arc<AdvancedRateLimitManager>>,
+    custom_rate_limiter: Option<Arc<DistributedRateLimitManager>>,
     custom_shutdown_coordinator: Option<Arc<ShutdownCoordinator>>,
 }
 
@@ -62,7 +62,7 @@ impl EdgeServiceBuilder {
     }
 
     /// Set custom rate limiter with advanced configuration
-    pub fn with_custom_rate_limiter(mut self, rate_limiter: Arc<AdvancedRateLimitManager>) -> Self {
+    pub fn with_custom_rate_limiter(mut self, rate_limiter: Arc<DistributedRateLimitManager>) -> Self {
         debug!("Setting custom rate limiter");
         self.custom_rate_limiter = Some(rate_limiter);
         self
@@ -94,8 +94,18 @@ impl EdgeServiceBuilder {
             EdgeServiceError::Configuration("Peer registry is required".to_string())
         })?;
 
+        // Create circuit breaker manager
+        let circuit_config = crate::circuit_breaker::CircuitBreakerConfig {
+            error_threshold_percentage: cfg.circuit_breaker_threshold,
+            request_volume_threshold: 20,
+            sleep_window: std::time::Duration::from_secs(5),
+            half_open_requests: 3,
+            metrics_window: std::time::Duration::from_secs(10),
+        };
+        let circuit_breaker_manager = Arc::new(crate::circuit_breaker::CircuitBreakerManager::new(circuit_config));
+
         // Create base service
-        let mut service = EdgeService::new(cfg, bridge_tx, peer_registry);
+        let mut service = EdgeService::new(cfg, bridge_tx, peer_registry, circuit_breaker_manager);
 
         // Apply custom components if provided
         if let Some(custom_rate_limiter) = self.custom_rate_limiter {
@@ -137,7 +147,17 @@ impl EdgeServiceBuilder {
         });
 
         // Create test peer registry if not provided
-        let peer_registry = self.peer_registry.unwrap_or_default();
+        let peer_registry = self.peer_registry.unwrap_or_else(|| {
+            let circuit_config = crate::circuit_breaker::CircuitBreakerConfig {
+                error_threshold_percentage: 50,
+                request_volume_threshold: 20,
+                sleep_window: std::time::Duration::from_secs(5),
+                half_open_requests: 3,
+                metrics_window: std::time::Duration::from_secs(10),
+            };
+            let circuit_breaker_manager = Arc::new(crate::circuit_breaker::CircuitBreakerManager::new(circuit_config));
+            crate::peer_discovery::PeerRegistry::new(circuit_breaker_manager)
+        });
 
         // Build with test configuration
         Self {

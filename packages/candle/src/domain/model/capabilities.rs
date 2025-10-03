@@ -53,6 +53,7 @@ pub enum CandleCapability {
 
 impl CandleCapability {
     /// Parse a capability string (case-insensitive, supports `snake_case` and kebab-case)
+    #[must_use]
     pub fn from_string(s: &str) -> Option<Self> {
         let normalized = s.to_lowercase().replace('-', "_");
         match normalized.as_str() {
@@ -132,6 +133,7 @@ impl CandleModelCapabilities {
     /// **NOTE**: In most cases, you should use `ModelInfo::to_capabilities()` instead
     /// of creating `ModelCapabilities` directly, since `ModelInfo` is the single source
     /// of truth that deserializes from the external models.yaml file.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -183,17 +185,20 @@ impl CandleModelCapabilities {
     }
 
     /// Check if a specific capability is enabled
+    #[must_use]
     pub fn has_capability(&self, capability: CandleCapability) -> bool {
         let flag = Self::capability_to_flag(capability);
         self.flags.contains(flag)
     }
 
     /// Check if all specified capabilities are enabled
+    #[must_use]
     pub fn has_all_capabilities(&self, capabilities: &[CandleCapability]) -> bool {
         capabilities.iter().all(|&cap| self.has_capability(cap))
     }
 
     /// Check if any of the specified capabilities are enabled
+    #[must_use]
     pub fn has_any_capability(&self, capabilities: &[CandleCapability]) -> bool {
         capabilities.iter().any(|&cap| self.has_capability(cap))
     }
@@ -229,6 +234,7 @@ impl CandleModelCapabilities {
     }
 
     /// Get all enabled capabilities as a vector
+    #[must_use]
     pub fn to_vec(&self) -> Vec<CandleCapability> {
         self.enabled_capabilities().collect()
     }

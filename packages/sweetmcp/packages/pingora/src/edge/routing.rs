@@ -10,7 +10,6 @@ use std::pin::Pin;
 use pingora::upstreams::peer::HttpPeer;
 use pingora::Result;
 use pingora_proxy::Session;
-use rand::prelude::*;
 
 use super::core::{EdgeService, EdgeServiceError};
 
@@ -34,82 +33,59 @@ impl RoutingHandler {
             let already_hopped = session.req_header().headers.get("x-polygate-hop").is_some();
 
             if overloaded && !already_hopped {
-                // Try discovered peers first with optimized peer selection
-                let healthy_peers = service.peer_registry.get_healthy_peers();
-
-                if !healthy_peers.is_empty() {
-                    // Randomly select a healthy peer with fast random selection
-                    let mut rng = rand::rng();
-                    if let Some(peer_addr) = healthy_peers.choose(&mut rng) {
-                        // Add hop header to prevent loops with zero allocation
-                        session
-                            .req_header_mut()
-                            .insert_header("x-polygate-hop", "1")?;
-
-                        let peer = Box::new(HttpPeer::new(
-                            (peer_addr.ip(), peer_addr.port()),
-                            peer_addr.port() == 443, // Use TLS for port 443
-                            peer_addr.to_string(),
-                        ));
-                        return Ok(peer);
-                    }
-                }
-
-                // Fall back to static upstreams if no healthy peers
-                if !service.cfg.upstreams.is_empty() {
-                    if let Some(backend) = service.picker.pick() {
-                        // Add hop header to prevent loops with fast header insertion
-                        session
-                            .req_header_mut()
-                            .insert_header("x-polygate-hop", "1")?;
-
-                        // Create peer from backend with optimized peer creation
-                        match &backend.addr {
-                            pingora::protocols::l4::socket::SocketAddr::Inet(addr) => {
-                                let peer = Box::new(HttpPeer::new(
-                                    (addr.ip(), addr.port()),
-                                    addr.port() == 443, // Use TLS for port 443
-                                    addr.to_string(),
-                                ));
-                                Ok(peer)
-                            }
-                            pingora::protocols::l4::socket::SocketAddr::Unix(_) => {
-                                // Unix sockets not supported for remote peers, fallback to localhost
-                                let peer = Box::new(HttpPeer::new(
-                                    ("127.0.0.1", 8443),
-                                    false,
-                                    "localhost".to_string(),
-                                ));
-                                Ok(peer)
-                            }
+                // Use MetricPicker for load-based selection of ALL backends (static + discovered)
+                let current_picker = service.picker.load();
+                
+                if let Some(backend) = current_picker.pick() {
+                    // Add hop header to prevent loops
+                    session
+                        .req_header_mut()
+                        .insert_header("x-polygate-hop", "1")?;
+                    
+                    // Create peer from backend
+                    match &backend.addr {
+                        pingora::protocols::l4::socket::SocketAddr::Inet(addr) => {
+                            // Check if this backend uses TLS
+                            let use_tls = service.upstream_urls
+                                .get(&std::net::SocketAddr::from(*addr))
+                                .map(|url| url.starts_with("https://"))
+                                .unwrap_or(addr.port() == 443);
+                            
+                            let peer = Box::new(HttpPeer::new(
+                                (addr.ip(), addr.port()),
+                                use_tls,
+                                addr.to_string(),
+                            ));
+                            return Ok(peer);
                         }
-                    } else {
-                        // No backend available, handle locally with fast fallback
-                        let peer = Box::new(HttpPeer::new(
-                            ("127.0.0.1", 8443),
-                            false,
-                            "localhost".to_string(),
-                        ));
-                        Ok(peer)
+                        pingora::protocols::l4::socket::SocketAddr::Unix(_) => {
+                            // Unix sockets not supported for remote peers
+                            let peer = Box::new(HttpPeer::new(
+                                ("127.0.0.1", 8443),
+                                false,
+                                "localhost".to_string(),
+                            ));
+                            return Ok(peer);
+                        }
                     }
-                } else {
-                    // No peers or upstreams available, handle locally
-                    let peer = Box::new(HttpPeer::new(
-                        ("127.0.0.1", 8443),
-                        false,
-                        "localhost".to_string(),
-                    ));
-                    Ok(peer)
                 }
-            } else {
-                // Not overloaded or already hopped, handle locally with optimized local handling
+                
+                // No backends available, handle locally
                 let peer = Box::new(HttpPeer::new(
                     ("127.0.0.1", 8443),
                     false,
                     "localhost".to_string(),
                 ));
-                Ok(peer)
+                return Ok(peer);
             }
+
+            // Not overloaded or already hopped, handle locally
+            let peer = Box::new(HttpPeer::new(
+                ("127.0.0.1", 8443),
+                false,
+                "localhost".to_string(),
+            ));
+            Ok(peer)
         })
     }
 
@@ -247,31 +223,10 @@ impl RoutingHandler {
         service: &EdgeService,
         session: &mut Session,
     ) -> Result<Box<HttpPeer>, EdgeServiceError> {
-        // Try discovered peers first with optimized peer discovery
-        let healthy_peers = service.peer_registry.get_healthy_peers();
-
-        if !healthy_peers.is_empty() {
-            // Use weighted random selection based on peer health
-            let mut rng = rand::rng();
-            if let Some(peer_addr) = healthy_peers.choose(&mut rng) {
-                // Add hop header to prevent loops
-                session
-                    .req_header_mut()
-                    .insert_header("x-polygate-hop", "1")
-                    .map_err(|e| {
-                        EdgeServiceError::Network(format!("Failed to add hop header: {}", e))
-                    })?;
-
-                return Ok(Box::new(HttpPeer::new(
-                    (peer_addr.ip(), peer_addr.port()),
-                    peer_addr.port() == 443,
-                    peer_addr.to_string(),
-                )));
-            }
-        }
-
-        // Fall back to static upstreams with optimized backend selection
-        if let Some(backend) = service.picker.pick() {
+        // Use MetricPicker for load-based selection of ALL backends (static + discovered)
+        let current_picker = service.picker.load();
+        
+        if let Some(backend) = current_picker.pick() {
             session
                 .req_header_mut()
                 .insert_header("x-polygate-hop", "1")
@@ -281,9 +236,16 @@ impl RoutingHandler {
 
             match &backend.addr {
                 pingora::protocols::l4::socket::SocketAddr::Inet(addr) => {
+                    // Check if this backend uses TLS
+                    // upstream_urls only contains static backends, so fallback to port check for discovered
+                    let use_tls = service.upstream_urls
+                        .get(&std::net::SocketAddr::from(*addr))
+                        .map(|url| url.starts_with("https://"))
+                        .unwrap_or(addr.port() == 443);
+                    
                     Ok(Box::new(HttpPeer::new(
                         (addr.ip(), addr.port()),
-                        addr.port() == 443,
+                        use_tls,
                         addr.to_string(),
                     )))
                 }
@@ -312,7 +274,8 @@ impl RoutingHandler {
         session: &mut Session,
     ) -> Result<Box<HttpPeer>, EdgeServiceError> {
         // Try primary backend first, then failover to secondary
-        if let Some(backend) = service.picker.pick_primary() {
+        let current_picker = service.picker.load();
+        if let Some(backend) = current_picker.pick_primary() {
             session
                 .req_header_mut()
                 .insert_header("x-polygate-hop", "1")
@@ -350,7 +313,8 @@ impl RoutingHandler {
         session: &mut Session,
     ) -> Result<Box<HttpPeer>, EdgeServiceError> {
         // Use round-robin selection from available backends
-        if let Some(backend) = service.picker.pick_round_robin() {
+        let current_picker = service.picker.load();
+        if let Some(backend) = current_picker.pick_round_robin() {
             session
                 .req_header_mut()
                 .insert_header("x-polygate-hop", "1")

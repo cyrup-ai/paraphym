@@ -17,6 +17,7 @@ pub struct TemplateManager {
 
 impl TemplateManager {
     /// Create a new template manager
+    #[must_use]
     pub fn new() -> Self {
         Self {
             templates: SkipMap::new(),

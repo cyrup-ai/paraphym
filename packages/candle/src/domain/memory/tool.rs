@@ -110,6 +110,7 @@ pub type MemoryToolResult<T> = Result<T, MemoryToolError>;
 
 impl MemoryTool {
     /// Create a new memory tool instance
+    #[must_use]
     pub fn new(memory: Arc<SurrealDBMemoryManager>) -> Self {
         let data = ToolInfo {
             name: "memory".to_string(),
@@ -131,36 +132,42 @@ impl MemoryTool {
 
     /// Get access to the underlying memory instance
     #[inline]
+    #[must_use]
     pub fn memory(&self) -> &Arc<SurrealDBMemoryManager> {
         &self.memory
     }
 
     /// Get tool metadata
     #[inline]
+    #[must_use]
     pub fn tool_data(&self) -> &ToolInfo {
         &self.data
     }
 
     /// Get tool name from metadata
     #[inline]
+    #[must_use]
     pub fn tool_name(&self) -> &str {
         &self.data.name
     }
 
     /// Get tool description from metadata
     #[inline]
+    #[must_use]
     pub fn tool_description(&self) -> &str {
         self.data.description.as_deref().unwrap_or("")
     }
 
     /// Get maximum results limit for memory operations
     #[inline]
+    #[must_use]
     pub fn max_results_limit() -> usize {
         MAX_MEMORY_TOOL_RESULTS
     }
 
     /// Get maximum streaming results per operation
     #[inline]
+    #[must_use]
     pub fn max_streaming_limit() -> usize {
         MAX_STREAMING_RESULTS
     }

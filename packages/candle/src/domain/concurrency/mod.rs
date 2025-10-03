@@ -126,6 +126,7 @@ impl<T> Clone for Channel<T> {
 
 impl<T: Send + 'static + MessageChunk + Default> Channel<T> {
     /// Create a new channel with the given buffer size
+    #[must_use]
     pub fn new(buffer: usize) -> Self {
         let (sender, receiver) = if buffer == 0 {
             unbounded()
@@ -156,6 +157,7 @@ impl<T: Send + 'static + MessageChunk + Default> Channel<T> {
     }
 
     /// Receive status from the channel (value access requires separate method)
+    #[must_use]
     pub fn recv_status(&self) -> AsyncStream<ChannelResult> {
         let receiver = self.receiver.clone();
         AsyncStream::with_channel(|stream_sender| {
@@ -179,6 +181,7 @@ impl<T: Send + 'static + MessageChunk + Default> Channel<T> {
     }
 
     /// Create a new receiver that can be used to receive values from this channel
+    #[must_use]
     pub fn subscribe(&self) -> AsyncStream<T> {
         let receiver = self.receiver.clone();
         AsyncStream::with_channel(|stream_sender| {
@@ -203,6 +206,7 @@ pub struct OneshotChannel<T> {
 
 impl<T> OneshotChannel<T> {
     /// Create a new oneshot channel
+    #[must_use]
     pub fn new() -> Self {
         let (sender, receiver) = bounded(1);
         Self {
@@ -227,6 +231,7 @@ impl<T: Send + Clone + 'static> OneshotChannel<T> {
     }
 
     /// Receive the value from the channel
+    #[must_use]
     pub fn recv(self) -> AsyncStream<OneshotResult<T>> {
         AsyncStream::with_channel(|stream_sender| {
             std::thread::spawn(move || {

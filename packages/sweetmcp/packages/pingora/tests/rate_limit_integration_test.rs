@@ -3,8 +3,7 @@
 //! Tests the HybridAlgorithm integration and ensures proper rate limiting behavior.
 
 use sweetmcp::rate_limit::{
-    AdvancedRateLimitManager,
-    limiter::{RateLimitAlgorithmType, RateLimitConfig, SlidingWindowConfig, TokenBucketConfig},
+    limiter::{AdvancedRateLimitManager, RateLimitAlgorithmType, RateLimitConfig, SlidingWindowConfig, TokenBucketConfig},
 };
 
 #[tokio::test]

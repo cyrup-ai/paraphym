@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use cyrup_sugars::prelude::MessageChunk;
 
 use crate::domain::chat::message::types::CandleMessage as Message;
+use crate::domain::util::unix_timestamp_nanos;
 
 /// Real-time event types with zero-allocation patterns
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,15 +109,14 @@ impl MessageChunk for RealTimeEvent {
 impl RealTimeEvent {
     /// Get current timestamp in nanoseconds for zero-allocation timing
     #[inline]
+    #[must_use]
     pub fn current_timestamp() -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0)
+        unix_timestamp_nanos()
     }
 
     /// Create typing started event with current timestamp
     #[inline]
+    #[must_use]
     pub fn typing_started(user_id: String, session_id: String) -> Self {
         Self::TypingStarted {
             user_id,
@@ -127,6 +127,7 @@ impl RealTimeEvent {
 
     /// Create typing stopped event with current timestamp
     #[inline]
+    #[must_use]
     pub fn typing_stopped(user_id: String, session_id: String) -> Self {
         Self::TypingStopped {
             user_id,
@@ -137,6 +138,7 @@ impl RealTimeEvent {
 
     /// Create message received event with current timestamp
     #[inline]
+    #[must_use]
     pub fn message_received(message: Message, session_id: String) -> Self {
         Self::MessageReceived {
             message,
@@ -147,6 +149,7 @@ impl RealTimeEvent {
 
     /// Create message updated event with current timestamp
     #[inline]
+    #[must_use]
     pub fn message_updated(message_id: String, content: String, session_id: String) -> Self {
         Self::MessageUpdated {
             message_id,
@@ -158,6 +161,7 @@ impl RealTimeEvent {
 
     /// Create message deleted event with current timestamp
     #[inline]
+    #[must_use]
     pub fn message_deleted(message_id: String, session_id: String) -> Self {
         Self::MessageDeleted {
             message_id,
@@ -168,6 +172,7 @@ impl RealTimeEvent {
 
     /// Create user joined event with current timestamp
     #[inline]
+    #[must_use]
     pub fn user_joined(user_id: String, session_id: String) -> Self {
         Self::UserJoined {
             user_id,
@@ -178,6 +183,7 @@ impl RealTimeEvent {
 
     /// Create user left event with current timestamp
     #[inline]
+    #[must_use]
     pub fn user_left(user_id: String, session_id: String) -> Self {
         Self::UserLeft {
             user_id,
@@ -188,6 +194,7 @@ impl RealTimeEvent {
 
     /// Create connection status changed event with current timestamp
     #[inline]
+    #[must_use]
     pub fn connection_status_changed(user_id: String, status: ConnectionStatus) -> Self {
         Self::ConnectionStatusChanged {
             user_id,
@@ -198,6 +205,7 @@ impl RealTimeEvent {
 
     /// Create heartbeat received event with current timestamp
     #[inline]
+    #[must_use]
     pub fn heartbeat_received(user_id: String, session_id: String) -> Self {
         Self::HeartbeatReceived {
             user_id,
@@ -208,6 +216,7 @@ impl RealTimeEvent {
 
     /// Create system notification event with current timestamp
     #[inline]
+    #[must_use]
     pub fn system_notification(message: String, level: NotificationLevel) -> Self {
         Self::SystemNotification {
             message,
@@ -218,6 +227,7 @@ impl RealTimeEvent {
 
     /// Get event type name for zero-allocation logging
     #[inline]
+    #[must_use]
     pub const fn event_type(&self) -> &'static str {
         match self {
             Self::TypingStarted { .. } => "TypingStarted",
@@ -235,6 +245,7 @@ impl RealTimeEvent {
 
     /// Get timestamp for any event type
     #[inline]
+    #[must_use]
     pub const fn timestamp(&self) -> u64 {
         match self {
             Self::TypingStarted { timestamp, .. }
@@ -275,6 +286,7 @@ pub enum ConnectionStatus {
 impl ConnectionStatus {
     /// Convert to atomic representation (u8) for lock-free storage
     #[inline]
+    #[must_use]
     pub const fn to_atomic(&self) -> u8 {
         match self {
             Self::Connected => 0,
@@ -290,6 +302,7 @@ impl ConnectionStatus {
 
     /// Convert from atomic representation (u8) for lock-free retrieval
     #[inline]
+    #[must_use]
     pub const fn from_atomic(value: u8) -> Self {
         match value {
             0 => Self::Connected,
@@ -305,24 +318,28 @@ impl ConnectionStatus {
 
     /// Check if connection is active (connected or idle)
     #[inline]
+    #[must_use]
     pub const fn is_active(&self) -> bool {
         matches!(self, Self::Connected | Self::Idle)
     }
 
     /// Check if connection is in error state
     #[inline]
+    #[must_use]
     pub const fn is_error(&self) -> bool {
         matches!(self, Self::Error | Self::Failed)
     }
 
     /// Check if connection is transitioning
     #[inline]
+    #[must_use]
     pub const fn is_transitioning(&self) -> bool {
         matches!(self, Self::Connecting | Self::Reconnecting)
     }
 
     /// Get status priority for connection management (higher = more important)
     #[inline]
+    #[must_use]
     pub const fn priority(&self) -> u8 {
         match self {
             Self::Connected => 100,
@@ -364,6 +381,7 @@ pub enum NotificationLevel {
 impl NotificationLevel {
     /// Get level priority for filtering (higher = more important)
     #[inline]
+    #[must_use]
     pub const fn priority(&self) -> u8 {
         match self {
             Self::Critical => 100,
@@ -377,6 +395,7 @@ impl NotificationLevel {
 
     /// Get level name for zero-allocation logging
     #[inline]
+    #[must_use]
     pub const fn name(&self) -> &'static str {
         match self {
             Self::Info => "INFO",
@@ -390,6 +409,7 @@ impl NotificationLevel {
 
     /// Check if level should be displayed in production
     #[inline]
+    #[must_use]
     pub const fn is_production_level(&self) -> bool {
         !matches!(self, Self::Debug)
     }
@@ -420,6 +440,7 @@ pub struct EventFilter {
 impl EventFilter {
     /// Create new event filter with no restrictions
     #[inline]
+    #[must_use]
     pub fn new() -> Self {
         Self {
             user_id: None,
@@ -471,6 +492,7 @@ impl EventFilter {
     }
 
     /// Check if event matches this filter
+    #[must_use]
     pub fn matches(&self, event: &RealTimeEvent) -> bool {
         // Check user ID filter
         if let Some(filter_user_id) = &self.user_id {

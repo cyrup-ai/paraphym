@@ -3,6 +3,7 @@ use std::hash::{Hash, Hasher};
 
 /// Fast hash function for content-based embedding generation
 #[inline]
+#[must_use]
 pub fn content_hash(content: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     content.hash(&mut hasher);
@@ -22,13 +23,14 @@ pub struct MemoryRecord {
 impl MemoryRecord {
     /// Create new memory record with zero allocation
     #[inline]
+    #[must_use]
     pub fn new(input: &str, output: &str, timestamp: u64) -> Self {
         Self {
             input_hash: content_hash(input),
             output_hash: content_hash(output),
             timestamp,
-            input_length: input.len() as u32,
-            output_length: output.len() as u32,
+            input_length: u32::try_from(input.len()).unwrap_or(u32::MAX),
+            output_length: u32::try_from(output.len()).unwrap_or(u32::MAX),
         }
     }
 
@@ -45,6 +47,7 @@ impl MemoryRecord {
 
     /// Deserialize from binary format with zero allocation
     #[inline]
+    #[must_use]
     pub fn deserialize_from_buffer(buffer: &SerializationBuffer) -> Option<Self> {
         if buffer.data.len() < 32 {
             // 8+8+8+4+4 = 32 bytes
@@ -73,6 +76,7 @@ impl MemoryRecord {
 
     /// Format as string for storage (minimal allocation)
     #[inline]
+    #[must_use]
     pub fn to_content_string(&self) -> String {
         format!(
             "{}:{}:{}:{}:{}",
@@ -95,6 +99,7 @@ pub struct SerializationBuffer {
 impl SerializationBuffer {
     /// Create new buffer with pre-allocated capacity
     #[inline]
+    #[must_use]
     pub fn new(capacity: usize) -> Self {
         Self {
             data: Vec::with_capacity(capacity),
@@ -122,18 +127,21 @@ impl SerializationBuffer {
 
     /// Get buffer data as slice
     #[inline]
+    #[must_use]
     pub fn as_slice(&self) -> &[u8] {
         &self.data
     }
 
     /// Get buffer length
     #[inline]
+    #[must_use]
     pub fn len(&self) -> usize {
         self.data.len()
     }
 
     /// Check if buffer is empty
     #[inline]
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
     }

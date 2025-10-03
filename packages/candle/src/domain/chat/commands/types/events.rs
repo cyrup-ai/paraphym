@@ -4,7 +4,6 @@
 //! with owned strings allocated once for maximum performance. No Arc usage, no locking.
 
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use cyrup_sugars::prelude::MessageChunk;
@@ -12,6 +11,7 @@ use cyrup_sugars::prelude::MessageChunk;
 use super::commands::{CommandExecutionResult, ImmutableChatCommand, OutputType};
 use super::metadata::ResourceUsage;
 use crate::AsyncStreamSender;
+use crate::domain::util::unix_timestamp_micros;
 
 /// Command execution context with owned strings allocated once for performance
 #[derive(Debug)]
@@ -50,10 +50,7 @@ impl CommandExecutionContext {
         command_name: impl Into<String>,
         environment: impl Into<String>,
     ) -> Self {
-        let start_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_micros() as u64)
-            .unwrap_or(0);
+        let start_time = unix_timestamp_micros();
 
         Self {
             execution_id,
@@ -114,10 +111,7 @@ impl CommandExecutionContext {
     /// Get elapsed execution time in microseconds
     #[inline]
     pub fn elapsed_time_us(&self) -> u64 {
-        let current_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_micros() as u64)
-            .unwrap_or(self.start_time);
+        let current_time = unix_timestamp_micros();
         current_time.saturating_sub(self.start_time)
     }
 
@@ -258,6 +252,7 @@ pub enum CommandEvent {
 impl CommandEvent {
     /// Create started event with zero allocation constructor
     #[inline]
+    #[must_use]
     pub fn started(command: ImmutableChatCommand, execution_id: u64) -> Self {
         Self::Started {
             command,
@@ -268,6 +263,7 @@ impl CommandEvent {
 
     /// Create progress event with zero allocation constructor
     #[inline]
+    #[must_use]
     pub fn progress(execution_id: u64, progress: f32, message: String) -> Self {
         Self::Progress {
             execution_id,
@@ -290,6 +286,7 @@ impl CommandEvent {
 
     /// Create completed event with zero allocation constructor
     #[inline]
+    #[must_use]
     pub fn completed(
         execution_id: u64,
         result: CommandExecutionResult,
@@ -372,14 +369,12 @@ impl CommandEvent {
     /// Get current timestamp in microseconds since epoch
     #[inline]
     fn current_timestamp_us() -> u64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_micros() as u64)
-            .unwrap_or(0)
+        unix_timestamp_micros()
     }
 
     /// Get execution ID from any event type
     #[inline]
+    #[must_use]
     pub const fn execution_id(&self) -> u64 {
         match self {
             Self::Started { execution_id, .. }
@@ -395,6 +390,7 @@ impl CommandEvent {
 
     /// Get timestamp from any event type
     #[inline]
+    #[must_use]
     pub const fn timestamp_us(&self) -> u64 {
         match self {
             Self::Started { timestamp_us, .. }
@@ -410,6 +406,7 @@ impl CommandEvent {
 
     /// Check if event indicates completion (success, failure, or cancellation)
     #[inline]
+    #[must_use]
     pub const fn is_terminal(&self) -> bool {
         matches!(
             self,
@@ -419,24 +416,28 @@ impl CommandEvent {
 
     /// Check if event indicates success
     #[inline]
+    #[must_use]
     pub const fn is_success(&self) -> bool {
         matches!(self, Self::Completed { .. })
     }
 
     /// Check if event indicates failure
     #[inline]
+    #[must_use]
     pub const fn is_failure(&self) -> bool {
         matches!(self, Self::Failed { .. })
     }
 
     /// Check if event indicates cancellation
     #[inline]
+    #[must_use]
     pub const fn is_cancelled(&self) -> bool {
         matches!(self, Self::Cancelled { .. })
     }
 
     /// Get event severity level for filtering and monitoring
     #[inline]
+    #[must_use]
     pub const fn severity(&self) -> u8 {
         match self {
             Self::Started { .. } | Self::Progress { .. } | Self::Output { .. } => 0,
@@ -467,6 +468,7 @@ pub struct StreamingCommandExecutor {
 impl StreamingCommandExecutor {
     /// Create new streaming command executor with zero allocation
     #[inline]
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             execution_counter: AtomicU64::new(0),
@@ -480,6 +482,7 @@ impl StreamingCommandExecutor {
 
     /// Create with event sender for streaming events
     #[inline]
+    #[must_use]
     pub fn with_event_sender(event_sender: AsyncStreamSender<CommandEvent>) -> Self {
         Self {
             execution_counter: AtomicU64::new(0),
@@ -653,6 +656,7 @@ impl CommandExecutorStats {
     /// Calculate success rate as percentage - zero allocation
     #[allow(clippy::cast_precision_loss)] // Acceptable for percentage calculations
     #[inline]
+    #[must_use]
     pub const fn success_rate(&self) -> f64 {
         let completed = self.successful_executions + self.failed_executions;
         if completed == 0 {
@@ -664,6 +668,7 @@ impl CommandExecutorStats {
 
     /// Calculate failure rate as percentage - zero allocation
     #[inline]
+    #[must_use]
     pub const fn failure_rate(&self) -> f64 {
         100.0 - self.success_rate()
     }
@@ -671,6 +676,7 @@ impl CommandExecutorStats {
     /// Get completion rate (completed vs total) - zero allocation
     #[allow(clippy::cast_precision_loss)] // Acceptable for percentage calculations
     #[inline]
+    #[must_use]
     pub const fn completion_rate(&self) -> f64 {
         if self.total_executions == 0 {
             0.0
@@ -682,12 +688,14 @@ impl CommandExecutorStats {
 
     /// Check if any executions are currently active
     #[inline]
+    #[must_use]
     pub const fn has_active_executions(&self) -> bool {
         self.active_executions > 0
     }
 
     /// Check if system is idle (no active executions)
     #[inline]
+    #[must_use]
     pub const fn is_idle(&self) -> bool {
         self.active_executions == 0
     }
@@ -731,10 +739,7 @@ impl MessageChunk for CommandEvent {
             error_code: 500,
             duration_us: 0,
             resource_usage: ResourceUsage::default(),
-            timestamp_us: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_micros() as u64,
+            timestamp_us: unix_timestamp_micros(),
         }
     }
 
@@ -752,10 +757,7 @@ impl Default for CommandEvent {
         CommandEvent::Started {
             command: ImmutableChatCommand::default(),
             execution_id: 0,
-            timestamp_us: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_micros() as u64,
+            timestamp_us: unix_timestamp_micros(),
         }
     }
 }

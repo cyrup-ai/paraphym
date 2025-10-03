@@ -10,6 +10,7 @@ pub struct MemoryNodePool {
 impl MemoryNodePool {
     /// Create new memory node pool with specified capacity and embedding dimension
     #[inline]
+    #[must_use]
     pub fn new(capacity: usize, embedding_dimension: usize) -> Self {
         let pool = Self {
             available: crossbeam_queue::ArrayQueue::new(capacity),

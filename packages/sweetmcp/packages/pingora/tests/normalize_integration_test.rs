@@ -1,8 +1,8 @@
 use serde_json::json;
-
-use super::parsers::{create_basic_schema_types, graphql_to_json_rpc_with_schema};
-use super::schema_introspection::SchemaIntrospector;
-use super::types::GraphQLTypeKind;
+use sweetmcp::normalize::parsers::{create_basic_schema_types, graphql_to_json_rpc_with_schema};
+use sweetmcp::normalize::schema_introspection::SchemaIntrospector;
+use sweetmcp::normalize::types::GraphQLTypeKind;
+use std::time::Duration;
 
 #[tokio::test]
 async fn test_graphql_to_json_rpc_with_fallback_schema() {
@@ -80,8 +80,6 @@ async fn test_fragment_resolution_with_schema_validation() {
 
 #[test]
 fn test_schema_introspector_with_custom_settings() {
-    use std::time::Duration;
-
     let _introspector =
         SchemaIntrospector::with_settings(Duration::from_secs(10), Duration::from_secs(1800))
             .expect("Failed to create introspector with custom settings");
@@ -93,8 +91,6 @@ fn test_schema_introspector_with_custom_settings() {
 
 #[test]
 fn test_basic_schema_type_creation() {
-    use super::parsers::create_basic_schema_types;
-
     let schema_types = create_basic_schema_types();
 
     // Verify Query type

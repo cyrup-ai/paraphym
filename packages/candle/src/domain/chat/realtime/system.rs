@@ -47,6 +47,7 @@ pub struct RealtimeChat {
 
 impl RealtimeChat {
     /// Create a new real-time chat system
+    #[must_use]
     pub fn new(config: RealtimeConfig) -> Self {
         let (event_sender, _) = broadcast::channel(1000);
 

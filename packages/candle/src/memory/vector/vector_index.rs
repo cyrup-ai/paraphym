@@ -543,7 +543,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_flat_index() {
+    fn test_flat_index() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let config = VectorIndexConfig {
             metric: DistanceMetric::Cosine,
             dimensions: 3,
@@ -558,23 +558,21 @@ mod tests {
         let id2 = uuid::Uuid::new_v4().to_string();
 
         index
-            .add(id1.clone(), vec![1.0, 0.0, 0.0])
-            .expect("Failed to add vector to index in test");
+            .add(id1.clone(), vec![1.0, 0.0, 0.0])?;
         index
-            .add(id2.clone(), vec![0.0, 1.0, 0.0])
-            .expect("Failed to add vector to index in test");
+            .add(id2.clone(), vec![0.0, 1.0, 0.0])?;
 
         // Search
         let results = index
-            .search(&[1.0, 0.0, 0.0], 2)
-            .expect("Failed to search index in test");
+            .search(&[1.0, 0.0, 0.0], 2)?;
 
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].0, id1); // Should match exactly
+        Ok(())
     }
 
     #[test]
-    fn test_hnsw_index() {
+    fn test_hnsw_index() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let mut config = VectorIndexConfig {
             metric: DistanceMetric::Cosine,
             dimensions: 4,
@@ -600,37 +598,34 @@ mod tests {
         let id3 = "test3".to_string();
 
         index
-            .add(id1.clone(), vec![1.0, 0.0, 0.0, 0.0])
-            .expect("Failed to add vector 1");
+            .add(id1.clone(), vec![1.0, 0.0, 0.0, 0.0])?;
         index
-            .add(id2.clone(), vec![0.0, 1.0, 0.0, 0.0])
-            .expect("Failed to add vector 2");
+            .add(id2.clone(), vec![0.0, 1.0, 0.0, 0.0])?;
         index
-            .add(id3.clone(), vec![0.0, 0.0, 1.0, 0.0])
-            .expect("Failed to add vector 3");
+            .add(id3.clone(), vec![0.0, 0.0, 1.0, 0.0])?;
 
         // Build index
-        index.build().expect("Failed to build HNSW index");
+        index.build()?;
 
         // Search for nearest neighbors
         let results = index
-            .search(&[1.0, 0.0, 0.0, 0.0], 2)
-            .expect("Failed to search HNSW index");
+            .search(&[1.0, 0.0, 0.0, 0.0], 2)?;
 
         assert!(!results.is_empty());
         // HNSW can have non-deterministic ordering, so just verify we get reasonable results
         // Check that we get at least one result with a reasonable distance
         let best_distance = results.iter().map(|(_, distance)| *distance).fold(f32::INFINITY, f32::min);
         assert!(best_distance < 2.0, "Expected at least one result with reasonable distance, best was: {}", best_distance);
-        
+
         // For a query [1.0, 0.0, 0.0, 0.0], we should get one exact or very close match
         // The exact match should be test1, but HNSW might not always return it first
         let close_matches = results.iter().filter(|(_, distance)| *distance < 0.1).count();
         assert!(close_matches >= 1, "Expected at least one close match in results: {:?}", results);
 
         // Test removal
-        index.remove(&id2).expect("Failed to remove vector");
+        index.remove(&id2)?;
         assert_eq!(index.len(), 2);
+        Ok(())
     }
 
     #[test]

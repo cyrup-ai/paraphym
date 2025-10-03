@@ -11,7 +11,7 @@ use thiserror::Error;
 use cyrup_sugars::prelude::MessageChunk;
 
 use crate::domain::chat::message::types::CandleMessageRole;
-// REMOVED: use ystream::AsyncStream::with_channel;
+use crate::domain::util::unix_timestamp_nanos;
 
 /// Error types for conversation operations
 #[derive(Error, Debug)]
@@ -68,32 +68,33 @@ impl CandleImmutableMessage {
     /// Get current timestamp in nanoseconds
     #[inline]
     fn current_timestamp_nanos() -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0)
+        unix_timestamp_nanos()
     }
 
     /// Get message content as borrowed string
     #[inline]
+    #[must_use]
     pub fn content(&self) -> &str {
         &self.content
     }
 
     /// Check if message is from user
     #[inline]
+    #[must_use]
     pub fn is_user(&self) -> bool {
         matches!(self.role, CandleMessageRole::User)
     }
 
     /// Check if message is from assistant
     #[inline]
+    #[must_use]
     pub fn is_assistant(&self) -> bool {
         matches!(self.role, CandleMessageRole::Assistant)
     }
 
     /// Check if message is system message
     #[inline]
+    #[must_use]
     pub fn is_system(&self) -> bool {
         matches!(self.role, CandleMessageRole::System)
     }
@@ -198,6 +199,7 @@ impl std::fmt::Debug for CandleStreamingConversation {
 impl CandleStreamingConversation {
     /// Create a new Candle streaming conversation
     #[inline]
+    #[must_use]
     pub fn new() -> Self {
         Self {
             messages: Vec::new(),
@@ -212,6 +214,7 @@ impl CandleStreamingConversation {
 
     /// Create Candle conversation with event streaming
     #[inline]
+    #[must_use]
     pub fn with_streaming() -> (Self, AsyncStream<CandleConversationEvent>) {
         let (sender, stream) = AsyncStream::channel();
         
@@ -463,6 +466,7 @@ impl CandleConversationStats {
     /// Calculate user message percentage
     #[allow(clippy::cast_precision_loss)] // Acceptable for percentage calculations
     #[inline]
+    #[must_use]
     pub fn user_percentage(&self) -> f64 {
         if self.total_messages == 0 {
             0.0
@@ -474,6 +478,7 @@ impl CandleConversationStats {
     /// Calculate assistant message percentage
     #[allow(clippy::cast_precision_loss)] // Acceptable for percentage calculations
     #[inline]
+    #[must_use]
     pub fn assistant_percentage(&self) -> f64 {
         if self.total_messages == 0 {
             0.0
@@ -485,6 +490,7 @@ impl CandleConversationStats {
     /// Calculate system message percentage
     #[allow(clippy::cast_precision_loss)] // Acceptable for percentage calculations
     #[inline]
+    #[must_use]
     pub fn system_percentage(&self) -> f64 {
         if self.total_messages == 0 {
             0.0

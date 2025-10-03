@@ -53,6 +53,7 @@ impl CommandValidator {
     ///
     /// Uses pre-compiled static regexes for security validation (compiled once on first access).
     /// Cloning these regexes is cheap due to internal reference counting.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             max_command_length: 1024,
@@ -630,6 +631,7 @@ impl CommandValidator {
     }
 
     /// Sanitize input string
+    #[must_use]
     pub fn sanitize_input(&self, input: &str) -> String {
         // Remove null bytes
         let sanitized = input.replace('\0', "");
@@ -643,6 +645,7 @@ impl CommandValidator {
     }
 
     /// Check if input is safe
+    #[must_use]
     pub fn is_safe_input(&self, input: &str) -> bool {
         // Check length
         if input.len() > self.max_command_length {
@@ -752,6 +755,7 @@ pub enum ValidationError {
 static GLOBAL_VALIDATOR: LazyLock<CommandValidator> = LazyLock::new(CommandValidator::new);
 
 /// Get global validator
+#[must_use]
 pub fn get_global_validator() -> &'static CommandValidator {
     &GLOBAL_VALIDATOR
 }
@@ -766,11 +770,13 @@ pub fn validate_global_command(command: &ImmutableChatCommand) -> Result<(), Val
 }
 
 /// Sanitize input using global validator
+#[must_use]
 pub fn sanitize_global_input(input: &str) -> String {
     get_global_validator().sanitize_input(input)
 }
 
 /// Check if input is safe using global validator
+#[must_use]
 pub fn is_global_safe_input(input: &str) -> bool {
     get_global_validator().is_safe_input(input)
 }

@@ -18,6 +18,8 @@ use ystream::{emit, AsyncStream};
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use tokio::sync::broadcast;
+
+use crate::domain::util::unix_timestamp_nanos;
 use uuid::Uuid;
 
 /// Duration serialization helper
@@ -244,6 +246,7 @@ impl CandleModelConfig {
     }
 
     /// Validate the model configuration
+    #[must_use]
     pub fn validate(&self) -> AsyncStream<crate::domain::context::chunk::CandleUnit> {
         let _config = self.clone();
         // Use AsyncStream::with_channel for streaming-only architecture - emit success immediately
@@ -628,10 +631,7 @@ impl Clone for CandleConfigurationManager {
             persistence: Arc::clone(&self.persistence),
             change_counter: Arc::new(AtomicUsize::new(0)), // Fresh counter
             last_persistence: Arc::new(AtomicU64::new(
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_nanos() as u64,
+                unix_timestamp_nanos()
             )),
             version_counter: Arc::new(AtomicUsize::new(1)), // Fresh version counter
             configuration_locks: Arc::clone(&self.configuration_locks),
@@ -856,6 +856,7 @@ impl CandleConfigurationValidator for CandleUIValidator {
 
 impl CandleConfigurationManager {
     /// Create a new Candle configuration manager
+    #[must_use]
     pub fn new(initial_config: CandleChatConfig) -> Self {
         let (change_notifier, _) = broadcast::channel(1000);
 
@@ -867,10 +868,7 @@ impl CandleConfigurationManager {
             persistence: Arc::new(RwLock::new(CandleConfigurationPersistence::default())),
             change_counter: Arc::new(AtomicUsize::new(0)),
             last_persistence: Arc::new(AtomicU64::new(
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_nanos() as u64,
+                unix_timestamp_nanos()
             )),
             version_counter: Arc::new(AtomicUsize::new(1)),
             configuration_locks: Arc::new(RwLock::new(HashMap::new())),
@@ -933,10 +931,7 @@ impl CandleConfigurationManager {
             manager.version_counter.fetch_add(1, Ordering::Relaxed);
 
             // Update persistence timestamp atomically on config change
-            let now_nanos = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos() as u64;
+            let now_nanos = unix_timestamp_nanos();
             manager.last_persistence.store(now_nanos, Ordering::Release);
 
             // Notify subscribers
@@ -990,10 +985,7 @@ impl CandleConfigurationManager {
             manager.version_counter.fetch_add(1, Ordering::Relaxed);
 
             // Update persistence timestamp atomically on config change
-            let now_nanos = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos() as u64;
+            let now_nanos = unix_timestamp_nanos();
             manager.last_persistence.store(now_nanos, Ordering::Release);
 
             // Notify subscribers
@@ -1018,10 +1010,7 @@ impl CandleConfigurationManager {
         AsyncStream::with_channel(move |sender| {
             std::thread::spawn(move || {
                 // Create validation update
-                let now_nanos = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_nanos() as u64;
+                let now_nanos = unix_timestamp_nanos();
 
                 let validation_start = CandleConfigUpdate {
                     timestamp_nanos: now_nanos,
@@ -1057,10 +1046,7 @@ impl CandleConfigurationManager {
 
         AsyncStream::with_channel(move |sender| {
             std::thread::spawn(move || {
-                let now_nanos = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_nanos() as u64;
+                let now_nanos = unix_timestamp_nanos();
 
                 // Create validator registration update
                 let registration_update = CandleConfigUpdate {
@@ -1082,10 +1068,7 @@ impl CandleConfigurationManager {
         AsyncStream::with_channel(move |sender| {
             std::thread::spawn(move || {
                 // Update persistence timestamp atomically
-                let now_nanos = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_nanos() as u64;
+                let now_nanos = unix_timestamp_nanos();
 
                 let previous_nanos = manager.last_persistence.swap(now_nanos, Ordering::AcqRel);
 
@@ -1107,10 +1090,7 @@ impl CandleConfigurationManager {
         let manager = self.clone();
         AsyncStream::with_channel(move |sender| {
             std::thread::spawn(move || {
-                let now_nanos = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_nanos() as u64;
+                let now_nanos = unix_timestamp_nanos();
 
                 // Emit check initiated update
                 let check_update = CandleConfigUpdate {
@@ -1156,10 +1136,7 @@ impl CandleConfigurationManager {
         let manager = self.clone();
         AsyncStream::with_channel(move |sender| {
             std::thread::spawn(move || {
-                let now_nanos = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_nanos() as u64;
+                let now_nanos = unix_timestamp_nanos();
 
                 // Emit save initiated update
                 let save_start = CandleConfigUpdate {
@@ -1233,10 +1210,7 @@ impl CandleConfigurationManager {
         let manager = self.clone();
         AsyncStream::with_channel(move |sender| {
             std::thread::spawn(move || {
-                let now_nanos = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_nanos() as u64;
+                let now_nanos = unix_timestamp_nanos();
 
                 // Emit load initiated update
                 let load_start = CandleConfigUpdate {

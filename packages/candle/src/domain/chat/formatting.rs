@@ -6,11 +6,14 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::time::Duration;
 
 use ystream::{AsyncStream, AsyncStreamSender};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use cyrup_sugars::prelude::MessageChunk;
+
+use crate::domain::util::unix_timestamp_nanos;
 
 /// Immutable message content with owned strings
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -53,6 +56,7 @@ pub enum ImmutableMessageContent {
 impl ImmutableMessageContent {
     /// Get content as borrowed string (zero allocation)
     #[inline]
+    #[must_use]
     pub fn as_text(&self) -> &str {
         match self {
             Self::Plain { text } => text,
@@ -63,6 +67,7 @@ impl ImmutableMessageContent {
 
     /// Get content type as static string (zero allocation)
     #[inline]
+    #[must_use]
     pub fn content_type(&self) -> &'static str {
         match self {
             Self::Plain { .. } => "plain",
@@ -75,6 +80,7 @@ impl ImmutableMessageContent {
 
     /// Check if content is empty
     #[inline]
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         match self {
             Self::Plain { text } => text.is_empty(),
@@ -162,12 +168,14 @@ impl FormatStyle {
 
     /// Get style length
     #[inline]
+    #[must_use]
     pub fn length(&self) -> usize {
         self.end - self.start
     }
 
     /// Check if style overlaps with another
     #[inline]
+    #[must_use]
     pub fn overlaps_with(&self, other: &FormatStyle) -> bool {
         !(self.end <= other.start || other.end <= self.start)
     }
@@ -206,6 +214,7 @@ pub enum StyleType {
 impl StyleType {
     /// Get style name as static string (zero allocation)
     #[inline]
+    #[must_use]
     pub fn style_name(&self) -> &'static str {
         match self {
             Self::Bold => "bold",
@@ -221,6 +230,7 @@ impl StyleType {
 
     /// Check if style requires additional data
     #[inline]
+    #[must_use]
     pub fn requires_data(&self) -> bool {
         matches!(
             self,
@@ -339,12 +349,14 @@ pub struct ImmutableFormatOptions {
 impl ImmutableFormatOptions {
     /// Create new format options with default values
     #[inline]
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Create format options optimized for terminal output
     #[inline]
+    #[must_use]
     pub fn terminal() -> Self {
         Self {
             flags: FormatFlags::default() | FormatFlags::OPTIMIZATIONS,
@@ -356,6 +368,7 @@ impl ImmutableFormatOptions {
 
     /// Create format options optimized for HTML output
     #[inline]
+    #[must_use]
     pub fn html() -> Self {
         Self {
             flags: FormatFlags::MARKDOWN | FormatFlags::SYNTAX_HIGHLIGHTING | FormatFlags::METADATA | FormatFlags::INLINE_FORMATTING | FormatFlags::LINK_DETECTION,
@@ -366,6 +379,7 @@ impl ImmutableFormatOptions {
 
     /// Create format options optimized for plain text
     #[inline]
+    #[must_use]
     pub fn plain_text() -> Self {
         Self {
             flags: FormatFlags::OPTIMIZATIONS,
@@ -443,6 +457,7 @@ pub enum SyntaxTheme {
 impl SyntaxTheme {
     /// Get theme name as static string (zero allocation)
     #[inline]
+    #[must_use]
     pub fn theme_name(&self) -> &'static str {
         match self {
             Self::Light => "light",
@@ -458,6 +473,7 @@ impl SyntaxTheme {
 
     /// Check if theme is dark
     #[inline]
+    #[must_use]
     pub fn is_dark(&self) -> bool {
         matches!(self, Self::Dark | Self::SolarizedDark)
     }
@@ -581,6 +597,7 @@ pub enum OutputFormat {
 impl OutputFormat {
     /// Get format name as static string (zero allocation)
     #[inline]
+    #[must_use]
     pub fn format_name(&self) -> &'static str {
         match self {
             Self::PlainText => "plain-text",
@@ -594,12 +611,14 @@ impl OutputFormat {
 
     /// Check if format supports styling
     #[inline]
+    #[must_use]
     pub fn supports_styling(&self) -> bool {
         !matches!(self, Self::PlainText)
     }
 
     /// Check if format supports colors
     #[inline]
+    #[must_use]
     pub fn supports_colors(&self) -> bool {
         matches!(self, Self::Html | Self::AnsiTerminal | Self::RichText)
     }
@@ -703,8 +722,8 @@ pub enum FormattingEvent {
         content_id: u64,
         /// Final formatted content result
         result: ImmutableMessageContent,
-        /// Total formatting duration in nanoseconds
-        duration_nanos: u64,
+        /// Total formatting duration
+        duration: Duration,
     },
     /// Formatting failed
     Failed {
@@ -712,8 +731,8 @@ pub enum FormattingEvent {
         content_id: u64,
         /// Error that caused the formatting to fail
         error: FormatError,
-        /// Duration before failure occurred (nanoseconds)
-        duration_nanos: u64,
+        /// Duration before failure occurred
+        duration: Duration,
     },
     /// Partial result available
     PartialResult {
@@ -741,7 +760,7 @@ impl MessageChunk for FormattingEvent {
             error: FormatError::RenderError { 
                 detail: error,
             },
-            duration_nanos: 0,
+            duration: Duration::ZERO,
         }
     }
 
@@ -890,10 +909,7 @@ impl StreamingMessageFormatter {
     /// Get current timestamp in nanoseconds
     #[inline]
     fn current_timestamp_nanos() -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0)
+        unix_timestamp_nanos()
     }
 
     /// Get formatting statistics (atomic reads)
@@ -943,6 +959,7 @@ impl FormatterStats {
     /// Calculate success rate as percentage
     #[allow(clippy::cast_precision_loss)] // Acceptable for percentage calculations
     #[inline]
+    #[must_use]
     pub fn success_rate(&self) -> f64 {
         let completed = self.successful_operations + self.failed_operations;
         if completed == 0 {
@@ -954,6 +971,7 @@ impl FormatterStats {
 
     /// Calculate failure rate as percentage
     #[inline]
+    #[must_use]
     pub fn failure_rate(&self) -> f64 {
         100.0 - self.success_rate()
     }
@@ -996,12 +1014,13 @@ mod tests {
     }
 
     #[test]
-    fn test_format_style_creation() {
-        let style = FormatStyle::new(0, 5, StyleType::Bold).unwrap();
+    fn test_format_style_creation() -> Result<(), Box<dyn std::error::Error>> {
+        let style = FormatStyle::new(0, 5, StyleType::Bold)?;
         assert_eq!(style.length(), 5);
 
         let invalid_style = FormatStyle::new(5, 0, StyleType::Bold);
         assert!(invalid_style.is_err());
+        Ok(())
     }
 
     #[test]
@@ -1017,11 +1036,12 @@ mod tests {
     }
 
     #[test]
-    fn test_formatter_creation() {
+    fn test_formatter_creation() -> Result<(), Box<dyn std::error::Error>> {
         let options = ImmutableFormatOptions::default();
-        let formatter = StreamingMessageFormatter::new(options).unwrap();
+        let formatter = StreamingMessageFormatter::new(options)?;
         let stats = formatter.stats();
         assert_eq!(stats.total_operations, 0);
+        Ok(())
     }
 
     #[test]

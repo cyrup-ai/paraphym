@@ -7,7 +7,9 @@ use pingora::Result;
 use pingora_load_balancing::{discovery::ServiceDiscovery, Backend};
 use serde::{Deserialize, Serialize};
 use tokio::time::interval;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
+
+use crate::crypto::core::TokenManager;
 
 /// The build ID of this binary, set at compile time
 pub const BUILD_ID: &str = env!("BUILD_ID");
@@ -75,18 +77,14 @@ impl PeerInfo {
 #[derive(Clone)]
 pub struct PeerRegistry {
     inner: Arc<RwLock<HashMap<SocketAddr, PeerInfo>>>,
-}
-
-impl Default for PeerRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
+    circuit_breaker_manager: Arc<crate::circuit_breaker::CircuitBreakerManager>,
 }
 
 impl PeerRegistry {
-    pub fn new() -> Self {
+    pub fn new(circuit_breaker_manager: Arc<crate::circuit_breaker::CircuitBreakerManager>) -> Self {
         Self {
             inner: Arc::new(RwLock::new(HashMap::new())),
+            circuit_breaker_manager,
         }
     }
 
@@ -196,15 +194,29 @@ impl PeerRegistry {
             }
         };
         let now = Instant::now();
+        let breaker_manager = self.circuit_breaker_manager.clone();
+        let mut removed_peers = Vec::new();
+        
         peers.retain(|addr, info| {
             let age = now.duration_since(info.last_seen);
             if age > max_age && !info.healthy {
                 warn!("Removing stale peer: {}", addr);
+                removed_peers.push(addr.to_string());
                 false
             } else {
                 true
             }
         });
+        
+        // Clean up circuit breakers for removed peers (async operation)
+        if !removed_peers.is_empty() {
+            tokio::spawn(async move {
+                for peer_id in removed_peers {
+                    breaker_manager.remove_breaker(&peer_id).await;
+                    tracing::debug!("Removed circuit breaker for stale peer: {}", peer_id);
+                }
+            });
+        }
     }
 
     /// Get the number of healthy peers
@@ -283,30 +295,92 @@ impl ServiceDiscovery for PeerDiscovery {
 #[derive(Clone)]
 pub struct DiscoveryService {
     registry: PeerRegistry,
+    tls_manager: Arc<crate::tls::tls_manager::TlsManager>,
     client: reqwest::Client,
     poll_interval: Duration,
+    token_manager: Arc<TokenManager>,
+    discovery_token: String,
 }
 
 impl DiscoveryService {
-    pub fn new(registry: PeerRegistry) -> Self {
-        let mut headers = reqwest::header::HeaderMap::new();
+    pub fn new(registry: PeerRegistry, discovery_token: String) -> anyhow::Result<Self> {
+        // Initialize TokenManager for encryption
+        let token_manager = Arc::new(TokenManager::new()?);
+        
+        // Start automatic key rotation task
+        let manager_clone = token_manager.clone();
+        tokio::spawn(async move {
+            if let Err(e) = manager_clone.start_rotation_task().await {
+                error!("Token rotation task failed: {}", e);
+            }
+        });
 
-        // Add discovery token if configured
-        if let Ok(token) = std::env::var("SWEETMCP_DISCOVERY_TOKEN")
-            && !token.is_empty()
-                && let Ok(header_value) = reqwest::header::HeaderValue::from_str(&token) {
-                    headers.insert("x-discovery-token", header_value);
+        // Configure TLS manager with client certificates for mTLS peer authentication
+        let cert_dir = crate::get_cert_dir();
+        let ca_cert_path = cert_dir.join("ca.crt");
+        let client_cert_path = cert_dir.join("server.crt");
+        let client_key_path = cert_dir.join("server.key");
+        
+        // Load CA certificate for custom root store
+        let ca_cert_pem = if ca_cert_path.exists() {
+            match std::fs::read_to_string(&ca_cert_path) {
+                Ok(pem) => {
+                    info!("Loaded CA certificate for peer mesh HTTPS validation");
+                    vec![pem]
                 }
-
-        Self {
+                Err(e) => {
+                    warn!("Failed to read CA certificate: {}, using system roots", e);
+                    Vec::new()
+                }
+            }
+        } else {
+            warn!("CA certificate not found at {:?}, using system roots", ca_cert_path);
+            Vec::new()
+        };
+        
+        // Configure TLS with client certificates if available
+        let (client_cert, client_key) = if client_cert_path.exists() && client_key_path.exists() {
+            info!("Client certificate and key found for mTLS peer authentication");
+            (Some(client_cert_path), Some(client_key_path))
+        } else {
+            warn!("Client certificate or key not found, mTLS peer authentication disabled");
+            (None, None)
+        };
+        
+        let tls_config = crate::tls::tls_manager::TlsConfig {
+            enable_crl: false, // Disable CRL for peer discovery to avoid circular dependencies
+            use_system_certs: ca_cert_pem.is_empty(), // Use system certs only if no custom CA
+            custom_root_certs: ca_cert_pem,
+            enable_early_data: false,
+            connect_timeout: Duration::from_secs(5),
+            validation_timeout: Duration::from_secs(3),
+            client_cert_path: client_cert,
+            client_key_path: client_key,
+        };
+        
+        let tls_manager = Arc::new(crate::tls::tls_manager::TlsManager::with_config(tls_config));
+        
+        // Create rustls ClientConfig from TlsManager (includes client cert if configured)
+        let rustls_config = tls_manager.create_client_config_sync()
+            .map_err(|e| anyhow::anyhow!("Failed to create TLS config: {}", e))?;
+        
+        // Build reqwest client with the TlsManager's rustls config
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .use_preconfigured_tls(rustls_config)
+            .build()
+            .map_err(|e| anyhow::anyhow!("Failed to build HTTP client: {}", e))?;
+        
+        info!("Peer discovery service initialized with mTLS support");
+        
+        Ok(Self {
             registry,
-            client: reqwest::Client::builder()
-                .timeout(Duration::from_secs(5))
-                .default_headers(headers)
-                .build()
-                .unwrap_or_else(|_| reqwest::Client::new()),
+            tls_manager,
+            client,
             poll_interval: Duration::from_secs(30),
-        }
+            token_manager,
+            discovery_token,
+        })
     }
 
     /// Initialize the registry with seed peers
@@ -393,9 +467,29 @@ impl DiscoveryService {
 
     /// Fetch the peer list from a specific peer
     async fn fetch_peers_from(&self, addr: &SocketAddr) -> anyhow::Result<Vec<SocketAddr>> {
-        let url = format!("http://{}/api/peers", addr);
-
-        let response = self.client.get(&url).send().await?;
+        let url = format!("https://{}/api/peers", addr);
+        
+        // Encrypt discovery token for transmission
+        let encrypted_token = self.token_manager
+            .encrypt_token(&self.discovery_token)
+            .await?;
+        
+        let encrypted_token_str = serde_json::to_string(&encrypted_token)?;
+        
+        // Send encrypted token in header with TLS error handling
+        let response = match self.client
+            .get(&url)
+            .header("x-discovery-token", encrypted_token_str)
+            .send()
+            .await {
+                Ok(resp) => resp,
+                Err(e) if e.is_connect() => {
+                    // TLS handshake failed or certificate validation error
+                    warn!("TLS connection failed to peer {}: {}", addr, e);
+                    anyhow::bail!("Peer TLS verification failed: {}", e);
+                }
+                Err(e) => return Err(e.into()),
+            };
 
         if !response.status().is_success() {
             anyhow::bail!("HTTP error: {}", response.status());

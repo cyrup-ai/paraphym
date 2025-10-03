@@ -3,6 +3,7 @@
 //! A production-grade, multi-protocol edge proxy built on Pingora 0.5 that normalizes
 //! GraphQL, JSON-RPC 2.0, and Cap'n Proto into Model Context Protocol (MCP) requests.
 
+mod api;
 mod auth;
 mod circuit_breaker;
 mod config;
@@ -27,6 +28,7 @@ use config::Config;
 use opentelemetry::global;
 use opentelemetry_prometheus::PrometheusExporter;
 use pingora::prelude::*;
+use pingora_load_balancing::discovery::ServiceDiscovery;
 use tokio::sync::mpsc;
 
 fn get_cert_dir() -> std::path::PathBuf {
@@ -67,8 +69,18 @@ fn run_server() -> Result<()> {
         Server::new(None).map_err(|e| anyhow::anyhow!("Failed to create Pingora server: {}", e))?;
     server.bootstrap();
 
-    // Create peer registry
-    let peer_registry = peer_discovery::PeerRegistry::new();
+    // Initialize circuit breaker manager
+    let circuit_config = circuit_breaker::CircuitBreakerConfig {
+        error_threshold_percentage: cfg.circuit_breaker_threshold,
+        request_volume_threshold: 20,
+        sleep_window: std::time::Duration::from_secs(5),
+        half_open_requests: 3,
+        metrics_window: std::time::Duration::from_secs(10),
+    };
+    let circuit_breaker_manager = Arc::new(circuit_breaker::CircuitBreakerManager::new(circuit_config));
+
+    // Create peer registry with circuit breaker manager
+    let peer_registry = peer_discovery::PeerRegistry::new(circuit_breaker_manager.clone());
 
     // Extract port from TCP bind address
     let local_port = cfg
@@ -113,7 +125,10 @@ fn run_server() -> Result<()> {
     }
 
     // Always start HTTP-based peer exchange for mesh formation
-    let discovery_service = peer_discovery::DiscoveryService::new(peer_registry.clone());
+    let discovery_service = peer_discovery::DiscoveryService::new(
+        peer_registry.clone(),
+        cfg.auth.discovery_token.clone(),
+    )?;
     let peer_service = background_service(
         "peer-discovery",
         PeerDiscoveryService {
@@ -145,7 +160,24 @@ fn run_server() -> Result<()> {
 
     // Create HTTP proxy service
     let edge_service =
-        edge::EdgeService::new(cfg.clone(), bridge_tx.clone(), peer_registry.clone());
+        edge::EdgeService::new(cfg.clone(), bridge_tx.clone(), peer_registry.clone(), circuit_breaker_manager.clone());
+
+    // Create backend update service
+    let static_upstreams: Vec<pingora_load_balancing::Backend> = edge_service.picker().load()
+        .backends
+        .iter()
+        .cloned()
+        .collect();
+
+    let backend_update = background_service(
+        "backend-update",
+        BackendUpdateService {
+            picker_swap: edge_service.picker().clone(),
+            peer_discovery: edge_service.peer_discovery.clone(),
+            static_upstreams,
+        },
+    );
+    server.add_service(backend_update);
 
     // Add rate limit cleanup service
     let rate_limit_service = background_service(
@@ -161,6 +193,7 @@ fn run_server() -> Result<()> {
         "metrics-collector",
         MetricsCollectorService {
             metric_picker: edge_service.picker().clone(),
+            circuit_breaker_manager: edge_service.circuit_breaker_manager.clone(),
         },
     );
     server.add_service(metrics_service);
@@ -397,7 +430,7 @@ impl BackgroundService for PeerDiscoveryService {
 }
 
 struct RateLimitCleanupService {
-    rate_limiter: Arc<rate_limit::AdvancedRateLimitManager>,
+    rate_limiter: Arc<rate_limit::distributed::DistributedRateLimitManager>,
 }
 
 impl BackgroundService for RateLimitCleanupService {
@@ -430,8 +463,81 @@ impl BackgroundService for RateLimitCleanupService {
     }
 }
 
+/// Background service that updates MetricPicker with discovered peers
+struct BackendUpdateService {
+    picker_swap: Arc<arc_swap::ArcSwap<metric_picker::MetricPicker>>,
+    peer_discovery: Arc<peer_discovery::PeerDiscovery>,
+    static_upstreams: Vec<pingora_load_balancing::Backend>,
+}
+
+impl BackgroundService for BackendUpdateService {
+    fn start<'life0, 'async_trait>(
+        &'life0 self,
+        mut shutdown: ShutdownWatch,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'async_trait>>
+    where
+        'life0: 'async_trait,
+        Self: 'async_trait,
+    {
+        let picker_swap = self.picker_swap.clone();
+        let peer_discovery = self.peer_discovery.clone();
+        let static_upstreams = self.static_upstreams.clone();
+        
+        Box::pin(async move {
+            log::info!("🔄 Starting backend update service");
+            let mut update_interval = tokio::time::interval(Duration::from_secs(5));
+            
+            loop {
+                tokio::select! {
+                    _ = update_interval.tick() => {
+                        // Discover current peers
+                        match peer_discovery.discover().await {
+                            Ok((discovered_peers, _)) => {
+                                // Merge static upstreams + discovered peers
+                                let discovered_count = discovered_peers.len();
+                                let mut all_backends = std::collections::BTreeSet::new();
+                                all_backends.extend(static_upstreams.iter().cloned());
+                                all_backends.extend(discovered_peers);
+                                
+                                // Create new picker with all backends
+                                let new_picker = metric_picker::MetricPicker::from_backends(&all_backends);
+                                
+                                // Preserve load values from old picker
+                                let old_picker = picker_swap.load();
+                                for (new_idx, new_backend) in new_picker.backends.iter().enumerate() {
+                                    for (old_idx, old_backend) in old_picker.backends.iter().enumerate() {
+                                        if new_backend.addr.to_string() == old_backend.addr.to_string() {
+                                            let old_load = old_picker.load_values[old_idx].load(std::sync::atomic::Ordering::Acquire);
+                                            new_picker.load_values[new_idx].store(old_load, std::sync::atomic::Ordering::Release);
+                                            break;
+                                        }
+                                    }
+                                }
+                                
+                                // Atomic swap
+                                picker_swap.store(Arc::new(new_picker));
+                                
+                                log::debug!("Updated picker with {} total backends ({} static + {} discovered)",
+                                    all_backends.len(), static_upstreams.len(), discovered_count);
+                            }
+                            Err(e) => {
+                                log::warn!("Failed to discover peers: {}", e);
+                            }
+                        }
+                    }
+                    _ = shutdown.changed() => {
+                        log::info!("Backend update service shutting down");
+                        break;
+                    }
+                }
+            }
+        })
+    }
+}
+
 struct MetricsCollectorService {
-    metric_picker: Arc<metric_picker::MetricPicker>,
+    metric_picker: Arc<arc_swap::ArcSwap<metric_picker::MetricPicker>>,
+    circuit_breaker_manager: Arc<circuit_breaker::CircuitBreakerManager>,
 }
 
 struct TlsCertificateManagerService {
@@ -449,9 +555,9 @@ impl BackgroundService for TlsCertificateManagerService {
         'life0: 'async_trait,
         Self: 'async_trait,
     {
-        let _tls_dir = self.tls_dir.clone();
-        let _authority = self.authority.clone();
-        let _server_domain = self.server_domain.clone();
+        let tls_dir = self.tls_dir.clone();
+        let authority = self.authority.clone();
+        let server_domain = self.server_domain.clone();
 
         Box::pin(async move {
             log::info!("🔐 Starting TLS certificate manager service");
@@ -462,8 +568,31 @@ impl BackgroundService for TlsCertificateManagerService {
             loop {
                 tokio::select! {
                     _ = check_interval.tick() => {
-                        // TODO: Implement certificate expiry monitoring and auto-renewal
-                        log::debug!("TLS certificate check completed");
+                        // Check certificate expiry
+                        let cert_path = std::path::PathBuf::from(&tls_dir).join("server.crt");
+                        
+                        match check_certificate_expiry(&cert_path) {
+                            Ok(days_until_expiry) => {
+                                log::info!("Server certificate expires in {} days", days_until_expiry);
+                                
+                                // Renew if less than 30 days
+                                if days_until_expiry < 30 {
+                                    log::warn!("Certificate expiring soon, attempting renewal...");
+                                    
+                                    match renew_server_certificate(&authority, &server_domain, &tls_dir).await {
+                                        Ok(()) => {
+                                            log::info!("✅ Certificate renewed successfully");
+                                        }
+                                        Err(e) => {
+                                            log::error!("❌ Certificate renewal failed: {}", e);
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                log::error!("Failed to check certificate expiry: {}", e);
+                            }
+                        }
                     }
                     _ = shutdown.changed() => {
                         log::info!("TLS certificate manager shutting down");
@@ -485,6 +614,7 @@ impl BackgroundService for MetricsCollectorService {
         Self: 'async_trait,
     {
         let metric_picker = self.metric_picker.clone();
+        let circuit_breaker_manager = self.circuit_breaker_manager.clone();
 
         Box::pin(async move {
             log::info!("📊 Starting metrics collector service");
@@ -498,10 +628,11 @@ impl BackgroundService for MetricsCollectorService {
             loop {
                 tokio::select! {
                     _ = scrape_interval.tick() => {
-                        let targets = metric_picker.get_metrics_targets();
+                        let current_picker = metric_picker.load();
+                        let targets = current_picker.get_metrics_targets();
                         for (idx, url) in targets {
                             let client_clone = client.clone();
-                            let picker_clone = metric_picker.clone();
+                            let picker_swap_clone = metric_picker.clone();
 
                             // Spawn individual metric fetches to run concurrently
                             tokio::spawn(async move {
@@ -512,12 +643,25 @@ impl BackgroundService for MetricsCollectorService {
                                             if line.starts_with("node_load1 ")
                                                 && let Some(value_str) = line.split_whitespace().nth(1)
                                                 && let Ok(value) = value_str.parse::<f64>() {
-                                                    picker_clone.update_load(idx, value);
+                                                    let current_picker = picker_swap_clone.load();
+                                                    current_picker.update_load(idx, value);
                                                     break;
                                                 }
                                         }
                                     }
                             });
+                        }
+                        
+                        // Export circuit breaker metrics for all peers
+                        let all_breakers = circuit_breaker_manager.get_all_breakers().await;
+                        for (peer_id, breaker) in all_breakers {
+                            let state = breaker.get_state().await;
+                            let (total, failed) = breaker.get_metrics();
+                            
+                            log::debug!(
+                                "Circuit breaker metrics for {}: state={:?}, total={}, failed={}",
+                                peer_id, state, total, failed
+                            );
                         }
                     }
                     _ = shutdown.changed() => {
@@ -528,4 +672,61 @@ impl BackgroundService for MetricsCollectorService {
             }
         })
     }
+}
+
+/// Check certificate expiry and return days until expiration
+fn check_certificate_expiry(cert_path: &std::path::Path) -> anyhow::Result<i64> {
+    use x509_parser::prelude::*;
+    
+    let pem_data = std::fs::read(cert_path)?;
+    let (_, pem) = parse_x509_pem(&pem_data)
+        .map_err(|e| anyhow::anyhow!("Failed to parse PEM: {}", e))?;
+    let cert = pem.parse_x509()
+        .map_err(|e| anyhow::anyhow!("Failed to parse X.509 certificate: {}", e))?;
+    
+    let not_after = cert.validity().not_after;
+    let expiry_time = not_after.timestamp();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs() as i64;
+    
+    let days_until_expiry = (expiry_time - now) / 86400;
+    Ok(days_until_expiry)
+}
+
+/// Renew server certificate using existing CA
+async fn renew_server_certificate(
+    authority: &tls::CertificateAuthority,
+    domain: &str,
+    tls_dir: &str,
+) -> anyhow::Result<()> {
+    use tls::builder::Tls;
+    
+    let response = Tls::certificate()
+        .generator()
+        .domain(domain)
+        .authority(authority)
+        .valid_for_days(365)
+        .generate()
+        .await;
+    
+    if !response.success {
+        anyhow::bail!("Certificate generation failed: {:?}", response.issues);
+    }
+    
+    // Extract certificate and key from response (directly available as fields)
+    let cert_pem = response.certificate_pem
+        .ok_or_else(|| anyhow::anyhow!("Certificate not found in response"))?;
+    
+    let key_pem = response.private_key_pem
+        .ok_or_else(|| anyhow::anyhow!("Private key not found in response"))?;
+    
+    // Write new certificate and key
+    let cert_path = std::path::PathBuf::from(tls_dir).join("server.crt");
+    let key_path = std::path::PathBuf::from(tls_dir).join("server.key");
+    
+    std::fs::write(&cert_path, cert_pem)?;
+    std::fs::write(&key_path, key_pem)?;
+    
+    Ok(())
 }

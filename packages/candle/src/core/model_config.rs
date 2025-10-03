@@ -340,14 +340,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_model_config_creation() {
-        let temp_dir = tempdir().expect("Failed to create temp dir");
+    fn test_model_config_creation() -> Result<(), Box<dyn std::error::Error>> {
+        let temp_dir = tempdir()?;
         let model_path = temp_dir.path().join("model.safetensors");
         let tokenizer_path = temp_dir.path().join("tokenizer.json");
 
         // Create dummy files
-        File::create(&model_path).expect("Failed to create model file");
-        File::create(&tokenizer_path).expect("Failed to create tokenizer file");
+        File::create(&model_path)?;
+        File::create(&tokenizer_path)?;
 
         let llama_config = LlamaConfig {
             vocab_size: 32000,
@@ -379,7 +379,8 @@ mod tests {
         assert_eq!(config.vocab_size, 32000);
 
         // Validation should pass with existing files
-        config.validate().expect("Configuration should be valid");
+        config.validate()?;
+        Ok(())
     }
 
     #[test]

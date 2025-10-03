@@ -1540,12 +1540,12 @@ mod tests {
     #[test]
     fn execution_script_preparation() {
         let request = ExecutionRequest::new("print('hello')", "python");
-        let script = FireCrackerBackend::prepare_execution_script(&request).unwrap();
+        let script = FireCrackerBackend::prepare_execution_script(&request).expect("Failed to prepare Python execution script");
         assert!(script.contains("python3"));
         assert!(script.contains("print('hello')"));
 
         let request = ExecutionRequest::new("console.log('hello')", "javascript");
-        let script = FireCrackerBackend::prepare_execution_script(&request).unwrap();
+        let script = FireCrackerBackend::prepare_execution_script(&request).expect("Failed to prepare JavaScript execution script");
         assert!(script.contains("node"));
 
         let request = ExecutionRequest::new("some code", "cobol");
@@ -1556,7 +1556,7 @@ mod tests {
     fn vm_instance_creation() {
         let request = ExecutionRequest::new("test", "python");
         let backend_config = BackendConfig::default();
-        let vm = FireCrackerBackend::create_vm_instance(&request, &backend_config).unwrap();
+        let vm = FireCrackerBackend::create_vm_instance(&request, &backend_config).expect("Failed to create VM instance for test");
 
         assert!(vm.vm_id.starts_with("cylo-"));
         assert!(vm.socket_path.to_string_lossy().contains(&vm.vm_id));

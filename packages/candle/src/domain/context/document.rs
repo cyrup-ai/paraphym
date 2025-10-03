@@ -119,6 +119,7 @@ impl CandleDocument {
 
 
     /// Extract the text content from the document
+    #[must_use]
     pub fn content(&self) -> String {
         match self.format {
             Some(CandleContentFormat::Base64) => "[Base64 Document]".to_string(),
@@ -134,6 +135,7 @@ pub struct DocumentLoader {
 
 impl DocumentLoader {
     /// Load the document (simplified version)
+    #[must_use]
     pub fn load(self) -> CandleDocument {
         // For domain use, return a simple text document
         // Full loading logic is in paraphym builders

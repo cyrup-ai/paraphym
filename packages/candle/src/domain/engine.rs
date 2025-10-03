@@ -62,6 +62,7 @@ pub struct LocalEngine {
 
 impl LocalEngine {
     /// Create new local engine
+    #[must_use]
     pub fn new(config: LocalEngineConfig) -> Self {
         Self {
             config,

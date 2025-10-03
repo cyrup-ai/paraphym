@@ -10,6 +10,8 @@ use std::time::{Duration, Instant};
 
 use atomic_counter::{AtomicCounter, RelaxedCounter};
 
+use crate::domain::util::{duration_to_nanos_u64, duration_to_millis_u64};
+
 /// Maximum length for error messages to ensure zero allocation
 pub const MAX_ERROR_MESSAGE_LEN: usize = 256;
 
@@ -41,6 +43,7 @@ pub struct SimpleCircuitBreaker {
 
 impl SimpleCircuitBreaker {
     /// Create new circuit breaker
+    #[must_use]
     pub fn new(failure_threshold: u64, recovery_timeout_ms: u64) -> Self {
         Self {
             state: AtomicU64::new(0), // Closed
@@ -63,10 +66,11 @@ impl SimpleCircuitBreaker {
         match self.get_state() {
             CircuitBreakerState::Open => {
                 // Check if we should transition to half-open
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64;
+                let now = duration_to_millis_u64(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                );
                 let last_failure = self.last_failure_time.load(Ordering::Relaxed);
 
                 if now - last_failure > self.recovery_timeout_ms {
@@ -99,10 +103,11 @@ impl SimpleCircuitBreaker {
 
                 if failures >= self.failure_threshold {
                     self.state.store(1, Ordering::Relaxed); // Open
-                    let now = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_millis() as u64;
+                    let now = duration_to_millis_u64(
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                    );
                     self.last_failure_time.store(now, Ordering::Relaxed);
                 }
 
@@ -190,6 +195,7 @@ pub struct ZeroAllocMessage<const N: usize> {
 impl<const N: usize> ZeroAllocMessage<N> {
     /// Create new zero-allocation message
     #[inline]
+    #[must_use]
     pub const fn new(message: &str) -> Self {
         let bytes = message.as_bytes();
         let len = if bytes.len() > N { N } else { bytes.len() };
@@ -206,6 +212,7 @@ impl<const N: usize> ZeroAllocMessage<N> {
 
     /// Get message as string slice with safe UTF-8 validation
     #[inline]
+    #[must_use]
     pub fn as_str(&self) -> &str {
         // Safe UTF-8 validation - returns valid UTF-8 or replacement string
         std::str::from_utf8(&self.data[..self.len]).unwrap_or("Invalid UTF-8 in error message")
@@ -213,12 +220,14 @@ impl<const N: usize> ZeroAllocMessage<N> {
 
     /// Check if message is empty
     #[inline]
+    #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.len == 0
     }
 
     /// Get message length
     #[inline]
+    #[must_use]
     pub const fn len(&self) -> usize {
         self.len
     }
@@ -263,6 +272,7 @@ pub struct ZeroAllocError {
 impl ZeroAllocError {
     /// Create new zero-allocation error
     #[inline]
+    #[must_use]
     pub fn new(
         category: ErrorCategory,
         severity: ErrorSeverity,
@@ -326,6 +336,7 @@ impl ZeroAllocError {
 
     /// Check if error is retriable
     #[inline]
+    #[must_use]
     pub fn is_retriable(&self) -> bool {
         matches!(
             self.recoverability,
@@ -335,18 +346,21 @@ impl ZeroAllocError {
 
     /// Check if error is permanent
     #[inline]
+    #[must_use]
     pub fn is_permanent(&self) -> bool {
         matches!(self.recoverability, ErrorRecoverability::Permanent)
     }
 
     /// Check if error requires manual intervention
     #[inline]
+    #[must_use]
     pub fn is_manual(&self) -> bool {
         matches!(self.recoverability, ErrorRecoverability::Manual)
     }
 
     /// Get error age since occurrence
     #[inline]
+    #[must_use]
     pub fn age(&self) -> Duration {
         self.timestamp.elapsed()
     }
@@ -398,6 +412,7 @@ pub struct ErrorCounter {
 impl ErrorCounter {
     /// Create new error counter
     #[inline]
+    #[must_use]
     pub fn new() -> Self {
         Self {
             total: RelaxedCounter::new(0),
@@ -437,7 +452,7 @@ impl ErrorCounter {
         self.by_severity[error.severity as usize].inc();
         self.by_recoverability[error.recoverability as usize].inc();
 
-        let timestamp = error.timestamp.elapsed().as_nanos() as u64;
+        let timestamp = duration_to_nanos_u64(error.timestamp.elapsed());
         self.last_error.store(timestamp, Ordering::Relaxed);
     }
 
@@ -519,10 +534,11 @@ pub struct ErrorCircuitBreaker {
 impl ErrorCircuitBreaker {
     /// Create new circuit breaker
     #[inline]
+    #[must_use]
     pub fn new(failure_threshold: usize, recovery_timeout: Duration) -> Self {
         let breaker = SimpleCircuitBreaker::new(
             failure_threshold as u64,
-            recovery_timeout.as_millis() as u64,
+            duration_to_millis_u64(recovery_timeout),
         );
 
         Self {
@@ -612,6 +628,7 @@ pub struct ErrorAggregator {
 impl ErrorAggregator {
     /// Create new error aggregator
     #[inline]
+    #[must_use]
     pub fn new(max_errors_per_window: usize, rate_window: Duration) -> Self {
         fn create_counter() -> ErrorCounter {
             ErrorCounter {
@@ -693,9 +710,9 @@ impl ErrorAggregator {
     /// Check rate limit
     #[inline]
     fn check_rate_limit(&self) -> bool {
-        let now = Instant::now().elapsed().as_nanos() as u64;
+        let now = duration_to_nanos_u64(Instant::now().elapsed());
         let last_reset = self.last_reset.load(Ordering::Relaxed);
-        let rate_window_nanos = self.rate_window.as_nanos() as u64;
+        let rate_window_nanos = duration_to_nanos_u64(self.rate_window);
 
         // Reset rate limiter if window expired
         if now - last_reset > rate_window_nanos {

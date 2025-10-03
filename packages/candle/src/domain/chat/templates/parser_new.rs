@@ -812,10 +812,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_simple_variable_parsing() {
+    fn test_simple_variable_parsing() -> Result<(), Box<dyn std::error::Error>> {
         let parser = TemplateParser::new();
-        let result = parser.parse("Hello {{name}}!")
-            .expect("Simple template should parse successfully");
+        let result = parser.parse("Hello {{name}}!")?;
 
         match result {
             TemplateAst::Block(nodes) => {
@@ -823,18 +822,19 @@ mod tests {
             }
             _ => panic!("Expected block AST"),
         }
+        Ok(())
     }
 
     #[test]
-    fn test_variable_extraction() {
+    fn test_variable_extraction() -> Result<(), Box<dyn std::error::Error>> {
         let parser = TemplateParser::new();
         let variables = parser
-            .extract_variables("Hello {{name}}, you have {{count}} messages.")
-            .expect("Variable extraction should succeed for valid template");
+            .extract_variables("Hello {{name}}, you have {{count}} messages.")?;
 
         assert_eq!(variables.len(), 2);
         assert!(variables.iter().any(|v| v.name.as_str() == "name"));
         assert!(variables.iter().any(|v| v.name.as_str() == "count"));
+        Ok(())
     }
 
     #[test]
