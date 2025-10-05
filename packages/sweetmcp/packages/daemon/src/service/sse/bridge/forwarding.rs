@@ -4,15 +4,81 @@
 //! for the MCP bridge with zero allocation patterns and blazing-fast
 //! performance.
 
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use futures::StreamExt;
 use serde_json::Value;
 use tracing::{debug, error, warn};
 
 use super::core::McpBridge;
 
 impl McpBridge {
+    /// Parse a complete SSE event from the buffer
+    /// 
+    /// SSE format:
+    /// event: <type>
+    /// data: <line1>
+    /// data: <line2>
+    /// id: <id>
+    /// <blank line>
+    fn parse_sse_event(buffer: &mut Vec<u8>) -> Result<Option<super::super::events::SseEvent>> {
+        // Look for event boundary (double newline)
+        let boundary_pos = buffer
+            .windows(2)
+            .position(|w| w == b"\n\n" || w == b"\r\n\r\n");
+        
+        let pos = match boundary_pos {
+            Some(p) => p,
+            None => return Ok(None), // Incomplete event, need more data
+        };
+        
+        // Extract complete event
+        let event_bytes: Vec<u8> = buffer.drain(..pos + 2).collect();
+        let event_text = String::from_utf8_lossy(&event_bytes);
+        
+        // Parse SSE fields
+        let mut event_type = None;
+        let mut data_lines = Vec::new();
+        let mut id = None;
+        
+        for line in event_text.lines() {
+            if let Some(value) = line.strip_prefix("event: ") {
+                event_type = Some(value.trim().to_string());
+            } else if let Some(value) = line.strip_prefix("data: ") {
+                data_lines.push(value.to_string());
+            } else if let Some(value) = line.strip_prefix("id: ") {
+                id = Some(value.trim().to_string());
+            }
+            // Ignore comment lines starting with ':'
+        }
+        
+        // Reconstruct multiline data
+        if data_lines.is_empty() {
+            return Ok(None); // No data, skip this event
+        }
+        
+        let data = data_lines.join("\n");
+        
+        // Convert event_type string to EventType enum if present
+        let parsed_event_type = event_type.and_then(|et| {
+            match et.as_str() {
+                "endpoint" => Some(super::super::events::EventType::Endpoint),
+                "message" => Some(super::super::events::EventType::Message),
+                "ping" => Some(super::super::events::EventType::Ping),
+                "error" => Some(super::super::events::EventType::Error),
+                _ => None,
+            }
+        });
+        
+        Ok(Some(super::super::events::SseEvent {
+            event_type: parsed_event_type,
+            data,
+            id,
+        }))
+    }
+
     /// Forward a JSON-RPC request to the MCP server
     ///
     /// Takes a JSON-RPC request and forwards it to the configured MCP server.
@@ -200,33 +266,107 @@ impl McpBridge {
         }
     }
 
-    /// Stream responses for long-running requests
+    /// Stream responses for long-running requests via SSE
+    ///
+    /// Establishes an SSE connection to the MCP server and streams JSON-RPC
+    /// responses back through the callback as they arrive.
     #[allow(dead_code)]
     pub async fn forward_streaming_request(
         &self,
         json_rpc_request: Value,
-        response_callback: impl Fn(Value) + Send + Sync,
+        response_callback: impl Fn(Value) + Send + Sync + 'static,
     ) -> Result<()> {
-        debug!("Forwarding streaming request");
-
-        // For now, this is a placeholder implementation
-        // In a full implementation, this would handle Server-Sent Events or WebSocket streams
-        let response = self.send_request(json_rpc_request).await?;
-        response_callback(response);
-
+        debug!("Forwarding streaming request with SSE");
+        
+        // Serialize the JSON-RPC request
+        let request_body = serde_json::to_string(&json_rpc_request)
+            .context("Failed to serialize JSON-RPC request")?;
+        
+        // Make SSE-enabled POST request
+        let response = self
+            .client
+            .post(&self.mcp_server_url)
+            .header("Content-Type", "application/json")
+            .header("Accept", "text/event-stream") // Request SSE stream
+            .body(request_body)
+            .send()
+            .await
+            .context("Failed to send streaming request to MCP server")?;
+        
+        // Check response status
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_body = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            
+            return Err(anyhow::anyhow!(
+                "SSE request failed with status {}: {}",
+                status,
+                error_body
+            ));
+        }
+        
+        // Process SSE stream
+        let mut stream = response.bytes_stream();
+        let mut buffer = Vec::new();
+        
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result.context("Failed to read chunk from SSE stream")?;
+            buffer.extend_from_slice(&chunk);
+            
+            // Parse all complete events from buffer
+            while let Some(event) = Self::parse_sse_event(&mut buffer)? {
+                // Skip ping and endpoint events, process message events
+                match event.event_type {
+                    Some(super::super::events::EventType::Message) | None => {
+                        // Parse JSON-RPC response from data field
+                        match serde_json::from_str::<Value>(&event.data) {
+                            Ok(json_response) => {
+                                response_callback(json_response);
+                            }
+                            Err(e) => {
+                                warn!(
+                                    "Failed to parse JSON-RPC from SSE event: {}. Data: {}",
+                                    e, event.data
+                                );
+                            }
+                        }
+                    }
+                    Some(super::super::events::EventType::Ping) => {
+                        debug!("Received SSE ping event");
+                    }
+                    Some(super::super::events::EventType::Error) => {
+                        error!("Received SSE error event: {}", event.data);
+                    }
+                    Some(super::super::events::EventType::Endpoint) => {
+                        debug!("Received SSE endpoint event: {}", event.data);
+                    }
+                }
+            }
+        }
+        
+        debug!("SSE stream completed");
         Ok(())
     }
 
     /// Get forwarding statistics
     #[allow(dead_code)]
     pub fn get_forwarding_stats(&self) -> ForwardingStats {
-        // This would be implemented with actual metrics collection
-        // For now, returning placeholder values
+        let total = self.stats_tracker.total_requests.load(Ordering::Relaxed);
+        let failed = self.stats_tracker.failed_requests.load(Ordering::Relaxed);
+        
+        // Calculate successful requests (total - failed)
+        let successful = total.saturating_sub(failed);
+        
         ForwardingStats {
-            total_requests: 0,
-            successful_requests: 0,
-            failed_requests: 0,
+            total_requests: total,
+            successful_requests: successful,
+            failed_requests: failed,
+            // TODO: Response time tracking requires additional infrastructure
             average_response_time_ms: 0.0,
+            // TODO: Last request time tracking requires additional infrastructure
             last_request_time: None,
         }
     }

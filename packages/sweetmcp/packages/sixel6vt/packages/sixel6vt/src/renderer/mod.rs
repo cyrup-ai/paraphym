@@ -641,7 +641,7 @@ pub fn encode_sixel(img: &image::RgbImage) -> String {
 
     let pixel_count = img.width() as u64 * img.height() as u64;
     
-    // Use legacy encoder for complex images to avoid O(r²) merge performance issues
+    // Use column-based encoder for complex images to avoid O(r²) merge performance issues
     // Threshold: 200k pixels is a reasonable cutoff (roughly 450x450 image)
     // Web screenshots and photos should use the proven O(w*h) column-based approach
     if pixel_count > 200_000 {
@@ -658,7 +658,7 @@ pub fn encode_sixel(img: &image::RgbImage) -> String {
     let regions = detect_regions(img);
     
     // If initial region count is very high, the geometric merge will be too slow
-    // Fall back to legacy encoder for complex images with many regions
+    // Fall back to column-based encoder for complex images with many regions
     if regions.len() > 10_000 {
         tracing::debug!(
             "Using column-based encoder due to high region count ({} regions detected)",

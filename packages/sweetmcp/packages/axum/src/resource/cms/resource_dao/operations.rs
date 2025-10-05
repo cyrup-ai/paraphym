@@ -324,7 +324,7 @@ impl ResourceDao {
         let query = format!("DELETE FROM {} WHERE id = $id", thing_id.tb);
 
         // Execute the query
-        match self.execute_query_with_params(&query, &[("id", &thing_id)]).await {
+        match self.execute_query_with_params(&query, ("id", thing_id)).await {
             Ok(_) => {
                 // Invalidate cache entry if caching is enabled
                 if self.config.enable_caching {
@@ -380,16 +380,50 @@ impl ResourceDao {
 
     /// Execute query without parameters
     async fn execute_query(&self, query: &str) -> Result<(), String> {
-        // This would execute the query using the database client
-        // For now, we'll return a placeholder error
-        Err("Query execution not implemented".to_string())
+        // 1. Check db_client availability
+        let db_client = self.db_client
+            .as_ref()
+            .ok_or_else(|| "Database client not initialized".to_string())?;
+        
+        // 2. Execute query and check for errors
+        let response = match db_client {
+            crate::db::DatabaseClient::SurrealKv(db) => db.query(query).await,
+            crate::db::DatabaseClient::RemoteHttp(db) => db.query(query).await,
+        }.map_err(|e| format!("Query execution failed: {}", e))?;
+        
+        // 3. Validate query succeeded (check for SurrealDB errors)
+        response.check()
+            .map_err(|e| format!("Query validation failed: {}", e))?;
+        
+        Ok(())
     }
 
     /// Execute query with parameters
-    async fn execute_query_with_params(&self, query: &str, _params: &[(&str, &dyn std::fmt::Debug)]) -> Result<(), String> {
-        // This would execute the query with parameters using the database client
-        // For now, we'll return a placeholder error
-        Err("Parameterized query execution not implemented".to_string())
+    async fn execute_query_with_params<P: serde::Serialize + 'static>(
+        &self, 
+        query: &str, 
+        params: P
+    ) -> Result<(), String> {
+        // 1. Check db_client availability
+        let db_client = self.db_client
+            .as_ref()
+            .ok_or_else(|| "Database client not initialized".to_string())?;
+        
+        // 2. Execute query with parameter binding
+        let response = match db_client {
+            crate::db::DatabaseClient::SurrealKv(db) => {
+                db.query(query).bind(params).await
+            },
+            crate::db::DatabaseClient::RemoteHttp(db) => {
+                db.query(query).bind(params).await
+            },
+        }.map_err(|e| format!("Parameterized query execution failed: {}", e))?;
+        
+        // 3. Validate query succeeded
+        response.check()
+            .map_err(|e| format!("Query validation failed: {}", e))?;
+        
+        Ok(())
     }
 
     /// Get configuration
