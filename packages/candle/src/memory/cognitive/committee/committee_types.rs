@@ -8,7 +8,7 @@ use std::sync::Arc;
 // StreamExt not currently used but may be needed for future async operations
 
 use crate::memory::cognitive::types::CognitiveError;
-use crate::providers::{CandleKimiK2Provider, CandleQwen3CoderProvider};
+use crate::capability::text_to_text::{CandleKimiK2Provider, CandleQwen3CoderProvider};
 use crate::domain::{
     completion::{CandleCompletionModel, CandleCompletionParams},
     context::chunk::CandleCompletionChunk,

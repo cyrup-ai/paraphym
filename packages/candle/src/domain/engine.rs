@@ -11,7 +11,7 @@ use ystream::AsyncStream;
 
 use crate::domain::completion::CandleCompletionResponse;
 use crate::domain::completion::traits::CandleCompletionModel;
-use crate::providers::{CandleKimiK2Provider, CandleQwen3CoderProvider};
+use crate::capability::text_to_text::{CandleKimiK2Provider, CandleQwen3CoderProvider};
 
 /// Local engine errors
 #[derive(Error, Debug, Clone)]
@@ -117,7 +117,7 @@ impl LocalEngine {
         use ystream::spawn_task;
         
         let provider_task = spawn_task(|| {
-            let config = crate::providers::kimi_k2::CandleKimiK2Config::default();
+            let config = crate::capability::text_to_text::kimi_k2::CandleKimiK2Config::default();
             let model_path = std::env::var("KIMI_MODEL_PATH").unwrap_or_else(|_| "./models/kimi-k2".to_string());
             CandleKimiK2Provider::with_config_sync(model_path, config)
                 .map_err(|e| format!("Provider initialization failed: {e}"))
@@ -174,7 +174,7 @@ impl LocalEngine {
         use ystream::spawn_task;
         
         let provider_task = spawn_task(|| {
-            let config = crate::providers::qwen3_coder::CandleQwen3CoderConfig::default();
+            let config = crate::capability::text_to_text::qwen3_coder::CandleQwen3CoderConfig::default();
             let model_path = std::env::var("QWEN3_MODEL_PATH").unwrap_or_else(|_| "./models/qwen3-coder".to_string());
             CandleQwen3CoderProvider::with_config_sync(model_path, config)
                 .map_err(|e| format!("Qwen3Coder provider initialization failed: {e}"))

@@ -157,7 +157,7 @@ fn build_installer_config(context: &InstallContext) -> Result<InstallerBuilder> 
             "run",
             "--foreground",
             "--config",
-            context.config_path.to_str().unwrap(),
+            &context.config_path.to_string_lossy(),
         ])
         .env("RUST_LOG", "info")
         .auto_restart(true)

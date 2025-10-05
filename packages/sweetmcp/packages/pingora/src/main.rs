@@ -184,9 +184,7 @@ fn run_server() -> Result<()> {
     // Create backend update service
     let static_upstreams: Vec<pingora_load_balancing::Backend> = edge_service.picker().load()
         .backends
-        .iter()
-        .cloned()
-        .collect();
+        .to_vec();
 
     let backend_update = background_service(
         "backend-update",
@@ -337,10 +335,19 @@ impl BackgroundService for McpBridgeService {
         'life0: 'async_trait,
         Self: 'async_trait,
     {
-        // This is safe because we only call start once
+        // Validate before unsafe operation - prevents panic in unsafe context
+        if self.rx.is_none() {
+            return Box::pin(async move {
+                log::error!("MCP bridge start called twice - service already running");
+            });
+        }
+
+        // SAFETY: Validated self.rx.is_some() above
+        // We need unsafe to mutate through &self because BackgroundService trait
+        // only provides &self but we need to move rx into the async task
         let rx = unsafe {
             let this = self as *const Self as *mut Self;
-            (*this).rx.take().expect("start called twice")
+            (*this).rx.take().unwrap()
         };
 
         Box::pin(async move {

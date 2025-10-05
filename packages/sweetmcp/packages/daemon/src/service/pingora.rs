@@ -204,15 +204,22 @@ impl PingoraService {
 }
 
 /// Spawn the pingora service thread
-pub fn spawn_pingora(def: ServiceDefinition, bus: Sender<Evt>) -> Sender<Cmd> {
+pub fn spawn_pingora(def: ServiceDefinition, bus: Sender<Evt>) -> Result<Sender<Cmd>, crate::service::ServiceError> {
     let (cmd_tx, cmd_rx) = crossbeam_channel::bounded(16);
+    let service_name = def.name.clone();
 
-    thread::spawn(move || {
-        let service = PingoraService::new(def, bus);
-        if let Err(e) = service.run(cmd_rx) {
-            error!("Pingora service error: {}", e);
-        }
-    });
+    thread::Builder::new()
+        .name(format!("svc-pingora-{}", service_name))
+        .spawn(move || {
+            let service = PingoraService::new(def, bus);
+            if let Err(e) = service.run(cmd_rx) {
+                error!("Pingora service error: {}", e);
+            }
+        })
+        .map_err(|source| crate::service::ServiceError::SpawnFailed {
+            service: service_name,
+            source,
+        })?;
 
-    cmd_tx
+    Ok(cmd_tx)
 }

@@ -55,6 +55,19 @@ pub static RATE_LIMIT_REJECTIONS: Lazy<CounterVec> = Lazy::new(|| {
     })
 });
 
+/// Rate limiter lookup failures (infrastructure failures, not rate limit violations)
+pub static RATE_LIMITER_FAILURES: Lazy<CounterVec> = Lazy::new(|| {
+    register_counter_vec!(
+        "sweetmcp_rate_limiter_lookup_failures_total",
+        "Total number of rate limiter lookup failures (fail-closed events)",
+        &["endpoint", "failure_type"]
+    )
+    .unwrap_or_else(|e| {
+        tracing::error!("Failed to register rate limiter failure counter: {}", e);
+        std::process::exit(1)
+    })
+});
+
 /// Record a discovery operation
 pub fn record_discovery(operation: &str, success: bool, duration_secs: f64) {
     let status = if success { "success" } else { "failure" };
@@ -74,6 +87,13 @@ pub fn update_peer_count(count: i64) {
 /// Record rate limit rejection
 pub fn record_rate_limit_rejection(endpoint: &str) {
     RATE_LIMIT_REJECTIONS.with_label_values(&[endpoint]).inc();
+}
+
+/// Record rate limiter lookup failure (infrastructure failure)
+pub fn record_rate_limiter_failure(endpoint: &str, failure_type: &str) {
+    RATE_LIMITER_FAILURES
+        .with_label_values(&[endpoint, failure_type])
+        .inc();
 }
 
 /// Circuit breaker state counter

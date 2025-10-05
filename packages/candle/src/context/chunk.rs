@@ -11,7 +11,7 @@ use cyrup_sugars::ZeroOneOrMany;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::model::Usage;
+use crate::domain::model::usage::CandleUsage;
 
 /// Chunk of document content for streaming file operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -152,7 +152,7 @@ pub enum CompletionChunk {
     Complete {
         text: String,
         finish_reason: Option<FinishReason>,
-        usage: Option<Usage>},
+        usage: Option<CandleUsage>},
 
     /// Error occurred during streaming
     Error(String)}
@@ -276,7 +276,7 @@ impl CompletionChunk {
     pub fn complete(
         text: impl Into<String>,
         finish_reason: Option<FinishReason>,
-        usage: Option<Usage>,
+        usage: Option<CandleUsage>,
     ) -> Self {
         Self::Complete {
             text: text.into(),

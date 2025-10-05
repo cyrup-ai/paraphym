@@ -41,8 +41,15 @@ impl ServiceManager {
 
         // Load services from config file
         for def in cfg.services.clone() {
-            let tx = crate::service::spawn(def.clone(), bus_tx.clone());
-            workers.insert(def.name.clone(), tx);
+            match crate::service::spawn(def.clone(), bus_tx.clone()) {
+                Ok(tx) => {
+                    workers.insert(def.name.clone(), tx);
+                }
+                Err(e) => {
+                    error!("Failed to spawn service '{}': {}", def.name, e);
+                    // Continue with other services - graceful degradation
+                }
+            }
         }
 
         // Load services from services directory
@@ -55,13 +62,25 @@ impl ServiceManager {
                             Ok(content) => {
                                 match toml::from_str::<crate::config::ServiceDefinition>(&content) {
                                     Ok(def) => {
-                                        info!(
-                                            "Loading service '{}' from {}",
-                                            def.name,
-                                            path.display()
-                                        );
-                                        let tx = crate::service::spawn(def.clone(), bus_tx.clone());
-                                        workers.insert(def.name.clone(), tx);
+                                        match crate::service::spawn(def.clone(), bus_tx.clone()) {
+                                            Ok(tx) => {
+                                                info!(
+                                                    "Loaded service '{}' from {}",
+                                                    def.name,
+                                                    path.display()
+                                                );
+                                                workers.insert(def.name.clone(), tx);
+                                            }
+                                            Err(e) => {
+                                                error!(
+                                                    "Failed to spawn service '{}' from {}: {}",
+                                                    def.name,
+                                                    path.display(),
+                                                    e
+                                                );
+                                                // Continue loading other services
+                                            }
+                                        }
                                     }
                                     Err(e) => error!(
                                         "Failed to parse service file {}: {}",

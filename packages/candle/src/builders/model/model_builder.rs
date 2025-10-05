@@ -1,9 +1,7 @@
 use crate::domain::model::CandleModelRegistry as ModelRegistry;
 use crate::domain::model::error::CandleResult as Result;
 use crate::domain::model::traits::CandleModel;
-
-// Import RegisteredModel from the model registry
-use crate::model::registry::RegisteredModel;
+use crate::domain::model::registry::CandleRegisteredModel;
 
 /// Builder for registering models with the global registry
 pub struct ModelBuilder<M: CandleModel + 'static> {
@@ -18,7 +16,7 @@ impl<M: CandleModel + 'static> ModelBuilder<M> {
     }
 
     /// Register the model with the global registry
-    pub fn register(self) -> Result<RegisteredModel<M>> {
+    pub fn register(self) -> Result<CandleRegisteredModel<M>> {
         ModelRegistry::new().register(self.provider, self.model)
     }
 }

@@ -4,10 +4,6 @@
 //! authentication and authorization with zero allocation patterns and
 //! blazing-fast performance.
 
-#![allow(dead_code)]
-
-
-
 
 /// Authentication handler with optimized token validation
 pub struct AuthHandler;
@@ -77,14 +73,6 @@ impl AuthContext {
         self
     }
 
-    /// Check if user has specific role with zero allocation checking
-    pub fn has_role(&self, role: &str) -> bool {
-        self.user_claims
-            .as_ref()
-            .map(|claims| claims.roles.contains(&role.to_string()))
-            .unwrap_or(false)
-    }
-
     /// Check if user has specific permission with fast permission lookup
     pub fn has_permission(&self, permission: &str) -> bool {
         self.user_claims
@@ -149,18 +137,6 @@ impl AuthContext {
             .unwrap_or(false)
     }
 
-    /// Check if user has all of the specified roles
-    pub fn has_all_roles(&self, roles: &[&str]) -> bool {
-        self.user_claims
-            .as_ref()
-            .map(|claims| {
-                roles
-                    .iter()
-                    .all(|role| claims.roles.contains(&role.to_string()))
-            })
-            .unwrap_or(false)
-    }
-
     /// Check if user has any of the specified permissions
     pub fn has_any_permission(&self, permissions: &[&str]) -> bool {
         self.user_claims
@@ -169,18 +145,6 @@ impl AuthContext {
                 permissions
                     .iter()
                     .any(|perm| claims.permissions.contains(&perm.to_string()))
-            })
-            .unwrap_or(false)
-    }
-
-    /// Check if user has all of the specified permissions
-    pub fn has_all_permissions(&self, permissions: &[&str]) -> bool {
-        self.user_claims
-            .as_ref()
-            .map(|claims| {
-                permissions
-                    .iter()
-                    .all(|perm| claims.permissions.contains(&perm.to_string()))
             })
             .unwrap_or(false)
     }
@@ -213,42 +177,6 @@ impl AuthContext {
         })
     }
 
-    /// Check if authentication is fresh (recently issued)
-    pub fn is_fresh(&self, max_age_seconds: u64) -> bool {
-        self.auth_age()
-            .map(|age| age.as_secs() <= max_age_seconds)
-            .unwrap_or(false)
-    }
-
-    /// Get client IP address
-    pub fn client_ip(&self) -> Option<&str> {
-        self.client_ip.as_deref()
-    }
-
-    /// Update user claims
-    pub fn update_claims(&mut self, claims: UserClaims) {
-        self.user_claims = Some(claims);
-        self.is_authenticated = true;
-    }
-
-    /// Clear authentication
-    pub fn clear_auth(&mut self) {
-        self.is_authenticated = false;
-        self.auth_method = AuthMethod::None;
-        self.user_claims = None;
-    }
-
-    /// Validate authentication state consistency
-    pub fn is_valid(&self) -> bool {
-        match self.is_authenticated {
-            true => {
-                self.auth_method != AuthMethod::None
-                    && self.user_claims.is_some()
-                    && !self.is_expired()
-            }
-            false => self.auth_method == AuthMethod::None && self.user_claims.is_none(),
-        }
-    }
 }
 
 impl Default for AuthContext {
@@ -281,93 +209,4 @@ impl UserClaims {
         }
     }
 
-    /// Create claims with default expiration (1 hour)
-    pub fn with_default_expiry(
-        user_id: String,
-        username: String,
-        roles: Vec<String>,
-        permissions: Vec<String>,
-    ) -> Self {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-
-        let expires_at = now + 3600; // 1 hour
-
-        Self::new(user_id, username, roles, permissions, expires_at)
-    }
-
-    /// Check if claims are expired
-    pub fn is_expired(&self) -> bool {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-
-        now > self.expires_at
-    }
-
-    /// Get remaining validity duration
-    pub fn remaining_validity(&self) -> Option<std::time::Duration> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-
-        if self.expires_at > now {
-            Some(std::time::Duration::from_secs(self.expires_at - now))
-        } else {
-            None
-        }
-    }
-
-    /// Get claims age
-    pub fn age(&self) -> std::time::Duration {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-
-        std::time::Duration::from_secs(now.saturating_sub(self.issued_at))
-    }
-
-    /// Check if claims are fresh
-    pub fn is_fresh(&self, max_age_seconds: u64) -> bool {
-        self.age().as_secs() <= max_age_seconds
-    }
-
-    /// Add role to claims
-    pub fn add_role(&mut self, role: String) {
-        if !self.roles.contains(&role) {
-            self.roles.push(role);
-        }
-    }
-
-    /// Remove role from claims
-    pub fn remove_role(&mut self, role: &str) {
-        self.roles.retain(|r| r != role);
-    }
-
-    /// Add permission to claims
-    pub fn add_permission(&mut self, permission: String) {
-        if !self.permissions.contains(&permission) {
-            self.permissions.push(permission);
-        }
-    }
-
-    /// Remove permission from claims
-    pub fn remove_permission(&mut self, permission: &str) {
-        self.permissions.retain(|p| p != permission);
-    }
-
-    /// Extend expiration time
-    pub fn extend_expiration(&mut self, additional_seconds: u64) {
-        self.expires_at += additional_seconds;
-    }
-
-    /// Set new expiration time
-    pub fn set_expiration(&mut self, expires_at: u64) {
-        self.expires_at = expires_at;
-    }
 }

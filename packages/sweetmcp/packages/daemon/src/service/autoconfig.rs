@@ -158,15 +158,22 @@ impl AutoConfigService {
 }
 
 /// Spawn the auto-configuration service thread
-pub fn spawn_autoconfig(def: ServiceDefinition, bus: Sender<Evt>) -> Sender<Cmd> {
+pub fn spawn_autoconfig(def: ServiceDefinition, bus: Sender<Evt>) -> Result<Sender<Cmd>, crate::service::ServiceError> {
     let (cmd_tx, cmd_rx) = crossbeam_channel::bounded(16);
+    let service_name = def.name.clone();
 
-    thread::spawn(move || {
-        let service = AutoConfigService::new(def, bus);
-        if let Err(e) = service.run(cmd_rx) {
-            error!("Auto-config service error: {}", e);
-        }
-    });
+    thread::Builder::new()
+        .name(format!("svc-autoconfig-{}", service_name))
+        .spawn(move || {
+            let service = AutoConfigService::new(def, bus);
+            if let Err(e) = service.run(cmd_rx) {
+                error!("Auto-config service error: {}", e);
+            }
+        })
+        .map_err(|source| crate::service::ServiceError::SpawnFailed {
+            service: service_name,
+            source,
+        })?;
 
-    cmd_tx
+    Ok(cmd_tx)
 }

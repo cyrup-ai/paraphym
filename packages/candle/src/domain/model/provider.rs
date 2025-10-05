@@ -1,11 +1,12 @@
 //! Core provider trait definitions for AI services
 
-use crate::{Model, ZeroOneOrMany};
+use crate::ZeroOneOrMany;
+use super::traits::CandleModel;
 
 /// Trait for AI service providers that can enumerate their available models
 pub trait Provider {
     /// The model type this provider supports
-    type Model: Model;
+    type Model: CandleModel;
 
     /// Get the provider's name
     fn name(&self) -> &'static str;

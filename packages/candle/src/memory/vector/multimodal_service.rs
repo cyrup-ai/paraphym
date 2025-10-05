@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use paraphym_simd::cosine_similarity;
 use crate::memory::vector::embedding_model::EmbeddingModel;
-use crate::providers::ClipVisionProvider;
+use crate::capability::vision::ClipVisionProvider;
 
 /// Multimodal embedding service bridging text and vision embeddings
 ///

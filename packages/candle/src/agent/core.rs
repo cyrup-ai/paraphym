@@ -12,7 +12,7 @@ use crate::context::Document;
 use crate::memory::config::memory::MemoryConfig as ComprehensiveMemoryConfig;
 use crate::memory::manager::MemoryConfig;
 use crate::memory::{Memory, MemoryError, MemoryTool, MemoryToolError};
-use crate::model::Model;
+use crate::domain::model::traits::CandleModel;
 use sweet_mcp_type::ToolInfo;
 
 /// Maximum number of tools per agent (const generic default)
@@ -42,7 +42,7 @@ pub enum AgentError {
 #[derive(Debug, Clone)]
 pub struct Agent {
     /// The model configuration and implementation to use for this agent
-    pub model: &'static dyn Model,
+    pub model: &'static dyn CandleModel,
     /// System prompt that defines the agent's personality and behavior
     pub system_prompt: String,
     /// Context documents that provide background information
@@ -74,7 +74,7 @@ impl Agent {
     /// Zero allocation agent construction with lock-free memory manager sharing
     #[inline]
     pub fn new(
-        model: &'static dyn Model,
+        model: &'static dyn CandleModel,
         system_prompt: impl Into<String>,
     ) -> AsyncStream<Self> {
         let system_prompt = system_prompt.into();
@@ -124,7 +124,7 @@ impl Agent {
     /// Zero allocation with custom cognitive settings
     #[inline]
     pub fn with_memory_config(
-        model: &'static dyn Model,
+        model: &'static dyn CandleModel,
         system_prompt: impl Into<String>,
         memory_config: ComprehensiveMemoryConfig,
     ) -> AsyncStream<Self> {
@@ -174,7 +174,7 @@ impl Agent {
     /// Zero allocation with lock-free memory sharing between agents
     #[inline]
     pub fn with_shared_memory(
-        model: &'static dyn Model,
+        model: &'static dyn CandleModel,
         system_prompt: impl Into<String>,
         memory: Memory,
     ) -> AsyncStream<Self> {

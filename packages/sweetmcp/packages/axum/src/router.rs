@@ -104,7 +104,16 @@ pub async fn run_server(
         
         // Create tables
         if let Ok(client) = crate::db::client::get_db_client() {
-            create_dao_tables(client).await?;
+            create_dao_tables(client.clone()).await?;
+            
+            // Initialize ResourceDao with the database client
+            let resource_dao_config = crate::resource::cms::resource_dao::ResourceDaoConfig::default();
+            crate::resource::cms::resource_dao::init_resource_dao(
+                resource_dao_config,
+                (*client).clone()
+            ).map_err(|e| anyhow::anyhow!("Failed to initialize ResourceDao: {}", e))?;
+            
+            tracing::info!("ResourceDao initialized successfully");
         }
     }
     

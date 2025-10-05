@@ -6,8 +6,16 @@
 use std::fmt::Debug;
 
 use chrono::{DateTime, Utc};
+use futures::StreamExt;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use uuid::Uuid;
+
+/// Result type for COUNT queries from SurrealDB
+/// SurrealDB COUNT queries return: [{ "count": N }]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct CountResult {
+    pub(crate) count: u64,
+}
 
 /// Generic entity trait for database objects
 pub trait Entity: Serialize + DeserializeOwned + Debug + Send + Sync + Clone {
@@ -110,12 +118,16 @@ pub trait BaseDao {
 
     /// Count all entities
     fn count(&self) -> crate::types::AsyncTask<u64> {
+        // This is a default implementation
+        // Concrete implementations should override with optimized COUNT queries
         let find_task = self.find();
         crate::types::AsyncTask::from_future(async move {
-            let _stream = find_task.await;
-            // In a real implementation, this would use a COUNT query
-            // For now, we'll return a placeholder
-            0
+            let mut stream = find_task.await;
+            let mut count: u64 = 0;
+            while (stream.next().await).is_some() {
+                count += 1;
+            }
+            count
         })
     }
 }

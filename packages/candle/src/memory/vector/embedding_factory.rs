@@ -8,14 +8,14 @@ use std::sync::Arc;
 use crate::domain::embedding::config::EmbeddingConfig;
 use crate::memory::utils::error::{Error as MemoryError, Result};
 use crate::memory::vector::embedding_model::EmbeddingModel;
-use crate::providers::{
-    bert_embedding::CandleBertEmbeddingProvider,
-    clip_vision_embedding::ClipVisionEmbeddingProvider,
-    gte_qwen_embedding::CandleGteQwenEmbeddingProvider,
-    jina_bert_embedding::CandleJinaBertEmbeddingProvider,
-    nvembed_embedding::CandleNvEmbedEmbeddingProvider,
-    stella_embedding::StellaEmbeddingProvider,
+use crate::capability::text_embedding::{
+    CandleBertEmbeddingProvider,
+    CandleGteQwenEmbeddingProvider,
+    CandleJinaBertEmbeddingProvider,
+    CandleNvEmbedEmbeddingProvider,
+    StellaEmbeddingProvider,
 };
+use crate::capability::image_embedding::ClipVisionEmbeddingProvider;
 
 /// Factory for creating embedding models based on configuration
 pub struct EmbeddingModelFactory;
@@ -40,7 +40,7 @@ impl EmbeddingModelFactory {
             "stella" => {
                 // Stella supports configurable dimensions via MRL framework
                 if let Some(dims) = config.dimensions {
-                    let stella_config = crate::providers::stella_embedding::StellaConfig::new_1_5b(dims, candle_core::Device::Cpu)
+                    let stella_config = crate::capability::text_embedding::stella::StellaConfig::new_1_5b(dims, candle_core::Device::Cpu)
                         .map_err(|e| MemoryError::ModelError(format!("Failed to create Stella config with {}D: {}", dims, e)))?;
                     let provider = StellaEmbeddingProvider::with_config(stella_config).await
                         .map_err(|e| MemoryError::ModelError(format!("Failed to create Stella provider: {}", e)))?;

@@ -11,6 +11,39 @@ use std::fmt::Write;
 use arrayvec::ArrayString;
 use tokio::sync::oneshot;
 use url::Url;
+use once_cell::sync::OnceCell;
+use std::sync::Arc;
+
+/// Global ResourceDao instance (follows same pattern as DB_CLIENT)
+static RESOURCE_DAO: OnceCell<Arc<ResourceDao>> = OnceCell::new();
+
+/// Initialize the global ResourceDao (call at application startup)
+/// This should be called in router.rs after database client initialization
+pub fn init_resource_dao(
+    config: ResourceDaoConfig, 
+    db_client: crate::db::DatabaseClient
+) -> Result<(), ResourceDaoError> {
+    let dao = ResourceDao::new(config).with_db_client(db_client);
+    
+    RESOURCE_DAO
+        .set(Arc::new(dao))
+        .map_err(|_| ResourceDaoError::AlreadyInitialized(
+            "ResourceDao already initialized".to_string()
+        ))?;
+    
+    log::info!("ResourceDao initialized successfully");
+    Ok(())
+}
+
+/// Get reference to the global ResourceDao instance
+pub fn get_resource_dao_ref() -> Result<Arc<ResourceDao>, ResourceDaoError> {
+    RESOURCE_DAO
+        .get()
+        .cloned()
+        .ok_or_else(|| ResourceDaoError::NotInitialized(
+            "ResourceDao not initialized. Call init_resource_dao() at startup.".to_string()
+        ))
+}
 
 /// Future-based resource read implementation
 pub fn resource_read_async(request: ReadResourceRequest) -> AsyncResource {
@@ -174,10 +207,8 @@ pub fn find_by_tags(tags: &[String]) -> crate::resource::cms::resource_dao::stre
 }
 
 /// Get resource DAO instance
-fn get_resource_dao() -> Result<ResourceDao, ResourceDaoError> {
-    // This would typically get the DAO from a service locator or dependency injection
-    // For now, we'll return a placeholder error
-    Err(ResourceDaoError::DatabaseConnection("ResourceDao not available".to_string()))
+pub fn get_resource_dao() -> Result<Arc<ResourceDao>, ResourceDaoError> {
+    get_resource_dao_ref()
 }
 
 /// Resource DAO implementation
@@ -204,6 +235,11 @@ impl ResourceDao {
     pub fn with_db_client(mut self, client: crate::db::DatabaseClient) -> Self {
         self.db_client = Some(client);
         self
+    }
+
+    /// Get reference to the database client
+    pub fn client(&self) -> Option<&crate::db::DatabaseClient> {
+        self.db_client.as_ref()
     }
 
     /// Get resource by URI

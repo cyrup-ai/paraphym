@@ -315,22 +315,100 @@ impl ProtocolClient for GraphQLClient {
         })
     }
 
+    /// Convert GraphQL response to MCP Response format.
+    ///
+    /// Performs complete GraphQL-to-MCP conversion with:
+    /// - Error mapping: GraphQL errors → MCP error format with codes, paths, locations
+    /// - Data extraction: Converts async_graphql::Value → MCP JsonValue
+    /// - Extensions: Preserves tracing, metrics, and custom metadata
+    /// - Partial success: Handles simultaneous data + errors (GraphQL feature)
     fn to_mcp_response(&self, response: Self::Response) -> Result<Response, ClientError> {
-        // Convert GraphQL response to MCP Response
-        // This is a simplified conversion - in practice, you might want more sophisticated mapping
-        let result_json = serde_json::to_string(&response)
+        use serde_json::json;
+        
+        let mut mcp_result = json!({});
+        
+        // Extract and convert data field
+        let data_json = serde_json::to_value(&response.data)
             .map_err(|e| ClientError::response_parse(
-                format!("Failed to serialize GraphQL response: {}", e),
-                "GraphQL to MCP conversion",
+                format!("Failed to serialize GraphQL data: {}", e),
+                "GraphQL data serialization",
             ))?;
-
+        
+        if !data_json.is_null() {
+            mcp_result["data"] = data_json;
+        }
+        
+        // Extract and map errors (if present)
+        if !response.errors.is_empty() {
+            let mcp_errors: Vec<_> = response.errors.iter()
+                .map(|error| {
+                    let mut error_obj = json!({
+                        "message": error.message,
+                    });
+                    
+                    // Extract error code from extensions
+                    if let Some(extensions) = &error.extensions
+                        && let Some(code) = extensions.get("code")
+                        && let Ok(code_value) = serde_json::to_value(code) {
+                            error_obj["code"] = code_value;
+                        }
+                    
+                    // Default error code
+                    if let Some(obj) = error_obj.as_object()
+                        && !obj.contains_key("code") {
+                            error_obj["code"] = json!("GRAPHQL_ERROR");
+                        }
+                    
+                    // Include field path (shows which field failed)
+                    if !error.path.is_empty()
+                        && let Ok(path_value) = serde_json::to_value(&error.path) {
+                            error_obj["path"] = path_value;
+                        }
+                    
+                    // Include query locations (line/column)
+                    if !error.locations.is_empty()
+                        && let Ok(locations_value) = serde_json::to_value(&error.locations) {
+                            error_obj["locations"] = locations_value;
+                        }
+                    
+                    // Include full error extensions
+                    if let Some(extensions) = &error.extensions
+                        && let Ok(ext_value) = serde_json::to_value(extensions) {
+                            error_obj["extensions"] = ext_value;
+                        }
+                    
+                    error_obj
+                })
+                .collect();
+            
+            mcp_result["errors"] = json!(mcp_errors);
+        }
+        
+        // Extract extensions (tracing, metrics, etc.)
+        if !response.extensions.is_empty() {
+            let extensions_json = serde_json::to_value(&response.extensions)
+                .map_err(|e| ClientError::response_parse(
+                    format!("Failed to serialize GraphQL extensions: {}", e),
+                    "GraphQL extensions serialization",
+                ))?;
+            mcp_result["extensions"] = extensions_json;
+        }
+        
+        // Convert to MCP JsonValue format
+        let result_json = serde_json::to_string(&mcp_result)
+            .map_err(|e| ClientError::response_parse(
+                format!("Failed to serialize MCP result: {}", e),
+                "MCP result serialization",
+            ))?;
+        
         let mut result_bytes = result_json.as_bytes().to_vec();
         let result_value = simd_json::to_owned_value(&mut result_bytes)
             .map_err(|e| ClientError::response_parse(
-                format!("Failed to parse GraphQL response as JSON: {}", e),
-                "GraphQL response parsing",
+                format!("Failed to parse MCP result as JSON: {}", e),
+                "MCP result parsing",
             ))?;
-
+        
+        // Note: Both data and errors can be present (GraphQL partial success)
         Ok(Response {
             id: RequestId::Str(Uuid::new_v4().to_string()),
             result: Some(result_value),

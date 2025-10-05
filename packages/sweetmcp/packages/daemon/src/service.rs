@@ -11,9 +11,26 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use crossbeam_channel::{bounded, select, tick, Receiver, Sender};
 use log::{error, info, warn};
+use thiserror::Error;
 
 use crate::config::ServiceDefinition;
 use crate::ipc::{Cmd, Evt};
+
+/// Service worker errors
+#[derive(Error, Debug)]
+pub enum ServiceError {
+    /// Thread spawn failed due to OS resource limits
+    #[error("Failed to spawn thread for service '{service}': {source}")]
+    SpawnFailed {
+        service: String,
+        #[source]
+        source: std::io::Error,
+    },
+    
+    /// Channel communication error
+    #[error("Channel send failed: {0}")]
+    ChannelSend(#[from] crossbeam_channel::SendError<crate::ipc::Evt>),
+}
 
 pub struct ServiceWorker {
     name: &'static str,
@@ -24,10 +41,11 @@ pub struct ServiceWorker {
 }
 
 impl ServiceWorker {
-    pub fn spawn(def: ServiceDefinition, bus: Sender<Evt>) -> Sender<Cmd> {
+    pub fn spawn(def: ServiceDefinition, bus: Sender<Evt>) -> Result<Sender<Cmd>, ServiceError> {
         let (tx, rx) = bounded::<Cmd>(16);
         let name: &'static str = Box::leak(def.name.clone().into_boxed_str());
         let tx_clone = tx.clone();
+        
         thread::Builder::new()
             .name(format!("svc-{}", name))
             .spawn(move || {
@@ -42,8 +60,12 @@ impl ServiceWorker {
                     error!("Worker {} crashed: {:#}", worker.name, e);
                 }
             })
-            .expect("spawn worker");
-        tx
+            .map_err(|source| ServiceError::SpawnFailed {
+                service: name.to_string(),
+                source,
+            })?;
+            
+        Ok(tx)
     }
 
     fn run(&mut self) -> Result<()> {
@@ -137,7 +159,7 @@ impl ServiceWorker {
 }
 
 /// Public function to spawn a service worker
-pub fn spawn(def: ServiceDefinition, bus: Sender<Evt>) -> Sender<Cmd> {
+pub fn spawn(def: ServiceDefinition, bus: Sender<Evt>) -> Result<Sender<Cmd>, ServiceError> {
     // Check if this is the special autoconfig service
     if def.name == "sweetmcp-autoconfig" || def.service_type == Some("autoconfig".to_string()) {
         return autoconfig::spawn_autoconfig(def, bus);

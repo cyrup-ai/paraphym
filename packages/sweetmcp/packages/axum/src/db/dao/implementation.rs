@@ -3,10 +3,26 @@
 //! This module provides the concrete implementation of the DAO struct
 //! with zero allocation patterns and blazing-fast performance.
 
+use std::collections::BTreeMap;
 use std::marker::PhantomData;
+
+use serde_json;
+use tokio::sync::mpsc;
 
 use super::super::client::DatabaseClient;
 use super::core::{BaseDao, Entity, validate_entity_id};
+use surrealdb_core::val::Value;
+
+/// Helper function to validate field names for SQL queries
+/// Field names can only contain alphanumeric characters and underscores
+fn validate_field_name(field: &str) -> bool {
+    !field.is_empty() 
+        && field.chars().all(|c| c.is_alphanumeric() || c == '_')
+}
+
+/// Maximum entities per batch INSERT operation
+/// SurrealDB supports 1000+ but we use conservative limit
+const BATCH_CHUNK_SIZE: usize = 1000;
 
 /// Base Data Access Object for SurrealDB
 #[derive(Debug, Clone)]
@@ -121,16 +137,37 @@ impl<T: Entity + 'static> Dao<T> {
     ) -> crate::types::AsyncTask<crate::types::AsyncStream<T>> {
         let client = self.client.clone();
         crate::types::AsyncTask::from_future(async move {
-            let query = format!(
-                "SELECT * FROM {} LIMIT {} START {}",
-                T::table_name(),
-                limit,
-                offset
-            );
-            let _task = client.query::<T>(&query);
-            // In a real implementation, this would return a proper stream
-            // For now, we'll use the basic find method
-            client.find::<T>(T::table_name()).await
+            let (tx, rx) = mpsc::channel(100);
+            
+            tokio::spawn(async move {
+                let query = format!(
+                    "SELECT * FROM {} LIMIT {} START {}",
+                    T::table_name(),
+                    limit,
+                    offset
+                );
+                
+                // Execute query with unit type (no parameters needed)
+                let response = client
+                    .query_with_params_vec::<T>(&query, ())
+                    .await;
+                
+                // Stream results through channel
+                match response {
+                    Ok(results) => {
+                        for item in results {
+                            if tx.send(item).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                    Err(_e) => {
+                        // Errors result in empty stream
+                    }
+                }
+            });
+            
+            crate::types::AsyncStream::new(rx)
         })
     }
 
@@ -143,17 +180,49 @@ impl<T: Entity + 'static> Dao<T> {
         let client = self.client.clone();
         let field = field.to_string();
         let value = value.to_string();
+        
         crate::types::AsyncTask::from_future(async move {
-            let query = format!(
-                "SELECT * FROM {} WHERE {} = '{}'",
-                T::table_name(),
-                field,
-                value
-            );
-            let _task = client.query::<T>(&query);
-            // In a real implementation, this would return a proper stream
-            // For now, we'll use the basic find method
-            client.find::<T>(T::table_name()).await
+            let (tx, rx) = mpsc::channel(100);
+            
+            tokio::spawn(async move {
+                // SECURITY: Validate field name (cannot be parameterized)
+                if !validate_field_name(&field) {
+                    // Invalid field name - return empty stream
+                    return;
+                }
+                
+                // Build parameterized query (value is parameterized for safety)
+                let query = format!(
+                    "SELECT * FROM {} WHERE {} = $value",
+                    T::table_name(),
+                    field  // Validated - safe to interpolate
+                );
+                
+                // Create bindings for parameterized query
+                let mut bindings: BTreeMap<String, Value> = BTreeMap::new();
+                bindings.insert("value".to_string(), Value::from(value));
+                
+                // Execute parameterized query
+                let response = client
+                    .query_with_params_vec::<T>(&query, bindings)
+                    .await;
+                
+                // Stream results through channel
+                match response {
+                    Ok(results) => {
+                        for item in results {
+                            if tx.send(item).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                    Err(_e) => {
+                        // Errors result in empty stream
+                    }
+                }
+            });
+            
+            crate::types::AsyncStream::new(rx)
         })
     }
 
@@ -162,10 +231,11 @@ impl<T: Entity + 'static> Dao<T> {
         let client = self.client.clone();
         crate::types::AsyncTask::from_future(async move {
             let query = format!("SELECT count() FROM {} GROUP ALL", T::table_name());
-            let _task = client.query::<u64>(&query);
-            // In a real implementation, this would parse the count result
-            // For now, we'll return a placeholder
-            0
+            let task = client.query::<super::core::CountResult>(&query);
+            match task.await {
+                Ok(result) => result.count,
+                Err(_) => 0,
+            }
         })
     }
 
@@ -200,17 +270,60 @@ impl<T: Entity + 'static> Dao<T> {
         }
 
         crate::types::AsyncTask::from_future(async move {
-            // In a real implementation, this would use batch operations
-            // For now, we'll create entities one by one
-            let mut results = Vec::with_capacity(entities_clone.len());
-            for entity in entities_clone {
-                let task = client.create::<T>(T::table_name(), entity.clone());
-                let result = task.await.map_err(|e| {
-                    format!("Failed to create entity in table '{}': {}", T::table_name(), e)
-                });
-                results.push(result);
+            // Begin transaction for atomicity
+            if let Err(e) = client.begin_transaction().await {
+                return vec![
+                    Err(format!("Failed to begin transaction: {}", e)); 
+                    entities_clone.len()
+                ];
             }
-            results
+            
+            let mut all_results = Vec::with_capacity(entities_clone.len());
+            
+            // Process in chunks to handle large batches
+            for chunk in entities_clone.chunks(BATCH_CHUNK_SIZE) {
+                // Serialize chunk to JSON array
+                let json_array = match serde_json::to_value(chunk) {
+                    Ok(arr) => arr,
+                    Err(e) => {
+                        let _ = client.rollback_transaction().await;
+                        return vec![
+                            Err(format!("Failed to serialize entities: {}", e)); 
+                            entities_clone.len()
+                        ];
+                    }
+                };
+                
+                // Build batch INSERT query with array syntax
+                let query = format!("INSERT INTO {} {}", T::table_name(), json_array);
+                
+                // Execute batch insert
+                match client.query_with_params_vec::<T>(&query, ()).await {
+                    Ok(created_entities) => {
+                        // Collect successful results
+                        all_results.extend(created_entities.into_iter().map(Ok));
+                    }
+                    Err(e) => {
+                        // Rollback and return errors
+                        let _ = client.rollback_transaction().await;
+                        return vec![
+                            Err(format!("Batch insert failed for table '{}': {}", T::table_name(), e)); 
+                            entities_clone.len()
+                        ];
+                    }
+                }
+            }
+            
+            // Commit transaction
+            if let Err(e) = client.commit_transaction().await {
+                let _ = client.rollback_transaction().await;
+                return vec![
+                    Err(format!("Failed to commit transaction: {}", e)); 
+                    entities_clone.len()
+                ];
+            }
+            
+            all_results
         })
     }
 
@@ -282,11 +395,24 @@ impl<T: Entity + 'static> Dao<T> {
     pub fn query(&self, query: &str) -> crate::types::AsyncTask<crate::types::AsyncStream<T>> {
         let client = self.client.clone();
         let query = query.to_string();
+        
         crate::types::AsyncTask::from_future(async move {
-            let _task = client.query::<T>(&query);
-            // In a real implementation, this would return a proper stream
-            // For now, we'll use the basic find method
-            client.find::<T>(T::table_name()).await
+            let (tx, rx) = mpsc::channel(100);
+            
+            tokio::spawn(async move {
+                // Execute query - use empty json for params if no bindings needed
+                let results: Vec<T> = (client
+                    .query_with_params_vec::<T>(&query, serde_json::json!({}))
+                    .await).unwrap_or_default();
+                
+                for item in results {
+                    if tx.send(item).await.is_err() {
+                        break;
+                    }
+                }
+            });
+            
+            crate::types::AsyncStream::new(rx)
         })
     }
 
@@ -294,11 +420,16 @@ impl<T: Entity + 'static> Dao<T> {
     pub fn query_one(&self, query: &str) -> crate::types::AsyncTask<Option<T>> {
         let client = self.client.clone();
         let query = query.to_string();
+        
         crate::types::AsyncTask::from_future(async move {
-            let _task = client.query::<T>(&query);
-            // In a real implementation, this would parse the first result
-            // For now, we'll return None
-            None
+            // Execute query with empty params (user provides complete query)
+            match client
+                .query_with_params_vec::<T>(&query, serde_json::json!({}))
+                .await
+            {
+                Ok(mut rows) if !rows.is_empty() => Some(rows.remove(0)),
+                _ => None,
+            }
         })
     }
 

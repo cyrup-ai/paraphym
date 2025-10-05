@@ -36,19 +36,23 @@ pub mod builders;
 pub mod core;
 /// Candle domain types (replaces paraphym_domain dependency)  
 pub mod domain;
+/// Extension integration for Raycast and Alfred (macOS)
+pub mod extensions;
 /// Candle macros for ARCHITECTURE.md syntax support
-/// Candle model providers for local inference
-pub mod providers;
+/// Candle capabilities organized by what models can do
+pub mod capability;
 /// Real workflow execution system with streams-only architecture
 pub mod workflow;
 /// Memory system with cognitive features and vector storage
 pub mod memory;
 /// Shared Tokio runtime for avoiding multiple runtime creation
 pub mod runtime;
-/// Model system for provider and model enumeration
-pub mod model;
 /// Async stream utilities re-exporting ystream
 pub mod async_stream;
+/// Image processing utilities
+pub mod image;
+/// Prompt processing utilities
+pub mod prompt;
 
 // Essential Candle re-exports for public API (minimal set)
 // Domain types will be added as they become available
@@ -85,10 +89,10 @@ pub mod prelude {
             tensor_to_image,
         },
     };
-    pub use crate::providers::{
-        CandleKimiK2Config, CandleKimiK2Provider, CandleQwen3CoderConfig, CandleQwen3CoderProvider,
-        SD35TurboConfig, StableDiffusion35Turbo,
-        FluxConfig, FluxSchnell,
+    pub use crate::capability::{
+        text_to_text::{CandleKimiK2Config, CandleKimiK2Provider, CandleQwen3CoderConfig, CandleQwen3CoderProvider, CandlePhi4ReasoningConfig, CandlePhi4ReasoningProvider},
+        text_to_image::{SD35TurboConfig, StableDiffusion35Turbo, FluxConfig, FluxSchnell},
+        vision::{LLaVAProvider, LLaVAProviderConfig},
     };
     // Real workflow execution types - streams-only architecture
     pub use crate::workflow::{candle_workflow, CandleExecutableWorkflow, CandleWorkflowStep};
@@ -150,7 +154,7 @@ pub mod prelude {
                         ystream::spawn_task(|| async move {
                             // Create provider with default config
                             let provider_result =
-                                crate::providers::kimi_k2::CandleKimiK2Provider::new().await;
+                                crate::capability::text_to_text::kimi_k2::CandleKimiK2Provider::new().await;
 
                             match provider_result {
                                 Ok(provider) => {
@@ -185,7 +189,7 @@ pub mod prelude {
                         ystream::spawn_task(|| async move {
                             // Create provider with default config
                             let provider_result =
-                                crate::providers::qwen3_coder::CandleQwen3CoderProvider::new().await;
+                                crate::capability::text_to_text::qwen3_coder::CandleQwen3CoderProvider::new().await;
 
                             match provider_result {
                                 Ok(provider) => {

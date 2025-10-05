@@ -1,5 +1,5 @@
-use sweetmcp_daemon::service::sse::{SseEncoder, SseEvent};
-use sweetmcp_daemon::service::sse::events::EventType;
+use sweetmcp_daemon::service::sse::encoder::SseEncoder;
+use sweetmcp_daemon::service::sse::events::{SseEvent, EventType};
 
 #[test]
 fn test_encode_simple_event() {

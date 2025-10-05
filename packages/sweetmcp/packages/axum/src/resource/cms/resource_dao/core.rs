@@ -227,6 +227,10 @@ pub enum ResourceDaoError {
     ResourceExists(String),
     /// Invalid resource data
     InvalidData(String),
+    /// ResourceDao not initialized - call init_resource_dao() at startup
+    NotInitialized(String),
+    /// ResourceDao already initialized - cannot initialize twice
+    AlreadyInitialized(String),
 }
 
 impl std::fmt::Display for ResourceDaoError {
@@ -240,6 +244,8 @@ impl std::fmt::Display for ResourceDaoError {
             ResourceDaoError::PermissionDenied(msg) => write!(f, "Permission denied: {}", msg),
             ResourceDaoError::ResourceExists(msg) => write!(f, "Resource already exists: {}", msg),
             ResourceDaoError::InvalidData(msg) => write!(f, "Invalid resource data: {}", msg),
+            ResourceDaoError::NotInitialized(msg) => write!(f, "ResourceDao not initialized: {}", msg),
+            ResourceDaoError::AlreadyInitialized(msg) => write!(f, "ResourceDao already initialized: {}", msg),
         }
     }
 }

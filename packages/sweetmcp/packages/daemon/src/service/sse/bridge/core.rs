@@ -56,6 +56,37 @@ pub struct McpBridge {
 
 impl McpBridge {
     /// Create a new MCP bridge with optimized HTTP client
+    ///
+    /// This constructor returns a `Result` allowing you to handle client
+    /// configuration failures explicitly. Use this in production code where
+    /// you need proper error propagation.
+    ///
+    /// # Arguments
+    ///
+    /// * `mcp_server_url` - Base URL of the MCP server
+    /// * `timeout` - Request timeout duration
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// - TLS backend cannot be initialized
+    /// - DNS resolver cannot load system configuration
+    /// - Connection pool setup fails
+    /// - HTTP/2 configuration conflicts with TLS settings
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use std::time::Duration;
+    /// # use anyhow::Result;
+    /// # fn example() -> Result<()> {
+    /// let bridge = McpBridge::new(
+    ///     "http://localhost:8080".to_string(),
+    ///     Duration::from_secs(30)
+    /// )?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn new(mcp_server_url: String, timeout: Duration) -> Result<Self> {
         let client = Client::builder()
             .timeout(timeout)
@@ -309,8 +340,36 @@ pub struct BridgeConfig {
     pub client_configured: bool,
 }
 
+/// Default implementation with graceful degradation for HTTP client configuration.
+///
+/// This implementation attempts to create an HTTP client with optimized settings,
+/// falling back to minimal configuration if the full setup fails. This can happen
+/// when TLS backends fail to initialize, DNS resolvers cannot load, or system
+/// resources are exhausted.
+///
+/// # Fallback Strategy
+///
+/// 1. **Full Configuration**: Connection pooling, HTTP/2, TCP optimizations
+/// 2. **Minimal Configuration**: Basic client with timeout only
+/// 3. **Panic**: If even minimal config fails (fundamental system issue)
+///
+/// # Warning Logs
+///
+/// When fallback occurs, a warning is logged with the failure reason. Monitor logs
+/// for these warnings as they indicate potential system or network issues.
+///
+/// # Recommendation
+///
+/// For production code where you need explicit error handling, prefer using
+/// [`McpBridge::new()`] which returns a `Result` instead of panicking.
+///
+/// # Panics
+///
+/// Panics only if both full and minimal client configurations fail, which indicates
+/// a fundamental system issue (TLS backend unavailable, DNS resolver failure, etc.).
 impl Default for McpBridge {
     fn default() -> Self {
+        // Try full configuration first
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
             .pool_idle_timeout(Duration::from_secs(30))
@@ -319,7 +378,27 @@ impl Default for McpBridge {
             .tcp_nodelay(true)
             .http2_prior_knowledge()
             .build()
-            .expect("Failed to create default HTTP client");
+            .or_else(|e| {
+                warn!(
+                    "Failed to create HTTP client with full config: {}. \
+                     Attempting minimal configuration...", 
+                    e
+                );
+                
+                // Fallback to minimal configuration
+                Client::builder()
+                    .timeout(Duration::from_secs(30))
+                    .build()
+            })
+            .unwrap_or_else(|e| {
+                panic!(
+                    "FATAL: Cannot create HTTP client even with minimal config: {}. \
+                     This indicates a system-level issue with TLS backend or DNS resolver. \
+                     Check system configuration and logs. Consider using McpBridge::new() \
+                     for explicit error handling.",
+                    e
+                );
+            });
 
         Self {
             client,

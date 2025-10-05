@@ -1,4 +1,8 @@
-use sweetmcp_daemon::service::sse::{SseServer, SseConfig, SessionManager, McpBridge, SseEncoder, MessagesQuery};
+use sweetmcp_daemon::service::sse::{SseServer, SseConfig};
+use sweetmcp_daemon::service::sse::session::SessionManager;
+use sweetmcp_daemon::service::sse::bridge::McpBridge;
+use sweetmcp_daemon::service::sse::encoder::SseEncoder;
+use sweetmcp_daemon::service::sse::server::MessagesQuery;
 use std::sync::Arc;
 use std::time::Duration;
 

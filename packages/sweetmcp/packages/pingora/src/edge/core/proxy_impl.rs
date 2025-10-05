@@ -113,7 +113,7 @@ impl ProxyHttp for EdgeService {
             
             // Get TLS config and create peer
             let (use_tls, sni) = match &backend.addr {
-                PingoraSocketAddr::Inet(addr) => self.get_tls_config(&addr),
+                PingoraSocketAddr::Inet(addr) => self.get_tls_config(addr),
                 _ => (false, String::new()),
             };
             
@@ -694,28 +694,28 @@ impl ProxyHttp for EdgeService {
         use crate::normalize::Proto;
         
         // Only modify headers if we converted the request
-        if let Some(proto_ctx) = &ctx.protocol_context {
-            if proto_ctx.protocol != Proto::JsonRpc {
-                // Remove Content-Length (size will change after conversion)
-                upstream_response.remove_header("Content-Length");
-                
-                // Add chunked encoding
-                upstream_response
-                    .insert_header("Transfer-Encoding", "chunked")
-                    .map_err(|e| {
-                        tracing::error!("Failed to set Transfer-Encoding: {}", e);
-                        Error::because(
-                            ErrorType::InternalError,
-                            "Header modification failed",
-                            e,
-                        )
-                    })?;
-                
-                tracing::debug!(
-                    "Modified response headers for {:?} back-conversion",
-                    proto_ctx.protocol
-                );
-            }
+        if let Some(proto_ctx) = &ctx.protocol_context
+            && proto_ctx.protocol != Proto::JsonRpc
+        {
+            // Remove Content-Length (size will change after conversion)
+            upstream_response.remove_header("Content-Length");
+            
+            // Add chunked encoding
+            upstream_response
+                .insert_header("Transfer-Encoding", "chunked")
+                .map_err(|e| {
+                    tracing::error!("Failed to set Transfer-Encoding: {}", e);
+                    Error::because(
+                        ErrorType::InternalError,
+                        "Header modification failed",
+                        e,
+                    )
+                })?;
+            
+            tracing::debug!(
+                "Modified response headers for {:?} back-conversion",
+                proto_ctx.protocol
+            );
         }
         
         Ok(())

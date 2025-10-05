@@ -13,6 +13,8 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use hickory_resolver::config::ResolverConfig;
+use hickory_resolver::name_server::TokioConnectionProvider;
 use hickory_resolver::TokioResolver;
 use tokio::time::interval;
 use tracing::{debug, error, info, warn};
@@ -45,7 +47,16 @@ impl DnsDiscovery {
         // Create resolver with system configuration
         // This automatically uses /etc/resolv.conf on Unix or registry on Windows
         let builder = TokioResolver::builder_tokio()
-            .expect("Failed to read system DNS configuration");
+            .unwrap_or_else(|e| {
+                warn!(
+                    "Failed to read system DNS config, using Google Public DNS (8.8.8.8, 8.8.4.4): {}",
+                    e
+                );
+                TokioResolver::builder_with_config(
+                    ResolverConfig::google(),
+                    TokioConnectionProvider::default()
+                )
+            });
         
         let resolver = builder.build();
 

@@ -50,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n⚡ Generating...\n");
     
     // 4. Generate image
-    let mut stream = provider.generate(prompt, &config, &device);
+    let stream = provider.generate(prompt, &config, &device);
     
     let mut final_image = None;
     while let Some(chunk) = stream.next().await {

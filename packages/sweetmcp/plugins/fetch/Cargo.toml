@@ -38,6 +38,8 @@ hyper-rustls = { version = "0.27.7", features = ["ring", "http1", "http2"] }
 rustls = "0.23.31"
 ring = "0.17.14"
 tokio-rustls = "0.26"
+bevy = { version = "0.16", default-features = false, features = ["bevy_ui", "bevy_text", "bevy_render", "bevy_core_pipeline", "bevy_asset"] }
+scraper = "0.21"
 
 [workspace]
 # This makes the plugin a standalone package, not part of the parent workspace

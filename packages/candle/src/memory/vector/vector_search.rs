@@ -20,7 +20,7 @@ use crate::memory::constants::SEARCH_TASK;
 use crate::memory::utils::error::Result;
 use crate::memory::vector::embedding_model::EmbeddingModel;
 use crate::memory::vector::vector_store::VectorStore;
-use crate::providers::bert_embedding::CandleBertEmbeddingProvider;
+use crate::capability::text_embedding::CandleBertEmbeddingProvider;
 
 use crate::domain::memory::cognitive::types::{
     CognitiveProcessor,

@@ -646,12 +646,12 @@ pub fn encode_sixel(img: &image::RgbImage) -> String {
     // Web screenshots and photos should use the proven O(w*h) column-based approach
     if pixel_count > 200_000 {
         tracing::debug!(
-            "Using legacy encoder for large image ({}x{} = {} pixels)",
+            "Using column-based encoder for large image ({}x{} = {} pixels)",
             img.width(),
             img.height(),
             pixel_count
         );
-        return encode_sixel_legacy(img);
+        return encode_sixel_column_based(img);
     }
 
     // Phase 1: Detect uniform color regions in the image
@@ -661,10 +661,10 @@ pub fn encode_sixel(img: &image::RgbImage) -> String {
     // Fall back to legacy encoder for complex images with many regions
     if regions.len() > 10_000 {
         tracing::debug!(
-            "Using legacy encoder due to high region count ({} regions detected)",
+            "Using column-based encoder due to high region count ({} regions detected)",
             regions.len()
         );
-        return encode_sixel_legacy(img);
+        return encode_sixel_column_based(img);
     }
     
     // Phase 2: Merge adjacent regions (geometric folding)
@@ -674,11 +674,12 @@ pub fn encode_sixel(img: &image::RgbImage) -> String {
     regions_to_sixel(&merged_regions, img.width(), img.height())
 }
 
-/// Legacy column-based encoding - O(w*h) complexity, reliable for all image types
+/// Column-based encoding - O(w*h) complexity, reliable for all image types
 /// 
-/// Used as fallback for large or complex images where geometric encoding would be too slow.
+/// This is the proven reference implementation used as fallback for large or 
+/// complex images where geometric encoding would be too slow.
 /// This approach processes the image column-by-column with run-length encoding.
-fn encode_sixel_legacy(img: &image::RgbImage) -> String {
+fn encode_sixel_column_based(img: &image::RgbImage) -> String {
         let mut result = String::from("\x1BPq");
 
         // Add raster attributes (crucial for Rio compatibility)

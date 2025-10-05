@@ -2,12 +2,13 @@ use async_trait::async_trait;
 use base64::Engine;
 use bevy::{
     prelude::*,
-    render::render_resource::{Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages},
-    window::PrimaryWindow,
-    ui::{Style, Val, UiRect, node_bundles::{NodeBundle, TextBundle}},
-    text::TextStyle,
+    render::{
+        render_asset::RenderAssetUsages,
+        render_resource::{Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages},
+    },
 };
-use image::{DynamicImage, ImageBuffer, Rgba};
+use image::DynamicImage;
+use scraper::{Html, Selector, ElementRef};
 use std::error::Error as StdError;
 use std::fmt;
 use std::sync::{Arc, Mutex};
@@ -47,6 +48,19 @@ struct Screenshot(Option<DynamicImage>);
 #[derive(Resource)]
 struct RenderComplete(bool);
 
+// Resource to track rendering state for completion detection
+#[derive(Resource, Default)]
+struct RenderState {
+    expected_nodes: usize,
+    spawned_nodes: usize,
+    frames_rendered: u32,
+    has_rendered: bool,
+}
+
+// Resource to store the render target handle
+#[derive(Resource)]
+struct RenderTarget(Handle<Image>);
+
 // Mutable state to be shared between Bevy and the main thread
 struct SharedState {
     content: Option<String>,
@@ -70,6 +84,7 @@ impl BevyRenderer {
         app.insert_resource(HtmlContent(html_content))
             .insert_resource(Screenshot(None))
             .insert_resource(RenderComplete(false))
+            .insert_resource(RenderState::default())
             .add_plugins(DefaultPlugins.set(
                 WindowPlugin {
                     primary_window: Some(Window {
@@ -82,7 +97,12 @@ impl BevyRenderer {
                 }
             ))
             .add_systems(Startup, setup_renderer_system)
-            .add_systems(Update, (render_system, screenshot_system, check_completion_system));
+            .add_systems(Update, (
+                render_system,
+                screenshot_system,
+                increment_frame_counter,
+                check_completion_system,
+            ).chain());
 
         // Run the app with a custom runner that will terminate when rendering is complete
         app.add_systems(Update, move |render_complete: Res<RenderComplete>, 
@@ -127,111 +147,286 @@ impl BevyRenderer {
 }
 
 // System to set up the renderer
-fn setup_renderer_system(mut commands: Commands) {
-    // Add a 2D camera
-    commands.spawn(Camera2dBundle::default());
+fn setup_renderer_system(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+    // Create render target image
+    let size = Extent3d {
+        width: 1280,
+        height: 800,
+        depth_or_array_layers: 1,
+    };
+    
+    let mut render_target = Image {
+        texture_descriptor: TextureDescriptor {
+            label: Some("render_target"),
+            size,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8UnormSrgb,
+            mip_level_count: 1,
+            sample_count: 1,
+            usage: TextureUsages::RENDER_ATTACHMENT 
+                | TextureUsages::COPY_SRC 
+                | TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        },
+        asset_usage: RenderAssetUsages::all(),
+        ..default()
+    };
+    
+    render_target.resize(size);
+    
+    let render_target_handle = images.add(render_target);
+    
+    // Spawn camera rendering to texture using Required Components
+    commands.spawn((
+        Camera2d,
+        Camera {
+            target: bevy::render::camera::RenderTarget::Image(render_target_handle.clone()),
+            ..default()
+        },
+    ));
+    
+    commands.insert_resource(RenderTarget(render_target_handle));
 }
 
 // System to render the HTML content
-fn render_system(html_content: Res<HtmlContent>, mut commands: Commands, asset_server: Res<AssetServer>) {
-    // In a real implementation, this would parse and render the HTML
-    // For this example, we'll just create a simple UI element
+fn render_system(
+    html_content: Res<HtmlContent>,
+    mut commands: Commands,
+    mut render_state: ResMut<RenderState>,
+) {
+    // Guard: only run once
+    if render_state.has_rendered {
+        return;
+    }
     
-    commands.spawn(NodeBundle {
-        style: Style {
+    // Parse HTML with scraper
+    let document = Html::parse_document(&html_content.0);
+    
+    // Create root container using Required Components
+    let root = commands.spawn((
+        Node {
             width: Val::Percent(100.0),
             height: Val::Percent(100.0),
             padding: UiRect::all(Val::Px(20.0)),
+            flex_direction: FlexDirection::Column,
             ..default()
         },
-        background_color: Color::WHITE.into(),
-        ..default()
-    }).with_children(|parent| {
-        // Add some text to represent the rendered content
-        parent.spawn(TextBundle::from_section(
-            format!("Rendered content (sample): {}", &html_content.0[0..min(50, html_content.0.len())]),
-            TextStyle {
-                font_size: 20.0,
-                color: Color::BLACK,
-                ..default()
-            },
-        ));
-    });
+        BackgroundColor(Color::WHITE),
+    )).id();
+    
+    // Count expected nodes for completion tracking
+    if let Ok(body_selector) = Selector::parse("body") {
+        if let Some(body) = document.select(&body_selector).next() {
+            let node_count = count_html_nodes(body);
+            render_state.expected_nodes = node_count;
+            
+            // Recursively spawn HTML elements
+            spawn_html_element(body, root, &mut commands, &mut render_state);
+        }
+    }
+    
+    // Mark as rendered to prevent re-execution
+    render_state.has_rendered = true;
+}
+
+/// Recursively spawn Bevy entities from HTML elements
+fn spawn_html_element(
+    element: ElementRef,
+    parent: Entity,
+    commands: &mut Commands,
+    render_state: &mut RenderState,
+) {
+    let tag_name = element.value().name();
+    
+    // Map HTML elements to Bevy UI components
+    match tag_name {
+        "div" | "section" | "article" | "main" => {
+            // Block-level container
+            let entity = commands.spawn((
+                Node {
+                    width: Val::Percent(100.0),
+                    flex_direction: FlexDirection::Column,
+                    margin: UiRect::all(Val::Px(5.0)),
+                    ..default()
+                },
+            )).id();
+            
+            commands.entity(parent).add_child(entity);
+            render_state.spawned_nodes += 1;
+            
+            // Recurse for children
+            for child in element.children() {
+                if let Some(child_element) = ElementRef::wrap(child) {
+                    spawn_html_element(child_element, entity, commands, render_state);
+                }
+            }
+        }
+        "p" | "span" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+            // Text elements
+            let text_content = element.text().collect::<String>();
+            if !text_content.trim().is_empty() {
+                let font_size = match tag_name {
+                    "h1" => 32.0,
+                    "h2" => 28.0,
+                    "h3" => 24.0,
+                    "h4" => 20.0,
+                    "h5" => 18.0,
+                    "h6" => 16.0,
+                    _ => 14.0,
+                };
+                
+                let entity = commands.spawn((
+                    Text::new(text_content.trim()),
+                    TextFont {
+                        font_size,
+                        ..default()
+                    },
+                    TextColor(Color::BLACK),
+                    Node {
+                        margin: UiRect::all(Val::Px(5.0)),
+                        ..default()
+                    },
+                )).id();
+                
+                commands.entity(parent).add_child(entity);
+                render_state.spawned_nodes += 1;
+            }
+        }
+        "ul" | "ol" => {
+            // List container
+            let entity = commands.spawn((
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    margin: UiRect::all(Val::Px(10.0)),
+                    ..default()
+                },
+            )).id();
+            
+            commands.entity(parent).add_child(entity);
+            render_state.spawned_nodes += 1;
+            
+            for child in element.children() {
+                if let Some(child_element) = ElementRef::wrap(child) {
+                    spawn_html_element(child_element, entity, commands, render_state);
+                }
+            }
+        }
+        "li" => {
+            // List item
+            let text_content = element.text().collect::<String>();
+            if !text_content.trim().is_empty() {
+                let entity = commands.spawn((
+                    Text::new(format!("• {}", text_content.trim())),
+                    TextFont {
+                        font_size: 14.0,
+                        ..default()
+                    },
+                    TextColor(Color::BLACK),
+                    Node {
+                        margin: UiRect::vertical(Val::Px(2.0)),
+                        ..default()
+                    },
+                )).id();
+                
+                commands.entity(parent).add_child(entity);
+                render_state.spawned_nodes += 1;
+            }
+        }
+        _ => {
+            // Other elements: recurse through children
+            for child in element.children() {
+                if let Some(child_element) = ElementRef::wrap(child) {
+                    spawn_html_element(child_element, parent, commands, render_state);
+                }
+            }
+        }
+    }
+}
+
+/// Count total HTML nodes for completion tracking
+/// Only counts nodes that will actually be spawned
+fn count_html_nodes(element: ElementRef) -> usize {
+    let mut count = 0; // Don't count the body element itself
+    for child in element.children() {
+        if let Some(child_element) = ElementRef::wrap(child) {
+            count += count_html_nodes_with_self(child_element);
+        }
+    }
+    count
+}
+
+/// Count a single element and its children (helper)
+fn count_html_nodes_with_self(element: ElementRef) -> usize {
+    let tag_name = element.value().name();
+    
+    // Only count elements that spawn_html_element will actually spawn
+    // This MUST match the spawning logic exactly!
+    let self_count = match tag_name {
+        "div" | "section" | "article" | "main" | "ul" | "ol" => 1,
+        "p" | "span" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "li" => {
+            if !element.text().collect::<String>().trim().is_empty() { 
+                1  // Only count if has non-empty text
+            } else { 
+                0  // Empty text elements are not spawned
+            }
+        }
+        _ => 0,  // All other elements (including body) are not spawned
+    };
+    
+    let mut count = self_count;
+    for child in element.children() {
+        if let Some(child_element) = ElementRef::wrap(child) {
+            count += count_html_nodes_with_self(child_element);
+        }
+    }
+    count
 }
 
 // System to take a screenshot
 fn screenshot_system(
-    windows: Query<&Window, With<PrimaryWindow>>,
-    mut images: ResMut<Assets<Image>>,
+    images: Res<Assets<Image>>,
+    render_target: Res<RenderTarget>,
     mut screenshot: ResMut<Screenshot>,
     render_complete: Res<RenderComplete>,
 ) {
-    if !render_complete.0 {
+    if !render_complete.0 || screenshot.0.is_some() {
         return;
     }
 
-    if let Ok(window) = windows.get_single() {
-        // Create a new image
-        let size = Extent3d {
-            width: window.width() as u32,
-            height: window.height() as u32,
-            depth_or_array_layers: 1,
-        };
-
-        let mut image = Image {
-            texture_descriptor: TextureDescriptor {
-                label: None,
-                size,
-                dimension: TextureDimension::D2,
-                format: TextureFormat::Rgba8UnormSrgb,
-                mip_level_count: 1,
-                sample_count: 1,
-                usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-                view_formats: &[],
-            },
-            ..default()
-        };
-
-        // Fill with a simple gradient (in a real implementation, this would be the rendered content)
-        let mut buffer: Vec<u8> = Vec::with_capacity((size.width * size.height * 4) as usize);
-        for y in 0..size.height {
-            for x in 0..size.width {
-                let r = (x as f32 / size.width as f32 * 255.0) as u8;
-                let g = (y as f32 / size.height as f32 * 255.0) as u8;
-                let b = 128;
-                let a = 255;
-                buffer.extend_from_slice(&[r, g, b, a]);
+    // Get the rendered image from the render target
+    if let Some(image) = images.get(&render_target.0) {
+        // Convert Bevy Image to DynamicImage
+        match image.clone().try_into_dynamic() {
+            Ok(dynamic_image) => {
+                screenshot.0 = Some(dynamic_image);
+            }
+            Err(_) => {
+                eprintln!("Failed to convert render target to DynamicImage");
             }
         }
-        image.data = buffer;
+    }
+}
 
-        // Convert to DynamicImage
-        let img_buffer = match ImageBuffer::<Rgba<u8>, _>::from_raw(
-            size.width,
-            size.height,
-            image.data.clone(),
-        ) {
-            Some(buffer) => buffer,
-            None => {
-                eprintln!("Failed to create image buffer from screenshot data");
-                return;
-            }
-        };
-        
-        let dynamic_image = DynamicImage::ImageRgba8(img_buffer);
-        screenshot.0 = Some(dynamic_image);
+// System to increment frame counter for completion tracking
+fn increment_frame_counter(mut render_state: ResMut<RenderState>) {
+    if render_state.spawned_nodes >= render_state.expected_nodes {
+        render_state.frames_rendered += 1;
     }
 }
 
 // System to check when rendering is complete
-fn check_completion_system(mut render_complete: ResMut<RenderComplete>) {
-    // In a real implementation, this would check if the content is fully rendered
-    // For this example, we'll just set it to true after one frame
-    render_complete.0 = true;
-}
-
-fn min(a: usize, b: usize) -> usize {
-    if a < b { a } else { b }
+fn check_completion_system(
+    render_state: Res<RenderState>,
+    mut render_complete: ResMut<RenderComplete>,
+) {
+    // Check if rendering is actually complete
+    let all_nodes_spawned = render_state.spawned_nodes >= render_state.expected_nodes;
+    let sufficient_frames = render_state.frames_rendered >= 2; // Allow layout to settle
+    
+    // Only mark complete when all criteria met
+    if all_nodes_spawned && sufficient_frames && !render_complete.0 {
+        render_complete.0 = true;
+    }
 }
 
 #[async_trait]

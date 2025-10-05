@@ -33,6 +33,5 @@ pub use traits::*;
 pub use usage::CandleUsage;
 pub use validation::*;
 
-// Re-export generated types
+// Re-export model types (canonical definitions in providers module)
 pub use providers::*;
-pub use models::*;

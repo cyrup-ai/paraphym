@@ -1,4 +1,4 @@
-use sweetmcp_daemon::service::sse::{SseSession, SessionManager, ClientInfo};
+use sweetmcp_daemon::service::sse::session::{SseSession, SessionManager, ClientInfo};
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 

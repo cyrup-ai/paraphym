@@ -10,7 +10,7 @@ use candle_core::Device;
 
 use crate::memory::utils::error::{Error as MemoryError, Result};
 use crate::memory::vector::embedding_model::EmbeddingModel;
-use crate::providers::clip_vision::ClipVisionProvider;
+use crate::capability::vision::ClipVisionProvider;
 
 /// Synchronous wrapper for ClipVisionProvider implementing EmbeddingModel trait
 ///

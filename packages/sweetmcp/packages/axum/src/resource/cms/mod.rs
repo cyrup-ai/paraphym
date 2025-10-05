@@ -1,5 +1,6 @@
 pub mod cms_dao;
 pub mod models;
+pub mod resource_dao;
 
 use log::error;
 use rpc_router::{HandlerError, HandlerResult};

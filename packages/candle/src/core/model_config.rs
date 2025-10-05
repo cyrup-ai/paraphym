@@ -180,10 +180,10 @@ impl ModelArchitecture {
                 },
             },
             ModelArchitecture::Phi(_) => ArchitectureDefaults {
-                vocab_size: 32064,
-                context_length: 2048,
+                vocab_size: 100352,
+                context_length: 32768,
                 special_tokens: SpecialTokenIds {
-                    bos_token_id: Some(1),
+                    bos_token_id: None,
                     eos_token_id: Some(2),
                     pad_token_id: Some(0),
                     unk_token_id: Some(0),
@@ -239,6 +239,7 @@ pub struct PhiConfig {
     pub num_hidden_layers: usize,
     pub num_attention_heads: usize,
     pub partial_rotary_factor: f32,
+    pub max_position_embeddings: usize,
 }
 
 /// Special token IDs for model-specific tokens

@@ -23,7 +23,7 @@ use sweet_mcp_type::ToolInfo;
 use serde_json;
 
 // Import provider types for default provider creation
-use crate::providers::{CandleKimiK2Provider, CandleKimiK2Config};
+use crate::capability::text_to_text::{CandlePhi4ReasoningProvider, CandlePhi4ReasoningConfig};
 use crate::domain::agent::role::CandleCompletionProviderType;
 
 // Candle domain types - self-contained
@@ -251,6 +251,12 @@ pub trait CandleMcpServerBuilder: Sized + Send {
 
 /// Agent builder trait (PUBLIC API)
 pub trait CandleAgentBuilder: Sized + Send + Sync {
+    /// Override completion provider for this agent instance - EXACT syntax: .completion_provider(provider)
+    #[must_use]
+    fn completion_provider<P>(self, provider: P) -> impl CandleAgentBuilder
+    where
+        P: DomainCompletionModel + Send + 'static;
+
     /// Set conversation history - EXACT syntax from ARCHITECTURE.md
     /// Supports: .conversation_history(CandleMessageRole::User => "content", CandleMessageRole::System => "content", ...)
     #[must_use]
@@ -497,28 +503,28 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
 
     /// Convert to agent - EXACT syntax: .into_agent()
     fn into_agent(self) -> impl CandleAgentBuilder {
-        // Always provide default provider - try multiple paths with graceful fallback
-        let default_provider = CandleKimiK2Provider::default_for_builder()
+        // Default provider is now Phi-4-Reasoning - try multiple paths with graceful fallback
+        let default_provider = CandlePhi4ReasoningProvider::default_for_builder()
             .or_else(|e| {
-                log::warn!("Failed to create default KimiK2 provider with ProgressHub: {}. Trying local path.", e);
-                CandleKimiK2Provider::with_config_sync(
-                    "./models/kimi-k2".to_string(),
-                    CandleKimiK2Config::default()
+                log::warn!("Failed to create default Phi4Reasoning provider with ProgressHub: {}. Trying local path.", e);
+                CandlePhi4ReasoningProvider::with_config_sync(
+                    "./models/phi-4-reasoning".to_string(),
+                    CandlePhi4ReasoningConfig::default()
                 )
             })
             .or_else(|e| {
                 log::warn!("Failed to create provider with ./models path: {}. Trying cache directory.", e);
                 let cache_path = match std::env::var("HOME") {
-                    Ok(home) => format!("{}/.cache/candle/models/kimi-k2", home),
-                    Err(_) => "./.cache/candle/models/kimi-k2".to_string(),
+                    Ok(home) => format!("{}/.cache/candle/models/phi-4-reasoning", home),
+                    Err(_) => "./.cache/candle/models/phi-4-reasoning".to_string(),
                 };
-                CandleKimiK2Provider::with_config_sync(cache_path, CandleKimiK2Config::default())
+                CandlePhi4ReasoningProvider::with_config_sync(cache_path, CandlePhi4ReasoningConfig::default())
             })
             .or_else(|e| {
                 log::warn!("Failed with cache directory: {}. Trying temp directory.", e);
-                CandleKimiK2Provider::with_config_sync(
-                    "/tmp/candle-models/kimi-k2".to_string(),
-                    CandleKimiK2Config::default()
+                CandlePhi4ReasoningProvider::with_config_sync(
+                    "/tmp/candle-models/phi-4-reasoning".to_string(),
+                    CandlePhi4ReasoningConfig::default()
                 )
             })
             .or_else(|e| {
@@ -533,23 +539,23 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
                 );
                 // with_config_sync only creates a struct and virtually never fails
                 // The Result type is only for API consistency with other provider creation methods
-                CandleKimiK2Provider::with_config_sync(
-                    "./models/kimi-k2-fallback".to_string(),
-                    CandleKimiK2Config::default()
+                CandlePhi4ReasoningProvider::with_config_sync(
+                    "./models/phi-4-reasoning-fallback".to_string(),
+                    CandlePhi4ReasoningConfig::default()
                 )
             })
             .or_else(|_| {
                 // If with_config_sync fails, try the simplest possible path
-                CandleKimiK2Provider::with_config_sync(
+                CandlePhi4ReasoningProvider::with_config_sync(
                     ".".to_string(),
-                    CandleKimiK2Config::default()
+                    CandlePhi4ReasoningConfig::default()
                 )
             })
             .or_else(|_| {
                 // Try empty string as absolute last resort
-                CandleKimiK2Provider::with_config_sync(
+                CandlePhi4ReasoningProvider::with_config_sync(
                     String::new(),
-                    CandleKimiK2Config::default()
+                    CandlePhi4ReasoningConfig::default()
                 )
             })
             .unwrap_or_else(|final_error| {
@@ -559,7 +565,7 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
                 // 3. Failure indicates OOM or memory corruption
                 // 4. panic! allows the application to catch it with panic hooks
                 panic!(
-                    "Fatal: Unable to initialize KimiK2Provider after 6 fallback attempts. \
+                    "Fatal: Unable to initialize Phi4ReasoningProvider after 6 fallback attempts. \
                      System cannot allocate memory for provider struct. \
                      This indicates OOM or memory corruption. Error: {}",
                     final_error
@@ -568,7 +574,7 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
         
         CandleAgentBuilderImpl {
             name: self.name,
-            provider: CandleCompletionProviderType::KimiK2(default_provider),
+            provider: CandleCompletionProviderType::Phi4Reasoning(default_provider),
             temperature: self.temperature,
             max_tokens: self.max_tokens,
             memory_read_timeout: self.memory_read_timeout,
@@ -598,6 +604,13 @@ pub struct NoProviderAgent {
 }
 
 impl CandleAgentBuilder for NoProviderAgent {
+    fn completion_provider<P>(self, _provider: P) -> impl CandleAgentBuilder
+    where
+        P: DomainCompletionModel + Send + 'static,
+    {
+        self
+    }
+
     fn conversation_history(
         self,
         _history: impl ConversationHistoryArgs,
@@ -807,6 +820,24 @@ impl<P> CandleAgentBuilder for CandleAgentBuilderImpl<P>
 where
     P: DomainCompletionModel + Send + 'static,
 {
+    /// Override completion provider for this agent instance
+    fn completion_provider<P2>(self, provider: P2) -> impl CandleAgentBuilder
+    where
+        P2: DomainCompletionModel + Send + 'static,
+    {
+        CandleAgentBuilderImpl {
+            name: self.name,
+            temperature: self.temperature,
+            max_tokens: self.max_tokens,
+            memory_read_timeout: self.memory_read_timeout,
+            system_prompt: self.system_prompt,
+            provider,
+            tools: self.tools,
+            mcp_servers: self.mcp_servers,
+            memory: self.memory,
+        }
+    }
+
     /// Set conversation history
     fn conversation_history(
         self,

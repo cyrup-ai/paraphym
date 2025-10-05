@@ -27,11 +27,46 @@ impl From<sixel_tokenizer::ColorCoordinateSystem> for SixelColor {
         // Convert the tuple into our color format
         match color_coordinate_system {
             sixel_tokenizer::ColorCoordinateSystem::HLS(h, l, s) => {
-                // Convert HLS to RGB (simplified conversion)
-                // In a real implementation, you'd want a proper HLS to RGB conversion
-                let r = ((h as f32 * 255.0 / 360.0) % 255.0).round() as u8;
-                let g = (l as f32 * 255.0 / 100.0).round() as u8;
-                let b = (s as f32 * 255.0 / 100.0).round() as u8;
+                // Proper HLS to RGB conversion following standard color space mathematics
+                // Input: H ∈ [0, 360], L ∈ [0, 100], S ∈ [0, 100]
+                // Output: RGB ∈ [0, 255]
+                
+                // Normalize L and S to [0, 1], keep H in degrees
+                let h = h as f32;
+                let l = l as f32 / 100.0;
+                let s = s as f32 / 100.0;
+                
+                // Calculate chroma
+                let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+                
+                // Calculate hue sector (h' = H/60)
+                let h_prime = h / 60.0;
+                
+                // Calculate intermediate value X = C × (1 - |h' mod 2 - 1|)
+                let h_mod_2 = h_prime - (h_prime * 0.5).floor() * 2.0;
+                let x = c * (1.0 - (h_mod_2 - 1.0).abs());
+                
+                // Determine RGB' based on hue sector
+                let (r1, g1, b1) = if h_prime >= 0.0 && h_prime < 1.0 {
+                    (c, x, 0.0)
+                } else if h_prime >= 1.0 && h_prime < 2.0 {
+                    (x, c, 0.0)
+                } else if h_prime >= 2.0 && h_prime < 3.0 {
+                    (0.0, c, x)
+                } else if h_prime >= 3.0 && h_prime < 4.0 {
+                    (0.0, x, c)
+                } else if h_prime >= 4.0 && h_prime < 5.0 {
+                    (x, 0.0, c)
+                } else {
+                    (c, 0.0, x)
+                };
+                
+                // Calculate brightness adjustment and scale to [0, 255]
+                let m = l - c * 0.5;
+                let r = ((r1 + m) * 255.0).round() as u8;
+                let g = ((g1 + m) * 255.0).round() as u8;
+                let b = ((b1 + m) * 255.0).round() as u8;
+                
                 SixelColor { r, g, b }
             }
             sixel_tokenizer::ColorCoordinateSystem::RGB(r, g, b) => {

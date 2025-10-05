@@ -7,7 +7,7 @@ use tokio::sync::RwLock;
 use chrono;
 use moka::sync::Cache;
 
-use crate::providers::bert_embedding::CandleBertEmbeddingProvider;
+use crate::capability::text_embedding::CandleBertEmbeddingProvider;
 use crate::memory::vector::embedding_model::EmbeddingModel;
 
 use crate::memory::{

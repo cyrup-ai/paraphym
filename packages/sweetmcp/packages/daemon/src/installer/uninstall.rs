@@ -327,6 +327,29 @@ fn get_installed_daemon_path() -> PathBuf {
     }
 }
 
+/// Create tar command arguments with proper path validation
+fn create_backup_args(backup_path: &Path, config_dir: &Path) -> Result<Vec<String>> {
+    let parent = config_dir.parent()
+        .ok_or_else(|| std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Config directory has no parent"
+        ))?;
+    
+    let filename = config_dir.file_name()
+        .ok_or_else(|| std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Config directory has no filename"
+        ))?;
+    
+    Ok(vec![
+        "-czf".to_string(),
+        backup_path.to_string_lossy().to_string(),
+        "-C".to_string(),
+        parent.to_string_lossy().to_string(),
+        filename.to_string_lossy().to_string(),
+    ])
+}
+
 /// Backup configuration before uninstall (API function for future CLI use)
 #[allow(dead_code)]
 pub fn backup_configuration() -> Result<PathBuf> {
@@ -341,14 +364,11 @@ pub fn backup_configuration() -> Result<PathBuf> {
     let backup_path = backup_dir.join(format!("sweetmcp_config_backup_{}.tar.gz", timestamp));
 
     // Create tar archive of configuration
+    let args = create_backup_args(&backup_path, &config_dir)
+        .context("Failed to prepare backup command arguments")?;
+
     let output = Command::new("tar")
-        .args([
-            "-czf",
-            backup_path.to_str().unwrap(),
-            "-C",
-            config_dir.parent().unwrap().to_str().unwrap(),
-            config_dir.file_name().unwrap().to_str().unwrap(),
-        ])
+        .args(&args)
         .output()
         .context("Failed to create configuration backup")?;
 
@@ -404,6 +424,16 @@ fn get_backup_directory() -> PathBuf {
     }
 }
 
+/// Create tar extraction arguments with proper path validation  
+fn create_restore_args(backup_path: &Path, parent_dir: &Path) -> Vec<String> {
+    vec![
+        "-xzf".to_string(),
+        backup_path.to_string_lossy().to_string(),
+        "-C".to_string(),
+        parent_dir.to_string_lossy().to_string(),
+    ]
+}
+
 /// Restore configuration from backup (API function for future CLI use)
 #[allow(dead_code)]
 pub fn restore_configuration(backup_path: &Path) -> Result<()> {
@@ -417,13 +447,10 @@ pub fn restore_configuration(backup_path: &Path) -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("Invalid configuration directory"))?;
 
     // Extract backup
+    let args = create_restore_args(backup_path, parent_dir);
+
     let output = Command::new("tar")
-        .args([
-            "-xzf",
-            backup_path.to_str().unwrap(),
-            "-C",
-            parent_dir.to_str().unwrap(),
-        ])
+        .args(&args)
         .output()
         .context("Failed to extract configuration backup")?;
 

@@ -23,7 +23,7 @@ use std::path::Path;
 
 // Vector search and embedding imports
 use crate::memory::vector::embedding_model::EmbeddingModel;
-use crate::providers::bert_embedding::CandleBertEmbeddingProvider;
+use crate::capability::text_embedding::CandleBertEmbeddingProvider;
 use tracing;  // For logging in create_memory
 
 /// Content structure for creating/updating memory nodes (without ID)

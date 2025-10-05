@@ -11,7 +11,7 @@ use super::core::{Agent, AgentError, AgentResult, MAX_AGENT_TOOLS};
 use crate::memory::Memory;
 use crate::memory::config::memory::MemoryConfig as ComprehensiveMemoryConfig;
 use crate::memory::manager::MemoryConfig;
-use crate::model::Model;
+use crate::domain::model::traits::CandleModel;
 use sweet_mcp_type::ToolInfo;
 
 /// Agent statistics for performance monitoring
@@ -20,7 +20,7 @@ static AGENT_STATS: CachePadded<AtomicUsize> = CachePadded::new(AtomicUsize::new
 /// Zero-allocation agent builder with const generics
 #[derive(Debug)]
 pub struct AgentBuilder<const TOOLS_CAPACITY: usize = MAX_AGENT_TOOLS> {
-    model: Option<&'static dyn Model>,
+    model: Option<&'static dyn CandleModel>,
     system_prompt: Option<String>,
     memory_config: Option<ComprehensiveMemoryConfig>,
     shared_memory: Option<Arc<Memory>>,
@@ -48,7 +48,7 @@ impl<const TOOLS_CAPACITY: usize> AgentBuilder<TOOLS_CAPACITY> {
     }
 
     /// Set model with validation
-    pub fn model(mut self, model: &'static dyn Model) -> Self {
+    pub fn model(mut self, model: &'static dyn CandleModel) -> Self {
         self.model = Some(model);
         self
     }

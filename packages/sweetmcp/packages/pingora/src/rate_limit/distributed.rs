@@ -2,6 +2,12 @@
 //!
 //! This module provides comprehensive distributed rate limiting coordination
 //! with zero allocation fast paths and blazing-fast performance.
+//!
+//! ## Security: Fail-Closed Behavior
+//!
+//! Rate limiter lookup failures result in request denial (fail-closed pattern).
+//! This prevents DoS attacks that could exploit rate limiter failures to bypass limits.
+//! Monitor `sweetmcp_rate_limiter_lookup_failures_total` metric for operational issues.
 
 
 
@@ -14,7 +20,7 @@ use std::time::{Duration, Instant};
 use dashmap::DashMap;
 use prometheus::core::{Atomic, AtomicF64};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use super::algorithms::{AlgorithmState, RateLimiter};
 use super::algorithms::RateLimitAlgorithmConfig;
@@ -179,8 +185,13 @@ impl DistributedRateLimitManager {
 
             allowed
         } else {
-            // Fallback - allow request if limiter lookup fails
-            true
+            // SECURITY: Fail-closed - deny request if limiter lookup fails
+            error!(
+                endpoint = %endpoint,
+                "Rate limiter lookup failed for endpoint after successful insert - possible race condition"
+            );
+            crate::metrics::record_rate_limiter_failure(endpoint, "endpoint_lookup");
+            false
         }
     }
 
@@ -235,12 +246,23 @@ impl DistributedRateLimitManager {
 
                 allowed
             } else {
-                // Fallback - allow request if peer limiter lookup fails
-                true
+                // SECURITY: Fail-closed - deny request if peer limiter lookup fails
+                error!(
+                    endpoint = %endpoint,
+                    peer_ip = %peer_ip,
+                    "Peer rate limiter lookup failed after successful insert - possible race condition"
+                );
+                crate::metrics::record_rate_limiter_failure(endpoint, "peer_lookup");
+                false
             }
         } else {
-            // Fallback - allow request if endpoint limiters lookup fails
-            true
+            // SECURITY: Fail-closed - deny request if endpoint limiters map lookup fails
+            error!(
+                endpoint = %endpoint,
+                "Endpoint peer limiters map lookup failed - possible race condition or memory pressure"
+            );
+            crate::metrics::record_rate_limiter_failure(endpoint, "endpoint_map_lookup");
+            false
         }
     }
 

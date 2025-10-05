@@ -25,4 +25,5 @@ pub use streaming::{
 // Re-export operations
 pub use operations::{
     resource_read_async, find_by_slug, find_by_tags, ResourceDao, CacheStats,
+    init_resource_dao, get_resource_dao_ref, get_resource_dao,
 };

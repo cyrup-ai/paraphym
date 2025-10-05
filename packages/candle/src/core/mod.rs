@@ -204,6 +204,9 @@ pub mod model_config;
 /// SIMD adapter functions for bridging paraphym_simd with generation types
 pub mod simd_adapters;
 
+/// Tokenization utilities for text processing
+pub mod tokenizer;
+
 // Re-export core types
 pub use engine::*;
 pub use generation::*;
@@ -212,3 +215,4 @@ pub use simd_adapters::{
     should_use_simd, simd_argmax_with_bounds, simd_error_to_fallback_strategy,
     simd_softmax_with_cache, simd_temperature_scale,
 };
+pub use tokenizer::{CandleTokenizer, CandleTokenizerConfig};

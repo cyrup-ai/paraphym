@@ -11,7 +11,7 @@ use serde_json::Value;
 use crate::domain::agent::core::AgentError;
 use crate::domain::chat::CandleMessageRole;
 use crate::domain::completion::traits::CandleCompletionModel;
-use crate::providers::{CandleKimiK2Provider, CandleQwen3CoderProvider};
+use crate::capability::text_to_text::{CandleKimiK2Provider, CandleQwen3CoderProvider, CandlePhi4ReasoningProvider};
 use crate::domain::context::document::CandleDocument;
 use crate::domain::context::chunk::CandleJsonChunk;
 use crate::domain::tool::{SweetMcpRouter, RouterError};
@@ -97,6 +97,8 @@ impl McpServerConfig {
 /// Completion provider types that can be used with the agent
 #[derive(Debug)]
 pub enum CandleCompletionProviderType {
+    /// Phi-4-Reasoning local model provider (DEFAULT)
+    Phi4Reasoning(CandlePhi4ReasoningProvider),
     /// Kimi K2 local model provider
     KimiK2(CandleKimiK2Provider),
     /// Qwen3 Coder local model provider
@@ -110,6 +112,7 @@ impl CandleCompletionModel for CandleCompletionProviderType {
         params: &crate::domain::completion::types::CandleCompletionParams,
     ) -> ystream::AsyncStream<crate::domain::completion::CandleCompletionChunk> {
         match self {
+            CandleCompletionProviderType::Phi4Reasoning(provider) => provider.prompt(prompt, params),
             CandleCompletionProviderType::KimiK2(provider) => provider.prompt(prompt, params),
             CandleCompletionProviderType::Qwen3Coder(provider) => provider.prompt(prompt, params),
         }

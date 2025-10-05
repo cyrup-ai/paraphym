@@ -5,7 +5,7 @@ use clap::Parser;
 // Initialize Rustls crypto provider for HTTPS connections
 use rustls::crypto::aws_lc_rs;
 
-use paraphym_candle::providers::{kimi_k2::CandleKimiK2Provider, qwen3_coder::CandleQwen3CoderProvider};
+use paraphym_candle::capability::text_to_text::{CandleKimiK2Provider, CandleQwen3CoderProvider};
 
 use paraphym_candle::{
     builders::{CandleFluentAi, CandleAgentRoleBuilder, CandleAgentBuilder},
