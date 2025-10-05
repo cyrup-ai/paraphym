@@ -16,6 +16,8 @@ pub use core::{
 
 // Re-export streaming functions
 pub use streaming::{
+    ResourceSubscriptionManager,
+    ResourceUpdate,
     resources_list_stream, stream_resources_by_type, stream_resources_by_tags,
     stream_resources_by_parent, stream_resources_with_search, stream_paginated_resources,
     stream_sorted_resources, stream_resources_advanced, stream_resources_custom_query,

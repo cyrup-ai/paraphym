@@ -11,6 +11,133 @@ use std::fmt::Write;
 use arrayvec::ArrayString;
 use tokio::sync::mpsc;
 use url::Url;
+use tokio::sync::broadcast;
+use dashmap::DashMap;
+use std::sync::Arc;
+use futures::StreamExt;
+use uuid::Uuid;
+
+/// Update notification for a resource
+#[derive(Debug, Clone)]
+pub struct ResourceUpdate {
+    /// Resource URI
+    pub uri: String,
+    /// Action performed (CREATE, UPDATE, DELETE)
+    pub action: String,
+    /// Updated resource data
+    pub resource: Option<Resource>,
+    /// Query ID from SurrealDB
+    pub query_id: Uuid,
+}
+
+/// Manages live subscriptions to resource changes
+pub struct ResourceSubscriptionManager {
+    /// Active subscriptions: table_name -> broadcast sender
+    subscriptions: Arc<DashMap<String, broadcast::Sender<ResourceUpdate>>>,
+    /// Database client for creating live queries
+    db_client: Arc<DatabaseClient>,
+}
+
+impl ResourceSubscriptionManager {
+    /// Create new subscription manager
+    pub fn new(db_client: Arc<DatabaseClient>) -> Self {
+        Self {
+            subscriptions: Arc::new(DashMap::new()),
+            db_client,
+        }
+    }
+
+    /// Subscribe to live updates for a table
+    /// Returns the subscription UUID and a receiver for updates
+    pub async fn subscribe_to_table(
+        &self,
+        table: &str,
+    ) -> Result<(Uuid, broadcast::Receiver<ResourceUpdate>), ResourceDaoError> {
+        // Check if subscription already exists
+        if let Some(tx) = self.subscriptions.get(table) {
+            let rx = tx.subscribe();
+            // Generate a client-side ID (not the query_id)
+            return Ok((Uuid::new_v4(), rx));
+        }
+
+        // Create new broadcast channel for this table
+        let (tx, rx) = broadcast::channel(100);
+        self.subscriptions.insert(table.to_string(), tx.clone());
+
+        // Start SurrealDB LIVE query
+        let mut live_stream = self.db_client
+            .select_live::<NodeRow>(table)
+            .await
+            .map_err(|e| ResourceDaoError::QueryExecution(e.to_string()))?;
+
+        // Spawn task to process live updates
+        let table_name = table.to_string();
+        let tx_clone = tx.clone();
+        
+        tokio::spawn(async move {
+            while let Some(notification_result) = live_stream.next().await {
+                match notification_result {
+                    Ok(notification) => {
+                        // Convert NodeRow to Resource
+                        let uri = create_uri_from_node(&notification.data)
+                            .unwrap_or_else(|_| {
+                                // Fallback URI
+                                Url::parse(&format!("cms://node/{}", notification.query_id))
+                                    .expect("Valid fallback URI")
+                            });
+                        
+                        let action_str = match notification.action {
+                            surrealdb::Action::Create => "CREATE",
+                            surrealdb::Action::Update => "UPDATE",
+                            surrealdb::Action::Delete => "DELETE",
+                        };
+
+                        let resource = notification.data.to_resource(uri.clone());
+                        
+                        let update = ResourceUpdate {
+                            uri: uri.to_string(),
+                            action: action_str.to_string(),
+                            resource: Some(resource),
+                            query_id: notification.query_id,
+                        };
+
+                        // Broadcast to all subscribers
+                        if tx_clone.send(update).is_err() {
+                            log::warn!("No active subscribers for table {}", table_name);
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("Live query error for {}: {}", table_name, e);
+                        break;
+                    }
+                }
+            }
+            
+            log::info!("Live query stream ended for table: {}", table_name);
+        });
+
+        Ok((Uuid::new_v4(), rx))
+    }
+
+    /// Unsubscribe from table updates
+    /// Note: The live query continues as long as there are active receivers
+    pub fn unsubscribe(&self, table: &str) -> bool {
+        // When the last receiver is dropped, the spawned task will
+        // detect send failure and terminate
+        self.subscriptions.remove(table).is_some()
+    }
+    
+    /// Get a receiver for an existing subscription
+    pub fn get_receiver(&self, table: &str) -> Option<broadcast::Receiver<ResourceUpdate>> {
+        self.subscriptions.get(table).map(|tx| tx.subscribe())
+    }
+    
+    /// Check if a table has active subscriptions
+    pub fn is_subscribed(&self, table: &str) -> bool {
+        self.subscriptions.contains_key(table)
+    }
+}
 
 /// Stream-based resources list implementation
 pub fn resources_list_stream(request: Option<ListResourcesRequest>) -> ResourceStream {
@@ -296,9 +423,33 @@ pub fn stream_resources_realtime(request: Option<ListResourcesRequest>) -> Resou
             }
         }
 
-        // TODO: Set up real-time subscription for database changes
-        // This would typically involve listening to database change streams
-        // and sending updates through the channel
+        // Set up real-time subscription using SurrealDB LIVE queries
+        let db_client = match get_database_client().await {
+            Ok(client) => Arc::new(client),
+            Err(e) => {
+                log::error!("Failed to get database client: {}", e);
+                return;
+            }
+        };
+
+        let manager = ResourceSubscriptionManager::new(db_client);
+        
+        match manager.subscribe_to_table("node").await {
+            Ok((_subscription_id, mut rx_updates)) => {
+                // Stream live updates to the channel
+                while let Ok(update) = rx_updates.recv().await {
+                    if let Some(resource) = update.resource {
+                        if tx.send(Ok(resource)).await.is_err() {
+                            log::warn!("Receiver dropped, stopping live updates");
+                            break;
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to subscribe to live updates: {}", e);
+            }
+        }
     });
 
     ResourceStream::new(rx)

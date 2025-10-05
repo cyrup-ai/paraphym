@@ -5,10 +5,11 @@
 //! patterns and blazing-fast performance.
 
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
 use reqwest::{Client, Response};
 use serde_json::Value;
 use tracing::{debug, warn};
@@ -24,6 +25,12 @@ struct ConnectionStatsTracker {
     failed_requests: AtomicU64,
     /// Bridge creation time for uptime calculation
     _start_time: Instant,
+    /// Total successful requests
+    successful_requests: AtomicU64,
+    /// Cumulative response time in milliseconds
+    total_response_time_ms: AtomicU64,
+    /// Timestamp of last request
+    last_request_time: Mutex<Option<DateTime<Utc>>>,
 }
 
 impl ConnectionStatsTracker {
@@ -33,6 +40,9 @@ impl ConnectionStatsTracker {
             total_requests: AtomicU64::new(0),
             failed_requests: AtomicU64::new(0),
             _start_time: Instant::now(),
+            successful_requests: AtomicU64::new(0),
+            total_response_time_ms: AtomicU64::new(0),
+            last_request_time: Mutex::new(None),
         }
     }
 }
@@ -191,6 +201,7 @@ impl McpBridge {
     /// Send raw HTTP request to MCP server with statistics tracking
     pub(super) async fn send_request(&self, json_rpc_request: Value) -> Result<Value> {
         // Track request start
+        let start_time = Instant::now();
         self.stats_tracker.total_requests.fetch_add(1, Ordering::Relaxed);
         self.stats_tracker.active.fetch_add(1, Ordering::Relaxed);
         
@@ -209,11 +220,30 @@ impl McpBridge {
             .await
             .context("Failed to send request to MCP server");
 
-        // Track request completion
+        // Track request completion and timing
+        let elapsed_ms = start_time.elapsed().as_millis() as u64;
         self.stats_tracker.active.fetch_sub(1, Ordering::Relaxed);
         
+        // Update last request time
+        if let Ok(mut last_time) = self.stats_tracker.last_request_time.lock() {
+            *last_time = Some(Utc::now());
+        }
+        
         match response {
-            Ok(resp) => self.handle_http_response(resp).await,
+            Ok(resp) => {
+                match self.handle_http_response(resp).await {
+                    Ok(value) => {
+                        // Track success
+                        self.stats_tracker.successful_requests.fetch_add(1, Ordering::Relaxed);
+                        self.stats_tracker.total_response_time_ms.fetch_add(elapsed_ms, Ordering::Relaxed);
+                        Ok(value)
+                    }
+                    Err(e) => {
+                        self.stats_tracker.failed_requests.fetch_add(1, Ordering::Relaxed);
+                        Err(e)
+                    }
+                }
+            }
             Err(e) => {
                 self.stats_tracker.failed_requests.fetch_add(1, Ordering::Relaxed);
                 Err(e)

@@ -10,6 +10,8 @@ use surrealdb::{
 use tracing::{debug, info, warn};
 use once_cell::sync::OnceCell;
 use std::sync::Arc;
+use futures::stream::Stream;
+use std::pin::Pin;
 
 use crate::db::config::{DatabaseConfig, StorageEngine};
 use crate::db::error::{SurrealdbError, SurrealdbErrorContext};
@@ -377,6 +379,25 @@ impl DatabaseClient {
         };
 
         Ok(response.check().is_ok())
+    }
+
+    /// Create a live query stream for a table
+    /// Returns a Stream of Notifications for real-time updates
+    pub async fn select_live<T>(&self, table: &str) -> Result<Pin<Box<dyn Stream<Item = surrealdb::Result<surrealdb::Notification<T>>> + Send>>>
+    where
+        T: serde::de::DeserializeOwned + Send + 'static,
+    {
+        let stream = match self {
+            DatabaseClient::SurrealKv(db) => {
+                Box::pin(db.select(table).live().await?)
+                    as Pin<Box<dyn Stream<Item = surrealdb::Result<surrealdb::Notification<T>>> + Send>>
+            }
+            DatabaseClient::RemoteHttp(db) => {
+                Box::pin(db.select(table).live().await?)
+                    as Pin<Box<dyn Stream<Item = surrealdb::Result<surrealdb::Notification<T>>> + Send>>
+            }
+        };
+        Ok(stream)
     }
 }
 

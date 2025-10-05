@@ -355,19 +355,29 @@ impl McpBridge {
     #[allow(dead_code)]
     pub fn get_forwarding_stats(&self) -> ForwardingStats {
         let total = self.stats_tracker.total_requests.load(Ordering::Relaxed);
+        let successful = self.stats_tracker.successful_requests.load(Ordering::Relaxed);
         let failed = self.stats_tracker.failed_requests.load(Ordering::Relaxed);
+        let total_time_ms = self.stats_tracker.total_response_time_ms.load(Ordering::Relaxed);
         
-        // Calculate successful requests (total - failed)
-        let successful = total.saturating_sub(failed);
+        // Calculate average response time (avoid division by zero)
+        let average_response_time_ms = if successful > 0 {
+            total_time_ms as f64 / successful as f64
+        } else {
+            0.0
+        };
+        
+        // Get last request time (handle mutex lock)
+        let last_request_time = self.stats_tracker.last_request_time
+            .lock()
+            .ok()
+            .and_then(|guard| *guard);
         
         ForwardingStats {
             total_requests: total,
             successful_requests: successful,
             failed_requests: failed,
-            // TODO: Response time tracking requires additional infrastructure
-            average_response_time_ms: 0.0,
-            // TODO: Last request time tracking requires additional infrastructure
-            last_request_time: None,
+            average_response_time_ms,
+            last_request_time,
         }
     }
 
