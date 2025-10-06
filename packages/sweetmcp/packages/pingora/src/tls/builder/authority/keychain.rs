@@ -21,7 +21,7 @@ impl AuthorityKeychainBuilder {
     /// Load certificate authority from system keychain
     #[allow(clippy::unused_async)]
     pub async fn load(self) -> super::responses::CertificateAuthorityResponse {
-        tracing::debug!("Loading CA '{}' from system keychain", self.name);
+        log::debug!("Loading CA '{}' from system keychain", self.name);
 
         let service_name = "fluent-ai-http3";
         let cert_key_id = format!("ca-cert-{}", self.name);
@@ -72,7 +72,7 @@ impl AuthorityKeychainBuilder {
         let authority =
             Self::build_certificate_authority(self.name.clone(), cert_pem, key_pem, &parsed_cert);
 
-        tracing::info!(
+        log::info!(
             "Successfully loaded CA '{}' from keychain (valid until: {:?})",
             self.name,
             parsed_cert.not_after
@@ -170,7 +170,7 @@ impl AuthorityKeychainBuilder {
         &self,
         authority: &CertificateAuthority,
     ) -> super::responses::CertificateAuthorityResponse {
-        tracing::debug!("Storing CA '{}' to system keychain", authority.name);
+        log::debug!("Storing CA '{}' to system keychain", authority.name);
 
         // Use fluent-ai service pattern for keychain access
         let service_name = "fluent-ai-http3";
@@ -244,7 +244,7 @@ impl AuthorityKeychainBuilder {
             };
         }
 
-        tracing::info!("Successfully stored CA '{}' in keychain", authority.name);
+        log::info!("Successfully stored CA '{}' in keychain", authority.name);
 
         super::responses::CertificateAuthorityResponse {
             success: true,

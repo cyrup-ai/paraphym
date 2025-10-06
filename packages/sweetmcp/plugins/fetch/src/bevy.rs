@@ -8,6 +8,7 @@ use bevy::{
     },
 };
 use image::DynamicImage;
+use log::{error, warn};
 use scraper::{Html, Selector, ElementRef};
 use std::error::Error as StdError;
 use std::fmt;
@@ -113,7 +114,7 @@ impl BevyRenderer {
                     // Convert image to base64
                     let mut buffer = std::io::Cursor::new(Vec::new());
                     if let Err(e) = image.write_to(&mut buffer, image::ImageOutputFormat::Png) {
-                        eprintln!("Failed to encode screenshot: {}", e);
+                        error!("Failed to encode screenshot: {}", e);
                     } else {
                         let base64_image = base64::engine::general_purpose::STANDARD.encode(buffer.into_inner());
                         match shared_state_clone.lock() {
@@ -122,7 +123,7 @@ impl BevyRenderer {
                                 state.screenshot_base64 = Some(base64_image);
                             }
                             Err(e) => {
-                                eprintln!("Failed to lock shared state: {}", e);
+                                error!("Failed to lock shared state: {}", e);
                             }
                         }
                 }
@@ -401,7 +402,7 @@ fn screenshot_system(
                 screenshot.0 = Some(dynamic_image);
             }
             Err(_) => {
-                eprintln!("Failed to convert render target to DynamicImage");
+                error!("Failed to convert render target to DynamicImage");
             }
         }
     }

@@ -4,6 +4,8 @@ pub mod cms;
 pub use cms::{
     cms_dao::{find_by_slug, find_by_tags, init_cms_dao, resource_read},
     resources_list_handler,
+    resource_subscribe_handler,
+    resource_unsubscribe_handler,
 };
 
 // Define a wrapper function with the proper type for the router

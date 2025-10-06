@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 
+use log::info;
 use serde::{Deserialize, Serialize};
 
 pub mod error;
@@ -62,5 +63,6 @@ pub trait VoiceService: Send + Sync {
 
 /// Tool registry helper
 pub fn register_voice_tools() -> Vec<Tool> {
+    info!("Registering voice tools");
     vec![speak_tool(), listen_tool()]
 }

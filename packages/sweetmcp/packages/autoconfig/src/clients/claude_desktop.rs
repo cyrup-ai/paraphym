@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use tracing::debug;
+use log::debug;
 
 use crate::config::ConfigMerger;
 use crate::{ClientConfigPlugin, ConfigFormat, ConfigPath, Platform};

@@ -19,7 +19,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
 use url::Url;
 
-use crate::db::DatabaseClient;
+use crate::Thing;
 use crate::types::*;
 
 /// Stream type for resources with zero allocation patterns
@@ -101,6 +101,19 @@ impl Future for AsyncResource {
     }
 }
 
+/// Node type enum for resource classification
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeType {
+    Document,
+    Folder,
+    Image,
+    Video,
+    Audio,
+    Archive,
+    Code,
+    Data,
+}
+
 /// Node row structure for database deserialization
 #[derive(serde::Deserialize, Debug)]
 pub struct NodeRow {
@@ -120,11 +133,11 @@ pub struct NodeRow {
     /// MIME type
     pub mime_type: Option<String>,
     /// Parent node
-    pub parent: Option<surrealdb::sql::Thing>,
+    pub parent: Option<Thing>,
     /// Child nodes
-    pub children: Option<Vec<surrealdb::sql::Thing>>,
+    pub children: Option<Vec<Thing>>,
     /// Linked nodes
-    pub links: Option<Vec<surrealdb::sql::Thing>>,
+    pub links: Option<Vec<Thing>>,
     /// Node metadata
     pub metadata: Option<BTreeMap<String, serde_json::Value>>,
     /// Creation timestamp
@@ -161,7 +174,7 @@ impl NodeRow {
     }
 
     /// Convert SurrealDB Thing to URL using zero-allocation formatting
-    pub fn thing_to_url(thing: Option<surrealdb::sql::Thing>) -> Option<Url> {
+    pub fn thing_to_url(thing: Option<Thing>) -> Option<Url> {
         thing.and_then(|t| {
             let mut url_str: ArrayString<64> = ArrayString::new();
             if write!(&mut url_str, "cms://{}", t).is_ok() {
@@ -173,7 +186,7 @@ impl NodeRow {
     }
 
     /// Convert Option<Vec<Thing>> to Option<Vec<Url>> using zero-allocation formatting
-    pub fn vec_thing_to_vec_url(things: Option<Vec<surrealdb::sql::Thing>>) -> Option<Vec<Url>> {
+    pub fn vec_thing_to_vec_url(things: Option<Vec<Thing>>) -> Option<Vec<Url>> {
         things.map(|ts| {
             ts.into_iter()
                 .filter_map(|t| {
@@ -190,7 +203,6 @@ impl NodeRow {
 
     /// Convert to Resource with optimized allocation patterns
     pub fn to_resource(&self, uri: Url) -> Resource {
-        let node_type = self.to_node_type();
         let content_snippet = self.content_snippet();
         let description = self.description.clone().or(content_snippet);
 
@@ -199,11 +211,11 @@ impl NodeRow {
             name: self.title.clone(),
             description,
             mime_type: self.mime_type.clone(),
-            node_type: Some(node_type),
+            node_type: Some(self.type_.clone()),
             parent: Self::thing_to_url(self.parent.clone()),
             children: Self::vec_thing_to_vec_url(self.children.clone()),
             links: Self::vec_thing_to_vec_url(self.links.clone()),
-            metadata: self.metadata.clone(),
+            metadata: self.metadata.as_ref().and_then(|m| serde_json::to_value(m).ok()),
         }
     }
 }
@@ -334,8 +346,8 @@ impl ResourceQueryBuilder {
         let mut conditions = Vec::new();
 
         // Add type filter
-        if let Some(ref types) = self.resource_types {
-            if !types.is_empty() {
+        if let Some(ref types) = self.resource_types
+            && !types.is_empty() {
                 let types_str = types
                     .iter()
                     .map(|t| format!("'{}'", t))
@@ -343,16 +355,14 @@ impl ResourceQueryBuilder {
                     .join(", ");
                 conditions.push(format!("type IN [{}]", types_str));
             }
-        }
 
         // Add tags filter
-        if let Some(ref tags) = self.tags {
-            if !tags.is_empty() {
+        if let Some(ref tags) = self.tags
+            && !tags.is_empty() {
                 for tag in tags {
                     conditions.push(format!("'{}' IN tags", tag));
                 }
             }
-        }
 
         // Add parent filter
         if let Some(ref parent) = self.parent {
@@ -426,11 +436,7 @@ impl ResourceCacheEntry {
         let elapsed = now.signed_duration_since(self.cached_at);
         let elapsed_seconds = elapsed.num_seconds() as u64;
         
-        if elapsed_seconds >= self.ttl_seconds {
-            0
-        } else {
-            self.ttl_seconds - elapsed_seconds
-        }
+        self.ttl_seconds.saturating_sub(elapsed_seconds)
     }
 }
 

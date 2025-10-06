@@ -5,7 +5,7 @@
 //! performance.
 
 use serde_json::Value;
-use tracing::{debug, warn};
+use log::{debug, warn};
 
 /// Validate JSON-RPC request structure
 pub fn validate_json_rpc_request(request: &Value) -> Result<(), anyhow::Error> {

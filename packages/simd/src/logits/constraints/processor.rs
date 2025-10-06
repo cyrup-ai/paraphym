@@ -233,7 +233,7 @@ impl LogitsProcessor for ConstrainedLogitsProcessor {
             
             // Log constraint application for debugging
             if masked_count > 0 {
-                tracing::debug!(
+                log::debug!(
                     "Constraint masking applied: {} tokens masked out of {} total",
                     masked_count, 
                     logits.len()

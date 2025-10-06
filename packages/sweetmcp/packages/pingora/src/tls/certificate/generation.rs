@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use rcgen::{CertificateParams, DistinguishedName, DnType, Issuer, KeyPair, SanType};
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use tokio::fs;
-use tracing::info;
+use log::info;
 
 use super::parsing::{
     parse_certificate_from_pem, validate_basic_constraints, validate_certificate_time,

@@ -5,6 +5,7 @@
 use std::marker::PhantomData;
 
 use extism_pdk::*;
+use log::{debug, error, info, trace};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -86,8 +87,10 @@ struct ToolDef {
 
 /// Entry point - no `new()` needed!
 pub fn mcp_plugin(name: impl Into<String>) -> McpPlugin<Named> {
+    let name = name.into();
+    debug!("Creating MCP plugin: {}", name);
     McpPlugin {
-        name: Some(name.into()),
+        name: Some(name),
         description: None,
         tools: Vec::new(),
         _state: PhantomData,
@@ -97,9 +100,11 @@ pub fn mcp_plugin(name: impl Into<String>) -> McpPlugin<Named> {
 impl McpPlugin<Named> {
     /// Describe the plugin fluently
     pub fn description(self, desc: impl Into<String>) -> McpPlugin<Described> {
+        let desc = desc.into();
+        debug!("Setting plugin description: {}", desc);
         McpPlugin {
             name: self.name,
-            description: Some(desc.into()),
+            description: Some(desc),
             tools: self.tools,
             _state: PhantomData,
         }
@@ -109,6 +114,7 @@ impl McpPlugin<Named> {
 impl McpPlugin<Described> {
     /// Register a tool with const-generic type
     pub fn tool<T: McpTool>(mut self) -> Self {
+        debug!("Registering tool: {}", T::NAME);
         let description = T::description(DescriptionBuilder::default());
         self.tools.push(ToolDef {
             name: T::NAME.to_string(),
@@ -134,26 +140,38 @@ impl McpPlugin<Ready> {
     /// Handle incoming MCP calls
     pub fn call(&self, request: CallToolRequest) -> Result<CallToolResult, Error> {
         let tool_name = &request.params.name;
+        debug!("Calling tool: {}", tool_name);
         let args = request.params.arguments.unwrap_or_default();
+        trace!("Tool arguments: {:?}", args);
 
         for tool in &self.tools {
             if tool.name == *tool_name {
-                return (tool.handler)(Value::Object(args));
+                let result = (tool.handler)(Value::Object(args));
+                match &result {
+                    Ok(_) => info!("Tool '{}' executed successfully", tool_name),
+                    Err(e) => error!("Tool '{}' execution failed: {}", tool_name, e),
+                }
+                return result;
             }
         }
 
+        error!("Tool '{}' not found", tool_name);
         Err(Error::msg(format!("Tool '{}' not found", tool_name)))
     }
 
     /// Describe available tools
     pub fn describe(&self) -> Result<ListToolsResult, Error> {
+        debug!("Describing available tools (count: {})", self.tools.len());
         let tools = self
             .tools
             .iter()
-            .map(|tool| ToolDescription {
-                name: tool.name.clone(),
-                description: tool.description.clone(),
-                input_schema: tool.schema.clone(),
+            .map(|tool| {
+                trace!("Describing tool: {}", tool.name);
+                ToolDescription {
+                    name: tool.name.clone(),
+                    description: tool.description.clone(),
+                    input_schema: tool.schema.clone(),
+                }
             })
             .collect();
 

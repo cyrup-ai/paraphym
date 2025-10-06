@@ -98,7 +98,7 @@ impl OcspCache {
         match self.cache.read() {
             Ok(cache) => cache.len(),
             Err(poisoned) => {
-                tracing::warn!("OCSP cache read lock poisoned during size check, recovering");
+                log::warn!("OCSP cache read lock poisoned during size check, recovering");
                 poisoned.into_inner().len()
             }
         }
@@ -117,7 +117,7 @@ impl OcspCache {
             && !Self::is_cache_expired(&cached)
         {
             self.cache_hits.fetch_add(1, Ordering::Relaxed);
-            tracing::debug!(
+            log::debug!(
                 "OCSP cache hit for certificate serial: {:?}",
                 hex::encode(&cert.serial_number)
             );
@@ -129,7 +129,7 @@ impl OcspCache {
 
         // OCSP validation disabled to prevent circular dependency during TLS handshake
         // TLS connections use OCSP stapling automatically via rustls WebPkiServerVerifier
-        tracing::debug!(
+        log::debug!(
             "OCSP validation skipped for certificate serial: {:?} (using OCSP stapling instead)",
             hex::encode(&cert.serial_number)
         );
@@ -150,7 +150,7 @@ impl OcspCache {
         match self.cache.read() {
             Ok(cache) => cache.get(cache_key).cloned(),
             Err(poisoned) => {
-                tracing::warn!("OCSP cache read lock poisoned, recovering");
+                log::warn!("OCSP cache read lock poisoned, recovering");
                 poisoned.into_inner().get(cache_key).cloned()
             }
         }
@@ -184,7 +184,7 @@ impl OcspCache {
                 cache.insert(cache_key, entry);
             }
             Err(poisoned) => {
-                tracing::warn!("OCSP cache write lock poisoned, recovering");
+                log::warn!("OCSP cache write lock poisoned, recovering");
                 poisoned.into_inner().insert(cache_key, entry);
             }
         }
@@ -196,14 +196,14 @@ impl OcspCache {
         let mut cache = match self.cache.write() {
             Ok(cache) => cache,
             Err(poisoned) => {
-                tracing::warn!("OCSP cache write lock poisoned during cleanup, recovering");
+                log::warn!("OCSP cache write lock poisoned during cleanup, recovering");
                 poisoned.into_inner()
             }
         };
 
         cache.retain(|_key, entry| !Self::is_cache_expired(entry));
 
-        tracing::debug!(
+        log::debug!(
             "OCSP cache cleanup completed, {} entries remaining",
             cache.len()
         );

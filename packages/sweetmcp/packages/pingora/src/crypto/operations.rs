@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use sodiumoxide::crypto::sealedbox;
 use tokio::time::interval;
-use tracing::{error, info};
+use log::{error, info};
 
 use crate::crypto::core::*;
 

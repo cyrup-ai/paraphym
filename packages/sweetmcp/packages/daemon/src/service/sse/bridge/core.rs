@@ -12,7 +12,7 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use reqwest::{Client, Response};
 use serde_json::Value;
-use tracing::{debug, warn};
+use log::{debug, warn};
 
 /// Connection statistics tracker with atomic counters
 #[derive(Debug)]
@@ -195,6 +195,12 @@ impl McpBridge {
             idle_connections: 0, // reqwest doesn't expose pool idle count
             total_requests: self.stats_tracker.total_requests.load(Ordering::Relaxed),
             failed_requests: self.stats_tracker.failed_requests.load(Ordering::Relaxed),
+            successful_requests: self.stats_tracker.successful_requests.load(Ordering::Relaxed),
+            total_response_time_ms: self.stats_tracker.total_response_time_ms.load(Ordering::Relaxed),
+            last_request_time: self.stats_tracker.last_request_time
+                .lock()
+                .ok()
+                .and_then(|guard| *guard),
         }
     }
 
@@ -356,6 +362,12 @@ pub struct ConnectionStats {
     pub total_requests: u64,
     /// Number of failed requests
     pub failed_requests: u64,
+    /// Number of successful requests
+    pub successful_requests: u64,
+    /// Total response time in milliseconds
+    pub total_response_time_ms: u64,
+    /// Timestamp of last request
+    pub last_request_time: Option<DateTime<Utc>>,
 }
 
 /// Bridge configuration summary

@@ -1,5 +1,5 @@
 use clap::{Args, Parser, Subcommand};
-use tracing::info;
+use log::info;
 
 use crate::{config::RamdiskConfig, error::ExecError, exec};
 

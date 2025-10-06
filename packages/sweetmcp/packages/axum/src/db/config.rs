@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
-use tracing::debug;
+use log::debug;
 
 /// Configuration error
 #[derive(Debug, Clone)]

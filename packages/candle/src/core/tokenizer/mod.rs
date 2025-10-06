@@ -4,10 +4,10 @@
 //! This module contains shared tokenization infrastructure used across
 //! text generation and embedding capabilities.
 
-pub mod tokenizer;
+pub mod core;
 
 // Re-export main tokenizer types for convenient access
-pub use tokenizer::{
+pub use core::{
     CandlePaddingStrategy,
     CandleStreamingTokenizer,
     CandleTokenizer,

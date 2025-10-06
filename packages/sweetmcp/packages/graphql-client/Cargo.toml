@@ -31,9 +31,8 @@ anyhow = "1.0.100"
 # UUID generation for request IDs
 uuid = { version = "1.18.1", features = ["v4"] }
 
-# Logging and tracing
-tracing = "0.1.41"
-tracing-subscriber = "0.3.20"
+# Logging
+log = { workspace = true }
 
 # High-performance JSON (matching sweet-mcp-type)
 simd-json = { version = "0.16.0", default-features = false, features = ["known-key", "runtime-detection", "swar-number-parsing", "value-no-dup-keys"] }

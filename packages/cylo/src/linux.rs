@@ -8,7 +8,7 @@ use std::os::unix::fs::MetadataExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use tracing::{error, info, warn};
+use log::{error, info, warn};
 
 use crate::sandbox::safe_path_to_string;
 

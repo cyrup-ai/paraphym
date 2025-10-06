@@ -204,7 +204,7 @@ where
                 // Forward all outputs from second operation
                 while let Some(output) = second_stream.try_next() {
                     if sender.send(output).is_err() {
-                        tracing::debug!("Stream receiver dropped during sequential operation - execution terminated");
+                        log::debug!("Stream receiver dropped during sequential operation - execution terminated");
                         return; // Receiver dropped, exit gracefully
                     }
                 }
@@ -251,7 +251,7 @@ where
             while let Some(output) = stream.try_next() {
                 let transformed = func(output);
                 if sender.send(transformed).is_err() {
-                    tracing::debug!(
+                    log::debug!(
                         "Stream receiver dropped during map operation - execution terminated"
                     );
                     return; // Receiver dropped

@@ -315,12 +315,23 @@ impl ComponentChecker for DatabaseHealthChecker {
 /// Vector store health checker with actual VectorStore access
 pub struct VectorStoreHealthChecker {
     vector_store: Arc<RwLock<dyn VectorStore + Send + Sync>>,
+    embedding_dimensions: usize,
 }
 
 impl VectorStoreHealthChecker {
-    /// Create new health checker with VectorStore instance
-    pub fn new(vector_store: Arc<RwLock<dyn VectorStore + Send + Sync>>) -> Self {
-        Self { vector_store }
+    /// Create new health checker with VectorStore instance and embedding dimensions
+    ///
+    /// # Arguments
+    /// * `vector_store` - Vector store to monitor
+    /// * `embedding_dimensions` - Actual dimension size from embedding model configuration
+    pub fn new(
+        vector_store: Arc<RwLock<dyn VectorStore + Send + Sync>>,
+        embedding_dimensions: usize,
+    ) -> Self {
+        Self {
+            vector_store,
+            embedding_dimensions,
+        }
     }
 }
 
@@ -338,6 +349,7 @@ impl ComponentChecker for VectorStoreHealthChecker {
         let vs_idx = self.vector_store.clone();
         let vs_search = self.vector_store.clone();
         let vs_mem = self.vector_store.clone();
+        let embedding_dims = self.embedding_dimensions;
 
         tokio::spawn(async move {
             // Production vector store health check with comprehensive diagnostics
@@ -376,7 +388,7 @@ impl ComponentChecker for VectorStoreHealthChecker {
                 
                 // Dimensions and index quality require trait extension or type-specific methods
                 // For now, use sensible defaults or get from config
-                let dimensions = 768u32; // Could be passed to constructor
+                let dimensions = embedding_dims as u32;
                 let index_quality = 100.0f32; // Assume healthy if count() succeeds
                 
                 (vector_count, dimensions, index_quality)
@@ -388,7 +400,7 @@ impl ComponentChecker for VectorStoreHealthChecker {
                 // Execute real search with sample vector
                 let (duration, results_count) = tokio::task::spawn_blocking(move || {
                     let vs = vs_search.blocking_read();
-                    let sample_vector = vec![0.0f32; 768]; // Zero vector for health check
+                    let sample_vector = vec![0.0f32; embedding_dims]; // Zero vector for health check
                     let results = vs.search(&sample_vector, Some(10), None).unwrap_or_default();
                     let count = results.len() as u32;
                     (search_start.elapsed(), count)
@@ -408,8 +420,8 @@ impl ComponentChecker for VectorStoreHealthChecker {
                 .await
                 .unwrap_or(0);
                 
-                // Rough estimate: 768 dimensions * 4 bytes per f32 = ~3KB per vector
-                let estimated_mb = (count * 768 * 4) / (1024 * 1024);
+                // Rough estimate: embedding dimensions * 4 bytes per f32
+                let estimated_mb = (count * embedding_dims * 4) / (1024 * 1024);
                 let used_memory_mb = estimated_mb as u64;
                 let total_memory_mb = (estimated_mb * 2) as u64; // Assume 50% utilization
                 

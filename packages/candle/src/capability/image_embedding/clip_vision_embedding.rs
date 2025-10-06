@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use candle_core::Device;
 
+use crate::core::device_util::detect_best_device;
 use crate::memory::utils::error::{Error as MemoryError, Result};
 use crate::memory::vector::embedding_model::EmbeddingModel;
 use crate::capability::vision::ClipVisionProvider;
@@ -54,7 +55,11 @@ impl ClipVisionEmbeddingProvider {
         };
 
         // Create ClipVisionProvider
-        let device = Device::Cpu;  // TODO: Make device configurable
+        let device = detect_best_device()
+            .unwrap_or_else(|e| {
+                log::warn!("Device detection failed: {}. Using CPU.", e);
+                Device::Cpu
+            });
         let provider = if dimension == 512 {
             ClipVisionProvider::from_pretrained(model_path, device)
                 .map_err(|e| MemoryError::ModelError(format!("Failed to create CLIP provider: {}", e)))?

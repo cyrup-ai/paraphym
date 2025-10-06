@@ -1,6 +1,8 @@
 use std::io::{self, Write};
 use std::sync::Arc;
 use clap::Parser;
+use log::{error, info};
+use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 // Initialize Rustls crypto provider for HTTPS connections
 use rustls::crypto::aws_lc_rs;
@@ -53,13 +55,23 @@ async fn init_memory_manager() -> Result<Arc<dyn MemoryManager>, Box<dyn std::er
     // Initialize the memory manager with kv-surrealkv backend
     let manager = SurrealDBMemoryManager::with_config(config).await?;
 
-    println!("📚 Memory system initialized with kv-surrealkv persistence at ./data/agent_memory.db");
+    let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Cyan)))?;
+    writeln!(&mut stdout, "📚 Memory system initialized with kv-surrealkv persistence at ./data/agent_memory.db")?;
+    stdout.reset()?;
 
     Ok(Arc::new(manager) as Arc<dyn MemoryManager>)
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize env_logger for application logging
+    env_logger::Builder::from_default_env()
+        .filter_level(log::LevelFilter::Info)
+        .init();
+
+    info!("Application starting");
+
     // Initialize Rustls crypto provider for TLS/HTTPS connections
     // This must happen before any HTTPS connections are made
     aws_lc_rs::default_provider()
@@ -71,16 +83,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args = Args::parse();
 
-    println!(
+    let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Green)))?;
+    writeln!(
+        &mut stdout,
         "🤖 Starting Candle Agent Chat Completion with model: {}",
         args.model
-    );
-    println!("📦 Downloading model and initializing provider...");
+    )?;
+    stdout.reset()?;
+
+    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Cyan)))?;
+    writeln!(&mut stdout, "📦 Downloading model and initializing provider...")?;
+    stdout.reset()?;
 
     // Create the provider based on the model argument
     match args.model.as_str() {
         "kimi-k2" => {
-            println!("🚀 Initializing Kimi-K2 provider with ProgressHub...");
+            let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+            stdout.set_color(ColorSpec::new().set_fg(Some(Color::Blue)))?;
+            writeln!(&mut stdout, "🚀 Initializing Kimi-K2 provider with ProgressHub...")?;
+            stdout.reset()?;
+            
             let provider = CandleKimiK2Provider::new()
                 .await
                 .map_err(|e| format!("Failed to create Kimi-K2 provider: {}", e))?;
@@ -93,7 +116,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await
         }
         "qwen-coder" => {
-            println!("🚀 Initializing Qwen3-Coder provider with ProgressHub...");
+            let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+            stdout.set_color(ColorSpec::new().set_fg(Some(Color::Blue)))?;
+            writeln!(&mut stdout, "🚀 Initializing Qwen3-Coder provider with ProgressHub...")?;
+            stdout.reset()?;
+            
             let provider = CandleQwen3CoderProvider::new()
                 .await
                 .map_err(|e| format!("Failed to create Qwen3-Coder provider: {}", e))?;
@@ -121,7 +148,10 @@ async fn run_chat(
     max_tokens: u64,
     system_prompt: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    println!("✅ Provider ready! Starting chat...");
+    let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Green)))?;
+    writeln!(&mut stdout, "✅ Provider ready! Starting chat...")?;
+    stdout.reset()?;
 
     // Initialize memory manager with kv-surrealkv persistence
     let memory_manager = init_memory_manager().await?;
@@ -141,7 +171,7 @@ async fn run_chat(
                 other => print!("{:?}", other),
             }
             if let Err(e) = io::stdout().flush() {
-                eprintln!("Warning: Failed to flush stdout: {}", e);
+                error!("Failed to flush stdout: {}", e);
             }
             chunk
         })
@@ -151,7 +181,10 @@ async fn run_chat(
 
             match user_input.to_lowercase().as_str() {
                 "quit" | "exit" | "bye" => {
-                    println!("\n👋 Goodbye!");
+                    let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+                    let _ = stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow)));
+                    let _ = writeln!(&mut stdout, "\n👋 Goodbye!");
+                    let _ = stdout.reset();
                     CandleChatLoop::Break
                 },
                 _ => {
@@ -169,7 +202,10 @@ async fn run_chat_qwen(
     max_tokens: u64,
     system_prompt: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    println!("✅ Provider ready! Starting chat...");
+    let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Green)))?;
+    writeln!(&mut stdout, "✅ Provider ready! Starting chat...")?;
+    stdout.reset()?;
 
     // Initialize memory manager with kv-surrealkv persistence
     let memory_manager = init_memory_manager().await?;
@@ -188,7 +224,7 @@ async fn run_chat_qwen(
                 other => print!("{:?}", other),
             }
             if let Err(e) = io::stdout().flush() {
-                eprintln!("Warning: Failed to flush stdout: {}", e);
+                error!("Failed to flush stdout: {}", e);
             }
             chunk
         })
@@ -197,7 +233,10 @@ async fn run_chat_qwen(
             let user_input = conversation.latest_user_message();
             match user_input.to_lowercase().as_str() {
                 "quit" | "exit" | "bye" => {
-                    println!("\n👋 Goodbye!");
+                    let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+                    let _ = stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow)));
+                    let _ = writeln!(&mut stdout, "\n👋 Goodbye!");
+                    let _ = stdout.reset();
                     CandleChatLoop::Break
                 },
                 _ => {

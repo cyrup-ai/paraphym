@@ -1,12 +1,11 @@
 use std::{
     fs,
-    io::{Write, stdout},
     path::Path,
     process::Command,
 };
 
 use clap::Args;
-use ratatui::style::Stylize;
+use crate::context::logger::ConsoleLogger;
 
 #[derive(Args, Debug)]
 pub struct CheckArgs {
@@ -20,7 +19,8 @@ pub struct CheckArgs {
 }
 
 pub fn check_plugins(args: &CheckArgs) -> Result<(), Box<dyn std::error::Error>> {
-    println!("{}", "Checking plugins...".bold().cyan());
+    let logger = ConsoleLogger::new();
+    log::info!("Checking plugins...");
 
     let project_root = std::env::current_dir()?;
     let plugins_dir = project_root.join("plugins");
@@ -70,27 +70,21 @@ pub fn check_plugins(args: &CheckArgs) -> Result<(), Box<dyn std::error::Error>>
         }
 
         // Report summary
-        println!();
-        println!("{}", "Check Summary".bold().underlined());
+        log::info!("Check Summary");
 
         if failed_plugins.is_empty() {
-            println!("{}", "✅ All plugins passed checks".green());
+            logger.success("All plugins passed checks");
         } else {
-            println!(
-                "{} {} {}",
-                "❌".red(),
-                failed_plugins.len(),
-                "plugins failed checks:".red()
-            );
+            logger.error(&format!("{} plugins failed checks:", failed_plugins.len()));
             for (name, error) in failed_plugins {
-                println!("  - {}: {}", name.bold(), error);
+                logger.error(&format!("  - {}: {}", name, error));
             }
             return Err("Some plugins failed checks".into());
         }
     } else {
         // No plugin specified and --all not set
-        println!("No plugin specified. Use --name <plugin_name> or --all to check plugins.");
-        println!("Available plugins:");
+        log::info!("No plugin specified. Use --name <plugin_name> or --all to check plugins.");
+        log::info!("Available plugins:");
 
         for entry in fs::read_dir(&plugins_dir)? {
             let entry = entry?;
@@ -99,7 +93,7 @@ pub fn check_plugins(args: &CheckArgs) -> Result<(), Box<dyn std::error::Error>>
             if path.is_dir() {
                 // Already fixed
                 if let Some(plugin_name) = path.file_name() {
-                    println!("  - {}", plugin_name.to_string_lossy());
+                    log::info!("  - {}", plugin_name.to_string_lossy());
                 }
             }
         }
@@ -110,16 +104,12 @@ pub fn check_plugins(args: &CheckArgs) -> Result<(), Box<dyn std::error::Error>>
 // Removed extra closing brace here
 
 fn check_plugin(plugin_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let logger = ConsoleLogger::new();
     let plugin_name = plugin_path
         .file_name()
         .ok_or_else(|| format!("Invalid plugin path: {}", plugin_path.display()))?
         .to_string_lossy();
-    println!();
-    println!(
-        "{} {}",
-        "Checking plugin:".bold(),
-        plugin_name.to_string().green().bold()
-    );
+    log::info!("Checking plugin: {}", plugin_name);
 
     // Check Cargo.toml exists
     let cargo_path = plugin_path.join("Cargo.toml");
@@ -152,8 +142,7 @@ fn check_plugin(plugin_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Run cargo check
-    print!("Running cargo check... ");
-    stdout().flush()?;
+    log::info!("Running cargo check...");
 
     let check_output = Command::new("cargo")
         .args(["check", "--quiet"])
@@ -161,19 +150,14 @@ fn check_plugin(plugin_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         .output()?;
 
     if check_output.status.success() {
-        println!("{}", "✅".green());
+        logger.success(&format!("cargo check passed for {}", plugin_name));
     } else {
-        println!("{}", "❌".red());
         let error = String::from_utf8_lossy(&check_output.stderr);
+        logger.error(&format!("cargo check failed: {}", error));
         return Err(format!("cargo check failed: {}", error).into());
     }
 
-    println!(
-        "{} {}",
-        "Plugin".green(),
-        plugin_name.to_string().green().bold()
-    );
-    println!("{}", "✅ All checks passed".green());
+    logger.success(&format!("All checks passed for plugin: {}", plugin_name));
 
     Ok(())
 }

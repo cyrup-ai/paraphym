@@ -50,7 +50,8 @@ serde_json = "1.0"
 regex = "1.11.3"
 regex-automata = "0.4.11"
 rustc-hash = "2.1.1"
-tracing = "0.1"
+log = { workspace = true }
+termcolor = { workspace = true }
 
 # — DSP / NN (base dependencies - no acceleration features) —
 candle-core = { git = "https://github.com/huggingface/candle", branch = "main", default-features = false }
@@ -134,6 +135,7 @@ accelerate-src = { version = "0.3.2", optional = true }
 criterion = "0.7"
 approx = "0.5"
 float_eq = "1.0"
+env_logger = { workspace = true }
 
 [[bench]]
 name = "temperature"

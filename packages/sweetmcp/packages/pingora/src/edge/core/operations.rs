@@ -8,10 +8,18 @@
 
 #![allow(dead_code)]
 
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use tokio::time::Duration;
+use tokio::time::{Duration, interval};
 
-use super::service::{EdgeService, EdgeServiceError};
+use arc_swap::ArcSwap;
+use pingora_load_balancing::Backend;
+use pingora_load_balancing::health_check::{Health, TcpHealthCheck, HealthCheck};
+use log::{info, warn};
+
+use super::service::{EdgeService, EdgeServiceError, HealthCheckConfig};
 
 impl EdgeService {
     /// Generate unique request ID for tracking
@@ -34,7 +42,10 @@ impl EdgeService {
         // Check component health
         let auth_healthy = self.auth.is_healthy();
         let rate_limiter_healthy = self.rate_limit_manager.is_healthy().await;
-        let peer_registry_healthy = true; // TODO: implement health check for peer registry
+        let peer_registry_healthy = self.peer_registry.is_healthy();
+        if !peer_registry_healthy {
+            warn!("Peer registry health check failed: no healthy peers available");
+        }
 
         let overall_healthy =
             healthy_backends > 0 && auth_healthy && rate_limiter_healthy && peer_registry_healthy;
@@ -52,19 +63,47 @@ impl EdgeService {
         })
     }
 
-    /// Count healthy backends by performing TCP health checks
+    /// Count healthy backends by checking Health status
     async fn count_healthy_backends(&self) -> usize {
-        // Get number of backends from metrics targets
-        let targets = self.picker.load().get_metrics_targets();
-        let backend_count = targets.len();
+        let health_map = self.backend_health.load();
         
-        if backend_count == 0 {
-            return 0;
-        }
+        // Count backends that are ready (healthy AND enabled)
+        // Health.ready() checks both health status and enabled flag
+        health_map
+            .values()
+            .filter(|health| health.ready())
+            .count()
+    }
+
+    /// Check if a specific backend is healthy
+    pub fn is_backend_ready(&self, backend: &Backend) -> bool {
+        let health_map = self.backend_health.load();
+        health_map
+            .get(&backend.hash_key())
+            .map(|h| h.ready())
+            .unwrap_or(false)
+    }
+    
+    /// Get detailed health status for monitoring
+    pub fn get_backend_health_status(&self) -> Vec<BackendHealthStatus> {
+        let health_map = self.backend_health.load();
+        let picker = self.picker.load();
         
-        // For now, assume all backends are healthy if we have metrics targets
-        // TODO: Implement actual TCP health checks
-        backend_count
+        picker.backends.iter()
+            .filter_map(|backend| {
+                let is_ready = health_map
+                    .get(&backend.hash_key())
+                    .map(|h| h.ready())
+                    .unwrap_or(false);
+                    
+                // Convert pingora_core::SocketAddr to std::net::SocketAddr
+                // HTTP/HTTPS upstreams are always Inet addresses (not Unix domain sockets)
+                backend.addr.as_inet().copied().map(|addr| BackendHealthStatus {
+                    addr,
+                    healthy: is_ready,
+                })
+            })
+            .collect()
     }
 
     /// Get service statistics with real metric data
@@ -137,5 +176,78 @@ impl ServiceStatistics {
     /// Check if service is performing well
     pub fn is_healthy(&self) -> bool {
         self.success_rate() >= 95.0 && self.average_response_time < Duration::from_millis(1000)
+    }
+}
+
+/// Backend health status for monitoring
+#[derive(Debug, Clone)]
+pub struct BackendHealthStatus {
+    pub addr: SocketAddr,
+    pub healthy: bool,
+}
+
+/// Background health check task - implements Pingora's health check pattern
+/// Reference: forks/pingora/pingora-load-balancing/src/lib.rs:249-298
+pub async fn run_health_checks(
+    backends: Vec<Backend>,
+    health_checker: Arc<TcpHealthCheck>,
+    backend_health: Arc<ArcSwap<HashMap<u64, Health>>>,
+    config: HealthCheckConfig,
+) {
+    let mut check_interval = interval(Duration::from_millis(config.interval_ms));
+    
+    loop {
+        check_interval.tick().await;
+        
+        // Pingora's check_and_report pattern (lib.rs:259-277)
+        async fn check_and_report(
+            backend: &Backend,
+            checker: &Arc<TcpHealthCheck>,
+            health_map: &HashMap<u64, Health>,
+        ) {
+            let check_result = checker.check(backend).await;
+            let is_healthy = check_result.is_ok();
+            
+            if let Some(health) = health_map.get(&backend.hash_key()) {
+                let threshold = checker.health_threshold(is_healthy);
+                let flipped = health.observe_health(is_healthy, threshold);
+                
+                if flipped {
+                    checker.health_status_change(backend, is_healthy).await;
+                    let summary = checker.backend_summary(backend);
+                    if let Err(e) = check_result {
+                        warn!("{} became unhealthy: {}", summary, e);
+                    } else {
+                        info!("{} became healthy", summary);
+                    }
+                }
+            }
+        }
+        
+        let health_map = backend_health.load_full();
+        
+        if config.parallel {
+            // Parallel health checks (more efficient)
+            let mut tasks = vec![];
+            for backend in backends.iter() {
+                let backend = backend.clone();
+                let checker = health_checker.clone();
+                let hm = health_map.clone();
+                
+                tasks.push(tokio::spawn(async move {
+                    check_and_report(&backend, &checker, &hm).await;
+                }));
+            }
+            
+            // Wait for all checks to complete
+            for task in tasks {
+                let _ = task.await;
+            }
+        } else {
+            // Sequential health checks
+            for backend in backends.iter() {
+                check_and_report(backend, &health_checker, &health_map).await;
+            }
+        }
     }
 }

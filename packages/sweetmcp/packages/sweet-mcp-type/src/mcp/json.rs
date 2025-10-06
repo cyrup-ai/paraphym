@@ -7,6 +7,7 @@
 //=========================================================================
 
 
+use log::trace;
 use smallvec::SmallVec;
 use simd_json::{to_owned_value, value::owned::Value as JsonValue, StaticNode};
 use value_trait::prelude::*;
@@ -22,6 +23,7 @@ impl Message {
     //───────────────────────────────────────────────────────────────────
     #[inline(always)]
     pub fn from_json(src: &str) -> Result<Self, McpError> {
+        trace!("Parsing JSON message");
         // 0. Copy src into a stack buffer (≤4 KiB stays on stack)
         const STACK_CAP: usize = 4096;
         let mut buf: SmallVec<[u8; STACK_CAP]> = SmallVec::new();
@@ -95,6 +97,7 @@ impl Message {
     //───────────────────────────────────────────────────────────────────
     #[inline(always)]
     pub fn to_json(&self) -> String {
+        trace!("Serializing message to JSON");
         // Reserve 256 B to avoid most reallocations.
         let mut out = String::with_capacity(256);
         out.push_str(r#"{"jsonrpc":"2.0","#);

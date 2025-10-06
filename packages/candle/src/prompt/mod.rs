@@ -26,9 +26,9 @@ impl Prompt {
 
 // PromptBuilder moved to paraphym/src/builders/prompt.rs
 
-impl Into<String> for Prompt {
-    fn into(self) -> String {
-        self.content
+impl From<Prompt> for String {
+    fn from(val: Prompt) -> Self {
+        val.content
     }
 }
 

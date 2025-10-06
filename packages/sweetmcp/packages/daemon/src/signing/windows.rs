@@ -78,7 +78,7 @@ pub fn sign(config: &SigningConfig) -> Result<()> {
         );
     }
 
-    println!("Successfully signed {}", config.binary_path.display());
+    log::info!("Successfully signed with Authenticode certificate");
     Ok(())
 }
 
@@ -185,7 +185,7 @@ pub fn sign_with_azure(
         bail!("Azure code signing failed: {}", stderr);
     }
 
-    println!("Successfully signed with Azure Code Signing");
+    log::info!("Successfully signed with Azure SignTool");
     Ok(())
 }
 

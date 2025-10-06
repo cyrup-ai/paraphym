@@ -7,7 +7,7 @@ use surrealdb::{
     },
     opt::auth::Root,
 };
-use tracing::{debug, info, warn};
+use log::{debug, info, warn};
 use once_cell::sync::OnceCell;
 use std::sync::Arc;
 use futures::stream::Stream;
@@ -385,7 +385,7 @@ impl DatabaseClient {
     /// Returns a Stream of Notifications for real-time updates
     pub async fn select_live<T>(&self, table: &str) -> Result<Pin<Box<dyn Stream<Item = surrealdb::Result<surrealdb::Notification<T>>> + Send>>>
     where
-        T: serde::de::DeserializeOwned + Send + 'static,
+        T: serde::de::DeserializeOwned + Send + Unpin + 'static,
     {
         let stream = match self {
             DatabaseClient::SurrealKv(db) => {

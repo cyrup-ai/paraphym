@@ -8,6 +8,7 @@ use chromiumoxide::handler::viewport::Viewport;
 use chromiumoxide::{Browser, BrowserConfig};
 pub use chromiumoxide::Page;
 use futures::StreamExt;
+use log::{debug, warn};
 
 #[derive(Debug)]
 pub enum ChromiumFetchError {
@@ -34,7 +35,7 @@ impl StdError for ChromiumFetchError {}
 
 pub struct FetchResult {
     pub content: String,
-    pub screenshot_base64: String,
+    pub screenshot_base64: Option<String>,
     pub content_type: String,
 }
 
@@ -74,7 +75,7 @@ pub async fn create_browser() -> Result<Browser, ChromiumFetchError> {
     tokio::spawn(async move {
         while let Some(event) = handler.next().await {
             if let Err(e) = event {
-                eprintln!("Browser event error: {}", e);
+                warn!("Browser event error: {}", e);
             }
         }
     });
@@ -139,16 +140,19 @@ impl ContentFetcher for ChromiumFetcher {
         &self,
         url: &str,
     ) -> Result<FetchResult, Box<dyn StdError + Send + Sync>> {
+        debug!("Chromiumoxide: Launching browser for {}", url);
         // Launch browser
         let mut browser = create_browser().await?;
 
         // Create a new page
+        debug!("Chromiumoxide: Creating new page");
         let page = browser
             .new_page("")
             .await
             .map_err(|e| ChromiumFetchError::Browser(format!("Failed to create page: {}", e)))?;
 
         // Navigate to the URL with a timeout
+        debug!("Chromiumoxide: Navigating to {}", url);
         let navigation_result = tokio::time::timeout(Duration::from_secs(30), page.goto(url)).await;
 
         // Check for timeout or navigation error
@@ -170,15 +174,18 @@ impl ContentFetcher for ChromiumFetcher {
         tokio::time::sleep(Duration::from_secs(2)).await;
 
         // Take screenshot
+        debug!("Chromiumoxide: Taking screenshot");
         let screenshot_base64 = take_screenshot(&page).await?;
 
         // Get content
+        debug!("Chromiumoxide: Extracting page content");
         let content = Self::get_cleaned_content(&page).await?;
 
         // Set default content type since content_type() method was removed
         let content_type = "text/html".to_string();
 
         // Close browser
+        debug!("Chromiumoxide: Closing browser");
         browser
             .close()
             .await
@@ -186,7 +193,7 @@ impl ContentFetcher for ChromiumFetcher {
 
         Ok(FetchResult {
             content,
-            screenshot_base64,
+            screenshot_base64: Some(screenshot_base64),
             content_type,
         })
     }

@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 use crate::extensions::common::types::{ExtensionError, Result};
@@ -54,11 +54,10 @@ pub async fn discover_extensions() -> Result<Vec<RaycastExtension>> {
         if path.is_dir() {
             // Try to read package.json if it exists
             let package_json = path.join("package.json");
-            if package_json.exists() {
-                if let Ok(extension) = parse_extension_metadata(&path, &package_json).await {
+            if package_json.exists()
+                && let Ok(extension) = parse_extension_metadata(&path, &package_json).await {
                     extensions.push(extension);
                 }
-            }
         }
     }
     
@@ -66,7 +65,7 @@ pub async fn discover_extensions() -> Result<Vec<RaycastExtension>> {
 }
 
 async fn parse_extension_metadata(
-    extension_path: &PathBuf,
+    extension_path: &Path,
     package_json: &PathBuf,
 ) -> Result<RaycastExtension> {
     let content = fs::read_to_string(package_json).await?;
@@ -98,7 +97,7 @@ async fn parse_extension_metadata(
         title,
         description,
         commands: Vec::new(), // TypeScript extensions not directly executable
-        path: extension_path.clone(),
+        path: extension_path.to_path_buf(),
     })
 }
 
@@ -118,11 +117,10 @@ pub async fn discover_script_commands(paths: &[PathBuf]) -> Result<Vec<RaycastCo
             let mut entries = fs::read_dir(path).await?;
             while let Some(entry) = entries.next_entry().await? {
                 let file_path = entry.path();
-                if file_path.is_file() {
-                    if let Ok(command) = parse_script_command(&file_path).await {
+                if file_path.is_file()
+                    && let Ok(command) = parse_script_command(&file_path).await {
                         commands.push(command);
                     }
-                }
             }
         }
     }
@@ -141,14 +139,13 @@ async fn parse_script_command(path: &PathBuf) -> Result<RaycastCommand> {
     let mut mode = CommandMode::FullOutput;
     
     for line in lines.iter().take(50) {
-        if line.contains("@raycast.title") {
-            if let Some(pos) = line.find("@raycast.title") {
+        if line.contains("@raycast.title")
+            && let Some(pos) = line.find("@raycast.title") {
                 let rest = line[pos + "@raycast.title".len()..].trim();
                 title = rest.to_string();
             }
-        }
-        if line.contains("@raycast.mode") {
-            if let Some(pos) = line.find("@raycast.mode") {
+        if line.contains("@raycast.mode")
+            && let Some(pos) = line.find("@raycast.mode") {
                 let rest = line[pos + "@raycast.mode".len()..].trim();
                 mode = match rest {
                     "fullOutput" => CommandMode::FullOutput,
@@ -158,7 +155,6 @@ async fn parse_script_command(path: &PathBuf) -> Result<RaycastCommand> {
                     _ => CommandMode::FullOutput,
                 };
             }
-        }
     }
     
     let name = path.file_stem()

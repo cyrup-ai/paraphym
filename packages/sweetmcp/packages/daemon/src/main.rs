@@ -15,12 +15,26 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use clap::Parser;
-use env_logger::Env;
 use log::{error, info};
 use manager::ServiceManager;
 
 fn main() {
-    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+    // Initialize logger with custom format for daemon
+    env_logger::Builder::from_default_env()
+        .format(|buf, record| {
+            use std::io::Write;
+            writeln!(
+                buf,
+                "[{} {} {}:{}] {}",
+                buf.timestamp_millis(),
+                record.level(),
+                record.file().unwrap_or("unknown"),
+                record.line().unwrap_or(0),
+                record.args()
+            )
+        })
+        .filter_level(log::LevelFilter::Info)
+        .init();
 
     let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
     if let Err(e) = rt.block_on(real_main()) {
@@ -115,26 +129,26 @@ async fn handle_sign_command(
 ) -> Result<()> {
     // Check if signing is available on this platform
     if !signing::is_signing_available() {
-        eprintln!("Code signing is not available on this platform");
+        sweetmcp_daemon::cli_output::warning("Code signing is not available on this platform");
         return Ok(());
     }
 
     if show_config {
         let sample = signing::config::create_sample_config()?;
-        println!("Sample signing configuration:\n\n{}", sample);
+        sweetmcp_daemon::cli_output::info(&format!("Sample signing configuration:\n\n{}", sample));
         return Ok(());
     }
 
     // Handle self-signing
     if self_sign {
-        println!("Self-signing current binary...");
+        sweetmcp_daemon::cli_output::info("Self-signing current binary...");
         match signing::sign_self() {
             Ok(_) => {
-                println!("✓ Successfully self-signed");
+                sweetmcp_daemon::cli_output::success("Successfully self-signed");
                 return Ok(());
             }
             Err(e) => {
-                eprintln!("✗ Failed to self-sign: {}", e);
+                sweetmcp_daemon::cli_output::error(&format!("Failed to self-sign: {}", e));
                 std::process::exit(1);
             }
         }
@@ -150,18 +164,18 @@ async fn handle_sign_command(
         // Verify signature
         match signing::verify_signature(&binary_path) {
             Ok(true) => {
-                println!("✓ {} is properly signed", binary_path.display());
+                sweetmcp_daemon::cli_output::success(&format!("{} is properly signed", binary_path.display()));
                 Ok(())
             }
             Ok(false) => {
-                eprintln!(
-                    "✗ {} is not signed or signature is invalid",
+                sweetmcp_daemon::cli_output::error(&format!(
+                    "{} is not signed or signature is invalid",
                     binary_path.display()
-                );
+                ));
                 std::process::exit(1);
             }
             Err(e) => {
-                eprintln!("✗ Failed to verify signature: {}", e);
+                sweetmcp_daemon::cli_output::error(&format!("Failed to verify signature: {}", e));
                 std::process::exit(1);
             }
         }
@@ -184,23 +198,23 @@ async fn handle_sign_command(
             }
         }
 
-        println!("Signing {}...", config.binary_path.display());
+        sweetmcp_daemon::cli_output::info(&format!("Signing {}...", config.binary_path.display()));
 
         match signing::sign_binary(&config) {
             Ok(_) => {
-                println!("✓ Successfully signed {}", config.binary_path.display());
+                sweetmcp_daemon::cli_output::success(&format!("Successfully signed {}", config.binary_path.display()));
 
                 // Verify the signature
                 if signing::verify_signature(&config.output_path)? {
-                    println!("✓ Signature verified");
+                    sweetmcp_daemon::cli_output::success("Signature verified");
                 } else {
-                    eprintln!("⚠️  Warning: Signature verification failed");
+                    sweetmcp_daemon::cli_output::error("Signature verification failed");
                 }
 
                 Ok(())
             }
             Err(e) => {
-                eprintln!("✗ Failed to sign binary: {}", e);
+                sweetmcp_daemon::cli_output::error(&format!("Failed to sign binary: {}", e));
                 std::process::exit(1);
             }
         }

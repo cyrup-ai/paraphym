@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use tracing::{error, info, warn};
+use log::{error, info, warn};
 
 use crate::config::RamdiskConfig;
 use crate::firecracker::FirecrackerVM;
@@ -107,7 +107,9 @@ impl ExecutionFlow {
                 // Check if Firecracker is available
                 if crate::firecracker::is_firecracker_available() {
                     info!("Firecracker is available, using VM isolation");
-                    match crate::firecracker::create_firecracker_environment(&self.config) {
+                    // Block on async function from sync context
+                    let handle = tokio::runtime::Handle::current();
+                    match handle.block_on(crate::firecracker::create_firecracker_environment(&self.config)) {
                         Ok(vm) => {
                             info!("Firecracker VM created successfully");
                             self.firecracker_vm = Some(vm);
@@ -267,7 +269,9 @@ impl ExecutionFlow {
     fn cleanup_ramdisk(&self) {
         // Firecracker VM cleanup
         if let Some(vm) = &self.firecracker_vm {
-            if let Err(e) = vm.stop() {
+            // Block on async function from sync context
+            let handle = tokio::runtime::Handle::current();
+            if let Err(e) = handle.block_on(vm.stop()) {
                 error!("Failed to stop Firecracker VM: {}", e);
             } else {
                 info!("Firecracker VM stopped successfully");

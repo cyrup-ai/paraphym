@@ -5,6 +5,7 @@
 //! operations for production environments.
 
 use crate::resource::cms::resource_dao::core::*;
+use crate::Thing;
 use crate::types::*;
 use dashmap::DashMap;
 use std::fmt::Write;
@@ -66,16 +67,14 @@ pub fn resource_read_async(request: ReadResourceRequest) -> AsyncResource {
         // Execute the database query
         match execute_single_resource_query(&thing_id).await {
             Ok(Some(row)) => {
-                // Convert row to resource
-                let resource = row.to_resource(uri.clone());
-
                 // Create read result
                 let result = ReadResourceResult {
-                    contents: vec![ResourceContents::Text(TextResourceContents {
-                        uri: uri.to_string(),
-                        text: row.content.unwrap_or_else(|| "No content available".to_string()),
+                    content: ResourceContent {
+                        uri: uri.clone(),
+                        text: Some(row.content.unwrap_or_else(|| "No content available".to_string())),
                         mime_type: row.mime_type,
-                    })],
+                        blob: None,
+                    },
                 };
 
                 let _ = tx.send(Ok(result));
@@ -99,43 +98,47 @@ pub fn resource_read_async(request: ReadResourceRequest) -> AsyncResource {
 }
 
 /// Parse Thing ID from URI
-fn parse_thing_id_from_uri(uri: &Url) -> Result<surrealdb::sql::Thing, ResourceDaoError> {
+fn parse_thing_id_from_uri(uri: &Url) -> Result<Thing, ResourceDaoError> {
     // Extract the path from the URI and convert to Thing
     let path = uri.path().trim_start_matches('/');
     
-    // Try to parse as Thing directly
-    match surrealdb::sql::Thing::try_from(path) {
-        Ok(thing) if thing.tb == "node" => Ok(thing),
-        _ => {
-            // Try alternative parsing for different URI formats
-            if let Some(id) = path.strip_prefix("node/") {
-                match surrealdb::sql::Thing::try_from(format!("node:{}", id).as_str()) {
-                    Ok(thing) => Ok(thing),
-                    Err(_) => Err(ResourceDaoError::InvalidUri(format!("Cannot parse URI: {}", uri))),
-                }
-            } else {
-                Err(ResourceDaoError::InvalidUri(format!("Invalid URI format: {}", uri)))
-            }
-        }
+    // Try to parse table:id format
+    if let Some((table, id)) = path.split_once(':') {
+        Ok(Thing::from((table.to_string(), id.to_string())))
+    } else if let Some(id) = path.strip_prefix("node/") {
+        // Alternative format: node/id -> node:id
+        Ok(Thing::from(("node".to_string(), id.to_string())))
+    } else {
+        Err(ResourceDaoError::InvalidUri(format!("Invalid URI format: {}. Expected 'table:id' or 'node/id'", uri)))
     }
 }
 
 /// Execute single resource query
 async fn execute_single_resource_query(
-    thing_id: &surrealdb::sql::Thing,
+    thing_id: &Thing,
 ) -> Result<Option<NodeRow>, ResourceDaoError> {
     // Get database client
     let db = get_database_client().await
         .map_err(|e| ResourceDaoError::DatabaseConnection(e.to_string()))?;
 
     // Build query for single resource
-    let query = format!("SELECT * FROM {} WHERE id = $id", thing_id.tb);
+    let query = format!("SELECT * FROM {} WHERE id = $id", thing_id.table());
 
-    // Execute the query with parameter
-    let mut result = db.query(&query)
-        .bind(("id", thing_id))
-        .await
-        .map_err(|e| ResourceDaoError::QueryExecution(e.to_string()))?;
+    // Execute the query with parameter - match on enum to access underlying client
+    let mut result = match &db {
+        crate::db::DatabaseClient::SurrealKv(client) => {
+            client.query(&query)
+                .bind(("id", thing_id.clone()))
+                .await
+                .map_err(|e| ResourceDaoError::QueryExecution(e.to_string()))?
+        }
+        crate::db::DatabaseClient::RemoteHttp(client) => {
+            client.query(&query)
+                .bind(("id", thing_id.clone()))
+                .await
+                .map_err(|e| ResourceDaoError::QueryExecution(e.to_string()))?
+        }
+    };
 
     // Extract the result
     let rows: Vec<NodeRow> = result.take(0)
@@ -157,7 +160,7 @@ async fn get_database_client() -> Result<crate::db::DatabaseClient, String> {
 /// Find resource by slug
 pub fn find_by_slug(slug: &str) -> AsyncResource {
     match get_resource_dao() {
-        Ok(dao) => {
+        Ok(_dao) => {
             // Convert slug to Thing ID format
             let thing_id_str = format!("node:{}", slug);
             
@@ -191,17 +194,19 @@ pub fn find_by_slug(slug: &str) -> AsyncResource {
 }
 
 /// Find resources by tags
-pub fn find_by_tags(tags: &[String]) -> crate::resource::cms::resource_dao::streaming::ResourceStream {
+pub fn find_by_tags(tags: &[String]) -> crate::resource::cms::resource_dao::ResourceStream {
     match get_resource_dao() {
         Ok(_dao) => {
-            let mut request = ListResourcesRequest::default();
-            request.tags = Some(tags.to_vec());
-            crate::resource::cms::resource_dao::streaming::resources_list_stream(Some(request))
+            let request = ListResourcesRequest {
+                tags: Some(tags.to_vec()),
+                ..Default::default()
+            };
+            crate::resource::cms::resource_dao::resources_list_stream(Some(request))
         }
         Err(e) => {
             log::error!("Failed to get ResourceDao in find_by_tags: {}", e);
             // Return an empty stream on error
-            crate::resource::cms::resource_dao::streaming::ResourceStream::empty()
+            crate::resource::cms::resource_dao::ResourceStream::empty()
         }
     }
 }
@@ -245,13 +250,11 @@ impl ResourceDao {
     /// Get resource by URI
     pub async fn get_resource(&self, uri: &Url) -> Result<Option<Resource>, ResourceDaoError> {
         // Check cache first
-        if self.config.enable_caching {
-            if let Some(entry) = self.cache.get(&uri.to_string()) {
-                if !entry.is_expired() {
-                    return Ok(Some(entry.resource.clone()));
-                }
+        if self.config.enable_caching
+            && let Some(entry) = self.cache.get(&uri.to_string())
+            && !entry.is_expired() {
+                return Ok(Some(entry.resource.clone()));
             }
-        }
 
         // Parse Thing ID from URI
         let thing_id = parse_thing_id_from_uri(uri)?;
@@ -321,7 +324,7 @@ impl ResourceDao {
         let thing_id = parse_thing_id_from_uri(uri)?;
 
         // Build delete query
-        let query = format!("DELETE FROM {} WHERE id = $id", thing_id.tb);
+        let query = format!("DELETE FROM {} WHERE id = $id", thing_id.table());
 
         // Execute the query
         match self.execute_query_with_params(&query, ("id", thing_id)).await {

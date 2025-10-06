@@ -22,7 +22,7 @@ impl BrowserPane {
         Ok(Self {
             inner: Arc::new(RwLock::new(BrowserPaneInner {
                 current_url: url.to_string(),
-                title: "Web Page".to_string(),
+                title: url.to_string(),  // Use URL as placeholder until page loads
             })),
         })
     }
@@ -52,9 +52,19 @@ impl BrowserPane {
             }
         });
         
-        // Wait for the screenshot
-        if let Some(mut image) = rx.recv().await {
+        // Wait for the screenshot and title
+        if let Some(snapshot) = rx.recv().await {
             info!("Received screenshot data...");
+            
+            // Update title from the actual page
+            {
+                let mut inner = self.inner.write().await;
+                inner.title = snapshot.title.clone();
+                info!("Updated page title to: {}", inner.title);
+            }
+            
+            // Process the screenshot
+            let mut image = snapshot.image;
             
             // Calculate the appropriate size for the left half of the terminal
             // We aim to keep the aspect ratio while fitting the image into the left half
@@ -97,9 +107,8 @@ impl BrowserPane {
         // Update the URL and return it
         let mut inner = self.inner.write().await;
         inner.current_url = url.to_string();
-        // For now, we don't fetch the title from the browser
-        // This could be enhanced later
-        inner.title = "Web Page".to_string();
+        // Use URL as title until next screenshot fetch updates it
+        inner.title = url.to_string();
         
         // Return title and URL so caller can properly update state
         Ok((inner.title.clone(), inner.current_url.clone()))

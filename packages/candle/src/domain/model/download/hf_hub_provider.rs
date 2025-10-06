@@ -1,6 +1,7 @@
 use hf_hub::{api::tokio::Api, Cache};
 use std::path::PathBuf;
 use async_trait::async_trait;
+use log::warn;
 use super::{ModelDownloadProvider, ModelDownloadResult};
 
 /// API response types for `HuggingFace` repository metadata
@@ -243,7 +244,7 @@ impl ModelDownloadProvider for HfHubDownloadProvider {
                     }
                     Err(e) => {
                         // Log warning but continue with other files
-                        eprintln!("Warning: Failed to download {filename}: {e}");
+                        warn!("Failed to download {filename}: {e}");
                     }
                 }
             }

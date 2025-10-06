@@ -6,7 +6,7 @@ use std::{
 };
 
 use tempfile::Builder as TempFileBuilder;
-use tracing::{error, info, warn};
+use log::{error, info, warn};
 
 use crate::config::RamdiskConfig;
 use crate::error::{ExecError, Result};

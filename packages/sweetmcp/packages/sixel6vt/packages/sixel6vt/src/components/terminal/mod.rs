@@ -20,6 +20,8 @@ use rio_backend::{
 };
 // Import Crosswords and alias as Terminal from the correct path
 use rio_backend::crosswords::Crosswords as Terminal;
+// Import color types for terminal text color rendering
+use rio_backend::config::colors::{AnsiColor, ColorRgb, NamedColor};
 // Import Pty, WinsizeBuilder and ProcessReadWrite trait from teletypewriter
 use teletypewriter::{WinsizeBuilder, ProcessReadWrite};
 
@@ -47,6 +49,87 @@ pub struct TerminalPane<U: rio_backend::event::EventListener + Clone + Send + 's
     running: Arc<AtomicBool>,
     reader_thread: Option<JoinHandle<()>>,
     writer_thread: Option<JoinHandle<()>>,
+}
+
+// Helper function to map NamedColor to RGBA values
+fn map_named_color_to_rgba(color: NamedColor) -> [f32; 4] {
+    match color {
+        NamedColor::Black => [0.0, 0.0, 0.0, 1.0],
+        NamedColor::Red => [0.804, 0.192, 0.192, 1.0],  // (205, 49, 49)
+        NamedColor::Green => [0.051, 0.737, 0.475, 1.0],  // (13, 188, 121)
+        NamedColor::Yellow => [0.898, 0.898, 0.063, 1.0],  // (229, 229, 16)
+        NamedColor::Blue => [0.141, 0.447, 0.784, 1.0],  // (36, 114, 200)
+        NamedColor::Magenta => [0.737, 0.247, 0.737, 1.0],  // (188, 63, 188)
+        NamedColor::Cyan => [0.067, 0.659, 0.804, 1.0],  // (17, 168, 205)
+        NamedColor::White => [0.898, 0.898, 0.898, 1.0],  // (229, 229, 229)
+        NamedColor::LightBlack => [0.333, 0.333, 0.333, 1.0],
+        NamedColor::LightRed => [1.0, 0.333, 0.333, 1.0],
+        NamedColor::LightGreen => [0.333, 1.0, 0.333, 1.0],
+        NamedColor::LightYellow => [1.0, 1.0, 0.333, 1.0],
+        NamedColor::LightBlue => [0.333, 0.333, 1.0, 1.0],
+        NamedColor::LightMagenta => [1.0, 0.333, 1.0, 1.0],
+        NamedColor::LightCyan => [0.333, 1.0, 1.0, 1.0],
+        NamedColor::LightWhite => [1.0, 1.0, 1.0, 1.0],
+        NamedColor::Foreground => [0.898, 0.898, 0.898, 1.0],  // Default foreground
+        NamedColor::Background => [0.078, 0.078, 0.078, 1.0],  // Default background
+        _ => [1.0, 1.0, 1.0, 1.0],  // Fallback white
+    }
+}
+
+// Helper function to map indexed color (0-255) to RGBA values
+fn map_indexed_color_to_rgba(idx: u8) -> [f32; 4] {
+    match idx {
+        0..=15 => {
+            // Standard ANSI colors - map to NamedColor
+            let named = match idx {
+                0 => NamedColor::Black,
+                1 => NamedColor::Red,
+                2 => NamedColor::Green,
+                3 => NamedColor::Yellow,
+                4 => NamedColor::Blue,
+                5 => NamedColor::Magenta,
+                6 => NamedColor::Cyan,
+                7 => NamedColor::White,
+                8 => NamedColor::LightBlack,
+                9 => NamedColor::LightRed,
+                10 => NamedColor::LightGreen,
+                11 => NamedColor::LightYellow,
+                12 => NamedColor::LightBlue,
+                13 => NamedColor::LightMagenta,
+                14 => NamedColor::LightCyan,
+                15 => NamedColor::LightWhite,
+                _ => NamedColor::White,  // Unreachable but safe
+            };
+            map_named_color_to_rgba(named)
+        }
+        16..=231 => {
+            // 6x6x6 RGB cube
+            let idx = idx - 16;
+            let r = idx / 36;
+            let g = (idx % 36) / 6;
+            let b = idx % 6;
+            
+            // Map 0-5 to RGB values
+            let to_rgb = |v: u8| -> f32 {
+                match v {
+                    0 => 0.0,
+                    1 => 0.373,  // 95/255
+                    2 => 0.498,  // 135/255
+                    3 => 0.686,  // 175/255
+                    4 => 0.843,  // 215/255
+                    5 => 1.0,    // 255/255
+                    _ => 0.0,
+                }
+            };
+            
+            [to_rgb(r), to_rgb(g), to_rgb(b), 1.0]
+        }
+        232..=255 => {
+            // Grayscale ramp
+            let gray = ((idx - 232) as f32 * 10.0 + 8.0) / 255.0;
+            [gray, gray, gray, 1.0]
+        }
+    }
 }
 
 // Implement methods for the generic TerminalPane
@@ -489,8 +572,26 @@ impl<U: rio_backend::event::EventListener + Clone + Send + 'static> TerminalPane
                     // Regular text character
                     let c = if square.c == '\t' { ' ' } else { square.c };
                     
-                    // Simple style with foreground color
-                    style.color = [1.0, 1.0, 1.0, 1.0]; // White text for now
+                    // Get foreground color from cell attributes
+                    style.color = match &square.fg {
+                        AnsiColor::Named(named) => {
+                            // Use named color mapping
+                            map_named_color_to_rgba(*named)
+                        }
+                        AnsiColor::Spec(rgb) => {
+                            // Direct RGB specification - convert to RGBA
+                            [
+                                rgb.r as f32 / 255.0,
+                                rgb.g as f32 / 255.0,
+                                rgb.b as f32 / 255.0,
+                                1.0,
+                            ]
+                        }
+                        AnsiColor::Indexed(idx) => {
+                            // Indexed color - look up in palette
+                            map_indexed_color_to_rgba(*idx)
+                        }
+                    };
                     
                     // If style changed, flush previous content
                     if has_content && style != last_style && !line_content.is_empty() {

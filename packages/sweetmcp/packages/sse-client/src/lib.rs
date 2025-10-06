@@ -2,9 +2,11 @@
 //!
 //! Implements Streamable HTTP transport for MCP SSE connections.
 
+use log::{debug, info, warn};
 use reqwest::{Client, Response};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
 use thiserror::Error;
 
 use mcp_client_traits::{ClientError, McpClient};
@@ -76,7 +78,9 @@ impl SseClient {
         
         // Check for JSON-RPC error
         if let Some(error) = response_json.get("error") {
-            return Err(SseClientError::JsonRpcError(error.to_string()));
+            let error_msg = error.to_string();
+            warn!("SSE error: {}, attempting reconnect", error_msg);
+            return Err(SseClientError::JsonRpcError(error_msg));
         }
         
         // Return result field
@@ -86,15 +90,49 @@ impl SseClient {
     }
     
     /// Open SSE stream for bidirectional communication
-    pub async fn open_stream(&self) -> Result<Response, SseClientError> {
+    pub async fn open_stream(&self) -> Result<SseStream, SseClientError> {
+        info!("SSE stream connected to {}", self.base_url);
+
         let mut request_builder = self.http_client
             .get(format!("{}/sse", self.base_url))
             .header("Accept", "text/event-stream");
-        
+
         for (key, value) in &self.headers {
             request_builder = request_builder.header(key, value);
-        }        
-        Ok(request_builder.send().await?)
+        }
+
+        let response = request_builder.send().await?;
+        debug!("SSE event received: {:?}", response);
+        Ok(SseStream {
+            response,
+            base_url: self.base_url.clone(),
+        })
+    }
+}
+
+/// SSE stream wrapper that logs lifecycle events
+pub struct SseStream {
+    response: Response,
+    base_url: String,
+}
+
+impl Drop for SseStream {
+    fn drop(&mut self) {
+        info!("SSE stream disconnected from {}", self.base_url);
+    }
+}
+
+impl Deref for SseStream {
+    type Target = Response;
+    
+    fn deref(&self) -> &Self::Target {
+        &self.response
+    }
+}
+
+impl DerefMut for SseStream {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.response
     }
 }
 

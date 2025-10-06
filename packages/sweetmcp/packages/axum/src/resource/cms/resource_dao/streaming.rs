@@ -7,8 +7,6 @@
 use crate::resource::cms::resource_dao::core::*;
 use crate::db::DatabaseClient;
 use crate::types::*;
-use std::fmt::Write;
-use arrayvec::ArrayString;
 use tokio::sync::mpsc;
 use url::Url;
 use tokio::sync::broadcast;
@@ -81,15 +79,19 @@ impl ResourceSubscriptionManager {
                         // Convert NodeRow to Resource
                         let uri = create_uri_from_node(&notification.data)
                             .unwrap_or_else(|_| {
-                                // Fallback URI
                                 Url::parse(&format!("cms://node/{}", notification.query_id))
-                                    .expect("Valid fallback URI")
+                                    .unwrap_or_else(|e| {
+                                        log::error!("Fallback URI creation failed for {}: {}", notification.query_id, e);
+                                        // Use a guaranteed-valid static URL
+                                        Url::parse("cms://node/error").unwrap()
+                                    })
                             });
                         
                         let action_str = match notification.action {
                             surrealdb::Action::Create => "CREATE",
                             surrealdb::Action::Update => "UPDATE",
                             surrealdb::Action::Delete => "DELETE",
+                            _ => "UNKNOWN",
                         };
 
                         let resource = notification.data.to_resource(uri.clone());
@@ -139,6 +141,89 @@ impl ResourceSubscriptionManager {
     }
 }
 
+// ----- Global Subscription Registry for MCP Protocol -----
+
+use std::sync::OnceLock;
+
+/// Global ResourceSubscriptionManager instance
+static RESOURCE_SUB_MANAGER: OnceLock<Arc<ResourceSubscriptionManager>> = OnceLock::new();
+
+/// Type alias for subscription registry entry
+type SubscriptionEntry = (String, broadcast::Receiver<ResourceUpdate>);
+
+/// Global registry of active subscriptions - Maps URI -> (table_name, receiver)
+static SUBSCRIPTION_REGISTRY: once_cell::sync::Lazy<Arc<DashMap<String, SubscriptionEntry>>> =
+    once_cell::sync::Lazy::new(|| Arc::new(DashMap::new()));
+
+/// Extract table name from MCP resource URI
+pub fn extract_table_from_uri(uri: &str) -> String {
+    let cleaned = uri
+        .replace("cms://", "")
+        .trim_start_matches('/')
+        .to_string();
+    
+    // Get first component (table name)
+    cleaned
+        .split('/')
+        .next()
+        .unwrap_or(&cleaned)
+        .split(':')
+        .next()
+        .unwrap_or("resource")
+        .to_string()
+}
+
+/// Subscribe to resource updates for a URI
+pub async fn subscribe_to_resource_uri(uri: String) -> Result<(), ResourceDaoError> {
+    let table = extract_table_from_uri(&uri);
+    
+    // Check if already subscribed
+    if SUBSCRIPTION_REGISTRY.contains_key(&uri) {
+        log::debug!("Already subscribed to URI: {}", uri);
+        return Ok(());
+    }
+    
+    // Get or initialize the manager
+    let manager = if let Some(mgr) = RESOURCE_SUB_MANAGER.get() {
+        mgr
+    } else {
+        // Initialize the manager with database client
+        let db = get_database_client().await
+            .map_err(|e| ResourceDaoError::DatabaseConnection(e.to_string()))?;
+        
+        let mgr = Arc::new(ResourceSubscriptionManager::new(Arc::new(db)));
+        
+        // Try to set it, if another thread already set it, use that one
+        RESOURCE_SUB_MANAGER.set(mgr.clone())
+            .ok(); // Ignore error - another thread may have set it
+        
+        // Always retrieve from RESOURCE_SUB_MANAGER to ensure valid lifetime
+        RESOURCE_SUB_MANAGER.get().ok_or_else(|| {
+            ResourceDaoError::NotInitialized("Failed to initialize subscription manager".to_string())
+        })?
+    };
+    
+    // Subscribe to the table
+    let (_query_id, receiver) = manager.subscribe_to_table(&table).await?;
+    
+    // CRITICAL FIX: Store the receiver to keep it alive
+    SUBSCRIPTION_REGISTRY.insert(uri.clone(), (table.clone(), receiver));
+    
+    log::info!("Subscribed to resource URI: {} (table: {})", uri, table);
+    Ok(())
+}
+
+/// Unsubscribe from resource updates for a URI
+pub async fn unsubscribe_from_resource_uri(uri: &str) -> Result<(), ResourceDaoError> {
+    if let Some((table, _receiver)) = SUBSCRIPTION_REGISTRY.remove(uri) {
+        // Receiver drops automatically, broadcast channel handles cleanup
+        log::info!("Unsubscribed from resource URI: {} (table: {})", uri, table);
+        Ok(())
+    } else {
+        Err(ResourceDaoError::ResourceNotFound(format!("No subscription found for URI: {}", uri)))
+    }
+}
+
 /// Stream-based resources list implementation
 pub fn resources_list_stream(request: Option<ListResourcesRequest>) -> ResourceStream {
     let (tx, rx) = mpsc::channel(16);
@@ -177,10 +262,10 @@ pub fn resources_list_stream(request: Option<ListResourcesRequest>) -> ResourceS
             Err(e) => {
                 log::error!("Failed to query resources: {}", e);
                 // Send an error through the channel if the query failed
-                let _ = tx.send(Err(rpc_router::HandlerError::new(format!(
+                drop(tx.send(Err(rpc_router::HandlerError::new(format!(
                     "Database query failed: {}",
                     e
-                ))));
+                )))).await);
             }
         }
     });
@@ -238,9 +323,17 @@ async fn execute_resources_query(query: &str) -> Result<Vec<NodeRow>, ResourceDa
     let db = get_database_client().await
         .map_err(|e| ResourceDaoError::DatabaseConnection(e.to_string()))?;
 
-    // Execute the query
-    let mut result = db.query(query).await
-        .map_err(|e| ResourceDaoError::QueryExecution(e.to_string()))?;
+    // Execute the query - match on enum to access underlying client
+    let mut result = match &db {
+        DatabaseClient::SurrealKv(client) => {
+            client.query(query).await
+                .map_err(|e| ResourceDaoError::QueryExecution(e.to_string()))?
+        }
+        DatabaseClient::RemoteHttp(client) => {
+            client.query(query).await
+                .map_err(|e| ResourceDaoError::QueryExecution(e.to_string()))?
+        }
+    };
 
     // Extract the results
     let rows: Vec<NodeRow> = result.take(0)
@@ -280,71 +373,62 @@ async fn get_database_client() -> Result<DatabaseClient, String> {
 
 /// Stream resources by type
 pub fn stream_resources_by_type(resource_type: String) -> ResourceStream {
-    let mut request = ListResourcesRequest::default();
-    request.resource_types = Some(vec![resource_type]);
+    let request = ListResourcesRequest {
+        resource_types: Some(vec![resource_type]),
+        ..Default::default()
+    };
     resources_list_stream(Some(request))
 }
 
 /// Stream resources by tags
 pub fn stream_resources_by_tags(tags: Vec<String>) -> ResourceStream {
-    let mut request = ListResourcesRequest::default();
-    request.tags = Some(tags);
+    let request = ListResourcesRequest {
+        tags: Some(tags),
+        ..Default::default()
+    };
     resources_list_stream(Some(request))
 }
 
 /// Stream resources by parent
 pub fn stream_resources_by_parent(parent: String) -> ResourceStream {
-    let mut request = ListResourcesRequest::default();
-    request.parent = Some(parent);
+    let request = ListResourcesRequest {
+        parent: Some(parent),
+        ..Default::default()
+    };
     resources_list_stream(Some(request))
 }
 
 /// Stream resources with search query
 pub fn stream_resources_with_search(query: String) -> ResourceStream {
-    let mut request = ListResourcesRequest::default();
-    request.search_query = Some(query);
+    let request = ListResourcesRequest {
+        search_query: Some(query),
+        ..Default::default()
+    };
     resources_list_stream(Some(request))
 }
 
 /// Stream paginated resources
 pub fn stream_paginated_resources(limit: u32, offset: u32) -> ResourceStream {
-    let mut request = ListResourcesRequest::default();
-    request.limit = Some(limit);
-    request.offset = Some(offset);
+    let request = ListResourcesRequest {
+        limit: Some(limit),
+        offset: Some(offset),
+        ..Default::default()
+    };
     resources_list_stream(Some(request))
 }
 
 /// Stream sorted resources
 pub fn stream_sorted_resources(sort_field: String, sort_direction: String) -> ResourceStream {
-    let mut request = ListResourcesRequest::default();
-    request.sort_field = Some(sort_field);
-    request.sort_direction = Some(sort_direction);
+    let request = ListResourcesRequest {
+        sort_field: Some(sort_field),
+        sort_direction: Some(sort_direction),
+        ..Default::default()
+    };
     resources_list_stream(Some(request))
 }
 
 /// Advanced resource streaming with multiple filters
-pub fn stream_resources_advanced(
-    resource_types: Option<Vec<String>>,
-    tags: Option<Vec<String>>,
-    parent: Option<String>,
-    search_query: Option<String>,
-    limit: Option<u32>,
-    offset: Option<u32>,
-    sort_field: Option<String>,
-    sort_direction: Option<String>,
-) -> ResourceStream {
-    let request = ListResourcesRequest {
-        resource_types,
-        tags,
-        parent,
-        search_query,
-        limit,
-        offset,
-        sort_field,
-        sort_direction,
-        ..Default::default()
-    };
-
+pub fn stream_resources_advanced(request: ListResourcesRequest) -> ResourceStream {
     resources_list_stream(Some(request))
 }
 
@@ -374,10 +458,10 @@ pub fn stream_resources_custom_query(query: String) -> ResourceStream {
             }
             Err(e) => {
                 log::error!("Failed to execute custom query: {}", e);
-                let _ = tx.send(Err(rpc_router::HandlerError::new(format!(
+                drop(tx.send(Err(rpc_router::HandlerError::new(format!(
                     "Custom query failed: {}",
                     e
-                ))));
+                )))).await);
             }
         }
     });
@@ -415,10 +499,10 @@ pub fn stream_resources_realtime(request: Option<ListResourcesRequest>) -> Resou
             }
             Err(e) => {
                 log::error!("Failed to query resources for realtime stream: {}", e);
-                let _ = tx.send(Err(rpc_router::HandlerError::new(format!(
+                drop(tx.send(Err(rpc_router::HandlerError::new(format!(
                     "Realtime query failed: {}",
                     e
-                ))));
+                )))).await);
                 return;
             }
         }
@@ -438,12 +522,11 @@ pub fn stream_resources_realtime(request: Option<ListResourcesRequest>) -> Resou
             Ok((_subscription_id, mut rx_updates)) => {
                 // Stream live updates to the channel
                 while let Ok(update) = rx_updates.recv().await {
-                    if let Some(resource) = update.resource {
-                        if tx.send(Ok(resource)).await.is_err() {
+                    if let Some(resource) = update.resource
+                        && tx.send(Ok(resource)).await.is_err() {
                             log::warn!("Receiver dropped, stopping live updates");
                             break;
                         }
-                    }
                 }
             }
             Err(e) => {
@@ -503,10 +586,10 @@ pub fn stream_resources_batched(
                 }
                 Err(e) => {
                     log::error!("Failed to query batch: {}", e);
-                    let _ = tx.send(Err(rpc_router::HandlerError::new(format!(
+                    drop(tx.send(Err(rpc_router::HandlerError::new(format!(
                         "Batch query failed: {}",
                         e
-                    ))));
+                    )))).await);
                     break;
                 }
             }
@@ -554,10 +637,10 @@ pub fn stream_resources_with_retry(
                     retry_count += 1;
                     if retry_count > max_retries {
                         log::error!("Failed to query resources after {} retries: {}", max_retries, e);
-                        let _ = tx.send(Err(rpc_router::HandlerError::new(format!(
+                        drop(tx.send(Err(rpc_router::HandlerError::new(format!(
                             "Query failed after {} retries: {}",
                             max_retries, e
-                        ))));
+                        )))).await);
                         break;
                     } else {
                         log::warn!("Query failed, retrying ({}/{}): {}", retry_count, max_retries, e);

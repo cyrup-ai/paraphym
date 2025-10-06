@@ -18,6 +18,7 @@ pub use memory_usage::*;
 pub use metrics::*;
 pub use operations::*;
 pub use performance::*;
+use log::{error, warn};
 use prometheus::{Counter, CounterVec, Gauge, GaugeVec, Histogram, HistogramVec, Registry};
 
 /// Monitoring system for mem0
@@ -153,8 +154,8 @@ impl Monitor {
         match Self::new() {
             Ok(monitor) => monitor,
             Err(e) => {
-                eprintln!(
-                    "Warning: Failed to create Prometheus monitor ({}), metrics will be silently discarded",
+                warn!(
+                    "Failed to create Prometheus monitor ({}), metrics will be silently discarded",
                     e
                 );
                 Self::create_disabled_monitor()
@@ -523,9 +524,9 @@ impl Monitor {
         // If we reach here, even emergency fallback failed
         // This indicates complete Prometheus library failure or system corruption
         // Continue with graceful degradation - create a metric that works but logs the issue
-        eprintln!("CRITICAL: Complete Prometheus metric creation failure detected.");
-        eprintln!("System state may be corrupted. Metrics collection will be disabled.");
-        eprintln!("Application will continue running with monitoring functionality degraded.");
+        error!("CRITICAL: Complete Prometheus metric creation failure detected.");
+        error!("System state may be corrupted. Metrics collection will be disabled.");
+        error!("Application will continue running with monitoring functionality degraded.");
 
         // Final attempt with guaranteed-valid configuration
         // Use a unique name that should never conflict
@@ -538,7 +539,7 @@ impl Monitor {
         )
         .unwrap_or_else(|_| {
             // Final fallback - create a minimal counter that works
-            eprintln!(
+            error!(
                 "FATAL: Unable to create any Prometheus CounterVec. Metrics completely disabled."
             );
             CounterVec::new(
@@ -578,7 +579,7 @@ impl Monitor {
                 let emergency_name = format!("emergency_c_{}", unique_id % 1000000);
 
                 Counter::new(&emergency_name, "").unwrap_or_else(|final_error| {
-                    eprintln!("FINAL COUNTER ERROR: {}", final_error);
+                    error!("FINAL COUNTER ERROR: {}", final_error);
                     unreachable!("Counter creation impossible - Prometheus corrupted")
                 })
             })
@@ -604,7 +605,7 @@ impl Monitor {
                 let emergency_name = format!("emergency_g_{}", unique_id % 1000000);
 
                 Gauge::new(&emergency_name, "").unwrap_or_else(|final_error| {
-                    eprintln!("FINAL GAUGE ERROR: {}", final_error);
+                    error!("FINAL GAUGE ERROR: {}", final_error);
                     unreachable!("Gauge creation impossible - Prometheus corrupted")
                 })
             })
@@ -634,7 +635,7 @@ impl Monitor {
 
                 Histogram::with_opts(prometheus::HistogramOpts::new(&emergency_name, ""))
                     .unwrap_or_else(|final_error| {
-                        eprintln!("FINAL HISTOGRAM ERROR: {}", final_error);
+                        error!("FINAL HISTOGRAM ERROR: {}", final_error);
                         unreachable!("Histogram creation impossible - Prometheus corrupted")
                     })
             })
@@ -669,7 +670,7 @@ impl Monitor {
 
                 HistogramVec::new(prometheus::HistogramOpts::new(&emergency_name, ""), &[])
                     .unwrap_or_else(|final_error| {
-                        eprintln!("FINAL HISTOGRAM_VEC ERROR: {}", final_error);
+                        error!("FINAL HISTOGRAM_VEC ERROR: {}", final_error);
                         unreachable!("HistogramVec creation impossible - Prometheus corrupted")
                     })
             })

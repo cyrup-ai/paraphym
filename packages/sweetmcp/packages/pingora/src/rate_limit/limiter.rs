@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info};
+use log::{debug, info};
 
 use super::algorithms::{HybridAlgorithm, RateLimitAlgorithm, SlidingWindow, TokenBucket};
 

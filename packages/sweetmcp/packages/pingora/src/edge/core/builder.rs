@@ -14,7 +14,7 @@ use std::time::Instant;
 use arc_swap::ArcSwap;
 use pingora_load_balancing::Backend;
 use tokio::sync::mpsc::Sender;
-use tracing::{debug, error, info};
+use log::{debug, error, info};
 
 use super::service::{EdgeService, EdgeServiceError};
 use crate::{
@@ -160,6 +160,41 @@ impl EdgeServiceBuilder {
             }
         });
 
+        // Initialize health checking (following EdgeService::new pattern)
+        let health_check_config = super::service::HealthCheckConfig::default();
+        
+        // Create health status map for all backends
+        let mut backend_health_map = std::collections::HashMap::new();
+        for backend in backends.iter() {
+            backend_health_map.insert(backend.hash_key(), pingora_load_balancing::health_check::Health::default());
+        }
+        let backend_health = Arc::new(ArcSwap::from_pointee(backend_health_map));
+        
+        // Create TcpHealthCheck instance
+        let mut tcp_check = pingora_load_balancing::health_check::TcpHealthCheck::default();
+        tcp_check.consecutive_success = health_check_config.success_threshold;
+        tcp_check.consecutive_failure = health_check_config.failure_threshold;
+        tcp_check.peer_template.options.connection_timeout = 
+            Some(std::time::Duration::from_millis(health_check_config.timeout_ms));
+        let health_checker = Arc::new(tcp_check);
+        
+        // Convert backends to Vec for health check task
+        let backends_vec: Vec<_> = backends.iter().cloned().collect();
+        
+        // Spawn background health check task
+        let health_checker_clone = health_checker.clone();
+        let backend_health_clone = backend_health.clone();
+        let check_config = health_check_config.clone();
+        
+        tokio::spawn(async move {
+            super::operations::run_health_checks(
+                backends_vec,
+                health_checker_clone,
+                backend_health_clone,
+                check_config,
+            ).await;
+        });
+
         // Construct EdgeService DIRECTLY
         let service = EdgeService {
             cfg: cfg.clone(),
@@ -177,6 +212,9 @@ impl EdgeServiceBuilder {
             start_time: Instant::now(),
             token_manager,
             auth_attempt_tracker: Arc::new(dashmap::DashMap::new()),
+            backend_health,
+            health_checker,
+            health_check_config,
         };
 
         // Validate the built service

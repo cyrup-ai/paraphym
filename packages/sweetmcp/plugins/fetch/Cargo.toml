@@ -27,6 +27,7 @@ markup5ever_rcdom = "0.35"
 thiserror = "2.0"
 async-trait = "0.1"
 tower-service = "0.3.3"
+log = "0.4.28"
 sweetmcp-plugin-builder = { path = "../../packages/plugin-builder" }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]

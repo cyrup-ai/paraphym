@@ -7,6 +7,7 @@ use automation::*;
 use commands::*;
 use errors::*;
 use extism_pdk::*;
+use log::{debug, info, trace};
 use pdk::types::{
     CallToolRequest, CallToolResult, Content, ContentType, ListToolsResult, ToolDescription,
 };
@@ -16,8 +17,7 @@ use serde_json::json;
 
 /// Called when the browser tool is invoked
 pub(crate) fn call(input: CallToolRequest) -> Result<CallToolResult, Error> {
-    extism_pdk::log!(
-        LogLevel::Info,
+    info!(
         "Browser plugin called with args: {:?}",
         input.params.arguments
     );
@@ -58,7 +58,7 @@ fn handle_navigate(
     // Validate URL
     validate_url(url).map_err(browser_error_to_extism)?;
 
-    extism_pdk::log!(LogLevel::Debug, "Navigating to URL: {}", url);
+    info!("Navigating to URL: {}", url);
 
     // Create the navigation command
     let command = BrowserCommand::Navigate(NavigateCommand {
@@ -97,6 +97,11 @@ fn handle_screenshot(
         _ => ScreenshotFormat::Base64,
     };
 
+    debug!(
+        "Taking screenshot: element={:?}, format={:?}",
+        element_selector, format
+    );
+
     let command = BrowserCommand::Screenshot(ScreenshotCommand {
         element_selector,
         format,
@@ -133,7 +138,7 @@ fn handle_click(args: serde_json::Map<String, serde_json::Value>) -> Result<Call
     // Validate selector
     validate_selector(selector).map_err(browser_error_to_extism)?;
 
-    extism_pdk::log!(LogLevel::Debug, "Clicking element: {}", selector);
+    debug!("Clicking element: {}", selector);
 
     let command = BrowserCommand::Click(ClickCommand {
         selector: selector.to_string(),
@@ -173,6 +178,8 @@ fn handle_type_text(
         None => return Err(Error::msg("text is required for type_text action")),
     };
 
+    debug!("Typing text into element: {}", selector);
+
     let command = BrowserCommand::TypeText(TypeTextCommand {
         selector: selector.to_string(),
         text: text.to_string(),
@@ -201,6 +208,8 @@ fn handle_extract_text(
         .get("selector")
         .and_then(|v| v.as_str())
         .unwrap_or("body");
+
+    debug!("Extracting text from element: {}", selector);
 
     let command = BrowserCommand::ExtractText(ExtractTextCommand {
         selector: selector.to_string(),
@@ -234,6 +243,8 @@ fn handle_scroll(
 
     let amount = args.get("amount").and_then(|v| v.as_i64()).unwrap_or(300);
 
+    debug!("Scrolling {:?} by {} pixels", direction, amount);
+
     let command = BrowserCommand::Scroll(ScrollCommand { direction, amount });
 
     let command_json = serde_json::to_string_pretty(&command)
@@ -257,6 +268,8 @@ fn handle_wait(args: serde_json::Map<String, serde_json::Value>) -> Result<CallT
         .get("duration")
         .and_then(|v| v.as_i64())
         .unwrap_or(1000);
+
+    trace!("Waiting for {} milliseconds", duration);
 
     let command = BrowserCommand::Wait(WaitCommand { duration });
 
@@ -299,6 +312,13 @@ fn handle_run_automation(
         .get("additional_info")
         .and_then(|v| v.as_str())
         .unwrap_or("");
+
+    info!("Running automation task: {}", task);
+    trace!(
+        "Automation config: vision={}, additional_info={}",
+        use_vision,
+        additional_info
+    );
 
     // Create automation context for advanced features
     let automation_context = AutomationContext {

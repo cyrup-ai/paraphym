@@ -17,7 +17,7 @@ use hickory_resolver::config::ResolverConfig;
 use hickory_resolver::name_server::TokioConnectionProvider;
 use hickory_resolver::TokioResolver;
 use tokio::time::interval;
-use tracing::{debug, error, info, warn};
+use log::{debug, error, info, warn};
 
 use crate::peer_discovery::PeerRegistry;
 

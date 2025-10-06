@@ -18,5 +18,6 @@ base64-serde = "0.8"
 base64 = "0.22"
 htmd = "0.2.2"
 anyhow = "1.0"
+log = "0.4.28"
 sweetmcp-plugin-builder = { path = "../../packages/plugin-builder" }
 similar = "2.7.0"

@@ -2,7 +2,7 @@
 use std::env;
 use std::path::{Path, PathBuf};
 
-use tracing::{info, warn};
+use log::{info, warn};
 
 #[cfg(target_os = "linux")]
 use crate::linux::LinuxRamdisk;

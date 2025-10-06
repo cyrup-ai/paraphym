@@ -11,6 +11,7 @@ use std::sync::RwLock;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use log::{error, warn};
 
 use atomic_counter::{AtomicCounter, ConsistentCounter};
 use crossbeam_queue::SegQueue;
@@ -1108,7 +1109,7 @@ impl MacroSystem {
                         }
                     } else {
                         // No conversation available - log warning and continue
-                        eprintln!("Warning: No conversation available for SendMessage action. Message: {resolved_content}");
+                        warn!("No conversation available for SendMessage action. Message: {resolved_content}");
                         Ok::<ActionExecutionResult, MacroSystemError>(ActionExecutionResult::Success)
                     }
                 }
@@ -1146,7 +1147,7 @@ impl MacroSystem {
                     
                     // Log output if command succeeded and produced output
                     if !command_output.is_empty() && matches!(result, ActionExecutionResult::Success) {
-                        eprintln!("Command output: {command_output}");
+                        log::debug!("Command output: {command_output}");
                     }
                     
                     Ok::<ActionExecutionResult, MacroSystemError>(result)
@@ -1748,7 +1749,7 @@ impl MacroProcessor {
                         error
                     ));
                     if let Some(ref msg) = error_message {
-                        eprintln!("Macro execution error: {msg}");
+                        error!("Macro execution error: {msg}");
                     }
                     break false;
                 }
@@ -1759,7 +1760,7 @@ impl MacroProcessor {
                         e
                     ));
                     if let Some(ref msg) = error_message {
-                        eprintln!("Macro system error: {msg}");
+                        error!("Macro system error: {msg}");
                     }
                     break false;
                 }
@@ -1900,7 +1901,7 @@ fn execute_action_sync(
                 }
             } else {
                 // No conversation available - log warning and continue
-                eprintln!("Warning: No conversation available for SendMessage action. Message: {resolved_content}");
+                warn!("No conversation available for SendMessage action. Message: {resolved_content}");
                 Ok(ActionExecutionResult::Success)
             }
         }
@@ -1938,7 +1939,7 @@ fn execute_action_sync(
             
             // Log output if command succeeded and produced output
             if !command_output.is_empty() && matches!(result, ActionExecutionResult::Success) {
-                eprintln!("Command output: {command_output}");
+                log::debug!("Command output: {command_output}");
             }
             
             Ok(result)

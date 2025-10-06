@@ -3,6 +3,8 @@ name = "sweetmcp-plugin-eval-js"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+
 [lib]
 name = "sweetmcp_plugin_eval_js"
 crate-type = ["cdylib"]
@@ -16,6 +18,7 @@ rustpython-vm = { version = "0.4.0", default-features = false, features = ["comp
 once_cell = "1.21"
 base64-serde = "0.8.0"
 base64 = "0.22.1"
+log = "0.4"
 
 [target.wasm32-wasi.dependencies]
 getrandom = { version = "0.3", features = ["wasm_js"] }

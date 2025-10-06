@@ -11,6 +11,7 @@ keywords = ["mcp", "json", "toml", "serialization", "performance"]
 categories = ["encoding", "parser-implementations"]
 
 [dependencies]
+log = { workspace = true }
 # ----------------------------
 # SIMD-accelerated JSON DOM:
 #  • Enable serde_impl for ToolInfo serialization

@@ -38,7 +38,7 @@ impl AuthorityRemoteBuilder {
 
     /// Load certificate authority from remote URL
     pub async fn load(self) -> super::responses::CertificateAuthorityResponse {
-        tracing::debug!("Loading CA '{}' from remote URL: {}", self.name, self.url);
+        log::debug!("Loading CA '{}' from remote URL: {}", self.name, self.url);
 
         let url = match self.parse_and_validate_url() {
             Ok(u) => u,
@@ -61,7 +61,7 @@ impl AuthorityRemoteBuilder {
 
         let authority = self.create_certificate_authority(cert_content, &parsed_cert);
 
-        tracing::info!(
+        log::info!(
             "Successfully loaded CA '{}' from remote URL (valid until: {:?})",
             self.name,
             authority.metadata.valid_until

@@ -17,7 +17,9 @@
 use anyhow::Result;
 use candle_core::Device;
 use clap::Parser;
-use paraphym_candle::model::phi4_reasoning::{ChatMessage, Phi4ReasoningModel};
+use std::io::Write;
+use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
+use paraphym_candle::capability::text_to_text::phi4_reasoning::{ChatMessage, Phi4ReasoningModel};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -44,11 +46,18 @@ struct Args {
 }
 
 fn main() -> Result<()> {
+    env_logger::Builder::from_default_env()
+        .filter_level(log::LevelFilter::Info)
+        .init();
+
     let args = Args::parse();
 
-    println!("🔧 Initializing Phi-4-Reasoning model...");
-    println!("Model: {}", args.model_path);
-    println!("Tokenizer: {}", args.tokenizer_path);
+    let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Cyan)))?;
+    writeln!(&mut stdout, "🔧 Initializing Phi-4-Reasoning model...")?;
+    stdout.reset()?;
+    writeln!(&mut stdout, "Model: {}", args.model_path)?;
+    writeln!(&mut stdout, "Tokenizer: {}", args.tokenizer_path)?;
 
     // Initialize device
     let device = if args.cpu {
@@ -56,45 +65,63 @@ fn main() -> Result<()> {
     } else {
         Device::cuda_if_available(0)?
     };
-    println!("Device: {:?}", device);
+    writeln!(&mut stdout, "Device: {:?}", device)?;
 
     // Load model
-    println!("\n📥 Loading model (this may take a moment)...");
+    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow)))?;
+    writeln!(&mut stdout, "\n📥 Loading model (this may take a moment)...")?;
+    stdout.reset()?;
     let mut model =
         Phi4ReasoningModel::load_from_gguf(&args.model_path, &args.tokenizer_path, &device)?;
 
-    println!("✅ Model loaded successfully!");
+    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Green)))?;
+    writeln!(&mut stdout, "✅ Model loaded successfully!")?;
+    stdout.reset()?;
 
     // Create chat messages
     let messages = vec![ChatMessage::user(&args.query)];
 
-    println!("\n💬 User Query:");
-    println!("{}", args.query);
+    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Cyan)).set_bold(true))?;
+    writeln!(&mut stdout, "\n💬 User Query:")?;
+    stdout.reset()?;
+    writeln!(&mut stdout, "{}", args.query)?;
 
     // Apply chat template
-    println!("\n🔄 Applying chat template...");
+    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow)))?;
+    writeln!(&mut stdout, "\n🔄 Applying chat template...")?;
+    stdout.reset()?;
     let prompt = model.apply_chat_template(&messages)?;
 
     // Generate response
-    println!("\n🤔 Generating response with reasoning...");
+    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow)))?;
+    writeln!(&mut stdout, "\n🤔 Generating response with reasoning...")?;
+    stdout.reset()?;
     let response = model.generate(&prompt, args.max_tokens)?;
 
     // Extract reasoning and solution
     let (reasoning, solution) = model.extract_reasoning(&response);
 
     // Display results
-    println!("\n{}", "=".repeat(80));
+    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Cyan)).set_bold(true))?;
+    writeln!(&mut stdout, "\n{}", "=".repeat(80))?;
     if let Some(thinking) = reasoning {
-        println!("🧠 REASONING PROCESS:");
-        println!("{}", "─".repeat(80));
-        println!("{}", thinking);
-        println!("{}", "─".repeat(80));
+        writeln!(&mut stdout, "🧠 REASONING PROCESS:")?;
+        stdout.reset()?;
+        writeln!(&mut stdout, "{}", "─".repeat(80))?;
+        writeln!(&mut stdout, "{}", thinking)?;
+        writeln!(&mut stdout, "{}", "─".repeat(80))?;
+        stdout.set_color(ColorSpec::new().set_fg(Some(Color::Cyan)).set_bold(true))?;
     }
 
-    println!("\n💡 SOLUTION:");
-    println!("{}", "─".repeat(80));
-    println!("{}", solution);
-    println!("{}", "=".repeat(80));
+    writeln!(&mut stdout, "\n💡 SOLUTION:")?;
+    stdout.reset()?;
+    writeln!(&mut stdout, "{}", "─".repeat(80))?;
+    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Green)))?;
+    writeln!(&mut stdout, "{}", solution)?;
+    stdout.reset()?;
+    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Cyan)).set_bold(true))?;
+    writeln!(&mut stdout, "{}", "=".repeat(80))?;
+    stdout.reset()?;
 
     Ok(())
 }

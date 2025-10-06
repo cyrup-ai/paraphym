@@ -8,7 +8,7 @@ use std::time::{Duration, SystemTime};
 
 use rcgen::{CertificateParams, DistinguishedName, DnType, KeyPair, SanType};
 use tokio::fs;
-use tracing::info;
+use log::info;
 
 use super::parsing::{parse_certificate_from_pem, validate_certificate_time};
 use crate::tls::errors::TlsError;

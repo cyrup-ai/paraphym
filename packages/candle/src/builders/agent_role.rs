@@ -26,6 +26,10 @@ use serde_json;
 use crate::capability::text_to_text::{CandlePhi4ReasoningProvider, CandlePhi4ReasoningConfig};
 use crate::domain::agent::role::CandleCompletionProviderType;
 
+// Memory types for explicit type annotations
+use crate::memory::primitives::node::MemoryNode;
+use crate::memory::core::manager::surreal::Result as MemoryResult;
+
 // Candle domain types - self-contained
 /// Trait for AI completion providers (e.g., OpenAI, Anthropic, local models)  
 pub trait CandleCompletionProvider: Send + Sync + 'static {}
@@ -816,6 +820,46 @@ where
     }
 }
 
+/// Format memory search results into prompt context
+/// 
+/// # Arguments
+/// * `memories` - Vector of memory nodes sorted by relevance
+/// * `max_tokens` - Maximum token budget for context
+/// 
+/// # Returns
+/// Formatted markdown string with memory context
+fn format_memory_context(
+    memories: &[crate::memory::primitives::node::MemoryNode],
+    max_tokens: usize,
+) -> String {
+    use std::fmt::Write;
+    
+    let mut context = String::from("# Relevant Context from Memory:\n\n");
+    let mut token_count = 0usize;
+    
+    for memory in memories {
+        // Approximate token count: chars / 4
+        let memory_tokens = memory.content.text.chars().count() / 4;
+        
+        if token_count + memory_tokens > max_tokens {
+            break; // Exceed budget, stop adding
+        }
+        
+        // Format with relevance indicator
+        let relevance = memory.metadata.importance;
+        let _ = writeln!(
+            &mut context,
+            "[Relevance: {:.2}] {}\n",
+            relevance,
+            memory.content.text
+        );
+        
+        token_count += memory_tokens;
+    }
+    
+    context
+}
+
 impl<P> CandleAgentBuilder for CandleAgentBuilderImpl<P>
 where
     P: DomainCompletionModel + Send + 'static,
@@ -907,9 +951,30 @@ where
                             None
                         };
 
-                        // Memory context injection placeholder
-                        // TODO: Implement proper memory context injection using memory manager's search API
-                        let memory_context: Option<String> = None;
+                        // Memory context injection
+                        let memory_context: Option<String> = if let Some(ref mem_manager) = memory {
+                            let memory_stream = mem_manager.search_by_content(&user_message);
+
+                            // Use tokio::task::block_in_place pattern (matches domain/agent/chat.rs:460)
+                            let results: Vec<MemoryResult<MemoryNode>> = tokio::task::block_in_place(|| {
+                                tokio::runtime::Handle::current().block_on(async {
+                                    use futures_util::StreamExt;
+                                    memory_stream.take(5).collect().await
+                                })
+                            });
+
+                            let memories: Vec<MemoryNode> = results.into_iter()
+                                .filter_map(|r| r.ok())
+                                .collect();
+
+                            if !memories.is_empty() {
+                                Some(format_memory_context(&memories, 1000))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
 
                         // Create prompt with memory context and system prompt if provided
                         let full_prompt = match (memory_context, system_prompt) {
@@ -1061,19 +1126,15 @@ where
                                 // Spawn tasks on the runtime to handle the async operations
                                 runtime.spawn(async move {
                                     if let Err(e) = user_pending.await {
-                                        tracing::error!(
-                                            error = ?e,
-                                            memory_type = "user",
-                                            "Failed to store memory to database"
+                                        log::error!(
+                                            "Failed to store user memory to database: {:?}", e
                                         );
                                     }
                                 });
                                 runtime.spawn(async move {
                                     if let Err(e) = assistant_pending.await {
-                                        tracing::error!(
-                                            error = ?e,
-                                            memory_type = "assistant",
-                                            "Failed to store memory to database"
+                                        log::error!(
+                                            "Failed to store assistant memory to database: {:?}", e
                                         );
                                     }
                                 });

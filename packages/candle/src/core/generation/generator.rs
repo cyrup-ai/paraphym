@@ -130,7 +130,7 @@ impl TextGenerator {
             
             // Update constraint state after token sampling
             if let Err(e) = self.update_constraint_state(next_token) {
-                tracing::warn!("Failed to update constraint state: {}", e);
+                log::warn!("Failed to update constraint state: {}", e);
             }
             
             position += 1;
@@ -182,7 +182,7 @@ impl TextGenerator {
                 
                 // Update constraint state after token sampling
                 if let Err(e) = self.update_constraint_state(next_token) {
-                    tracing::warn!("Failed to update constraint state: {}", e);
+                    log::warn!("Failed to update constraint state: {}", e);
                 }
                 
                 position += 1;

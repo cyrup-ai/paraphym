@@ -2,6 +2,7 @@ mod plugin;
 
 use chrono::{DateTime, Utc};
 use extism_pdk::*;
+use log::{debug, info, trace};
 use plugin::types::{
     CallToolRequest, CallToolResult, Content, ContentType, ListToolsResult, Role, TextAnnotation,
     ToolDescription,
@@ -55,6 +56,8 @@ fn search(input: CallToolRequest) -> Result<CallToolResult, Error> {
         .and_then(|v| v.as_u64())
         .unwrap_or(10);
 
+    debug!("Searching arXiv: query='{}', max_results={}", query, max_results);
+
     let req = HttpRequest {
         url: format!(
             "http://export.arxiv.org/api/query?search_query={}&max_results={}&sortBy=submittedDate&sortOrder=descending",
@@ -70,11 +73,13 @@ fn search(input: CallToolRequest) -> Result<CallToolResult, Error> {
         method: Some("GET".to_string()),
     };
 
+    debug!("Sending arXiv API request");
     let res = http::request::<()>(&req, None)?;
 
     let body = res.body();
     let xml = String::from_utf8_lossy(body.as_slice());
 
+    trace!("Parsing arXiv XML response ({} bytes)", xml.len());
     let feed = match feed_rs::parser::parse(xml.as_bytes()) {
         Ok(feed) => feed,
         Err(e) => return Err(Error::msg(format!("Failed to parse arXiv feed: {}", e))),
@@ -122,6 +127,8 @@ fn search(input: CallToolRequest) -> Result<CallToolResult, Error> {
         });
     }
 
+    info!("Found {} papers for query '{}'", papers.len(), query);
+
     Ok(CallToolResult {
         is_error: None,
         content: vec![Content {
@@ -156,7 +163,11 @@ fn download_pdf(input: CallToolRequest) -> Result<CallToolResult, Error> {
         paper_id
     };
 
+    debug!("Downloading arXiv paper: {} to {}", clean_paper_id, save_path);
+
     let url = format!("https://arxiv.org/pdf/{}", clean_paper_id);
+    
+    info!("Downloading PDF from: {}", url);
 
     let req = HttpRequest {
         url,
@@ -171,7 +182,6 @@ fn download_pdf(input: CallToolRequest) -> Result<CallToolResult, Error> {
         .collect(),
         method: Some("GET".to_string()),
     };
-
     let res = match http::request::<()>(&req, None) {
         Ok(r) => r,
         Err(e) => return Err(Error::msg(format!("HTTP request failed: {}", e))),
@@ -182,9 +192,13 @@ fn download_pdf(input: CallToolRequest) -> Result<CallToolResult, Error> {
         return Err(Error::msg("Received empty PDF data from arXiv"));
     }
 
+    debug!("Received {} bytes of PDF data", pdf_data.len());
+
     let file_path = format!("{}/{}.pdf", save_path.trim_end_matches('/'), clean_paper_id);
     match std::fs::write(&file_path, &pdf_data) {
-        Ok(_) => (),
+        Ok(_) => {
+            info!("PDF saved successfully to: {}", file_path);
+        },
         Err(e) => {
             return Err(Error::msg(format!(
                 "Failed to write PDF to {}: {}",

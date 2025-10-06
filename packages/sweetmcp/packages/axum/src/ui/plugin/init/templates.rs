@@ -6,8 +6,6 @@
 
 use std::fs;
 
-use crossterm::style::Stylize;
-
 use crate::ui::plugin::init::core::*;
 
 /// Template generator for plugin files
@@ -75,7 +73,7 @@ strip = true
         );
 
         fs::write(self.plugin_dir.join("Cargo.toml"), cargo_toml)?;
-        println!("Created {}", "Cargo.toml".bold());
+        log::info!("Created Cargo.toml");
         Ok(())
     }
 
@@ -156,7 +154,7 @@ pub fn describe(_: ()) -> FnResult<ListToolsResult> {{
         );
 
         fs::write(self.plugin_dir.join("src").join("main.rs"), main_rs)?;
-        println!("Created {}", "src/main.rs".bold());
+        log::info!("Created src/main.rs");
         Ok(())
     }
 
@@ -176,7 +174,7 @@ pub use plugin::types::*;
         );
 
         fs::write(self.plugin_dir.join("src").join("lib.rs"), lib_rs)?;
-        println!("Created {}", "src/lib.rs".bold());
+        log::info!("Created src/lib.rs");
         Ok(())
     }
 
@@ -295,7 +293,7 @@ pub struct TextResourceContents {
             self.plugin_dir.join("src").join("plugin").join("types.rs"),
             types_rs,
         )?;
-        println!("Created {}", "src/plugin/types.rs".bold());
+        log::info!("Created src/plugin/types.rs");
         Ok(())
     }
 
@@ -312,7 +310,7 @@ pub use types::*;
             self.plugin_dir.join("src").join("plugin").join("mod.rs"),
             plugin_rs,
         )?;
-        println!("Created {}", "src/plugin/mod.rs".bold());
+        log::info!("Created src/plugin/mod.rs");
         Ok(())
     }
 
@@ -381,7 +379,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
         );
 
         fs::write(self.plugin_dir.join("README.md"), readme)?;
-        println!("Created {}", "README.md".bold());
+        log::info!("Created README.md");
         Ok(())
     }
 }
@@ -488,7 +486,7 @@ help:
         );
 
         fs::write(self.plugin_dir.join("Makefile"), makefile)?;
-        println!("Created {}", "Makefile".bold());
+        log::info!("Created Makefile");
         Ok(())
     }
 
@@ -525,7 +523,7 @@ LABEL version="0.1.0"
         );
 
         fs::write(self.plugin_dir.join("Dockerfile"), dockerfile)?;
-        println!("Created {}", "Dockerfile".bold());
+        log::info!("Created Dockerfile");
 
         let dockerignore = r#"target/
 .git/
@@ -536,7 +534,7 @@ Dockerfile
 "#;
 
         fs::write(self.plugin_dir.join(".dockerignore"), dockerignore)?;
-        println!("Created {}", ".dockerignore".bold());
+        log::info!("Created .dockerignore");
 
         Ok(())
     }
@@ -636,7 +634,7 @@ jobs:
                 .join("ci.yml"),
             ci_workflow,
         )?;
-        println!("Created {}", ".github/workflows/ci.yml".bold());
+        log::info!("Created .github/workflows/ci.yml");
 
         Ok(())
     }
@@ -662,7 +660,7 @@ jobs:
             self.plugin_dir.join(".vscode").join("settings.json"),
             settings,
         )?;
-        println!("Created {}", ".vscode/settings.json".bold());
+        log::info!("Created .vscode/settings.json");
 
         let extensions = r#"{
     "recommendations": [
@@ -678,7 +676,7 @@ jobs:
             self.plugin_dir.join(".vscode").join("extensions.json"),
             extensions,
         )?;
-        println!("Created {}", ".vscode/extensions.json".bold());
+        log::info!("Created .vscode/extensions.json");
 
         Ok(())
     }

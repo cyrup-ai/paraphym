@@ -1,6 +1,8 @@
 //! Benchmarking utilities for SIMD operations
 
+use std::io::Write;
 use std::time::{Duration, Instant};
+use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 /// Results from a benchmark run
 #[derive(Debug, Clone)]
@@ -90,25 +92,42 @@ pub fn benchmark_logits_processing() -> Vec<BenchmarkResult> {
 }
 
 /// Print benchmark results in a formatted table
-pub fn print_benchmark_results(results: &[BenchmarkResult]) {
-    println!("\n=== Benchmark Results ===\n");
-    println!(
+pub fn print_benchmark_results(results: &[BenchmarkResult]) -> std::io::Result<()> {
+    let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+    
+    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Cyan)).set_bold(true))?;
+    writeln!(&mut stdout, "\n=== Benchmark Results ===")?;
+    stdout.reset()?;
+    writeln!(&mut stdout)?;
+    
+    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Blue)).set_bold(true))?;
+    writeln!(
+        &mut stdout,
         "{:<30} | {:>12} | {:>12} | {:>12}",
         "Test", "Ops", "Time (ms)", "Ops/s"
-    );
-    println!("{:-<80}", "");
+    )?;
+    stdout.reset()?;
+    writeln!(&mut stdout, "{:-<80}", "")?;
 
     for result in results {
-        println!(
+        stdout.set_color(ColorSpec::new().set_fg(Some(Color::Green)))?;
+        writeln!(
+            &mut stdout,
             "{:<30} | {:>12} | {:>12.2} | {:>12.2}",
             result.name,
             result.operations,
             result.duration.as_secs_f64() * 1000.0,
             result.ops_per_sec
-        );
+        )?;
     }
+    stdout.reset()?;
 
-    println!("\n=== End of Results ===\n");
+    stdout.set_color(ColorSpec::new().set_fg(Some(Color::Cyan)).set_bold(true))?;
+    writeln!(&mut stdout, "\n=== End of Results ===")?;
+    stdout.reset()?;
+    writeln!(&mut stdout)?;
+    
+    Ok(())
 }
 
 #[cfg(test)]

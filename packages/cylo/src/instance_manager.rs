@@ -319,7 +319,7 @@ impl InstanceManager {
                 // Perform cleanup
                 if let Err(e) = managed.backend.cleanup().await {
                     // Log cleanup error but don't fail the removal
-                    eprintln!("Warning: Failed to cleanup instance {instance_id}: {e}");
+                    log::warn!("Failed to cleanup instance {}: {}", instance_id, e);
                 }
             }
 
@@ -473,7 +473,7 @@ impl InstanceManager {
                 if let Some(managed) = managed_instance {
                     // Perform cleanup
                     if let Err(e) = managed.backend.cleanup().await {
-                        eprintln!("Warning: Failed to cleanup idle instance {instance_id}: {e}");
+                        log::warn!("Failed to cleanup idle instance {}: {}", instance_id, e);
                     } else {
                         removed_count += 1;
                     }
@@ -512,7 +512,7 @@ impl InstanceManager {
                 let id = instance_id.clone();
                 let cleanup_task = AsyncTaskBuilder::new(async move {
                     if let Err(e) = managed.backend.cleanup().await {
-                        eprintln!("Warning: Failed to cleanup instance {id} during shutdown: {e}");
+                        log::warn!("Failed to cleanup instance {} during shutdown: {}", id, e);
                     }
                 })
                 .spawn();

@@ -8,6 +8,7 @@ use std::sync::{Arc, atomic::{AtomicBool, AtomicU64, Ordering}};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use log::error;
 
 use crate::domain::completion::response::CompletionResponse;
 use crate::domain::context::chunk::{CandleStringChunk, CandleCompletionChunk};
@@ -36,7 +37,7 @@ pub struct CompletionParams {
 /// Handle errors in streaming context without panicking
 macro_rules! handle_error {
     ($error:expr, $context:literal) => {
-        eprintln!("Streaming error in {}: {}", $context, $error)
+        log::error!("Streaming error in {}: {}", $context, $error)
         // Continue processing instead of returning error
     };
 }

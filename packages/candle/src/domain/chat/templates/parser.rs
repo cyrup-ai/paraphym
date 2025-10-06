@@ -876,6 +876,6 @@ mod tests {
     #[test]
     fn test_template_validation() {
         assert!(validate_template("Hello {{name}}!").is_ok());
-        assert!(validate_template("{{unclosed").is_ok()); // Parser is lenient
+        assert!(validate_template("{{unclosed").is_err()); // Parser correctly rejects unclosed expressions
     }
 }

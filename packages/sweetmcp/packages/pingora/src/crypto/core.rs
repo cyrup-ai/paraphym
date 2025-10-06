@@ -14,7 +14,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
 use sodiumoxide::crypto::box_;
 use tokio::sync::RwLock;
-use tracing::info;
+use log::info;
 
 pub const TOKEN_ROTATION_HOURS: u64 = 24;
 pub const TOKEN_VALIDITY_HOURS: u64 = 48; // Allow grace period for rotation

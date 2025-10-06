@@ -7,7 +7,7 @@
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::PathBuf;
 use crossbeam_channel::{bounded, Receiver, Sender};
-use tracing::{debug, error};
+use log::{debug, error};
 
 /// Events representing file system changes
 #[derive(Debug, Clone)]
@@ -79,7 +79,7 @@ impl RealtimeContextProvider {
                     }
                 }
                 Err(e) => {
-                    error!("File watch error: {:?}", e);
+                    error!("File watch error: {e:?}");
                 }
             }
         })?;
@@ -112,7 +112,7 @@ impl RealtimeContextProvider {
         
         tokio::spawn(async move {
             while let Ok(event) = rx.recv() {
-                debug!("Context update event: {:?}", event);
+                debug!("Context update event: {event:?}");
                 on_update(event);
             }
         })

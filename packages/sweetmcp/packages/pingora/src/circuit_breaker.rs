@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use once_cell::sync::Lazy;
 use prometheus::{register_int_counter, IntCounter};
 use tokio::sync::RwLock;
-use tracing::{debug, info, warn};
+use log::{debug, info, warn};
 
 /// Circuit breaker states
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,7 +82,7 @@ static CIRCUIT_STATE_GAUGE: Lazy<prometheus::IntGaugeVec> = Lazy::new(|| {
         &["peer"]
     )
     .unwrap_or_else(|e| {
-        tracing::warn!("Failed to register circuit breaker state gauge: {}", e);
+        log::warn!("Failed to register circuit breaker state gauge: {}", e);
         prometheus::IntGaugeVec::new(
             prometheus::Opts::new(
                 "sweetmcp_circuit_breaker_state_fallback",
@@ -91,7 +91,7 @@ static CIRCUIT_STATE_GAUGE: Lazy<prometheus::IntGaugeVec> = Lazy::new(|| {
             &["peer"]
         )
         .unwrap_or_else(|e| {
-            tracing::error!("Critical: Cannot create circuit breaker gauge: {}", e);
+            log::error!("Critical: Cannot create circuit breaker gauge: {}", e);
             std::process::exit(1)
         })
     })
@@ -103,13 +103,13 @@ static CIRCUIT_OPENED_COUNTER: Lazy<IntCounter> = Lazy::new(|| {
         "Total number of times circuit breaker opened"
     )
     .unwrap_or_else(|e| {
-        tracing::warn!("Failed to register circuit breaker opened counter: {}", e);
+        log::warn!("Failed to register circuit breaker opened counter: {}", e);
         IntCounter::new(
             "sweetmcp_circuit_breaker_opened_total_fallback",
             "Fallback circuit breaker opened counter",
         )
         .unwrap_or_else(|e| {
-            tracing::error!("Critical: Cannot create circuit breaker counter: {}", e);
+            log::error!("Critical: Cannot create circuit breaker counter: {}", e);
             std::process::exit(1)
         })
     })

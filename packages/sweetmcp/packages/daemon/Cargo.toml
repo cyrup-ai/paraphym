@@ -30,6 +30,10 @@ cyrup_sugars = { git = "https://github.com/cyrup-ai/cyrup-sugars", branch = "mai
 # Auto-configuration support
 sweetmcp-client-autoconfig = { path = "../autoconfig" }
 
+# Plugin system support
+extism = "1.10"
+oci-client = "0.15"
+
 # Pingora TLS integration
 sweetmcp-pingora = { path = "../pingora" }
 
@@ -45,7 +49,7 @@ reqwest       = { version = "0.12", features = ["json"] }
 regex         = { version = "1.11.3" }
 url           = { version = "2.5.7" }
 uuid          = { version = "1.18", features = ["v4"] }
-tracing       = { version = "0.1" }
+termcolor     = { workspace = true }
 async-stream  = { version = "0.3" }
 futures-util  = { version = "0.3" }
 serde_urlencoded = { version = "0.7" }

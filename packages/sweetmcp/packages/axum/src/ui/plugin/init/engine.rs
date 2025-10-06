@@ -4,7 +4,7 @@
 //! of plugin creation with zero allocation patterns, blazing-fast performance, and
 //! comprehensive error handling for production environments.
 
-use ratatui::style::Stylize;
+use crate::context::logger::ConsoleLogger;
 
 use crate::ui::plugin::init::core::*;
 use crate::ui::plugin::init::templates::*;
@@ -24,11 +24,8 @@ impl PluginInitEngine {
 
     /// Initialize plugin with comprehensive setup
     pub fn initialize(&self) -> Result<InitResult, Box<dyn std::error::Error>> {
-        println!(
-            "{} {}",
-            "Initializing new plugin:".bold(),
-            self.context.args.name.clone().green().bold()
-        );
+        let logger = ConsoleLogger::new();
+        log::info!("Initializing new plugin: {}", self.context.args.name);
 
         let mut result = InitResult::new(
             self.context.args.name.clone(),
@@ -55,7 +52,7 @@ impl PluginInitEngine {
         }
 
         // Step 6: Print success message
-        self.print_success_message(&result);
+        self.print_success_message(&result, &logger);
 
         Ok(result)
     }
@@ -134,28 +131,22 @@ impl PluginInitEngine {
     }
 
     /// Print success message
-    fn print_success_message(&self, result: &InitResult) {
-        println!();
-        println!(
-            "{} {}",
-            "Plugin".green(),
-            self.context.args.name.clone().green().bold()
-        );
-        println!("{}", "✅ Plugin initialized successfully".green());
-        println!("Path: {}", result.path);
+    fn print_success_message(&self, result: &InitResult, logger: &ConsoleLogger) {
+        logger.success(&format!("Plugin {} initialized successfully", self.context.args.name));
+        log::info!("Path: {}", result.path);
 
         if result.git_initialized {
-            println!("🔧 Git repository initialized");
+            log::info!("🔧 Git repository initialized");
         }
 
         if result.github_created {
-            println!("🌐 GitHub repository created");
+            log::info!("🌐 GitHub repository created");
         }
 
         if !result.messages.is_empty() {
-            println!("\nAdditional information:");
+            log::info!("Additional information:");
             for message in &result.messages {
-                println!("  • {}", message);
+                log::info!("  • {}", message);
             }
         }
     }
@@ -185,12 +176,8 @@ impl AdvancedPluginInitEngine {
 
     /// Initialize plugin with advanced features
     pub fn initialize_advanced(&self) -> Result<InitResult, Box<dyn std::error::Error>> {
-        println!(
-            "{} {} {}",
-            "Initializing new plugin with advanced features:".bold(),
-            self.context.args.name.clone().green().bold(),
-            "(Advanced Mode)".cyan()
-        );
+        let logger = ConsoleLogger::new();
+        log::info!("Initializing new plugin with advanced features: {} (Advanced Mode)", self.context.args.name);
 
         let mut result = InitResult::new(
             self.context.args.name.clone(),
@@ -220,7 +207,7 @@ impl AdvancedPluginInitEngine {
         self.setup_development_environment(&mut result)?;
 
         // Step 7: Print success message
-        self.print_advanced_success_message(&result);
+        self.print_advanced_success_message(&result, &logger);
 
         Ok(result)
     }
@@ -317,42 +304,35 @@ impl AdvancedPluginInitEngine {
     }
 
     /// Print advanced success message
-    fn print_advanced_success_message(&self, result: &InitResult) {
-        println!();
-        println!(
-            "{} {} {}",
-            "Plugin".green(),
-            self.context.args.name.clone().green().bold(),
-            "(Advanced)".cyan()
-        );
-        println!("{}", "✅ Advanced plugin initialized successfully".green());
-        println!("Path: {}", result.path);
+    fn print_advanced_success_message(&self, result: &InitResult, logger: &ConsoleLogger) {
+        logger.success(&format!("Advanced plugin {} initialized successfully", self.context.args.name));
+        log::info!("Path: {}", result.path);
 
         if result.git_initialized {
-            println!("🔧 Git repository initialized with remote");
+            log::info!("🔧 Git repository initialized with remote");
         }
 
         if result.github_created {
-            println!("🌐 GitHub repository created");
+            log::info!("🌐 GitHub repository created");
         }
 
-        println!("📦 Advanced scaffolding includes:");
-        println!("  • Makefile for build automation");
-        println!("  • Docker configuration");
-        println!("  • GitHub Actions CI/CD");
-        println!("  • VSCode configuration");
+        log::info!("📦 Advanced scaffolding includes:");
+        log::info!("  • Makefile for build automation");
+        log::info!("  • Docker configuration");
+        log::info!("  • GitHub Actions CI/CD");
+        log::info!("  • VSCode configuration");
 
         if !result.messages.is_empty() {
-            println!("\nAdditional information:");
+            log::info!("Additional information:");
             for message in &result.messages {
-                println!("  • {}", message);
+                log::info!("  • {}", message);
             }
         }
 
-        println!("\n{}", "Next steps:".bold());
-        println!("  1. cd {}", result.path);
-        println!("  2. make dev  # Run development workflow");
-        println!("  3. make build  # Build the plugin");
+        log::info!("Next steps:");
+        log::info!("  1. cd {}", result.path);
+        log::info!("  2. make dev  # Run development workflow");
+        log::info!("  3. make build  # Build the plugin");
     }
 }
 

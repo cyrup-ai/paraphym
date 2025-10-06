@@ -347,7 +347,7 @@ impl<M: Model> AgentBuilder<M, (), Ready> {
             if let Some(router) = self.tool_router.as_ref() {
                 let mut mutable_router = SweetMcpRouter::new();
                 if let Err(e) = mutable_router.initialize().await {
-                    tracing::warn!("Failed to initialize tool router during build: {}", e);
+                    log::warn!("Failed to initialize tool router during build: {}", e);
                 }
             }
 

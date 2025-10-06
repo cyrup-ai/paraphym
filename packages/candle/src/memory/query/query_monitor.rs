@@ -153,7 +153,7 @@ impl QueryMonitor {
 
             // Log slow queries
             if is_slow && self.config.enable_logging {
-                tracing::warn!(
+                log::warn!(
                     "Slow query detected: {} ms - {}",
                     execution_time_ms,
                     record.query

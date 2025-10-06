@@ -171,7 +171,7 @@ impl MemoryContent {
             map.insert(
                 "content_embedding".to_string(),
                 serde_json::to_value(embedding).unwrap_or_else(|e| {
-                    tracing::warn!("Failed to serialize embedding: {}. Using null.", e);
+                    log::warn!("Failed to serialize embedding: {}. Using null.", e);
                     Value::Null
                 }),
             );
@@ -323,7 +323,7 @@ impl MemoryType for BaseMemory {
             match serde_json::to_value(value) {
                 Ok(json_value) => json_value,
                 Err(e) => {
-                    tracing::warn!(
+                    log::warn!(
                         "Failed to serialize field '{}': {}. Using null.",
                         field_name,
                         e

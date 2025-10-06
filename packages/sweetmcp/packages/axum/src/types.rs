@@ -101,6 +101,16 @@ pub struct ListResourcesRequest {
     pub category: Option<String>,
     // Filter by tags (all tags must match)
     pub tags: Option<Vec<String>>,
+    // Filter by resource types
+    pub resource_types: Option<Vec<String>>,
+    // Filter by parent
+    pub parent: Option<String>,
+    // Search query
+    pub search_query: Option<String>,
+    // Sort field
+    pub sort_field: Option<String>,
+    // Sort direction (ASC or DESC)
+    pub sort_direction: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -111,7 +121,7 @@ pub struct ListResourcesResult {
     pub next_cursor: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Resource {
     pub uri: Url,
@@ -151,6 +161,28 @@ pub struct ResourceContent {
     pub mime_type: Option<String>, // Optional MIME type
     pub text: Option<String>, // For text resources
     pub blob: Option<String>, // For binary resources (base64 encoded)
+}
+
+// ----- Resource Subscriptions (MCP Protocol) -----
+
+#[derive(Debug, Deserialize, Serialize, RpcParams)]
+pub struct SubscribeRequest {
+    pub uri: Url,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SubscribeResult {
+    // MCP protocol returns empty object
+}
+
+#[derive(Debug, Deserialize, Serialize, RpcParams)]
+pub struct UnsubscribeRequest {
+    pub uri: Url,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct UnsubscribeResult {
+    // MCP protocol returns empty object
 }
 
 // --------- prompt -------

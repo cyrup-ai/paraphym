@@ -3,6 +3,8 @@ name = "sweetmcp-plugin-arxiv"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+
 [lib]
 name = "sweetmcp_plugin_arxiv"
 crate-type = ["cdylib"]
@@ -17,3 +19,5 @@ feed-rs = "2.3"
 urlencoding = "2.1"
 base64 = "0.22"
 base64-serde = "0.8.0"
+log = "0.4.28"
+uuid = { version = "1", features = ["v4", "js"] }

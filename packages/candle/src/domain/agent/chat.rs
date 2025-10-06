@@ -543,10 +543,8 @@ impl CandleAgentRoleImpl {
             if let Some(runtime) = crate::runtime::shared_runtime() {
                 runtime.spawn(async move {
                     if let Err(e) = user_pending.await {
-                        tracing::error!(
-                            error = ?e,
-                            memory_type = "user",
-                            "Failed to store memory to database"
+                        log::error!(
+                            "Failed to store user memory to database: {e:?}"
                         );
                     }
                 });
@@ -564,10 +562,8 @@ impl CandleAgentRoleImpl {
                 if let Some(runtime) = crate::runtime::shared_runtime() {
                     runtime.spawn(async move {
                         if let Err(e) = assistant_pending.await {
-                            tracing::error!(
-                                error = ?e,
-                                memory_type = "assistant",
-                                "Failed to store memory to database"
+                            log::error!(
+                                "Failed to store assistant memory to database: {e:?}"
                             );
                         }
                     });
@@ -587,10 +583,8 @@ impl CandleAgentRoleImpl {
                     if let Some(runtime) = crate::runtime::shared_runtime() {
                         runtime.spawn(async move {
                             if let Err(e) = context_pending.await {
-                                tracing::error!(
-                                    error = ?e,
-                                    memory_type = "context",
-                                    "Failed to store memory to database"
+                                log::error!(
+                                    "Failed to store context memory to database: {e:?}"
                                 );
                             }
                         });

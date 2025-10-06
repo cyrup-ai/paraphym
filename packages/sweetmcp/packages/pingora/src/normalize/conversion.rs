@@ -11,7 +11,7 @@
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use sweetmcp_axum::JSONRPC_VERSION;
-use tracing::debug;
+use log::debug;
 use uuid::Uuid;
 
 use super::types::{

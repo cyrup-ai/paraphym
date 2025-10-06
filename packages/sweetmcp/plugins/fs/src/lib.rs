@@ -3,6 +3,7 @@ use std::path::Path;
 use std::time::SystemTime;
 
 use extism_pdk::*;
+use log::{debug, warn};
 use serde_json::{Value, json};
 use similar::TextDiff;
 use sweetmcp_plugin_builder::prelude::*;
@@ -104,19 +105,31 @@ fn read_file(args: &Value) -> Result<CallToolResult, Error> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| Error::msg("path parameter required for read operation"))?;
 
+    debug!("Reading file: {}", path);
+    
     match fs::read_to_string(path) {
-        Ok(content) => Ok(ContentBuilder::text(
-            json!({
-                "path": path,
-                "content": content,
-                "size": content.len()
-            })
-            .to_string(),
-        )),
-        Err(e) => Ok(ContentBuilder::error(format!(
-            "Failed to read file {}: {}",
-            path, e
-        ))),
+        Ok(content) => {
+            debug!("Successfully read {} bytes from {}", content.len(), path);
+            Ok(ContentBuilder::text(
+                json!({
+                    "path": path,
+                    "content": content,
+                    "size": content.len()
+                })
+                .to_string(),
+            ))
+        },
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::PermissionDenied {
+                warn!("Permission denied reading file: {}", path);
+            } else {
+                warn!("Failed to read file {}: {}", path, e);
+            }
+            Ok(ContentBuilder::error(format!(
+                "Failed to read file {}: {}",
+                path, e
+            )))
+        },
     }
 }
 
@@ -172,10 +185,14 @@ fn write_file(args: &Value) -> Result<CallToolResult, Error> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| Error::msg("content parameter required for write operation"))?;
 
+    debug!("Writing {} bytes to file: {}", content.len(), path);
+
     // Create parent directories if they don't exist
     if let Some(parent) = Path::new(path).parent() {
         if !parent.exists() {
+            debug!("Creating parent directories for: {}", path);
             if let Err(e) = fs::create_dir_all(parent) {
+                warn!("Failed to create parent directories: {}", e);
                 return Ok(ContentBuilder::error(format!(
                     "Failed to create parent directories: {}",
                     e
@@ -185,18 +202,28 @@ fn write_file(args: &Value) -> Result<CallToolResult, Error> {
     }
 
     match fs::write(path, content) {
-        Ok(_) => Ok(ContentBuilder::text(
-            json!({
-                "path": path,
-                "bytes_written": content.len(),
-                "success": true
-            })
-            .to_string(),
-        )),
-        Err(e) => Ok(ContentBuilder::error(format!(
-            "Failed to write file {}: {}",
-            path, e
-        ))),
+        Ok(_) => {
+            debug!("Successfully wrote {} bytes to {}", content.len(), path);
+            Ok(ContentBuilder::text(
+                json!({
+                    "path": path,
+                    "bytes_written": content.len(),
+                    "success": true
+                })
+                .to_string(),
+            ))
+        },
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::PermissionDenied {
+                warn!("Permission denied writing to file: {}", path);
+            } else {
+                warn!("Failed to write file {}: {}", path, e);
+            }
+            Ok(ContentBuilder::error(format!(
+                "Failed to write file {}: {}",
+                path, e
+            )))
+        },
     }
 }
 
@@ -222,6 +249,9 @@ fn edit_file(args: &Value) -> Result<CallToolResult, Error> {
         .get("count")
         .and_then(|v| v.as_u64())
         .map(|v| v as usize);
+    
+    debug!("Editing file: {}", path);
+    debug!("Replace count: {:?}", replace_count);
     
     // Read current file content
     let current_content = fs::read_to_string(path)
@@ -251,9 +281,20 @@ fn edit_file(args: &Value) -> Result<CallToolResult, Error> {
         }
     };
     
+    // Count actual changes made
+    let total_occurrences = current_content.matches(old_content).count();
+    let num_replacements = match replace_count {
+        Some(n) => n.min(total_occurrences),
+        None => total_occurrences
+    };
+    
+    debug!("Making {} replacements in {}", num_replacements, path);
+    
     // Write back to file
     fs::write(path, &updated_content)
         .map_err(|e| Error::msg(format!("Failed to write file: {}", e)))?;
+    
+    debug!("Successfully edited file: {}", path);
     
     // Generate unified diff for user feedback
     let diff = TextDiff::from_lines(&current_content, &updated_content);
@@ -296,25 +337,39 @@ fn create_dir(args: &Value) -> Result<CallToolResult, Error> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| Error::msg("path parameter required for mkdir operation"))?;
 
+    debug!("Creating directory: {}", path);
+
     match fs::create_dir_all(path) {
-        Ok(_) => Ok(ContentBuilder::text(
-            json!({
-                "path": path,
-                "created": true,
-                "success": true
-            })
-            .to_string(),
-        )),
-        Err(e) => Ok(ContentBuilder::error(format!(
-            "Failed to create directory {}: {}",
-            path, e
-        ))),
+        Ok(_) => {
+            debug!("Successfully created directory: {}", path);
+            Ok(ContentBuilder::text(
+                json!({
+                    "path": path,
+                    "created": true,
+                    "success": true
+                })
+                .to_string(),
+            ))
+        },
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::PermissionDenied {
+                warn!("Permission denied creating directory: {}", path);
+            } else {
+                warn!("Failed to create directory {}: {}", path, e);
+            }
+            Ok(ContentBuilder::error(format!(
+                "Failed to create directory {}: {}",
+                path, e
+            )))
+        },
     }
 }
 
 /// List directory contents
 fn list_dir(args: &Value) -> Result<CallToolResult, Error> {
     let path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
+
+    debug!("Listing directory: {}", path);
 
     match fs::read_dir(path) {
         Ok(entries) => {
@@ -338,12 +393,15 @@ fn list_dir(args: &Value) -> Result<CallToolResult, Error> {
                         }));
                     }
                     Err(e) => {
+                        debug!("Failed to read directory entry: {}", e);
                         files.push(json!({
                             "error": format!("Failed to read entry: {}", e)
                         }));
                     }
                 }
             }
+
+            debug!("Found {} entries in directory: {}", files.len(), path);
 
             Ok(ContentBuilder::text(
                 json!({
@@ -354,10 +412,17 @@ fn list_dir(args: &Value) -> Result<CallToolResult, Error> {
                 .to_string(),
             ))
         }
-        Err(e) => Ok(ContentBuilder::error(format!(
-            "Failed to list directory {}: {}",
-            path, e
-        ))),
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::PermissionDenied {
+                warn!("Permission denied listing directory: {}", path);
+            } else {
+                warn!("Failed to list directory {}: {}", path, e);
+            }
+            Ok(ContentBuilder::error(format!(
+                "Failed to list directory {}: {}",
+                path, e
+            )))
+        },
     }
 }
 

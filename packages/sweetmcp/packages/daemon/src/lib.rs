@@ -3,6 +3,7 @@
 //! This crate provides lightweight, production-ready daemon management
 //! with crossbeam channels for wait-free message passing.
 
+pub mod cli_output;
 pub mod config;
 pub mod daemon;
 pub mod install;

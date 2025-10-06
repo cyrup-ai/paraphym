@@ -4,6 +4,7 @@ use std::sync::Mutex;
 use std::sync::OnceLock;
 
 use extism_pdk::*;
+use log::{debug, info};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -347,8 +348,18 @@ impl SimpleReasoner {
     pub fn process_thought(&mut self, request: ReasoningRequest) -> ReasoningResponse {
         let node_id = Uuid::new_v4().to_string();
         
+        info!(
+            "Starting reasoning step {}/{}", 
+            request.thought_number, 
+            request.total_thoughts
+        );
+        
         // Create strategy based on request
         let strategy = create_strategy(&request);
+        debug!(
+            "Using strategy: {} for thought processing", 
+            strategy.name()
+        );
         
         // Get parent thought text if parent exists
         let parent_thought = request
@@ -358,12 +369,14 @@ impl SimpleReasoner {
             .map(|node| node.thought.clone());
         
         // Calculate score using selected strategy
+        debug!("Calculating thought score");
         let score = strategy.calculate_score(
             &request.thought,
             parent_thought.as_deref(),
             request.thought_number.saturating_sub(1),
             &request,
         );
+        debug!("Thought score: {:.3}", score);
         
         // Create the node
         let node = ThoughtNode {
@@ -387,6 +400,13 @@ impl SimpleReasoner {
         self.nodes.insert(node_id.clone(), node.clone());
         
         // Generate response
+        info!(
+            "Reasoning step {} complete: score={:.3}, complete={}", 
+            request.thought_number, 
+            score, 
+            !request.next_thought_needed
+        );
+        
         ReasoningResponse {
             node_id,
             thought: request.thought,

@@ -4,16 +4,24 @@
 //! It shows GraphQL queries being converted to JSON-RPC, executed against real MCP tools,
 //! and responses being shaped back to proper GraphQL format.
 
+use std::io::Write;
+
 use anyhow::Result;
+use log::{error, info};
 use serde_json::{json, Value};
-use tracing::{info, error};
+use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
-    
-    info!("🔮 Starting SweetMCP GraphQL Integration Demo");
-    info!("==========================================");
+    env_logger::init();
+
+    {
+        let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+        stdout.set_color(ColorSpec::new().set_fg(Some(Color::Cyan)).set_bold(true))?;
+        writeln!(&mut stdout, "🔮 Starting SweetMCP GraphQL Integration Demo")?;
+        writeln!(&mut stdout, "==========================================")?;
+        stdout.reset()?;
+    }
     
     let client = reqwest::Client::new();
     let base_url = "http://localhost:8443";
@@ -21,29 +29,70 @@ async fn main() -> Result<()> {
     // Demo 1: Simple GraphQL query for time tool
     info!("📝 Demo 1: GraphQL Query for Time Tool");
     match demo_graphql_time_query(&client, base_url).await {
-        Ok(()) => info!("✅ GraphQL time query demo completed"),
-        Err(e) => error!("❌ GraphQL time query failed: {}", e),
+        Ok(()) => {
+            let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+            stdout.set_color(ColorSpec::new().set_fg(Some(Color::Green)))?;
+            writeln!(&mut stdout, "✅ GraphQL time query demo completed")?;
+            stdout.reset()?;
+        }
+        Err(e) => {
+            let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+            stdout.set_color(ColorSpec::new().set_fg(Some(Color::Red)))?;
+            writeln!(&mut stdout, "❌ GraphQL time query failed: {}", e)?;
+            stdout.reset()?;
+        }
     }
-    
-    println!();
-    
+
+    {
+        let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+        writeln!(&mut stdout)?;
+    }
+
     // Demo 2: GraphQL query with variables for hash tool
     info!("📝 Demo 2: GraphQL Query with Variables for Hash Tool");
     match demo_graphql_hash_query(&client, base_url).await {
-        Ok(()) => info!("✅ GraphQL hash query demo completed"),
-        Err(e) => error!("❌ GraphQL hash query failed: {}", e),
+        Ok(()) => {
+            let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+            stdout.set_color(ColorSpec::new().set_fg(Some(Color::Green)))?;
+            writeln!(&mut stdout, "✅ GraphQL hash query demo completed")?;
+            stdout.reset()?;
+        }
+        Err(e) => {
+            let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+            stdout.set_color(ColorSpec::new().set_fg(Some(Color::Red)))?;
+            writeln!(&mut stdout, "❌ GraphQL hash query failed: {}", e)?;
+            stdout.reset()?;
+        }
     }
-    
-    println!();
-    
+
+    {
+        let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+        writeln!(&mut stdout)?;
+    }
+
     // Demo 3: GraphQL with fragments
     info!("📝 Demo 3: GraphQL with Fragments");
     match demo_graphql_fragments(&client, base_url).await {
-        Ok(()) => info!("✅ GraphQL fragments demo completed"),
-        Err(e) => error!("❌ GraphQL fragments failed: {}", e),
+        Ok(()) => {
+            let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+            stdout.set_color(ColorSpec::new().set_fg(Some(Color::Green)))?;
+            writeln!(&mut stdout, "✅ GraphQL fragments demo completed")?;
+            stdout.reset()?;
+        }
+        Err(e) => {
+            let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+            stdout.set_color(ColorSpec::new().set_fg(Some(Color::Red)))?;
+            writeln!(&mut stdout, "❌ GraphQL fragments failed: {}", e)?;
+            stdout.reset()?;
+        }
     }
-    
-    info!("🎉 GraphQL protocol extension demos completed!");
+
+    {
+        let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+        stdout.set_color(ColorSpec::new().set_fg(Some(Color::Green)).set_bold(true))?;
+        writeln!(&mut stdout, "🎉 GraphQL protocol extension demos completed!")?;
+        stdout.reset()?;
+    }
     
     Ok(())
 }

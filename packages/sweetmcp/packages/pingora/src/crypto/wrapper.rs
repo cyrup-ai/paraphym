@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use tracing::debug;
+use log::debug;
 
 use crate::crypto::core::*;
 use crate::crypto::operations::*;

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{anyhow, Result};
-use tracing::info;
+use log::info;
 
 /// Configuration for repository initialization
 #[derive(Debug, Clone)]

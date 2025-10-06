@@ -208,7 +208,7 @@ impl DataExporter {
                     }
                     Err(e) => {
                         // Graceful degradation - log error and continue with other records
-                        tracing::warn!(
+                        log::warn!(
                             "Failed to serialize record {}: {}. Continuing with remaining records.",
                             records_processed.load(Ordering::Relaxed) + 1,
                             e
@@ -239,7 +239,7 @@ impl DataExporter {
             bytes_written.store(metadata.len(), Ordering::Relaxed);
         }
 
-        tracing::info!(
+        log::info!(
             "CSV export completed successfully: {} records exported to {} in {:.2}ms ({:.2} MB/s)",
             final_records,
             path.display(),
@@ -312,14 +312,14 @@ impl DataExporter {
                             )));
                         }
 
-                        tracing::info!(
+                        log::info!(
                             "Streaming CSV export progress: {} records processed",
                             current_count
                         );
                     }
                 }
                 Err(e) => {
-                    tracing::warn!(
+                    log::warn!(
                         "Failed to serialize streaming record {}: {}. Continuing.",
                         records_processed.load(Ordering::Relaxed) + 1,
                         e
@@ -337,7 +337,7 @@ impl DataExporter {
         let final_records = records_processed.load(Ordering::Relaxed);
         let duration = start_time.elapsed();
 
-        tracing::info!(
+        log::info!(
             "Streaming CSV export completed: {} records exported to {} in {:.2}ms ({:.0} records/sec)",
             final_records,
             path.display(),

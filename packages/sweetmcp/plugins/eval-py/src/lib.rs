@@ -4,6 +4,7 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use extism_pdk::*;
 use json::Value;
+use log::{debug, error, trace};
 use plugin::types::{
     CallToolRequest, CallToolResult, Content, ContentType, ListToolsResult, ToolDescription,
 };
@@ -17,6 +18,7 @@ struct StoredVirtualMachine {
 
 impl StoredVirtualMachine {
     fn new() -> Self {
+        debug!("Initializing Python virtual machine");
         let mut scope = None;
         let mut settings = Settings::default();
         settings.allow_external_library = false;
@@ -25,6 +27,7 @@ impl StoredVirtualMachine {
             scope = Some(vm.new_scope_with_builtins());
         });
 
+        debug!("Python VM initialized successfully");
         StoredVirtualMachine {
             interp,
             // APPROVED BY DAVID MAPLE 09/30/2025: Panic is appropriate for initialization failure
@@ -70,6 +73,7 @@ pub(crate) fn call(input: CallToolRequest) -> Result<CallToolResult, Error> {
 fn eval_python(input: CallToolRequest) -> Result<CallToolResult, Error> {
     let args = input.params.arguments.unwrap_or_default();
     if let Some(Value::String(code)) = args.get("code") {
+        debug!("Executing Python script: {} bytes", code.len());
         let stored_vm = get_or_create_vm("eval_python");
 
         let result = stored_vm.interp.enter(|vm| {
@@ -98,21 +102,26 @@ fn eval_python(input: CallToolRequest) -> Result<CallToolResult, Error> {
         });
 
         match result {
-            Ok(output) => Ok(CallToolResult {
-                is_error: None,
-                content: vec![Content {
-                    annotations: None,
-                    text: Some(output),
-                    mime_type: Some("text/plain".to_string()),
-                    r#type: ContentType::Text,
-                    data: None,
-                }],
-            }),
+            Ok(output) => {
+                debug!("Python execution successful");
+                trace!("Python output: {}", output);
+                Ok(CallToolResult {
+                    is_error: None,
+                    content: vec![Content {
+                        annotations: None,
+                        text: Some(output),
+                        mime_type: Some("text/plain".to_string()),
+                        r#type: ContentType::Text,
+                        data: None,
+                    }],
+                })
+            }
             Err(exc) => {
                 let mut error_msg = String::new();
                 stored_vm.interp.enter(|vm| {
                     vm.write_exception(&mut error_msg, &exc).unwrap_or_default();
                 });
+                error!("Python execution failed: {}", error_msg);
                 Ok(CallToolResult {
                     is_error: Some(true),
                     content: vec![Content {

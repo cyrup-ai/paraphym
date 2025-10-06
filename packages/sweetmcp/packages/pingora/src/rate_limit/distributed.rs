@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 use dashmap::DashMap;
 use prometheus::core::{Atomic, AtomicF64};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, info, warn};
+use log::{debug, info, warn};
 
 use super::algorithms::{AlgorithmState, RateLimiter};
 use super::algorithms::RateLimitAlgorithmConfig;
@@ -186,9 +186,9 @@ impl DistributedRateLimitManager {
             allowed
         } else {
             // SECURITY: Fail-closed - deny request if limiter lookup fails
-            error!(
-                endpoint = %endpoint,
-                "Rate limiter lookup failed for endpoint after successful insert - possible race condition"
+            log::error!(
+                "Rate limiter lookup failed for endpoint '{}' after successful insert - possible race condition",
+                endpoint
             );
             crate::metrics::record_rate_limiter_failure(endpoint, "endpoint_lookup");
             false
@@ -247,19 +247,19 @@ impl DistributedRateLimitManager {
                 allowed
             } else {
                 // SECURITY: Fail-closed - deny request if peer limiter lookup fails
-                error!(
-                    endpoint = %endpoint,
-                    peer_ip = %peer_ip,
-                    "Peer rate limiter lookup failed after successful insert - possible race condition"
+                log::error!(
+                    "Peer rate limiter lookup failed for endpoint '{}', peer '{}' after successful insert - possible race condition",
+                    endpoint,
+                    peer_ip
                 );
                 crate::metrics::record_rate_limiter_failure(endpoint, "peer_lookup");
                 false
             }
         } else {
             // SECURITY: Fail-closed - deny request if endpoint limiters map lookup fails
-            error!(
-                endpoint = %endpoint,
-                "Endpoint peer limiters map lookup failed - possible race condition or memory pressure"
+            log::error!(
+                "Endpoint peer limiters map lookup failed for endpoint '{}' - possible race condition or memory pressure",
+                endpoint
             );
             crate::metrics::record_rate_limiter_failure(endpoint, "endpoint_map_lookup");
             false

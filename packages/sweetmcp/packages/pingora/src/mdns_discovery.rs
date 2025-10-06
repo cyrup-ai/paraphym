@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use tokio::net::UdpSocket;
 use tokio::time::interval;
-use tracing::{debug, error, info, warn};
+use log::{debug, error, info, warn};
 
 use crate::peer_discovery::{PeerRegistry, BUILD_ID};
 

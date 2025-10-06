@@ -19,7 +19,7 @@ pub use crate::chromiumoxide::{ContentFetcher, FetchResult};
 #[cfg(target_family = "wasm")]
 pub struct FetchResult {
     pub content: String,
-    pub screenshot_base64: String,
+    pub screenshot_base64: Option<String>,
     pub content_type: String,
 }
 
@@ -263,13 +263,11 @@ impl ContentFetcher for HyperFetcher {
         // Clean the HTML content
         let cleaned_content = Self::clean_html(&content);
 
-        // Generate a placeholder screenshot since hyper doesn't support screenshots
-        let screenshot_base64 =
-            base64::engine::general_purpose::STANDARD.encode(b"placeholder-screenshot-data");
-
+        // Hyper is HTTP-only and cannot generate screenshots
+        // Return None to be honest about this limitation
         Ok(FetchResult {
             content: cleaned_content,
-            screenshot_base64,
+            screenshot_base64: None,
             content_type: "text/html".to_string(),
         })
     }

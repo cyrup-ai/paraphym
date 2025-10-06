@@ -1,5 +1,6 @@
 use chrono::Utc;
 use extism_pdk::*;
+use log::{debug, trace};
 use serde_json::{Value, json};
 use sweetmcp_plugin_builder::prelude::*;
 use sweetmcp_plugin_builder::{CallToolResult, Ready};
@@ -39,11 +40,21 @@ impl McpTool for TimeTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| Error::msg("name parameter required"))?;
 
+        debug!("Executing time operation: {}", name);
+
         match name {
             "get_time_utc" => {
+                debug!("Getting current UTC time");
                 let now = Utc::now();
+                trace!("Current UTC time: {}", now);
+                
                 let timestamp = now.timestamp().to_string();
+                trace!("Timestamp (Unix epoch): {}", timestamp);
+                
                 let rfc2822 = now.to_rfc2822().to_string();
+                trace!("RFC2822 format: {}", rfc2822);
+                
+                debug!("UTC time calculation complete");
                 Ok(ContentBuilder::text(
                     json!({
                         "utc_time": timestamp,
@@ -58,24 +69,44 @@ impl McpTool for TimeTool {
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| Error::msg("time_string parameter required for parse_time"))?;
 
+                debug!("Parsing time string in RFC2822 format");
+                trace!("Input time string: {}", time_string);
+
                 match chrono::DateTime::parse_from_rfc2822(time_string) {
-                    Ok(dt) => Ok(ContentBuilder::text(
-                        json!({
-                            "parsed_time": dt.timestamp().to_string(),
-                            "formatted": dt.to_rfc2822().to_string(),
-                        })
-                        .to_string(),
-                    )),
-                    Err(e) => Ok(ContentBuilder::error(format!(
-                        "Failed to parse time: {}",
-                        e
-                    ))),
+                    Ok(dt) => {
+                        debug!("Time string parsed successfully");
+                        trace!("Parsed datetime: {}", dt);
+                        
+                        let timestamp = dt.timestamp().to_string();
+                        trace!("Converted to timestamp: {}", timestamp);
+                        
+                        let formatted = dt.to_rfc2822().to_string();
+                        trace!("Formatted output: {}", formatted);
+                        
+                        Ok(ContentBuilder::text(
+                            json!({
+                                "parsed_time": timestamp,
+                                "formatted": formatted,
+                            })
+                            .to_string(),
+                        ))
+                    }
+                    Err(e) => {
+                        debug!("Time parsing failed: {}", e);
+                        Ok(ContentBuilder::error(format!(
+                            "Failed to parse time: {}",
+                            e
+                        )))
+                    }
                 }
             }
-            _ => Ok(ContentBuilder::error(format!(
-                "Unknown time operation: {}",
-                name
-            ))),
+            _ => {
+                debug!("Unknown time operation requested: {}", name);
+                Ok(ContentBuilder::error(format!(
+                    "Unknown time operation: {}",
+                    name
+                )))
+            }
         }
     }
 }

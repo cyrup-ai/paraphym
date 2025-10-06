@@ -7,8 +7,14 @@ use std::sync::Arc;
 use image::RgbImage;
 use tokio::sync::mpsc::Sender;
 
-/// Streams screenshots as RgbImage to the provided channel, given a URL.
-pub async fn stream_screenshots(url: &str, tx: Sender<RgbImage>) -> Result<()> {
+/// A snapshot of browser content including both the rendered image and page title
+pub struct BrowserSnapshot {
+    pub image: RgbImage,
+    pub title: String,
+}
+
+/// Streams screenshots as BrowserSnapshot to the provided channel, given a URL.
+pub async fn stream_screenshots(url: &str, tx: Sender<BrowserSnapshot>) -> Result<()> {
     // Create a temporary directory for Chrome
     let temp_dir = Arc::new(tempfile::Builder::new()
         .prefix("rio-ext-browser")
@@ -27,6 +33,13 @@ pub async fn stream_screenshots(url: &str, tx: Sender<RgbImage>) -> Result<()> {
     });
     // Create a new page and navigate
     let page = browser.new_page(url).await?;
+    
+    // Fetch the page title with fallback to URL
+    let title = page.get_title().await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| url.to_string());
+    
     // Take a screenshot (could be looped for periodic shots)
     let screenshot_data = page.screenshot(
         ScreenshotParams::builder()
@@ -36,8 +49,13 @@ pub async fn stream_screenshots(url: &str, tx: Sender<RgbImage>) -> Result<()> {
     ).await?;
     // Decode PNG to RgbImage
     let img = image::load_from_memory(&screenshot_data)?.to_rgb8();
-    // Send to channel
-    let _ = tx.send(img).await;
+    
+    // Create and send snapshot with both image and title
+    let snapshot = BrowserSnapshot {
+        image: img,
+        title,
+    };
+    let _ = tx.send(snapshot).await;
     
     // Properly close the browser to avoid background kill warning
     browser.close().await?;

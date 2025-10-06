@@ -1,5 +1,6 @@
 //! QUIC protocol definitions for voice service communication
 
+use log::debug;
 use serde::{Deserialize, Serialize};
 
 use crate::types::{ListenParams, ListenResult, SpeakParams};
@@ -43,5 +44,7 @@ pub enum VoiceResponse {
 
 /// Create a voice service client endpoint
 pub fn voice_endpoint() -> String {
-    std::env::var("VOICE_SERVICE_ENDPOINT").unwrap_or_else(|_| "localhost:33336".to_string())
+    let endpoint = std::env::var("VOICE_SERVICE_ENDPOINT").unwrap_or_else(|_| "localhost:33336".to_string());
+    debug!("Voice service endpoint: {}", endpoint);
+    endpoint
 }

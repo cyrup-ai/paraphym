@@ -715,7 +715,7 @@ where
                 }
             }
             // If all attempts failed, log the error and send error chunk
-            tracing::error!("Failed to read file after {} attempts: {}", builder.retry_attempts + 1, last_error);
+            log::error!("Failed to read file after {} attempts: {}", builder.retry_attempts + 1, last_error);
             let _ = sender.send(CandleStringChunk::bad_chunk(last_error));
         })
     }
@@ -764,7 +764,7 @@ where
                         continue;
                     }
                     // Final attempt failed, log error and send error chunk
-                    tracing::error!("Failed to load URL after {} attempts: {}", builder.retry_attempts + 1, error);
+                    log::error!("Failed to load URL after {} attempts: {}", builder.retry_attempts + 1, error);
                     let _ = sender.send(CandleStringChunk::bad_chunk(error.to_string()));
                     return;
                 }

@@ -6,7 +6,7 @@ use log::error;
 use rpc_router::{HandlerError, HandlerResult};
 use tokio_stream::StreamExt;
 
-use crate::types::ListResourcesRequest;
+use crate::types::{ListResourcesRequest, SubscribeRequest, SubscribeResult, UnsubscribeRequest, UnsubscribeResult};
 
 // Handler adapter for resources_list that works with the Router
 pub async fn resources_list_handler(
@@ -30,4 +30,34 @@ pub async fn resources_list_handler(
     }
 
     Ok(resources)
+}
+
+/// Handler for resources/subscribe
+pub async fn resource_subscribe_handler(
+    request: SubscribeRequest
+) -> HandlerResult<SubscribeResult> {
+    let uri = request.uri.to_string();
+    
+    resource_dao::streaming::subscribe_to_resource_uri(uri)
+        .await
+        .map_err(|e| HandlerError::new(format!(
+            "Subscription failed: {}", e
+        )))?;
+    
+    Ok(SubscribeResult {})
+}
+
+/// Handler for resources/unsubscribe  
+pub async fn resource_unsubscribe_handler(
+    request: UnsubscribeRequest
+) -> HandlerResult<UnsubscribeResult> {
+    let uri = request.uri.to_string();
+    
+    resource_dao::streaming::unsubscribe_from_resource_uri(&uri)
+        .await
+        .map_err(|e| HandlerError::new(format!(
+            "Unsubscribe failed: {}", e
+        )))?;
+    
+    Ok(UnsubscribeResult {})
 }

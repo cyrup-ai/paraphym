@@ -59,7 +59,7 @@ where
     pub async fn start(&self) -> Result<(), Box<dyn std::error::Error>> {
         let addr = format!("{}:{}", self.config.host, self.config.port).parse::<SocketAddr>()?;
 
-        tracing::info!("API server listening on {}", addr);
+        log::info!("API server listening on {}", addr);
 
         // Updated to use tokio::net::TcpListener with axum 0.8.x
         let listener = tokio::net::TcpListener::bind(&addr).await?;

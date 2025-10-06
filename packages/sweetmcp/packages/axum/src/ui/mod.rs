@@ -108,7 +108,8 @@ pub async fn run_ui_with_state(
             handle_health_command(&health_cmd)
         }
         Commands::Validate => {
-            println!("✅ Configuration file '{}' is valid.", cli.config.display());
+            let logger = crate::context::logger::ConsoleLogger::new();
+            logger.success(&format!("Configuration file '{}' is valid.", cli.config.display()));
             Ok(())
         }
     }

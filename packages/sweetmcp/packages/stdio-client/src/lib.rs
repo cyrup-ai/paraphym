@@ -2,6 +2,7 @@
 //!
 //! Implements newline-delimited JSON-RPC protocol for MCP stdio transport.
 
+use log::{debug, info, warn};
 use serde_json::Value;
 use std::process::Stdio;
 use thiserror::Error;
@@ -35,7 +36,8 @@ pub enum StdioClientError {
 #[derive(Debug)]
 pub struct StdioClient {
     stdin: Arc<Mutex<ChildStdin>>,
-    stdout: Arc<Mutex<BufReader<ChildStdout>>>,    _child: Arc<Mutex<Child>>,
+    stdout: Arc<Mutex<BufReader<ChildStdout>>>,
+    child: Arc<Mutex<Child>>,
 }
 
 impl StdioClient {
@@ -56,11 +58,12 @@ impl StdioClient {
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .kill_on_drop(true);  // Ensure subprocess is killed when client is dropped
-        
+
         for (key, value) in env {
             cmd.env(key, value);
         }
-        
+
+        info!("Spawning STDIO process: {:?}", cmd);
         let mut child = cmd.spawn()?;
         
         let stdin = child.stdin.take()
@@ -71,7 +74,7 @@ impl StdioClient {
         Ok(Self {
             stdin: Arc::new(Mutex::new(stdin)),
             stdout: Arc::new(Mutex::new(BufReader::new(stdout))),
-            _child: Arc::new(Mutex::new(child)),
+            child: Arc::new(Mutex::new(child)),
         })
     }
     
@@ -85,7 +88,9 @@ impl StdioClient {
         });
         
         let request_str = serde_json::to_string(&request)?;
-        
+
+        debug!("STDIO input: {}", request_str);
+
         // Send request with newline delimiter
         let mut stdin = self.stdin.lock().await;
         stdin.write_all(request_str.as_bytes()).await
@@ -93,7 +98,7 @@ impl StdioClient {
         stdin.write_all(b"\n").await
             .map_err(|e| StdioClientError::SendError(e.to_string()))?;
         stdin.flush().await
-            .map_err(|e| StdioClientError::SendError(e.to_string()))?;        
+            .map_err(|e| StdioClientError::SendError(e.to_string()))?;
         drop(stdin);
         
         // Read response (newline-delimited)
@@ -101,11 +106,13 @@ impl StdioClient {
         let mut response_line = String::new();
         stdout.read_line(&mut response_line).await
             .map_err(|e| StdioClientError::ReceiveError(e.to_string()))?;
-        
+
         if response_line.is_empty() {
             return Err(StdioClientError::ProcessTerminated);
         }
-        
+
+        debug!("STDIO output: {}", response_line.trim());
+
         let response: Value = serde_json::from_str(&response_line)?;
         
         // Check for JSON-RPC error
@@ -119,6 +126,43 @@ impl StdioClient {
         response.get("result")
             .cloned()
             .ok_or_else(|| StdioClientError::ReceiveError("Missing result field".to_string()))
+    }
+    
+    /// Gracefully shutdown the STDIO client and wait for process exit
+    ///
+    /// This method waits for the subprocess to exit and logs the exit status.
+    /// Should be called when you're done using the client for clean lifecycle management.
+    pub async fn shutdown(self) -> Result<std::process::ExitStatus, StdioClientError> {
+        let mut child = self.child.lock().await;
+        let status = child.wait().await
+            .map_err(|e| StdioClientError::ReceiveError(e.to_string()))?;
+        
+        info!("STDIO process exited with status: {:?}", status);
+        Ok(status)
+    }
+}
+
+impl Drop for StdioClient {
+    fn drop(&mut self) {
+        // Non-blocking check if process has already exited
+        // If shutdown() was called, this won't log again (already consumed)
+        // If not called, try to log if process happened to exit already
+        if let Ok(mut child) = self.child.try_lock() {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    info!("STDIO process exited with status: {:?}", status);
+                }
+                Ok(None) => {
+                    // Process still running, kill_on_drop will handle it
+                    // No log needed - normal drop scenario
+                }
+                Err(e) => {
+                    // Error checking status - log for debugging
+                    warn!("Failed to check STDIO process exit status: {}", e);
+                }
+            }
+        }
+        // If try_lock fails, another thread is using the child - that's fine
     }
 }
 

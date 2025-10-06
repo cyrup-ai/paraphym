@@ -20,7 +20,7 @@ use capnp::{
 };
 use serde_json::{json, Value};
 use sweetmcp_axum::JSONRPC_VERSION;
-use tracing::{debug, warn};
+use log::{debug, warn};
 
 use super::schema_introspection::SchemaIntrospector;
 use super::types::{
@@ -1095,7 +1095,7 @@ pub fn validate_capnp_format(body: &[u8]) -> ConversionResult<()> {
     // Check 8-byte alignment for optimal performance
     if !(body.as_ptr() as usize).is_multiple_of(8) {
         // Note: This is a performance warning, not a hard requirement with "unaligned" feature
-        tracing::warn!("Cap'n Proto message buffer is not 8-byte aligned - may impact performance");
+        log::warn!("Cap'n Proto message buffer is not 8-byte aligned - may impact performance");
     }
 
     // Parse segment table header
@@ -1215,7 +1215,7 @@ fn graphql_value_to_json_with_variables(
                 .get(var_name.as_str())
                 .cloned()
                 .unwrap_or_else(|| {
-                    tracing::warn!(
+                    log::warn!(
                         "GraphQL variable '{}' not found in context, using null",
                         var_name
                     );

@@ -12,7 +12,7 @@ use pingora::http::ResponseHeader;
 use pingora::prelude::*;
 use pingora_proxy::{ProxyHttp, Session};
 use serde_json;
-use tracing::{warn, info};
+use log::{warn, info};
 
 use crate::edge::auth::AuthHandler;
 use crate::api::peers::handle_peers_request;
@@ -93,12 +93,12 @@ impl ProxyHttp for EdgeService {
                     candidate_backend = Some((backend, peer_id));
                     break;
                 }
-                tracing::debug!("Skipping backend {} - circuit open", peer_id);
+                log::debug!("Skipping backend {} - circuit open", peer_id);
             }
             
             // If all circuits open, fall back to round-robin
             let (backend, peer_id) = candidate_backend.or_else(|| {
-                tracing::warn!("All circuits open - using fallback backend");
+                log::warn!("All circuits open - using fallback backend");
                 current_picker.backends.first().map(|b| {
                     let id = match &b.addr {
                         PingoraSocketAddr::Inet(addr) => format!("{}:{}", addr.ip(), addr.port()),
@@ -619,7 +619,7 @@ impl ProxyHttp for EdgeService {
             // Detect and convert protocol
             match detect_protocol(&ctx.request_buffer, Some(req_header)) {
                 Ok(detection) => {
-                    tracing::debug!(
+                    log::debug!(
                         "Detected protocol: {:?} with confidence {}",
                         detection.protocol,
                         detection.confidence
@@ -636,14 +636,14 @@ impl ProxyHttp for EdgeService {
                                 match serde_json::to_vec(&jsonrpc_value) {
                                     Ok(jsonrpc_bytes) => {
                                         *body = Some(bytes::Bytes::from(jsonrpc_bytes));
-                                        tracing::info!(
+                                        log::info!(
                                             "Converted {:?} to JSON-RPC ({} bytes)",
                                             detection.protocol,
                                             body.as_ref().map(|b| b.len()).unwrap_or(0)
                                         );
                                     }
                                     Err(e) => {
-                                        tracing::error!("JSON serialization failed: {}", e);
+                                        log::error!("JSON serialization failed: {}", e);
                                         return Err(Error::because(
                                             ErrorType::InternalError,
                                             "Protocol conversion serialization failed",
@@ -653,7 +653,7 @@ impl ProxyHttp for EdgeService {
                                 }
                             }
                             Err(e) => {
-                                tracing::warn!("Protocol conversion failed: {}", e);
+                                log::warn!("Protocol conversion failed: {}", e);
                                 // Forward original body on conversion failure
                                 *body = Some(bytes::Bytes::from(ctx.request_buffer.clone()));
                             }
@@ -661,12 +661,12 @@ impl ProxyHttp for EdgeService {
                     } else {
                         // Already JSON-RPC, forward as-is
                         *body = Some(bytes::Bytes::from(ctx.request_buffer.clone()));
-                        tracing::debug!("Request already JSON-RPC, no conversion needed");
+                        log::debug!("Request already JSON-RPC, no conversion needed");
                     }
                 }
                 Err(e) => {
                     // Detection failed, assume JSON-RPC (backward compatible)
-                    tracing::debug!("Protocol detection failed ({}), assuming JSON-RPC", e);
+                    log::debug!("Protocol detection failed ({}), assuming JSON-RPC", e);
                     *body = Some(bytes::Bytes::from(ctx.request_buffer.clone()));
                 }
             }
@@ -704,7 +704,7 @@ impl ProxyHttp for EdgeService {
             upstream_response
                 .insert_header("Transfer-Encoding", "chunked")
                 .map_err(|e| {
-                    tracing::error!("Failed to set Transfer-Encoding: {}", e);
+                    log::error!("Failed to set Transfer-Encoding: {}", e);
                     Error::because(
                         ErrorType::InternalError,
                         "Header modification failed",
@@ -712,7 +712,7 @@ impl ProxyHttp for EdgeService {
                     )
                 })?;
             
-            tracing::debug!(
+            log::debug!(
                 "Modified response headers for {:?} back-conversion",
                 proto_ctx.protocol
             );
@@ -755,14 +755,14 @@ impl ProxyHttp for EdgeService {
                                 Ok(converted_bytes) => {
                                     *body = Some(bytes::Bytes::from(converted_bytes));
                                     ctx.response_size = body.as_ref().map(|b| b.len()).unwrap_or(0);
-                                    tracing::info!(
+                                    log::info!(
                                         "Converted JSON-RPC back to {:?} ({} bytes)",
                                         proto_ctx.protocol,
                                         ctx.response_size
                                     );
                                 }
                                 Err(e) => {
-                                    tracing::warn!(
+                                    log::warn!(
                                         "Response back-conversion failed ({}), sending JSON-RPC",
                                         e
                                     );
@@ -773,7 +773,7 @@ impl ProxyHttp for EdgeService {
                             }
                         }
                         Err(e) => {
-                            tracing::warn!(
+                            log::warn!(
                                 "Failed to parse JSON-RPC response ({}), forwarding as-is",
                                 e
                             );
@@ -862,10 +862,10 @@ impl ProxyHttp for EdgeService {
                 // Record based on HTTP status
                 if status.is_success() || status.is_redirection() {
                     breaker.record_success().await;
-                    tracing::debug!("Circuit breaker recorded success for {}", peer_id);
+                    log::debug!("Circuit breaker recorded success for {}", peer_id);
                 } else if status.is_client_error() || status.is_server_error() {
                     breaker.record_failure().await;
-                    tracing::warn!("Circuit breaker recorded failure for {} (status: {})", peer_id, status);
+                    log::warn!("Circuit breaker recorded failure for {} (status: {})", peer_id, status);
                 }
             });
         }
@@ -891,7 +891,7 @@ impl ProxyHttp for EdgeService {
             tokio::spawn(async move {
                 let breaker = breaker_manager.get_breaker(&peer_id).await;
                 breaker.record_failure().await;
-                tracing::error!("Circuit breaker recorded connection failure for {}", peer_id);
+                log::error!("Circuit breaker recorded connection failure for {}", peer_id);
             });
         }
         

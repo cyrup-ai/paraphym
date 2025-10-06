@@ -2,10 +2,13 @@
 
 use std::collections::HashMap;
 
+use log::debug;
+
 use crate::{Tool, ToolInputSchema, ToolInputSchemaProperty};
 
 /// Create the speak tool definition
 pub fn speak_tool() -> Tool {
+    debug!("Creating speak tool definition");
     let mut properties = HashMap::new();
 
     properties.insert(
@@ -53,6 +56,7 @@ pub fn speak_tool() -> Tool {
 
 /// Create the listen tool definition
 pub fn listen_tool() -> Tool {
+    debug!("Creating listen tool definition");
     let mut properties = HashMap::new();
 
     properties.insert(

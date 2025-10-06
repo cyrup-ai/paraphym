@@ -54,7 +54,7 @@ impl ApplicationContext {
         let config = match crate::config::Config::load(config_path).await {
             Ok(config) => Arc::new(RwLock::new(config)),
             Err(e) => {
-                eprintln!("Failed to load configuration: {}", e);
+                log::error!("Failed to load config: {}", e);
                 return Ok(None);
             }
         };
@@ -66,7 +66,7 @@ impl ApplicationContext {
         let plugin_manager = match crate::plugin::PluginManager::new(plugin_configs).await {
             Ok(manager) => Arc::new(manager),
             Err(e) => {
-                eprintln!("Failed to initialize plugin manager: {}", e);
+                log::error!("Failed to initialize plugin manager: {}", e);
                 return Ok(None);
             }
         };

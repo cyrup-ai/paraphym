@@ -239,7 +239,7 @@ where
                             // Send result with operation index for correlation
                             if tx_clone.send(parallel_result).is_err() {
                                 // Receiver dropped, stop processing this operation
-                                tracing::debug!(
+                                log::debug!(
                                     "Parallel operation {} receiver dropped - terminating", 
                                     op_index
                                 );
@@ -256,7 +256,7 @@ where
                 while let Ok(parallel_result) = result_rx.recv() {
                     if sender_clone.send(parallel_result).is_err() {
                         // Main receiver dropped, stop streaming all results
-                        tracing::debug!("Main parallel receiver dropped - terminating all operations");
+                        log::debug!("Main parallel receiver dropped - terminating all operations");
                         break;
                     }
                 }
@@ -266,7 +266,7 @@ where
 
             // Handle thread scope errors (resource exhaustion, panics, etc.)
             if let Err(panic_err) = scope_result {
-                tracing::error!("Parallel execution failed: {:?}", panic_err);
+                log::error!("Parallel execution failed: {:?}", panic_err);
                 
                 // Send error result for graceful degradation
                 let error_msg = format!("Parallel execution failed: {:?}", panic_err);

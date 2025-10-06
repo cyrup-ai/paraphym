@@ -12,6 +12,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
+use log::info;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -117,7 +118,7 @@ impl ApiKeyManager {
             Self::from_file(&config_file)
         } else {
             // In development/testing, create minimal secure config
-            tracing::warn!(
+            log::warn!(
                 "API keys file not found at {}. Using development configuration.",
                 config_file
             );
@@ -174,7 +175,7 @@ impl ApiKeyManager {
         keys.insert(dev_key.clone(), user_context);
         key_hashes.insert(key_hash, dev_key);
 
-        tracing::info!(
+        log::info!(
             "Development API key configuration created. Use generated key for API access."
         );
 
@@ -278,7 +279,7 @@ pub async fn logging_middleware(request: Request<Body>, next: Next) -> impl Into
     let response = next.run(request).await;
 
     let duration = start.elapsed();
-    println!("{} {} - {:?}", method, uri, duration);
+    info!("{} {} - {:?}", method, uri, duration);
 
     response
 }
@@ -323,7 +324,7 @@ pub async fn auth_middleware(mut request: Request<Body>, next: Next) -> impl Int
             add_security_headers(response)
         }
         Err(auth_error) => {
-            tracing::warn!("Authentication failed: {:?}", auth_error);
+            log::warn!("Authentication failed: {:?}", auth_error);
 
             let error_response = match auth_error {
                 AuthError::InvalidToken | AuthError::ExpiredToken => {
@@ -355,7 +356,7 @@ async fn validate_jwt_token(auth_header: &str) -> Result<UserContext, AuthError>
 
     // Get secure JWT configuration
     let jwt_config = JWT_CONFIG.as_ref().map_err(|e| {
-        tracing::error!("JWT configuration error: {}", e);
+        log::error!("JWT configuration error: {}", e);
         AuthError::InvalidToken
     })?;
 
@@ -382,7 +383,7 @@ async fn validate_jwt_token(auth_header: &str) -> Result<UserContext, AuthError>
             })
         }
         Err(e) => {
-            tracing::warn!("JWT decode error: {}", e);
+            log::warn!("JWT decode error: {}", e);
             Err(AuthError::InvalidToken)
         }
     }
@@ -392,7 +393,7 @@ async fn validate_jwt_token(auth_header: &str) -> Result<UserContext, AuthError>
 async fn validate_api_key(provided_key: &str) -> Result<UserContext, AuthError> {
     // Get secure API key manager
     let api_manager = API_KEY_MANAGER.as_ref().map_err(|e| {
-        tracing::error!("API key manager configuration error: {}", e);
+        log::error!("API key manager configuration error: {}", e);
         AuthError::InvalidApiKey
     })?;
 
@@ -401,7 +402,7 @@ async fn validate_api_key(provided_key: &str) -> Result<UserContext, AuthError> 
         .validate_key(provided_key)
         .cloned()
         .ok_or_else(|| {
-            tracing::warn!("Invalid API key provided");
+            log::warn!("Invalid API key provided");
             AuthError::InvalidApiKey
         })
 }

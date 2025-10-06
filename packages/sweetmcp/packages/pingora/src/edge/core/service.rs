@@ -9,13 +9,14 @@ use std::collections::{BTreeSet, HashMap};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
 use pingora_load_balancing::Backend;
+use pingora_load_balancing::health_check::{Health, TcpHealthCheck};
 use tokio::sync::mpsc::Sender;
-use tracing::{error, info};
+use log::{error, info};
 
 use crate::{
     auth::JwtAuth,
@@ -50,6 +51,33 @@ impl AtomicMetrics {
     }
 }
 
+/// Health check configuration matching Pingora patterns
+#[derive(Clone, Debug)]
+pub struct HealthCheckConfig {
+    /// Interval between health checks (milliseconds)
+    pub interval_ms: u64,
+    /// TCP connection timeout (milliseconds)  
+    pub timeout_ms: u64,
+    /// Consecutive failures before marking unhealthy
+    pub failure_threshold: usize,
+    /// Consecutive successes before marking healthy
+    pub success_threshold: usize,
+    /// Run health checks in parallel (from Pingora's LoadBalancer pattern)
+    pub parallel: bool,
+}
+
+impl Default for HealthCheckConfig {
+    fn default() -> Self {
+        Self {
+            interval_ms: 5000,          // 5 seconds
+            timeout_ms: 3000,           // 3 second timeout
+            failure_threshold: 3,       // 3 failures -> unhealthy
+            success_threshold: 2,       // 2 successes -> healthy
+            parallel: true,             // Parallel checks for performance
+        }
+    }
+}
+
 /// EdgeService provides auth, overload protection, and routing functionality
 /// with zero allocation fast paths and blazing-fast performance
 pub struct EdgeService {
@@ -73,6 +101,13 @@ pub struct EdgeService {
     pub token_manager: Arc<TokenManager>,
     /// Track authentication attempts per IP: (count, window_start_time)
     pub auth_attempt_tracker: Arc<DashMap<String, (u32, Instant)>>,
+    /// Health status tracking per backend (backend.hash_key() -> Health)
+    /// Uses Pingora's Health struct for atomic status updates with thresholds
+    pub backend_health: Arc<ArcSwap<HashMap<u64, Health>>>,
+    /// TCP health check instance (Pingora's TcpHealthCheck)
+    pub health_checker: Arc<TcpHealthCheck>,
+    /// Health check configuration
+    pub health_check_config: HealthCheckConfig,
 }
 
 impl EdgeService {
@@ -118,6 +153,41 @@ impl EdgeService {
         let upstream_urls = Arc::new(url_map);
         info!("Initialized EdgeService with {} backends, {} URL mappings", 
              backends.len(), upstream_urls.len());
+
+        // Initialize health checking (Pingora pattern)
+        let health_check_config = HealthCheckConfig::default();
+        
+        // Create health status map for all backends
+        let mut backend_health_map = HashMap::new();
+        for backend in backends.iter() {
+            backend_health_map.insert(backend.hash_key(), Health::default());
+        }
+        let backend_health = Arc::new(ArcSwap::from_pointee(backend_health_map));
+        
+        // Create TcpHealthCheck instance
+        let mut tcp_check = TcpHealthCheck::default();
+        tcp_check.consecutive_success = health_check_config.success_threshold;
+        tcp_check.consecutive_failure = health_check_config.failure_threshold;
+        tcp_check.peer_template.options.connection_timeout = 
+            Some(Duration::from_millis(health_check_config.timeout_ms));
+        let health_checker = Arc::new(tcp_check);
+        
+        // Convert backends to Vec for health check task
+        let backends_vec: Vec<_> = backends.iter().cloned().collect();
+        
+        // Spawn background health check task
+        let health_checker_clone = health_checker.clone();
+        let backend_health_clone = backend_health.clone();
+        let check_config = health_check_config.clone();
+        
+        tokio::spawn(async move {
+            super::operations::run_health_checks(
+                backends_vec,
+                health_checker_clone,
+                backend_health_clone,
+                check_config,
+            ).await;
+        });
 
         // Create PeerDiscovery
         let peer_discovery = Arc::new(PeerDiscovery::new(peer_registry.clone()));
@@ -168,6 +238,9 @@ impl EdgeService {
             start_time,
             token_manager,
             auth_attempt_tracker: Arc::new(DashMap::new()),
+            backend_health,
+            health_checker,
+            health_check_config,
         }
     }
 
@@ -342,6 +415,9 @@ impl EdgeService {
             start_time: self.start_time,
             token_manager: self.token_manager.clone(),
             auth_attempt_tracker: self.auth_attempt_tracker.clone(),
+            backend_health: self.backend_health.clone(),
+            health_checker: self.health_checker.clone(),
+            health_check_config: self.health_check_config.clone(),
         };
 
         temp_service.validate_config()?;
@@ -371,6 +447,9 @@ impl EdgeService {
             start_time: self.start_time,
             token_manager: self.token_manager.clone(),
             auth_attempt_tracker: self.auth_attempt_tracker.clone(),
+            backend_health: self.backend_health.clone(),
+            health_checker: self.health_checker.clone(),
+            health_check_config: self.health_check_config.clone(),
         }
     }
 }

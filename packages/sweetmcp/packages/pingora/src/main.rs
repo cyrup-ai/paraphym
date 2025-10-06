@@ -42,10 +42,17 @@ fn get_cert_dir() -> std::path::PathBuf {
 }
 
 fn main() {
+    use std::io::Write;
+    use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
+
     env_logger::init();
 
     if let Err(e) = run_server() {
-        eprintln!("🚫 SweetMCP Server failed to start: {}", e);
+        let mut stderr = StandardStream::stderr(ColorChoice::Auto);
+        let _ = stderr.set_color(ColorSpec::new().set_fg(Some(Color::Red)).set_bold(true));
+        let _ = writeln!(&mut stderr, "🚫 SweetMCP Server failed to start: {}", e);
+        let _ = stderr.reset();
+        log::error!("SweetMCP Server failed to start: {}", e);
         std::process::exit(1);
     }
 }

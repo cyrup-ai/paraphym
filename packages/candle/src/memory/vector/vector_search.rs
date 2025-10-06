@@ -432,7 +432,7 @@ impl VectorSearch {
                     Ok(decision) => {
                         match decision.outcome {
                             DecisionOutcome::Accept => {
-                                tracing::debug!(
+                                log::debug!(
                                     "CognitiveProcessor ACCEPT: similarity={:.4}, confidence={:.4}",
                                     similarity,
                                     decision.confidence
@@ -440,7 +440,7 @@ impl VectorSearch {
                                 state.final_results.push((id, vector, similarity, metadata));
                             }
                             DecisionOutcome::Defer => {
-                                tracing::debug!(
+                                log::debug!(
                                     "CognitiveProcessor DEFER: similarity={:.4}, confidence={:.4}",
                                     similarity,
                                     decision.confidence
@@ -454,7 +454,7 @@ impl VectorSearch {
                                 ));
                             }
                             DecisionOutcome::Reject => {
-                                tracing::trace!(
+                                log::trace!(
                                     "CognitiveProcessor REJECT: similarity={:.4}, confidence={:.4}",
                                     similarity,
                                     decision.confidence
@@ -462,21 +462,21 @@ impl VectorSearch {
                                 // Excluded
                             }
                             DecisionOutcome::RequestInfo => {
-                                tracing::debug!(
+                                log::debug!(
                                     "CognitiveProcessor REQUEST_INFO: similarity={:.4}",
                                     similarity
                                 );
                                 if let Some(ref callback) = options.request_info_callback {
                                     let should_accept = callback(&id, similarity, decision.confidence);
                                     if should_accept {
-                                        tracing::debug!(
+                                        log::debug!(
                                             "RequestInfo callback accepted: id={}, similarity={:.4}",
                                             id,
                                             similarity
                                         );
                                         state.final_results.push((id, vector, similarity, metadata));
                                     } else {
-                                        tracing::debug!(
+                                        log::debug!(
                                             "RequestInfo callback rejected: id={}, similarity={:.4}",
                                             id,
                                             similarity
@@ -485,7 +485,7 @@ impl VectorSearch {
                                     }
                                 } else {
                                     // Fallback: treat as deferred
-                                    tracing::trace!(
+                                    log::trace!(
                                         "No RequestInfo callback provided, treating as deferred: id={}",
                                         id
                                     );
@@ -502,7 +502,7 @@ impl VectorSearch {
                     }
                     Err(e) => {
                         // Fallback to similarity threshold on processor error
-                        tracing::warn!("CognitiveProcessor error, using fallback: {}", e);
+                        log::warn!("CognitiveProcessor error, using fallback: {}", e);
                         if similarity >= options.min_similarity.unwrap_or(0.7) {
                             state.final_results.push((id, vector, similarity, metadata));
                         }
@@ -676,7 +676,7 @@ impl VectorSearch {
 fn process_deferred_results(state: &mut CognitiveSearchState, threshold: f32) {
     state.deferred_results.retain(|(id, vector, similarity, metadata, confidence)| {
         if *confidence >= threshold {
-            tracing::debug!(
+            log::debug!(
                 "Promoting deferred result: id={}, confidence={:.4}, threshold={:.4}",
                 id,
                 confidence,
@@ -690,7 +690,7 @@ fn process_deferred_results(state: &mut CognitiveSearchState, threshold: f32) {
             ));
             false // Remove from deferred queue
         } else {
-            tracing::trace!(
+            log::trace!(
                 "Rejecting deferred result: id={}, confidence={:.4}, threshold={:.4}",
                 id,
                 confidence,

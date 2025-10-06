@@ -172,7 +172,7 @@ impl MigrationManager {
                         )
                     ));
                 }
-                tracing::debug!(
+                log::debug!(
                     "Migration v{} ({}) already applied, skipping",
                     version,
                     migration.name()
@@ -180,7 +180,7 @@ impl MigrationManager {
                 continue;
             }
             
-            tracing::info!(
+            log::info!(
                 "Applying migration v{}: {}",
                 version,
                 migration.name()
@@ -205,7 +205,7 @@ impl MigrationManager {
             // Update tracker
             self.tracker.record_migration(version, migration.name().to_string(), checksum);
             
-            tracing::info!(
+            log::info!(
                 "Migration v{} ({}) applied successfully",
                 version,
                 migration.name()
@@ -231,7 +231,7 @@ impl MigrationManager {
                 continue;
             }
             
-            tracing::info!(
+            log::info!(
                 "Rolling back migration v{}: {}",
                 version,
                 migration.name()

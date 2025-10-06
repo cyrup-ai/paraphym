@@ -348,7 +348,7 @@ impl CertificateGeneratorWithDomain {
                 .map_err(|e| format!("Failed to generate self-signed certificate: {e}"))
         } else if let Some(ca) = &self.authority {
             // CA-signed certificate generation
-            tracing::debug!(
+            log::debug!(
                 "Creating CA-signed certificate with domains: {:?}",
                 self.domains
             );

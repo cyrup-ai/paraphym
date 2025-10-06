@@ -1,6 +1,7 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use extism_pdk::*;
+use log::{debug, error, trace};
 use rustpython_vm::{self as vm, Settings, scope::Scope};
 use serde_json::Value;
 use sweetmcp_plugin_builder::prelude::*;
@@ -78,6 +79,7 @@ impl McpTool for ShellTool {
 
 fn eval_python_as_shell(args: Value) -> Result<CallToolResult, Error> {
     if let Some(Value::String(code)) = args.get("code") {
+        debug!("Executing shell command: {} bytes", code.len());
         let stored_vm = get_or_create_vm("eval_python");
 
         let result = stored_vm.interp.enter(|vm| {
@@ -106,12 +108,17 @@ fn eval_python_as_shell(args: Value) -> Result<CallToolResult, Error> {
         });
 
         match result {
-            Ok(output) => Ok(ContentBuilder::text(output)),
+            Ok(output) => {
+                debug!("Shell execution successful");
+                trace!("Shell output: {}", output);
+                Ok(ContentBuilder::text(output))
+            }
             Err(exc) => {
                 let mut error_msg = String::new();
                 stored_vm.interp.enter(|vm| {
                     vm.write_exception(&mut error_msg, &exc).unwrap_or_default();
                 });
+                error!("Shell execution failed: {}", error_msg);
                 Ok(ContentBuilder::error(error_msg))
             }
         }

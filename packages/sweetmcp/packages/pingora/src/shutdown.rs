@@ -23,7 +23,7 @@ use tokio::net::UdpSocket;
 use tokio::signal;
 use tokio::sync::{broadcast, RwLock};
 use tokio::time::{sleep, timeout};
-use tracing::{debug, error, info, warn};
+use log::{debug, error, info, warn};
 
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
 const STATE_FILE: &str = "sweetmcp_state.json";

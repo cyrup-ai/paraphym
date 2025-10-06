@@ -7,14 +7,17 @@
 //! 4. Real MCP plugin execution (time and hash tools)
 //! 5. Round-trip response handling
 
+use std::io::Write;
+
 use anyhow::Result;
+use log::{error, info, warn};
 use sweetmcp_capnp_client::{McpCapnProtoClient, McpResponse};
-use tracing::{info, warn, error};
+use termcolor::{ColorChoice, StandardStream};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize logging
-    tracing_subscriber::fmt::init();
+    env_logger::init();
     
     info!("🚀 Starting SweetMCP Cap'n Proto Integration Demo");
     info!("=====================================");
@@ -28,18 +31,24 @@ async fn main() -> Result<()> {
         Ok(()) => info!("✅ Time tool demo completed successfully"),
         Err(e) => error!("❌ Time tool demo failed: {}", e),
     }
-    
-    println!();
-    
+
+    {
+        let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+        writeln!(&mut stdout)?;
+    }
+
     // Demo 2: Hash Tool Request  
     info!("📝 Demo 2: Testing Hash Tool via Cap'n Proto");
     match demo_hash_tool(&client).await {
         Ok(()) => info!("✅ Hash tool demo completed successfully"),
         Err(e) => error!("❌ Hash tool demo failed: {}", e),
     }
-    
-    println!();
-    
+
+    {
+        let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+        writeln!(&mut stdout)?;
+    }
+
     // Demo 3: Protocol Extension Verification
     info!("📝 Demo 3: Protocol Extension Verification");
     verify_protocol_extension(&client).await?;

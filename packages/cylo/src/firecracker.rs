@@ -5,15 +5,101 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::thread;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use ssh2::Session;
-use tracing::{error, info, warn};
+use log::{error, info, warn};
+
+// HTTP client for Firecracker API over Unix sockets
+use bytes::Bytes;
+use http::{Method, Request, StatusCode};
+use http_body_util::{BodyExt, Full};
+use hyper_client_sockets::{tokio::TokioBackend, Backend};
+use serde::{Deserialize, Serialize};
 
 use crate::config::RamdiskConfig;
 use crate::error::StorageError;
+
+/// Boot source configuration for Firecracker VM
+/// API: PUT /boot-source
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BootSource {
+    /// Host level path to the kernel image used to boot the guest (required)
+    pub kernel_image_path: String,
+    
+    /// Kernel boot arguments (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub boot_args: Option<String>,
+    
+    /// Host level path to the initrd image used to boot the guest (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub initrd_path: Option<String>,
+}
+
+/// Machine configuration for Firecracker VM
+/// API: PUT /machine-config
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MachineConfiguration {
+    /// Number of vCPUs (required, 1 or even number, max 32)
+    pub vcpu_count: u32,
+    
+    /// Memory size in MiB (required)
+    pub mem_size_mib: u32,
+    
+    /// Enable simultaneous multithreading (optional, default: false)
+    /// Can only be enabled on x86
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub smt: Option<bool>,
+}
+
+/// Drive configuration for Firecracker VM
+/// API: PUT /drives/{drive_id}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Drive {
+    /// Drive identifier (required)
+    pub drive_id: String,
+    
+    /// Host level path for the guest drive (required for virtio-block)
+    pub path_on_host: String,
+    
+    /// Is this the root device (required)
+    pub is_root_device: bool,
+    
+    /// Is the drive read-only (optional, default: false)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_read_only: Option<bool>,
+}
+
+/// Network interface configuration for Firecracker VM
+/// API: PUT /network-interfaces/{iface_id}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkInterface {
+    /// Network interface ID (required)
+    pub iface_id: String,
+    
+    /// Host device name for the tap interface (required)
+    pub host_dev_name: String,
+    
+    /// Guest MAC address (required)
+    pub guest_mac: String,
+}
+
+/// Instance action request
+/// API: PUT /actions
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InstanceActionInfo {
+    /// Action type (required)
+    /// Valid values: "InstanceStart", "SendCtrlAltDel", "FlushMetrics"
+    pub action_type: String,
+}
+
+/// Firecracker API error response
+#[derive(Debug, Clone, Deserialize)]
+pub struct FirecrackerError {
+    /// Error description from Firecracker API
+    pub fault_message: String,
+}
 
 /// Configuration for Firecracker VM
 #[derive(Debug, Clone)]
@@ -106,7 +192,7 @@ impl FirecrackerVM {
     }
 
     /// Start the Firecracker VM
-    pub fn start(&mut self) -> Result<()> {
+    pub async fn start(&mut self) -> Result<()> {
         info!("Starting Firecracker VM with ID: {}", self.vm_id);
 
         // Check if Firecracker binary exists
@@ -137,7 +223,7 @@ impl FirecrackerVM {
         // Wait for socket to be created
         let mut attempts = 0;
         while !self.socket_path.exists() && attempts < 10 {
-            thread::sleep(Duration::from_millis(100));
+            tokio::time::sleep(Duration::from_millis(100)).await;
             attempts += 1;
         }
 
@@ -147,127 +233,176 @@ impl FirecrackerVM {
 
         self.api_socket = Some(self.socket_path.clone());
 
-        // Configure the VM
-        self.configure_vm()?;
+        // Configure the VM (now async)
+        self.configure_vm().await?;
 
         info!("Firecracker VM started successfully");
         Ok(())
     }
 
-    /// Configure the VM using the API
-    fn configure_vm(&self) -> Result<()> {
-        // This would normally use the Firecracker API client
-        // For now, we'll use curl commands for simplicity
+    /// Configure the VM using the Firecracker API
+    async fn configure_vm(&self) -> Result<()> {
+        info!("Configuring Firecracker VM via API");
 
         // Configure boot source
-        let boot_source = format!(
-            r#"{{
-                "kernel_image_path": "{kernel}",
-                "boot_args": "console=ttyS0 reboot=k panic=1 pci=off"
-            }}"#,
-            kernel = self.config.kernel_path.display()
-        );
+        let boot_source = BootSource {
+            kernel_image_path: self.config.kernel_path.display().to_string(),
+            boot_args: Some("console=ttyS0 reboot=k panic=1 pci=off".to_string()),
+            initrd_path: None, // Can be added from config if needed
+        };
+        
+        self.api_put("boot-source", &boot_source).await
+            .context("Failed to configure boot source")?;
+        
+        info!("Boot source configured");
 
-        self.api_put("boot-source", &boot_source)?;
+        // Configure machine config (vCPU and memory)
+        let machine_config = MachineConfiguration {
+            vcpu_count: self.config.vcpu_count,
+            mem_size_mib: self.config.mem_size_mib,
+            smt: Some(false), // Disable hyperthreading
+        };
+        
+        self.api_put("machine-config", &machine_config).await
+            .context("Failed to configure machine")?;
+        
+        info!("Machine config set: {} vCPUs, {} MiB memory", 
+              self.config.vcpu_count, self.config.mem_size_mib);
 
-        // Configure machine config
-        let machine_config = format!(
-            r#"{{
-                "vcpu_count": {vcpu},
-                "mem_size_mib": {mem},
-                "ht_enabled": false
-            }}"#,
-            vcpu = self.config.vcpu_count,
-            mem = self.config.mem_size_mib
-        );
-
-        self.api_put("machine-config", &machine_config)?;
-
-        // Configure rootfs
-        let rootfs_config = format!(
-            r#"{{
-                "drive_id": "rootfs",
-                "path_on_host": "{rootfs}",
-                "is_root_device": true,
-                "is_read_only": false
-            }}"#,
-            rootfs = self.config.rootfs_path.display()
-        );
-
-        self.api_put("drives/rootfs", &rootfs_config)?;
+        // Configure rootfs drive
+        let drive = Drive {
+            drive_id: "rootfs".to_string(),
+            path_on_host: self.config.rootfs_path.display().to_string(),
+            is_root_device: true,
+            is_read_only: Some(false),
+        };
+        
+        self.api_put("drives/rootfs", &drive).await
+            .context("Failed to configure root filesystem")?;
+        
+        info!("Root filesystem configured");
 
         // Configure network if provided
         if let Some(net_config) = &self.config.network_config {
-            let network_config = format!(
-                r#"{{
-                    "iface_id": "eth0",
-                    "host_dev_name": "{host_if}",
-                    "guest_mac": "{guest_mac}",
-                    "allow_mmds_requests": true
-                }}"#,
-                host_if = net_config.host_interface,
-                guest_mac = net_config.guest_mac
-            );
-
-            self.api_put("network-interfaces/eth0", &network_config)?;
+            let network_interface = NetworkInterface {
+                iface_id: "eth0".to_string(),
+                host_dev_name: net_config.host_interface.clone(),
+                guest_mac: net_config.guest_mac.clone(),
+            };
+            
+            self.api_put("network-interfaces/eth0", &network_interface).await
+                .context("Failed to configure network interface")?;
+            
+            info!("Network interface configured");
         }
 
-        // Start the VM
-        self.api_put("actions", r#"{"action_type": "InstanceStart"}"#)?;
+        // Start the VM instance
+        let start_action = InstanceActionInfo {
+            action_type: "InstanceStart".to_string(),
+        };
+        
+        self.api_put("actions", &start_action).await
+            .context("Failed to start VM instance")?;
+        
+        info!("VM instance started successfully");
 
         Ok(())
     }
 
-    /// Make a PUT request to the Firecracker API
-    fn api_put(&self, path: &str, body: &str) -> Result<()> {
-        if let Some(socket) = &self.api_socket {
-            let url = format!("http://localhost/{path}");
+    /// Make a PUT request to the Firecracker API over Unix socket
+    async fn api_put<T: Serialize>(&self, path: &str, body: &T) -> Result<()> {
+        let socket_path = self.api_socket.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("API socket not available"))?;
 
-            // Write the request to a temporary file
-            let tmp_file = format!("/tmp/fc-request-{}.json", path.replace("/", "-"));
-            let mut file = File::create(&tmp_file)?;
-            file.write_all(body.as_bytes())?;
+        // Serialize request body to JSON
+        let json_body = serde_json::to_vec(body)
+            .context("Failed to serialize request body")?;
 
-            // Use curl to make the request
-            let output = Command::new("curl")
-                .arg("--unix-socket")
-                .arg(socket)
-                .arg("-X")
-                .arg("PUT")
-                .arg("-H")
-                .arg("Content-Type: application/json")
-                .arg("-d")
-                .arg(format!("@{tmp_file}"))
-                .arg(url)
-                .output()?;
+        // Connect to Unix socket
+        let io = TokioBackend::connect_to_unix_socket(socket_path)
+            .await
+            .context("Failed to connect to Firecracker API socket")?;
 
-            // Clean up
-            let _ = fs::remove_file(tmp_file);
+        // Create HTTP/1 connection
+        let (mut send_request, conn) = hyper::client::conn::http1::handshake::<_, Full<Bytes>>(io)
+            .await
+            .context("Failed to perform HTTP handshake")?;
 
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                return Err(anyhow::anyhow!("API request failed: {}", stderr));
+        // Spawn connection handler
+        tokio::spawn(async move {
+            if let Err(e) = conn.await {
+                error!("Firecracker API connection error: {}", e);
             }
-        } else {
-            return Err(anyhow::anyhow!("API socket not available"));
+        });
+
+        // Build HTTP request
+        let uri = format!("http://localhost/{}", path.trim_start_matches('/'));
+        let request = Request::builder()
+            .method(Method::PUT)
+            .uri(&uri)
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json")
+            .body(Full::new(Bytes::from(json_body)))
+            .context("Failed to build HTTP request")?;
+
+        // Send request and await response
+        let response = send_request
+            .send_request(request)
+            .await
+            .context("Failed to send API request")?;
+
+        // Check response status
+        let status = response.status();
+        
+        if status == StatusCode::NO_CONTENT {
+            // 204 No Content - success
+            return Ok(());
         }
 
-        Ok(())
+        // Read error response body
+        let body_bytes = response
+            .into_body()
+            .collect()
+            .await
+            .context("Failed to read error response")?
+            .to_bytes();
+        
+        let error_text = String::from_utf8_lossy(&body_bytes);
+        
+        // Try to parse as FirecrackerError for better error messages
+        if let Ok(fc_error) = serde_json::from_slice::<FirecrackerError>(&body_bytes) {
+            return Err(anyhow::anyhow!(
+                "Firecracker API error ({}): {}",
+                status,
+                fc_error.fault_message
+            ));
+        }
+        
+        // Fallback to raw error text
+        Err(anyhow::anyhow!(
+            "Firecracker API request failed with status {}: {}",
+            status,
+            error_text
+        ))
     }
 
     /// Stop the Firecracker VM
-    pub fn stop(&self) -> Result<(), StorageError> {
+    pub async fn stop(&self) -> Result<(), StorageError> {
         info!("Stopping Firecracker VM with ID: {}", self.vm_id);
 
         if let Some(socket) = &self.api_socket {
             // Send shutdown request
-            if let Err(e) = self.api_put("actions", r#"{"action_type": "SendCtrlAltDel"}"#) {
+            let shutdown_action = InstanceActionInfo {
+                action_type: "SendCtrlAltDel".to_string(),
+            };
+            
+            if let Err(e) = self.api_put("actions", &shutdown_action).await {
                 warn!("Failed to send shutdown request: {}", e);
                 // Continue with cleanup even if shutdown request fails
             }
 
             // Wait for VM to shut down
-            thread::sleep(Duration::from_secs(2));
+            tokio::time::sleep(Duration::from_secs(2)).await;
 
             // Clean up socket file
             if socket.exists()
@@ -462,7 +597,7 @@ impl FirecrackerVM {
 }
 
 /// Create a Firecracker-based execution environment
-pub fn create_firecracker_environment(
+pub async fn create_firecracker_environment(
     config: &RamdiskConfig,
 ) -> Result<FirecrackerVM, StorageError> {
     // Convert RamdiskConfig to FirecrackerConfig
@@ -479,7 +614,7 @@ pub fn create_firecracker_environment(
     let vm_id = format!("cylo-{}", uuid::Uuid::new_v4());
     let mut vm = FirecrackerVM::new(fc_config, vm_id);
 
-    match vm.start() {
+    match vm.start().await {
         Ok(_) => {
             info!("Firecracker VM started successfully");
             Ok(vm)

@@ -5,7 +5,7 @@
 
 use anyhow::Result;
 use rustls::pki_types::CertificateDer;
-use tracing::{info, warn};
+use log::{info, warn};
 
 use super::parsing::{
     parse_certificate_from_pem, validate_basic_constraints, validate_certificate_time,

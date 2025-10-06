@@ -1,12 +1,11 @@
 use std::{
     fs,
-    io::{Write, stdout},
     path::Path,
     process::Command,
 };
 
 use clap::Args;
-use ratatui::style::Stylize;
+use crate::context::logger::ConsoleLogger;
 
 #[derive(Args, Debug)]
 pub struct UpgradeArgs {
@@ -24,7 +23,8 @@ pub struct UpgradeArgs {
 }
 
 pub fn upgrade_plugins(args: &UpgradeArgs) -> Result<(), Box<dyn std::error::Error>> {
-    println!("{}", "Upgrading plugin dependencies...".bold().cyan());
+    let logger = ConsoleLogger::new();
+    log::info!("Upgrading plugin dependencies...");
 
     let project_root = std::env::current_dir()?;
     let plugins_dir = project_root.join("plugins");
@@ -84,39 +84,28 @@ pub fn upgrade_plugins(args: &UpgradeArgs) -> Result<(), Box<dyn std::error::Err
         }
 
         // Report summary
-        println!();
-        println!("{}", "Upgrade Summary".bold().underlined());
+        log::info!("Upgrade Summary");
 
         if !upgraded_plugins.is_empty() {
-            println!(
-                "{} {} {}",
-                "✅".green(),
-                upgraded_plugins.len(),
-                "plugins upgraded:".green()
-            );
+            logger.success(&format!("{} plugins upgraded:", upgraded_plugins.len()));
             for name in upgraded_plugins {
-                println!("  - {}", name);
+                log::info!("  - {}", name);
             }
         } else if args.dry_run {
-            println!("{}", "No plugins need upgrading".yellow());
+            logger.warn("No plugins need upgrading");
         }
 
         if !failed_plugins.is_empty() {
-            println!(
-                "{} {} {}",
-                "❌".red(),
-                failed_plugins.len(),
-                "plugins failed to upgrade:".red()
-            );
+            logger.error(&format!("{} plugins failed to upgrade:", failed_plugins.len()));
             for (name, error) in failed_plugins {
-                println!("  - {}: {}", name.bold(), error);
+                logger.error(&format!("  - {}: {}", name, error));
             }
             return Err("Some plugins failed to upgrade".into());
         }
     } else {
         // No plugin specified and --all not set
-        println!("No plugin specified. Use --name <plugin_name> or --all to upgrade plugins.");
-        println!("Available plugins:");
+        log::info!("No plugin specified. Use --name <plugin_name> or --all to upgrade plugins.");
+        log::info!("Available plugins:");
 
         for entry in fs::read_dir(&plugins_dir)? {
             let entry = entry?;
@@ -125,7 +114,7 @@ pub fn upgrade_plugins(args: &UpgradeArgs) -> Result<(), Box<dyn std::error::Err
             if path.is_dir() {
                 // Already fixed
                 if let Some(plugin_name) = path.file_name() {
-                    println!("  - {}", plugin_name.to_string_lossy());
+                    log::info!("  - {}", plugin_name.to_string_lossy());
                 }
             }
         }
@@ -136,6 +125,7 @@ pub fn upgrade_plugins(args: &UpgradeArgs) -> Result<(), Box<dyn std::error::Err
 // Removed extra closing brace here
 
 fn get_latest_versions() -> Result<Vec<(&'static str, String)>, Box<dyn std::error::Error>> {
+    let logger = ConsoleLogger::new();
     let dependencies = [
         "extism-pdk",
         "serde",
@@ -147,8 +137,7 @@ fn get_latest_versions() -> Result<Vec<(&'static str, String)>, Box<dyn std::err
     let mut latest_versions = Vec::new();
 
     for &dep in &dependencies {
-        print!("Checking latest version of {}... ", dep);
-        stdout().flush()?;
+        log::info!("Checking latest version of {}...", dep);
 
         let output = Command::new("cargo")
             .args(["search", dep, "--limit", "1"])
@@ -159,13 +148,13 @@ fn get_latest_versions() -> Result<Vec<(&'static str, String)>, Box<dyn std::err
             let version = parse_crate_version(&output_str, dep);
 
             if let Some(version) = version {
-                println!("{}", version.clone().green());
+                log::info!("  {} version: {}", dep, version);
                 latest_versions.push((dep, version));
             } else {
-                println!("{}", "not found".yellow());
+                logger.warn(&format!("  {} version not found", dep));
             }
         } else {
-            println!("{}", "failed".red());
+            logger.error(&format!("  Failed to check {}", dep));
         }
     }
 
@@ -191,17 +180,13 @@ fn upgrade_plugin_dependencies(
     latest_versions: &[(&str, String)],
     dry_run: bool,
 ) -> Result<bool, Box<dyn std::error::Error>> {
+    let logger = ConsoleLogger::new();
     // Already fixed
     let plugin_name = plugin_path
         .file_name()
         .ok_or_else(|| format!("Invalid plugin path: {}", plugin_path.display()))?
         .to_string_lossy();
-    println!();
-    println!(
-        "{} {}",
-        "Upgrading dependencies for:".bold(),
-        plugin_name.to_string().green().bold()
-    );
+    log::info!("Upgrading dependencies for: {}", plugin_name);
 
     // Check Cargo.toml exists
     let cargo_path = plugin_path.join("Cargo.toml");
@@ -230,7 +215,7 @@ fn upgrade_plugin_dependencies(
                         &format!("{} = {{ version = \"{}\"", dep, ver),
                     );
 
-                    println!("  {} → {}", current_ver.red(), new_line.clone().green());
+                    log::info!("  {} → {}", current_ver, new_line);
 
                     if !dry_run {
                         *line = new_line;
@@ -246,7 +231,7 @@ fn upgrade_plugin_dependencies(
                     let new_line = line
                         .replace(&format!("{} = \"", dep), &format!("{} = \"{}\"", dep, ver));
 
-                    println!("  {} → {}", current_ver.red(), new_line.clone().green());
+                    log::info!("  {} → {}", current_ver, new_line);
 
                     if !dry_run {
                         *line = new_line;
@@ -258,23 +243,16 @@ fn upgrade_plugin_dependencies(
     }
 
     if !upgraded {
-        println!(
-            "  {} All dependencies are already at the latest version",
-            "✓".green()
-        );
+        log::info!("  All dependencies are already at the latest version");
         return Ok(false);
     }
 
     // Write updated content back if not dry run
     if !dry_run {
         fs::write(&cargo_path, lines.join("\n"))?;
-        println!(
-            "  {} Dependencies upgraded in {}",
-            "✅".green(),
-            cargo_path.display()
-        );
+        logger.success(&format!("Dependencies upgraded in {}", cargo_path.display()));
     } else {
-        println!("  {} Dry run - no changes made", "ℹ️".blue());
+        log::info!("  Dry run - no changes made");
     }
 
     Ok(upgraded)

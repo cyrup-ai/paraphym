@@ -24,7 +24,7 @@ use std::path::Path;
 // Vector search and embedding imports
 use crate::memory::vector::embedding_model::EmbeddingModel;
 use crate::capability::text_embedding::CandleBertEmbeddingProvider;
-use tracing;  // For logging in create_memory
+use log;  // For logging in create_memory
 
 /// Content structure for creating/updating memory nodes (without ID)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -577,7 +577,7 @@ impl SurrealDBMemoryManager {
     /// # Returns
     /// Ok(()) if all migrations succeeded, Err if any migration failed
     pub async fn run_migrations(&self) -> Result<()> {
-        tracing::info!("Initializing migration manager...");
+        log::info!("Initializing migration manager...");
 
         // Create migration manager with shared database connection
         let db_arc = Arc::new(self.db.clone());
@@ -589,13 +589,13 @@ impl SurrealDBMemoryManager {
             manager.add_migration(migration);
         }
 
-        tracing::info!("Running schema migrations...");
+        log::info!("Running schema migrations...");
 
         // Run migrations (now async, not returning PendingMigration)
         manager.migrate().await
             .map_err(|e| Error::Other(format!("Migration execution failed: {}", e)))?;
 
-        tracing::info!("Schema migrations completed successfully");
+        log::info!("Schema migrations completed successfully");
 
         Ok(())
     }
@@ -620,7 +620,7 @@ impl SurrealDBMemoryManager {
         path: &Path,
         format: ExportFormat,
     ) -> Result<usize> {
-        tracing::info!("Exporting memories to {:?} in {:?} format", path, format);
+        log::info!("Exporting memories to {:?} in {:?} format", path, format);
 
         // Query all memory nodes from 'memory' table
         let nodes_query = "SELECT * FROM memory";
@@ -676,7 +676,7 @@ impl SurrealDBMemoryManager {
             .map_err(|e| Error::Migration(format!("Export failed: {}", e)))?;
 
         let total = nodes.len() + relationships.len();
-        tracing::info!("Successfully exported {} items to {:?}", total, path);
+        log::info!("Successfully exported {} items to {:?}", total, path);
 
         Ok(total)
     }
@@ -701,7 +701,7 @@ impl SurrealDBMemoryManager {
         path: &Path,
         format: ImportFormat,
     ) -> Result<usize> {
-        tracing::info!("Importing memories from {:?} in {:?} format", path, format);
+        log::info!("Importing memories from {:?} in {:?} format", path, format);
 
         // Use DataImporter to read from file
         let importer = DataImporter::new();
@@ -750,7 +750,7 @@ impl SurrealDBMemoryManager {
             }
         }
 
-        tracing::info!("Successfully imported {} items from {:?}", inserted_count, path);
+        log::info!("Successfully imported {} items from {:?}", inserted_count, path);
 
         Ok(inserted_count)
     }
@@ -779,7 +779,7 @@ impl MemoryManager for SurrealDBMemoryManager {
                         }
                         Err(e) => {
                             // Log but don't fail - memory can exist without embedding
-                            tracing::warn!("Failed to generate embedding: {:?}", e);
+                            log::warn!("Failed to generate embedding: {:?}", e);
                         }
                     }
                 }

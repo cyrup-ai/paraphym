@@ -8,7 +8,7 @@
 
 use std::time::{Duration, Instant};
 
-use tracing::{debug, info};
+use log::{debug, info};
 
 use super::limiter::{SlidingWindowConfig, TokenBucketConfig};
 

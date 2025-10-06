@@ -222,7 +222,7 @@ impl EmbeddingModelFactory {
                 if let Some(fallback) = fallback_config {
                     match Self::create_embedding_model(fallback).await {
                         Ok(model) => {
-                            tracing::warn!(
+                            log::warn!(
                                 "Primary embedding model failed ({}), using fallback", 
                                 primary_error
                             );

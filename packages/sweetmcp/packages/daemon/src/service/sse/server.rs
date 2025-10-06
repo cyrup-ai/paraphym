@@ -21,7 +21,7 @@ use tower_http::{
     cors::{Any, CorsLayer},
     trace::TraceLayer,
 };
-use tracing::{debug, info, warn};
+use log::{debug, info, warn};
 
 use crate::service::sse::{
     bridge::{create_invalid_request_response, validate_json_rpc_request, McpBridge},
@@ -253,7 +253,7 @@ async fn handle_messages_endpoint(
     Query(query): Query<MessagesQuery>,
     Json(request): Json<Value>,
 ) -> Result<Json<Value>, StatusCode> {
-    debug!(
+    log::debug!(
         "Received message for session {}: {}",
         query.session_id, request
     );

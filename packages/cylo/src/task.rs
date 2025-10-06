@@ -2,7 +2,7 @@ use std::fmt::Formatter;
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 
-use tracing::{error, info};
+use log::{error, info};
 
 use crate::config::RamdiskConfig;
 use crate::error::ExecError;

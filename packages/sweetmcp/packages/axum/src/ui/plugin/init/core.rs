@@ -7,6 +7,7 @@
 use std::{fs, process::Command};
 
 use clap::Args;
+use crate::context::logger::ConsoleLogger;
 
 /// Plugin initialization arguments
 #[derive(Args, Debug, Clone)]
@@ -150,7 +151,7 @@ impl PluginDirectoryManager {
         // Create plugins directory if it doesn't exist
         if !self.plugins_dir.exists() {
             fs::create_dir_all(&self.plugins_dir)?;
-            println!(
+            log::info!(
                 "Created plugins directory at {}",
                 self.plugins_dir.display()
             );
@@ -181,7 +182,7 @@ impl PluginDirectoryManager {
             let root_ignore = project_root.join(ignore_file);
             if root_ignore.exists() {
                 fs::copy(&root_ignore, self.plugin_dir.join(ignore_file))?;
-                println!("Copied {} to plugin directory", ignore_file);
+                log::info!("Copied {} to plugin directory", ignore_file);
             }
         }
 
@@ -216,7 +217,8 @@ impl GitManager {
 
     /// Initialize git repository
     pub fn init_repository(&self) -> Result<bool, Box<dyn std::error::Error>> {
-        println!("Initializing git repository...");
+        let logger = ConsoleLogger::new();
+        log::info!("Initializing git repository...");
 
         let git_init = Command::new("git")
             .args(["init"])
@@ -224,32 +226,33 @@ impl GitManager {
             .output()?;
 
         if git_init.status.success() {
-            println!("Git repository initialized");
+            logger.success("Git repository initialized");
             Ok(true)
         } else {
-            println!(
+            logger.error(&format!(
                 "Failed to initialize git repository: {}",
                 String::from_utf8_lossy(&git_init.stderr)
-            );
+            ));
             Ok(false)
         }
     }
 
     /// Set up git remote
     pub fn setup_remote(&self, remote_url: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        let logger = ConsoleLogger::new();
         let git_remote = Command::new("git")
             .args(["remote", "add", "origin", remote_url])
             .current_dir(&self.plugin_dir)
             .output()?;
 
         if git_remote.status.success() {
-            println!("Git remote set to {}", remote_url);
+            logger.success(&format!("Git remote set to {}", remote_url));
             Ok(true)
         } else {
-            println!(
+            logger.error(&format!(
                 "Failed to set git remote: {}",
                 String::from_utf8_lossy(&git_remote.stderr)
-            );
+            ));
             Ok(false)
         }
     }
@@ -281,7 +284,8 @@ impl GitHubManager {
         repo_name: &str,
         description: &str,
     ) -> Result<bool, Box<dyn std::error::Error>> {
-        println!("Creating GitHub repository...");
+        let logger = ConsoleLogger::new();
+        log::info!("Creating GitHub repository...");
 
         let gh_create = Command::new("gh")
             .args([
@@ -295,13 +299,13 @@ impl GitHubManager {
             .output()?;
 
         if gh_create.status.success() {
-            println!("GitHub repository created: {}", repo_name);
+            logger.success(&format!("GitHub repository created: {}", repo_name));
             Ok(true)
         } else {
-            println!(
+            logger.error(&format!(
                 "Failed to create GitHub repository: {}",
                 String::from_utf8_lossy(&gh_create.stderr)
-            );
+            ));
             Ok(false)
         }
     }

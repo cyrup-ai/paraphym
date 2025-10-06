@@ -16,7 +16,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::RwLock;
-use tracing::{debug, info, warn};
+use log::{debug, info, warn};
 
 use super::types::{GraphQLTypeInfo, GraphQLTypeKind};
 

@@ -7,7 +7,7 @@ use pingora::Result;
 use pingora_load_balancing::{discovery::ServiceDiscovery, Backend};
 use serde::{Deserialize, Serialize};
 use tokio::time::interval;
-use tracing::{debug, error, info, warn};
+use log::{debug, error, info, warn};
 
 use crate::crypto::core::TokenManager;
 
@@ -93,7 +93,7 @@ impl PeerRegistry {
         let mut peers = match self.inner.write() {
             Ok(peers) => peers,
             Err(poisoned) => {
-                tracing::warn!("Peer registry write lock poisoned during add_peer, recovering");
+                log::warn!("Peer registry write lock poisoned during add_peer, recovering");
                 poisoned.into_inner()
             }
         };
@@ -111,7 +111,7 @@ impl PeerRegistry {
         let mut peers = match self.inner.write() {
             Ok(peers) => peers,
             Err(poisoned) => {
-                tracing::warn!(
+                log::warn!(
                     "Peer registry write lock poisoned during mark_peer_success, recovering"
                 );
                 poisoned.into_inner()
@@ -127,7 +127,7 @@ impl PeerRegistry {
         let mut peers = match self.inner.write() {
             Ok(peers) => peers,
             Err(poisoned) => {
-                tracing::warn!(
+                log::warn!(
                     "Peer registry write lock poisoned during mark_peer_failed, recovering"
                 );
                 poisoned.into_inner()
@@ -143,7 +143,7 @@ impl PeerRegistry {
         let peers = match self.inner.read() {
             Ok(peers) => peers,
             Err(poisoned) => {
-                tracing::warn!(
+                log::warn!(
                     "Peer registry read lock poisoned during get_healthy_peers, recovering"
                 );
                 poisoned.into_inner()
@@ -161,7 +161,7 @@ impl PeerRegistry {
         let peers = match self.inner.read() {
             Ok(peers) => peers,
             Err(poisoned) => {
-                tracing::warn!("Peer registry read lock poisoned, recovering");
+                log::warn!("Peer registry read lock poisoned, recovering");
                 poisoned.into_inner()
             }
         };
@@ -177,7 +177,7 @@ impl PeerRegistry {
         let peers = match self.inner.read() {
             Ok(peers) => peers,
             Err(poisoned) => {
-                tracing::warn!("Peer registry read lock poisoned, recovering");
+                log::warn!("Peer registry read lock poisoned, recovering");
                 poisoned.into_inner()
             }
         };
@@ -189,7 +189,7 @@ impl PeerRegistry {
         let mut peers = match self.inner.write() {
             Ok(peers) => peers,
             Err(poisoned) => {
-                tracing::warn!("Peer registry write lock poisoned, recovering");
+                log::warn!("Peer registry write lock poisoned, recovering");
                 poisoned.into_inner()
             }
         };
@@ -213,7 +213,7 @@ impl PeerRegistry {
             tokio::spawn(async move {
                 for peer_id in removed_peers {
                     breaker_manager.remove_breaker(&peer_id).await;
-                    tracing::debug!("Removed circuit breaker for stale peer: {}", peer_id);
+                    log::debug!("Removed circuit breaker for stale peer: {}", peer_id);
                 }
             });
         }
@@ -224,11 +224,17 @@ impl PeerRegistry {
         let peers = match self.inner.read() {
             Ok(peers) => peers,
             Err(poisoned) => {
-                tracing::warn!("Peer registry read lock poisoned, recovering");
+                log::warn!("Peer registry read lock poisoned, recovering");
                 poisoned.into_inner()
             }
         };
         peers.values().filter(|p| p.healthy).count()
+    }
+
+    /// Check if the peer registry is healthy
+    /// A peer registry is considered healthy if it has at least one active peer
+    pub fn is_healthy(&self) -> bool {
+        self.healthy_peer_count() > 0
     }
 }
 

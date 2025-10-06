@@ -5,6 +5,7 @@
 //  – #[inline(always)] on hot paths
 //  – No `.cloned()`; uses map(|v| v.clone()) to avoid Cloned<Iter> types
 //=========================================================================
+use log::trace;
 use toml_edit::{DocumentMut, Item, Table, Value};
 
 use super::{
@@ -19,6 +20,7 @@ impl Message {
     //───────────────────────────────────────────────────────────────────
     #[inline(always)]
     pub fn from_toml(text: &str) -> Result<Self, McpError> {
+        trace!("Parsing TOML message");
         let doc: DocumentMut = text.parse().map_err(|e: toml_edit::TomlError| McpError::Parse(e.to_string()))?;
 
         if doc["jsonrpc"].as_str() != Some("2.0") {
@@ -101,6 +103,7 @@ impl Message {
     //───────────────────────────────────────────────────────────────────
     #[inline(always)]
     pub fn to_toml(&self) -> String {
+        trace!("Serializing message to TOML");
         let mut doc = DocumentMut::new();
         doc["jsonrpc"] = Item::Value(Value::from("2.0"));
 

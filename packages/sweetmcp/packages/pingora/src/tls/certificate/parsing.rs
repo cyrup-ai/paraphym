@@ -60,7 +60,7 @@ pub fn verify_hostname(parsed_cert: &ParsedCertificate, hostname: &str) -> Resul
     if let Some(cn) = parsed_cert.subject.get("CN")
         && match_hostname(hostname, cn)
     {
-        tracing::warn!("Using Common Name for hostname verification - SANs should be preferred");
+        log::warn!("Using Common Name for hostname verification - SANs should be preferred");
         return Ok(());
     }
 
@@ -86,7 +86,7 @@ pub fn verify_peer_certificate(cert_pem: &str, expected_hostname: &str) -> Resul
     // Verify hostname matches
     verify_hostname(&parsed_cert, expected_hostname)?;
 
-    tracing::info!(
+    log::info!(
         "Successfully verified peer certificate for hostname: {}",
         expected_hostname
     );
@@ -150,7 +150,7 @@ fn validate_certificate_time_internal(parsed_cert: &ParsedCertificate) -> Result
         && duration_until_expiry.as_secs() < 30 * 24 * 3600
     {
         // 30 days
-        tracing::warn!(
+        log::warn!(
             "Certificate expires soon: {} days remaining (expires: {:?})",
             duration_until_expiry.as_secs() / (24 * 3600),
             parsed_cert.not_after
@@ -203,7 +203,7 @@ fn validate_key_usage_internal(
 
             // CRL signing is recommended but not strictly required
             if !parsed_cert.key_usage.contains(&"cRLSign".to_string()) {
-                tracing::warn!("CA certificate missing recommended cRLSign usage");
+                log::warn!("CA certificate missing recommended cRLSign usage");
             }
         }
         CertificateUsage::ServerAuth => {
@@ -222,7 +222,7 @@ fn validate_key_usage_internal(
                 .key_usage
                 .contains(&"keyEncipherment".to_string())
             {
-                tracing::warn!(
+                log::warn!(
                     "Server certificate missing keyEncipherment usage (may be required for RSA)"
                 );
             }

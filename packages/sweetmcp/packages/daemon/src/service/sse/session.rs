@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::RwLock;
 use tokio::time::interval;
-use tracing::{debug, info, warn};
+use log::{debug, info, warn};
 use uuid::Uuid;
 
 /// Information about an active SSE session

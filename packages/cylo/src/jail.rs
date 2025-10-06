@@ -7,7 +7,7 @@ use std::thread;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use tracing::{info, warn};
+use log::{info, warn};
 
 use crate::error::StorageError;
 use crate::state::PipelineEvent;

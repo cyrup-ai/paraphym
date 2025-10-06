@@ -131,7 +131,7 @@ impl CertificateAuthority {
         let ca_cert = match parse_certificate_from_pem(&self.certificate_pem) {
             Ok(cert) => cert,
             Err(e) => {
-                tracing::error!(
+                log::error!(
                     "Failed to parse CA certificate for domain validation: {}",
                     e
                 );
@@ -141,7 +141,7 @@ impl CertificateAuthority {
 
         // Check if this is a proper CA
         if !ca_cert.is_ca {
-            tracing::warn!(
+            log::warn!(
                 "Certificate is not marked as CA, cannot sign for domain: {}",
                 domain
             );
@@ -151,13 +151,13 @@ impl CertificateAuthority {
         // Delegate to existing hostname verification logic
         // If the CA certificate itself can validate this domain, then it can sign for it
         if let Ok(()) = verify_hostname(&ca_cert, domain) {
-            tracing::debug!(
+            log::debug!(
                 "CA can sign for domain '{}' - matches CA constraints",
                 domain
             );
             true
         } else {
-            tracing::warn!(
+            log::warn!(
                 "CA certificate cannot sign for domain '{}' - no matching constraints",
                 domain
             );

@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 use plist::Value;
@@ -57,11 +57,10 @@ pub async fn discover_workflows() -> Result<Vec<AlfredWorkflow>> {
         let path = entry.path();
         if path.is_dir() {
             let info_plist = path.join("info.plist");
-            if info_plist.exists() {
-                if let Ok(workflow) = parse_workflow_metadata(&path, &info_plist).await {
+            if info_plist.exists()
+                && let Ok(workflow) = parse_workflow_metadata(&path, &info_plist).await {
                     workflows.push(workflow);
                 }
-            }
         }
     }
     
@@ -69,7 +68,7 @@ pub async fn discover_workflows() -> Result<Vec<AlfredWorkflow>> {
 }
 
 async fn parse_workflow_metadata(
-    workflow_path: &PathBuf,
+    workflow_path: &Path,
     info_plist: &PathBuf,
 ) -> Result<AlfredWorkflow> {
     let plist = plist::from_file(info_plist)?;
@@ -108,11 +107,10 @@ async fn parse_workflow_metadata(
                     .and_then(|v| v.as_string())
                     .unwrap_or("");
                 
-                if obj_type == "alfred.workflow.input.scriptfilter" {
-                    if let Ok(filter) = parse_script_filter(obj_dict) {
+                if obj_type == "alfred.workflow.input.scriptfilter"
+                    && let Ok(filter) = parse_script_filter(obj_dict) {
                         script_filters.push(filter);
                     }
-                }
             }
         }
     }
@@ -123,7 +121,7 @@ async fn parse_workflow_metadata(
         description,
         bundle_id,
         script_filters,
-        path: workflow_path.clone(),
+        path: workflow_path.to_path_buf(),
     })
 }
 

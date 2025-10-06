@@ -260,17 +260,17 @@ impl TlsManager {
         host: &str,
         port: u16,
     ) -> Result<tokio_rustls::client::TlsStream<TcpStream>, TlsError> {
-        tracing::debug!("Creating enterprise TLS connection to {}:{}", host, port);
+        log::debug!("Creating enterprise TLS connection to {}:{}", host, port);
 
         // Create TCP connection with timeout
-        tracing::debug!("TLS: About to create TCP connection to {}:{}", host, port);
-        tracing::debug!("TLS: Resolving DNS for {}", host);
+        log::debug!("TLS: About to create TCP connection to {}:{}", host, port);
+        log::debug!("TLS: Resolving DNS for {}", host);
 
         // First try to resolve the address to see if DNS is the issue
         let addr = format!("{host}:{port}");
-        tracing::debug!("TLS: About to resolve address: {}", addr);
+        log::debug!("TLS: About to resolve address: {}", addr);
 
-        tracing::debug!("TLS: Using timeout of {:?}", self.config.connect_timeout);
+        log::debug!("TLS: Using timeout of {:?}", self.config.connect_timeout);
 
         // Connect with timeout
         let tcp_stream = match tokio::time::timeout(
@@ -280,53 +280,53 @@ impl TlsManager {
         .await
         {
             Ok(Ok(stream)) => {
-                tracing::debug!("TLS: TCP connect completed to {}", addr);
+                log::debug!("TLS: TCP connect completed to {}", addr);
                 stream
             }
             Ok(Err(e)) => {
-                tracing::error!("TLS: TCP connection failed to {}: {}", addr, e);
+                log::error!("TLS: TCP connection failed to {}: {}", addr, e);
                 return Err(TlsError::Internal(format!(
                     "Failed to connect to {addr}: {e}"
                 )));
             }
             Err(_) => {
-                tracing::error!("TLS: TCP connection timeout to {}", addr);
+                log::error!("TLS: TCP connection timeout to {}", addr);
                 return Err(TlsError::Internal(format!("Connection timeout to {addr}")));
             }
         };
-        tracing::debug!("TLS: TCP connection established to {}:{}", host, port);
+        log::debug!("TLS: TCP connection established to {}:{}", host, port);
 
         // Create enterprise TLS client configuration
-        tracing::debug!("TLS: About to create client config");
+        log::debug!("TLS: About to create client config");
         let client_config = self.create_client_config_sync()?;
-        tracing::debug!("TLS: Client config created successfully");
+        log::debug!("TLS: Client config created successfully");
 
         // Create TLS connector
-        tracing::debug!("TLS: About to create TLS connector");
+        log::debug!("TLS: About to create TLS connector");
         let connector = TlsConnector::from(Arc::new(client_config));
-        tracing::debug!("TLS: TLS connector created successfully");
+        log::debug!("TLS: TLS connector created successfully");
 
         // Create server name for TLS
-        tracing::debug!("TLS: About to create server name for {}", host);
+        log::debug!("TLS: About to create server name for {}", host);
         let server_name =
             rustls::pki_types::ServerName::try_from(host.to_string()).map_err(|e| {
-                tracing::error!("TLS: Invalid hostname '{}': {}", host, e);
+                log::error!("TLS: Invalid hostname '{}': {}", host, e);
                 TlsError::Internal(format!("Invalid hostname '{host}': {e}"))
             })?;
-        tracing::debug!("TLS: Server name created successfully for {}", host);
+        log::debug!("TLS: Server name created successfully for {}", host);
 
         // Perform TLS handshake
-        tracing::debug!("TLS: About to perform TLS handshake with {}", host);
+        log::debug!("TLS: About to perform TLS handshake with {}", host);
         let tls_stream = connector
             .connect(server_name, tcp_stream)
             .await
             .map_err(|e| {
-                tracing::error!("TLS: TLS handshake failed with {}: {}", host, e);
+                log::error!("TLS: TLS handshake failed with {}: {}", host, e);
                 TlsError::Internal(format!("TLS handshake failed: {e}"))
             })?;
-        tracing::debug!("TLS: TLS handshake completed successfully with {}", host);
+        log::debug!("TLS: TLS handshake completed successfully with {}", host);
 
-        tracing::info!("Enterprise TLS connection established to {}:{}", host, port);
+        log::info!("Enterprise TLS connection established to {}:{}", host, port);
         Ok(tls_stream)
     }
 
@@ -339,14 +339,14 @@ impl TlsManager {
     /// - Root certificate store operations fail
     /// - Certificate authority lock acquisition fails
     pub fn create_client_config_sync(&self) -> Result<ClientConfig, TlsError> {
-        tracing::debug!("TLS: Starting create_client_config_sync");
+        log::debug!("TLS: Starting create_client_config_sync");
 
         Self::initialize_crypto_provider();
         let root_store = self.create_root_certificate_store()?;
         let mut client_config = self.create_client_config_with_verification(root_store)?;
         self.configure_client_config(&mut client_config);
 
-        tracing::debug!("TLS: create_client_config_sync completed successfully");
+        log::debug!("TLS: create_client_config_sync completed successfully");
         Ok(client_config)
     }
 
@@ -393,7 +393,7 @@ impl TlsManager {
     pub fn perform_maintenance(&self) {
         self.ocsp_cache.cleanup_cache();
         self.crl_cache.cleanup_cache();
-        tracing::debug!("TLS manager maintenance completed");
+        log::debug!("TLS manager maintenance completed");
     }
 
     /// Validate certificate using OCSP (Online Certificate Status Protocol)
@@ -428,14 +428,14 @@ impl TlsManager {
             .check_certificate(&parsed_cert, issuer_cert.as_ref())
         {
             crate::tls::ocsp::OcspStatus::Good => {
-                tracing::info!("OCSP validation successful: certificate is valid");
+                log::info!("OCSP validation successful: certificate is valid");
                 Ok(())
             }
             crate::tls::ocsp::OcspStatus::Revoked => Err(TlsError::CertificateRevoked(
                 "Certificate revoked via OCSP".to_string(),
             )),
             crate::tls::ocsp::OcspStatus::Unknown => {
-                tracing::warn!("OCSP validation inconclusive");
+                log::warn!("OCSP validation inconclusive");
                 Ok(()) // Allow unknown status but log warning
             }
         }
@@ -457,7 +457,7 @@ impl TlsManager {
         let parsed_cert = crate::tls::certificate::parse_certificate_from_pem(cert_pem)?;
 
         if parsed_cert.crl_urls.is_empty() {
-            tracing::debug!("No CRL URLs found in certificate, skipping CRL validation");
+            log::debug!("No CRL URLs found in certificate, skipping CRL validation");
             return Ok(());
         }
 
@@ -469,7 +469,7 @@ impl TlsManager {
                 .await
             {
                 crate::tls::crl_cache::CrlStatus::Valid => {
-                    tracing::debug!("CRL validation passed for URL: {}", crl_url);
+                    log::debug!("CRL validation passed for URL: {}", crl_url);
                 }
                 crate::tls::crl_cache::CrlStatus::Revoked => {
                     return Err(TlsError::CertificateRevoked(format!(
@@ -477,35 +477,35 @@ impl TlsManager {
                     )));
                 }
                 crate::tls::crl_cache::CrlStatus::Unknown => {
-                    tracing::warn!("CRL validation inconclusive for URL: {}", crl_url);
+                    log::warn!("CRL validation inconclusive for URL: {}", crl_url);
                     // Continue checking other CRL URLs
                 }
             }
         }
 
-        tracing::info!("CRL validation completed successfully");
+        log::info!("CRL validation completed successfully");
         Ok(())
     }
 
     /// Initialize the crypto provider for rustls (called once per process)
     fn initialize_crypto_provider() {
-        tracing::debug!("TLS: Initializing crypto provider");
+        log::debug!("TLS: Initializing crypto provider");
         CRYPTO_PROVIDER_INIT.call_once(|| {
             let _ = rustls::crypto::ring::default_provider().install_default();
         });
-        tracing::debug!("TLS: Crypto provider initialized");
+        log::debug!("TLS: Crypto provider initialized");
     }
 
     /// Create and populate the root certificate store
     fn create_root_certificate_store(&self) -> Result<RootCertStore, TlsError> {
-        tracing::debug!("TLS: Creating root certificate store");
+        log::debug!("TLS: Creating root certificate store");
         let mut root_store = RootCertStore::empty();
 
         self.add_system_certificates(&mut root_store);
         self.add_custom_root_certificates(&mut root_store);
         self.add_custom_certificate_authorities(&mut root_store)?;
 
-        tracing::debug!(
+        log::debug!(
             "TLS: Root certificate store created with {} certificates",
             root_store.len()
         );
@@ -515,40 +515,40 @@ impl TlsManager {
     /// Add system certificates to the root store
     fn add_system_certificates(&self, root_store: &mut RootCertStore) {
         if self.config.use_system_certs {
-            tracing::debug!("TLS: Loading system certificates");
+            log::debug!("TLS: Loading system certificates");
             let cert_result = rustls_native_certs::load_native_certs();
-            tracing::debug!(
+            log::debug!(
                 "TLS: System certificate load completed, {} certs found",
                 cert_result.certs.len()
             );
 
             for cert in cert_result.certs {
                 if let Err(e) = root_store.add(cert) {
-                    tracing::warn!("Failed to add system certificate: {}", e);
+                    log::warn!("Failed to add system certificate: {}", e);
                 }
             }
 
             if !cert_result.errors.is_empty() {
                 for err in &cert_result.errors {
-                    tracing::warn!("Certificate load error: {}", err);
+                    log::warn!("Certificate load error: {}", err);
                 }
                 // Fall back to webpki roots if there were significant errors
-                tracing::debug!("TLS: Falling back to webpki roots due to system cert errors");
+                log::debug!("TLS: Falling back to webpki roots due to system cert errors");
                 root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
             }
 
-            tracing::debug!("Loaded {} system certificates", root_store.len());
+            log::debug!("Loaded {} system certificates", root_store.len());
         } else {
             // Use webpki roots as fallback
-            tracing::debug!("TLS: Using webpki roots as fallback");
+            log::debug!("TLS: Using webpki roots as fallback");
             root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-            tracing::debug!("TLS: Added {} webpki root certificates", root_store.len());
+            log::debug!("TLS: Added {} webpki root certificates", root_store.len());
         }
     }
 
     /// Add custom root certificates to the root store
     fn add_custom_root_certificates(&self, root_store: &mut RootCertStore) {
-        tracing::debug!(
+        log::debug!(
             "TLS: Processing {} custom root certificates",
             self.config.custom_root_certs.len()
         );
@@ -557,12 +557,12 @@ impl TlsManager {
             if let Ok(cert_der) = pem::parse(cert_pem) {
                 let cert = rustls::pki_types::CertificateDer::from(cert_der.contents());
                 if let Err(e) = root_store.add(cert) {
-                    tracing::warn!("Failed to add custom root certificate: {}", e);
+                    log::warn!("Failed to add custom root certificate: {}", e);
                 } else {
-                    tracing::debug!("Added custom root certificate from PEM data");
+                    log::debug!("Added custom root certificate from PEM data");
                 }
             } else {
-                tracing::warn!("Failed to parse custom root certificate PEM data");
+                log::warn!("Failed to parse custom root certificate PEM data");
             }
         }
     }
@@ -572,12 +572,12 @@ impl TlsManager {
         &self,
         root_store: &mut RootCertStore,
     ) -> Result<(), TlsError> {
-        tracing::debug!("TLS: About to acquire custom CA lock");
+        log::debug!("TLS: About to acquire custom CA lock");
         let cas = self
             .custom_cas
             .read()
             .map_err(|_| TlsError::Internal("Failed to acquire CA lock".to_string()))?;
-        tracing::debug!("TLS: Custom CA lock acquired, processing {} CAs", cas.len());
+        log::debug!("TLS: Custom CA lock acquired, processing {} CAs", cas.len());
 
         for (name, ca) in cas.iter() {
             if ca.is_valid() {
@@ -585,13 +585,13 @@ impl TlsManager {
                 if let Ok(cert_der) = pem::parse(&ca.certificate_pem) {
                     let cert = rustls::pki_types::CertificateDer::from(cert_der.contents());
                     if let Err(e) = root_store.add(cert) {
-                        tracing::warn!("Failed to add custom CA '{}': {}", name, e);
+                        log::warn!("Failed to add custom CA '{}': {}", name, e);
                     } else {
-                        tracing::debug!("Added custom CA: {}", name);
+                        log::debug!("Added custom CA: {}", name);
                     }
                 }
             } else {
-                tracing::warn!("Skipping expired CA: {}", name);
+                log::warn!("Skipping expired CA: {}", name);
             }
         }
         Ok(())
@@ -602,7 +602,7 @@ impl TlsManager {
         &self,
         root_store: RootCertStore,
     ) -> Result<ClientConfig, TlsError> {
-        tracing::debug!(
+        log::debug!(
             "TLS: About to configure client config, enable_crl={}",
             self.config.enable_crl
         );
@@ -618,18 +618,18 @@ impl TlsManager {
         &self,
         root_store: RootCertStore,
     ) -> Result<ClientConfig, TlsError> {
-        tracing::debug!("Configuring TLS with CRL verification enabled");
-        tracing::debug!("TLS: About to get CRLs from cache");
+        log::debug!("Configuring TLS with CRL verification enabled");
+        log::debug!("TLS: About to get CRLs from cache");
         let crls = self.crl_cache.get_rustls_crls();
-        tracing::debug!("TLS: Got {} CRLs from cache", crls.len());
+        log::debug!("TLS: Got {} CRLs from cache", crls.len());
 
         if crls.is_empty() {
-            tracing::debug!("No CRLs available, using standard verification");
+            log::debug!("No CRLs available, using standard verification");
             let builder = ClientConfig::builder()
                 .with_root_certificates(root_store);
             self.finalize_client_config_builder(builder)
         } else {
-            tracing::debug!(
+            log::debug!(
                 "TLS: Building WebPkiServerVerifier with {} CRLs",
                 crls.len()
             );
@@ -639,7 +639,7 @@ impl TlsManager {
                 .map_err(|e| {
                     TlsError::CrlValidation(format!("Failed to build CRL verifier: {e}"))
                 })?;
-            tracing::debug!("TLS: WebPkiServerVerifier built successfully");
+            log::debug!("TLS: WebPkiServerVerifier built successfully");
 
             let builder = ClientConfig::builder()
                 .with_webpki_verifier(verifier);
@@ -649,7 +649,7 @@ impl TlsManager {
 
     /// Create client config with standard verification
     fn create_client_config_standard(&self, root_store: RootCertStore) -> Result<ClientConfig, TlsError> {
-        tracing::debug!("Configuring TLS with standard rustls verification");
+        log::debug!("Configuring TLS with standard rustls verification");
         let builder = ClientConfig::builder()
             .with_root_certificates(root_store);
         self.finalize_client_config_builder(builder)
@@ -658,7 +658,7 @@ impl TlsManager {
     /// Configure client config with early data and ALPN protocols
     fn configure_client_config(&self, client_config: &mut ClientConfig) {
         // Configure early data if enabled
-        tracing::debug!(
+        log::debug!(
             "TLS: Configuring early data, enabled={}",
             self.config.enable_early_data
         );
@@ -667,13 +667,13 @@ impl TlsManager {
         }
 
         // Configure ALPN protocols for HTTP/3, HTTP/2, and HTTP/1.1 support
-        tracing::debug!("TLS: Configuring ALPN protocols");
+        log::debug!("TLS: Configuring ALPN protocols");
         client_config.alpn_protocols = vec![
             b"h3".to_vec(),       // HTTP/3 (preferred)
             b"h2".to_vec(),       // HTTP/2 (fallback)
             b"http/1.1".to_vec(), // HTTP/1.1 (final fallback)
         ];
-        tracing::debug!("TLS: Client config configured successfully");
+        log::debug!("TLS: Client config configured successfully");
     }
 
     /// Finalize client config builder with client authentication if configured
@@ -690,7 +690,7 @@ impl TlsManager {
         if let (Some(cert_path), Some(key_path)) = 
             (&self.config.client_cert_path, &self.config.client_key_path) 
         {
-            tracing::info!("Loading client certificate for mTLS from {:?}", cert_path);
+            log::info!("Loading client certificate for mTLS from {:?}", cert_path);
             
             // Load client certificate and key files
             let cert_pem = std::fs::read(cert_path)
@@ -712,13 +712,13 @@ impl TlsManager {
                 .map_err(|e| TlsError::Internal(format!("Failed to parse client key PEM: {e}")))?
                 .ok_or_else(|| TlsError::Internal("No private key found in key file".to_string()))?;
             
-            tracing::info!("Successfully loaded {} client certificate(s) for mTLS", certs.len());
+            log::info!("Successfully loaded {} client certificate(s) for mTLS", certs.len());
             
             // Build config with client authentication
             Ok(builder.with_client_auth_cert(certs, key)
                 .map_err(|e| TlsError::Internal(format!("Failed to configure client auth: {e}")))?)
         } else {
-            tracing::debug!("No client certificates configured, using standard server auth only");
+            log::debug!("No client certificates configured, using standard server auth only");
             Ok(builder.with_no_client_auth())
         }
     }

@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use dashmap::DashMap;
+use log::{debug, error, info, warn};
 use tokio::fs;
-use tracing::{debug, error, info, warn};
 use watchexec::Watchexec;
 use watchexec_events::Tag;
 use watchexec_signals::Signal;

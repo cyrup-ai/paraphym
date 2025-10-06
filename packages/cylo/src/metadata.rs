@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use tracing::{error, info};
+use log::{error, info};
 use xattr::FileExt;
 
 /// Metadata keys used for source code files

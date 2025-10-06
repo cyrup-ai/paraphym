@@ -15,6 +15,21 @@ use cyrup_sugars::prelude::MessageChunk;
 
 use crate::domain::util::unix_timestamp_nanos;
 
+use pulldown_cmark::{html as md_html, Options as MdOptions, Parser as MdParser};
+use syntect::highlighting::ThemeSet;
+use syntect::html::highlighted_html_for_string;
+use syntect::parsing::SyntaxSet;
+
+/// Global syntax set for code highlighting (loaded once)
+static SYNTAX_SET: std::sync::LazyLock<SyntaxSet> = std::sync::LazyLock::new(|| {
+    SyntaxSet::load_defaults_newlines()
+});
+
+/// Global theme set for code highlighting (loaded once)  
+static THEME_SET: std::sync::LazyLock<ThemeSet> = std::sync::LazyLock::new(|| {
+    ThemeSet::load_defaults()
+});
+
 /// Immutable message content with owned strings
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ImmutableMessageContent {
@@ -874,6 +889,66 @@ impl StreamingMessageFormatter {
         Ok((formatter, stream))
     }
 
+    /// Format markdown content to HTML
+    ///
+    /// Uses pulldown-cmark with all extensions enabled.
+    fn format_markdown_to_html(markdown: &str) -> String {
+        // Enable all markdown extensions for rich formatting
+        let mut options = MdOptions::empty();
+        options.insert(MdOptions::ENABLE_STRIKETHROUGH);
+        options.insert(MdOptions::ENABLE_TABLES);
+        options.insert(MdOptions::ENABLE_FOOTNOTES);
+        options.insert(MdOptions::ENABLE_TASKLISTS);
+        options.insert(MdOptions::ENABLE_SMART_PUNCTUATION);
+        options.insert(MdOptions::ENABLE_HEADING_ATTRIBUTES);
+
+        // Parse markdown
+        let parser = MdParser::new_ext(markdown, options);
+
+        // Convert to HTML
+        let mut html_output = String::with_capacity(markdown.len() * 3 / 2);
+        md_html::push_html(&mut html_output, parser);
+
+        html_output
+    }
+
+    /// Format code with syntax highlighting to HTML
+    ///
+    /// Uses syntect with language-specific syntax definitions.
+    ///
+    /// # Errors
+    ///
+    /// Returns `FormatError::UnsupportedLanguage` if language not recognized
+    /// Returns `FormatError::RenderError` if highlighting fails
+    fn format_code_to_html(&self, code: &str, language: &str) -> FormatResult<String> {
+        // Find syntax definition for language
+        let syntax = SYNTAX_SET
+            .find_syntax_by_token(language)
+            .ok_or_else(|| FormatError::UnsupportedLanguage {
+                language: language.to_string(),
+            })?;
+
+        // Get theme based on formatter options
+        let theme_name = match self.options.syntax_theme {
+            SyntaxTheme::GitHub => "base16-ocean.light",
+            SyntaxTheme::SolarizedLight => "Solarized (light)",
+            SyntaxTheme::SolarizedDark => "Solarized (dark)",
+            SyntaxTheme::Light => "InspiredGitHub",
+            SyntaxTheme::Dark | SyntaxTheme::VSCode | SyntaxTheme::HighContrast | SyntaxTheme::Custom => "base16-ocean.dark", // fallback
+        };
+
+        let theme = THEME_SET.themes.get(theme_name)
+            .ok_or_else(|| FormatError::ConfigurationError {
+                detail: format!("Theme '{theme_name}' not found in theme set"),
+            })?;
+
+        // Generate syntax-highlighted HTML
+        highlighted_html_for_string(code, &SYNTAX_SET, syntax, theme)
+            .map_err(|e| FormatError::RenderError {
+                detail: format!("Syntax highlighting failed: {e}"),
+            })
+    }
+
     /// Format content with streaming events
     ///
     /// # Errors
@@ -900,10 +975,86 @@ impl StreamingMessageFormatter {
             });
         }
 
-        // TODO: Implement actual formatting logic here
-        // This would integrate with markdown parsers, syntax highlighters, etc.
+        // Record start time for duration tracking
+        let start_time = std::time::Instant::now();
 
-        Ok(content_id)
+        // Process content based on type and create formatted version
+        let formatted_result = match content {
+            ImmutableMessageContent::Markdown { content: md_content, .. } => {
+                // Format markdown to HTML
+                let html = Self::format_markdown_to_html(md_content);
+                // Create new content with rendered HTML
+                Ok(ImmutableMessageContent::Markdown {
+                    content: md_content.clone(),
+                    rendered_html: Some(html),
+                })
+            }
+            ImmutableMessageContent::Code { content: code_content, language, .. } => {
+                // Format code with syntax highlighting
+                match self.format_code_to_html(code_content, language) {
+                    Ok(html) => {
+                        // Create new content with highlighted HTML
+                        Ok(ImmutableMessageContent::Code {
+                            content: code_content.clone(),
+                            language: language.clone(),
+                            highlighted: Some(html),
+                        })
+                    }
+                    Err(e) => Err(e),
+                }
+            }
+            // Pass through other content types unchanged
+            ImmutableMessageContent::Plain { .. } |
+            ImmutableMessageContent::Formatted { .. } |
+            ImmutableMessageContent::Composite { .. } => {
+                Ok(content.clone())
+            }
+        };
+
+        // Calculate duration
+        let duration = start_time.elapsed();
+
+        // Emit event based on result
+        if let Some(ref sender) = self.event_sender {
+            match formatted_result {
+                Ok(ref result) => {
+                    // Success - emit Completed event
+                    let _ = sender.send(FormattingEvent::Completed {
+                        content_id,
+                        result: result.clone(),
+                        duration,
+                    });
+                    // Update success counter
+                    self.successful_operations.fetch_add(1, Ordering::Relaxed);
+                }
+                Err(ref error) => {
+                    // Failure - emit Failed event
+                    let _ = sender.send(FormattingEvent::Failed {
+                        content_id,
+                        error: error.clone(),
+                        duration,
+                    });
+                    // Update failure counter
+                    self.failed_operations.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+        } else {
+            // No event sender - just update counters
+            match formatted_result {
+                Ok(_) => {
+                    self.successful_operations.fetch_add(1, Ordering::Relaxed);
+                }
+                Err(_) => {
+                    self.failed_operations.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+        }
+
+        // Decrement active operations counter
+        self.active_operations.fetch_sub(1, Ordering::Relaxed);
+
+        // Return result (propagate error or return content_id)
+        formatted_result.map(|_| content_id)
     }
 
     /// Get current timestamp in nanoseconds

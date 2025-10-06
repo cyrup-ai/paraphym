@@ -153,7 +153,7 @@ impl<V: VectorStore> HybridRetrieval<V> {
                 match decision.outcome {
                     DecisionOutcome::Accept => {
                         // Include results with cognitive confidence weighting
-                        tracing::debug!(
+                        log::debug!(
                             "HybridRetrieval: Query ACCEPTED with confidence {:.4}",
                             decision.confidence
                         );
@@ -185,7 +185,7 @@ impl<V: VectorStore> HybridRetrieval<V> {
                     }
                     DecisionOutcome::Defer => {
                         // Include results with reduced confidence
-                        tracing::debug!(
+                        log::debug!(
                             "HybridRetrieval: Query DEFERRED with confidence {:.4}",
                             decision.confidence
                         );
@@ -217,7 +217,7 @@ impl<V: VectorStore> HybridRetrieval<V> {
                     }
                     DecisionOutcome::Reject | DecisionOutcome::RequestInfo => {
                         // Filter out all results for rejected/uncertain queries
-                        tracing::debug!(
+                        log::debug!(
                             "HybridRetrieval: Query {:?} with confidence {:.4} - filtering all results",
                             decision.outcome,
                             decision.confidence
@@ -228,7 +228,7 @@ impl<V: VectorStore> HybridRetrieval<V> {
             }
             Err(e) => {
                 // Fallback on cognitive processor error - return unfiltered results
-                tracing::warn!(
+                log::warn!(
                     "HybridRetrieval: Cognitive processor error: {} - using unfiltered results",
                     e
                 );

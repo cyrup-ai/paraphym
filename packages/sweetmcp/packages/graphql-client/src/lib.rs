@@ -39,8 +39,8 @@ use std::collections::HashMap;
 
 
 use async_graphql::{Schema, Request as GraphQLRequest, Variables, EmptySubscription};
+use log::{debug, info, trace};
 use reqwest::Client;
-use tracing::{info, debug};
 use uuid::Uuid;
 use anyhow::{Context, Result};
 
@@ -118,6 +118,8 @@ impl GraphQLClient {
         query: &str,
         variables: Option<Variables>,
     ) -> Result<String, ClientError> {
+        debug!("Executing GraphQL query: {}", query);
+
         let request = GraphQLRequest::new(query);
         let request = if let Some(vars) = variables {
             request.variables(vars)
@@ -129,6 +131,8 @@ impl GraphQLClient {
         let response = self.schema
             .execute(request.data(McpClientContext::new(self.clone())))
             .await;
+
+        debug!("GraphQL response: {:?}", response);
 
         // Convert GraphQL response to JSON
         serde_json::to_string_pretty(&response)
@@ -143,7 +147,9 @@ impl GraphQLClient {
     /// # Returns
     /// String containing the complete GraphQL schema
     pub fn get_schema_sdl(&self) -> String {
-        self.schema.sdl()
+        let sdl = self.schema.sdl();
+        trace!("GraphQL schema introspection: {:?}", sdl);
+        sdl
     }
 
     /// Send a JSON-RPC 2.0 request to the SweetMCP server (internal method)

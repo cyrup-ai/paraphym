@@ -275,10 +275,7 @@ impl ContentFetcher for FirecrawlFetcher {
         // Capture real screenshot using chromiumoxide
         let screenshot_base64 = capture_real_screenshot(url)
             .await
-            .unwrap_or_else(|e| {
-                eprintln!("Screenshot capture failed: {}", e);
-                String::new()  // Return empty string on failure
-            });
+            .ok();
 
         Ok(FetchResult {
             content: cleaned_html,

@@ -574,11 +574,84 @@ fn create_debian_package(target: &Target, binary_path: &Path, ctx: &BuildContext
     Ok(package_path)
 }
 
-fn create_rpm_package(_target: &Target, _binary_path: &Path, _ctx: &BuildContext) -> anyhow::Result<PathBuf> {
-    // Similar to Debian package but using rpmbuild
-    // Implementation would be similar to create_debian_package but with RPM spec files
-    // For brevity, returning a placeholder error
-    Err(anyhow::anyhow!("RPM package creation not yet implemented"))
+fn create_rpm_package(target: &Target, binary_path: &Path, ctx: &BuildContext) -> anyhow::Result<PathBuf> {
+    // Check if rpmbuild is available
+    let rpmbuild_check = Command::new("rpmbuild")
+        .arg("--version")
+        .output();
+    
+    match rpmbuild_check {
+        Err(_) | Ok(output) if !output.status.success() => {
+            return Err(anyhow::anyhow!(
+                "rpmbuild command not found. Please install rpm-build package:\n\
+                 - Fedora/RHEL/CentOS: sudo dnf install rpm-build\n\
+                 - OpenSUSE: sudo zypper install rpm-build"
+            ));
+        }
+        _ => {}
+    }
+    
+    // Map architecture
+    let rpm_arch = match target.name {
+        name if name.contains("x86_64") => "x86_64",
+        name if name.contains("aarch64") => "aarch64",
+        _ => "noarch",
+    };
+    
+    // Construct expected package filename
+    let package_name = format!("pty-terminal-{}-1.{}.rpm", ctx.version, rpm_arch);
+    let package_path = ctx.dist_dir.join(&package_name);
+    
+    // Create RPM directory structure
+    let rpm_dir = ctx.build_dir.join(format!("rpm-{}", target.name));
+    let build_dir = rpm_dir.join("BUILD");
+    let rpms_dir = rpm_dir.join("RPMS");
+    let specs_dir = rpm_dir.join("SPECS");
+    let sources_dir = rpm_dir.join("SOURCES");
+    
+    fs::create_dir_all(&build_dir)?;
+    fs::create_dir_all(&rpms_dir)?;
+    fs::create_dir_all(&specs_dir)?;
+    fs::create_dir_all(&sources_dir)?;
+    
+    // Copy binary to SOURCES directory (rpmbuild expects it there)
+    fs::copy(binary_path, sources_dir.join("pty-terminal"))?;
+    
+    // Copy icon to SOURCES if it exists
+    copy_linux_icon(&sources_dir)?;
+    
+    // Generate RPM spec file
+    let spec_content = create_rpm_spec(target, ctx)?;
+    let spec_file = specs_dir.join("pty-terminal.spec");
+    fs::write(&spec_file, spec_content)?;
+    
+    // Execute rpmbuild command
+    let status = Command::new("rpmbuild")
+        .arg("-bb")  // Build binary package only
+        .arg("--define")
+        .arg(format!("_topdir {}", rpm_dir.display()))
+        .arg(&spec_file)
+        .output()?;
+    
+    if !status.status.success() {
+        let stderr = String::from_utf8_lossy(&status.stderr);
+        return Err(anyhow::anyhow!("rpmbuild failed:\n{}", stderr));
+    }
+    
+    // Locate and return generated RPM
+    let rpm_file = rpms_dir.join(rpm_arch).join(&package_name);
+    
+    if !rpm_file.exists() {
+        return Err(anyhow::anyhow!(
+            "RPM package not found at expected location: {}",
+            rpm_file.display()
+        ));
+    }
+    
+    // Copy to distribution directory
+    fs::copy(&rpm_file, &package_path)?;
+    
+    Ok(package_path)
 }
 
 // Helper functions for signing
@@ -753,6 +826,80 @@ Description: Advanced terminal emulator with sixel support
  PTY Terminal is a modern terminal emulator that supports sixel graphics,
  providing enhanced visual capabilities for terminal applications.
 "#, ctx.version, arch))
+}
+
+fn create_rpm_spec(target: &Target, ctx: &BuildContext) -> anyhow::Result<String> {
+    let rpm_arch = match target.name {
+        name if name.contains("x86_64") => "x86_64",
+        name if name.contains("aarch64") => "aarch64",
+        _ => "noarch",
+    };
+    
+    // Get current date for changelog
+    let now = chrono::Local::now();
+    let changelog_date = now.format("%a %b %d %Y").to_string();
+    
+    Ok(format!(r#"Name:           pty-terminal
+Version:        {}
+Release:        1%{{?dist}}
+Summary:        Advanced terminal emulator with sixel support
+
+License:        MIT OR Apache-2.0
+URL:            https://github.com/sweetmcp/sixel6vt
+BuildArch:      {}
+
+%description
+{}
+
+%prep
+# No prep needed - we're packaging a precompiled binary
+
+%build
+# No build needed - we're packaging a precompiled binary
+
+%install
+# Create installation directories
+mkdir -p %{{buildroot}}/usr/bin
+mkdir -p %{{buildroot}}/usr/share/applications
+mkdir -p %{{buildroot}}/usr/share/icons/hicolor/512x512/apps
+
+# Copy binary
+cp %{{_sourcedir}}/pty-terminal %{{buildroot}}/usr/bin/pty-terminal
+
+# Create desktop file
+cat > %{{buildroot}}/usr/share/applications/pty-terminal.desktop <<'EOF'
+[Desktop Entry]
+Name=PTY Terminal
+Comment=Advanced terminal emulator with sixel support
+Exec=pty-terminal
+Icon=pty-terminal
+Terminal=false
+Type=Application
+Categories=System;TerminalEmulator;
+Version={}
+EOF
+
+# Copy icon (if exists)
+if [ -f %{{_sourcedir}}/pty-terminal.png ]; then
+    cp %{{_sourcedir}}/pty-terminal.png %{{buildroot}}/usr/share/icons/hicolor/512x512/apps/pty-terminal.png
+fi
+
+%files
+/usr/bin/pty-terminal
+/usr/share/applications/pty-terminal.desktop
+%{{_datadir}}/icons/hicolor/512x512/apps/pty-terminal.png
+
+%changelog
+* {} SweetMCP <info@sweetmcp.com> - {}-1
+- Initial RPM package
+"#, 
+        ctx.version,
+        rpm_arch,
+        ctx.description,
+        ctx.version,
+        changelog_date,
+        ctx.version
+    ))
 }
 
 // Utility functions

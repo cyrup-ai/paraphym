@@ -11,7 +11,7 @@ use tokio::{
 };
 
 // Only import what's actually used
-use crate::resource::resource_read;
+use crate::resource::{resource_read, resource_subscribe_handler, resource_unsubscribe_handler};
 use crate::{
     JSONRPC_VERSION, PROTOCOL_VERSION, SERVER_NAME, SERVER_VERSION,
     config::Config,
@@ -38,9 +38,8 @@ fn build_rpc_router(plugin_manager: PluginManager) -> RpcRouter {
         // Resource handlers
         .append("resources/list", resources_list_handler)
         .append("resources/read", resource_read)
-        // TODO: Add when handlers are implemented
-        // .append("resources/subscribe", resource_subscribe_handler)
-        // .append("resources/unsubscribe", resource_unsubscribe_handler)
+        .append("resources/subscribe", resource_subscribe_handler)
+        .append("resources/unsubscribe", resource_unsubscribe_handler)
         // Sampling handlers
         .append("sampling/createMessage", sampling_create_message)
         // Prompt handlers
@@ -97,7 +96,7 @@ pub async fn run_server(
 ) -> Result<()> {
     // Initialize DAO database client if configured
     if let Some(db_config) = &config.database {
-        tracing::info!("Initializing database for DAO persistence layer");
+        log::info!("Initializing database for DAO persistence layer");
         crate::db::client::init_db_client(db_config.clone())
             .await
             .context("Failed to initialize database client")?;
@@ -113,7 +112,7 @@ pub async fn run_server(
                 (*client).clone()
             ).map_err(|e| anyhow::anyhow!("Failed to initialize ResourceDao: {}", e))?;
             
-            tracing::info!("ResourceDao initialized successfully");
+            log::info!("ResourceDao initialized successfully");
         }
     }
     
@@ -200,8 +199,8 @@ async fn run_stdio_server(plugin_manager: PluginManager) -> Result<()> {
                                 if !call_response.value.is_null() {
                                     let response = JsonRpcResponse::new(id, call_response.value);
                                     if let Ok(response_json) = serde_json::to_string(&response) {
-                                        debug!("Response: {}", response_json);
-                                        eprintln!("{}", response_json);
+                                        log::debug!("Response: {}", response_json);
+                                        log::info!("{}", response_json);
                                     }
                                 }
                             }
@@ -214,13 +213,12 @@ async fn run_stdio_server(plugin_manager: PluginManager) -> Result<()> {
                                             "id": id
                                         });
                                         if let Ok(response) = serde_json::to_string(&json_error) {
-                                            error!("Error: {}", response);
-                                            eprintln!("{}", response);
+                                            log::error!("Error response: {}", response);
                                         }
                                     }
                                 }
                                 _ => {
-                                    error!("Unexpected error: {:?}", error);
+                                    log::error!("Unexpected error: {:?}", error);
                                     let json_error = json!({
                                         "jsonrpc": JSONRPC_VERSION,
                                         "error": {
@@ -230,7 +228,7 @@ async fn run_stdio_server(plugin_manager: PluginManager) -> Result<()> {
                                         "id": id
                                     });
                                     if let Ok(response) = serde_json::to_string(&json_error) {
-                                        eprintln!("{}", response);
+                                        log::error!("Invalid JSON-RPC call: {}", response);
                                     }
                                 }
                             },
@@ -361,7 +359,10 @@ pub async fn initialize(request: InitializeRequest) -> HandlerResult<InitializeR
         capabilities: ServerCapabilities {
             experimental: None,
             prompts: Some(PromptCapabilities::default()),
-            resources: Some(ResourceCapabilities::default()),
+            resources: Some(ResourceCapabilities {
+                subscribe: Some(true),
+                list_changed: Some(false),
+            }),
             tools: Some(json!({})),
             roots: Some(json!({})),
             sampling: Some(json!({})),

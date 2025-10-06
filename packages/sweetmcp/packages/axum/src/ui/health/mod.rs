@@ -181,11 +181,14 @@ pub fn check_resources() -> Result<()> {
             // Handle the result inside the async block
             match result {
                 Ok(cms_node) => {
-                    println!("CMS Node: {} ({})", cms_node.name, cms_node.uri);
+                    let logger = crate::context::logger::ConsoleLogger::new();
+                    logger.success(&format!("Found CMS node: {} ({})", cms_node.name, cms_node.uri));
+                    log::info!("Found CMS node: {} ({})", cms_node.name, cms_node.uri);
                     found = true;
                 }
                 Err(e) => {
-                    eprintln!("Error fetching CMS node: {}", e);
+                    let logger = crate::context::logger::ConsoleLogger::new();
+                    logger.error(&format!("Error fetching CMS node: {}", e));
                     // Decide if you want to stop or continue on error
                     // return Err(anyhow::anyhow!("Error fetching CMS node: {}", e)); // Example:
                     // Stop on error
@@ -196,7 +199,8 @@ pub fn check_resources() -> Result<()> {
     });
     run_result?; // Propagate error from the async block if any
     if !found {
-        println!("No CMS nodes found.");
+        let logger = crate::context::logger::ConsoleLogger::new();
+        logger.warn("No CMS nodes found.");
     }
     Ok(())
 }
@@ -224,7 +228,8 @@ pub fn check_sampling() -> Result<()> {
     let fut = sampling_create_message(request);
     let rt = tokio::runtime::Runtime::new()?;
     let result = rt.block_on(fut)?;
-    println!("Sampling result: {:?}", result);
+    let logger = crate::context::logger::ConsoleLogger::new();
+    logger.success(&format!("Sampling result: {:?}", result));
     Ok(())
 }
 

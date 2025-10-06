@@ -153,11 +153,9 @@ impl Config {
                     let generated_secret = base64_url::encode(&secret_bytes);
 
                     // Print warning in dev mode only
-                    eprintln!();
-                    eprintln!("⚠️  Development Mode: Auto-generated JWT secret");
-                    eprintln!("   SWEETMCP_JWT_SECRET={}", generated_secret);
-                    eprintln!("   For production, set this environment variable explicitly!");
-                    eprintln!();
+                    log::warn!("No JWT secret configured - using auto-generated secret (DEVELOPMENT ONLY)");
+                    log::warn!("Set SWEETMCP_JWT_SECRET in production!");
+                    log::debug!("Generated JWT secret: {}", generated_secret);
 
                     generated_secret
                 } else {

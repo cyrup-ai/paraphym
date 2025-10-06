@@ -15,7 +15,7 @@ pub static DISCOVERY_COUNTER: Lazy<CounterVec> = Lazy::new(|| {
         &["operation", "status"]
     )
     .unwrap_or_else(|e| {
-        tracing::error!("Failed to register discovery counter: {}", e);
+        log::error!("Failed to register discovery counter: {}", e);
         std::process::exit(1)
     })
 });
@@ -29,7 +29,7 @@ pub static DISCOVERY_LATENCY: Lazy<HistogramVec> = Lazy::new(|| {
         vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0]
     )
     .unwrap_or_else(|e| {
-        tracing::error!("Failed to register discovery latency: {}", e);
+        log::error!("Failed to register discovery latency: {}", e);
         std::process::exit(1)
     })
 });
@@ -37,7 +37,7 @@ pub static DISCOVERY_LATENCY: Lazy<HistogramVec> = Lazy::new(|| {
 /// Active peer count
 pub static PEER_COUNT: Lazy<IntGauge> = Lazy::new(|| {
     register_int_gauge!("sweetmcp_active_peers", "Number of active peers").unwrap_or_else(|e| {
-        tracing::error!("Failed to register peer count gauge: {}", e);
+        log::error!("Failed to register peer count gauge: {}", e);
         std::process::exit(1)
     })
 });
@@ -50,7 +50,7 @@ pub static RATE_LIMIT_REJECTIONS: Lazy<CounterVec> = Lazy::new(|| {
         &["endpoint"]
     )
     .unwrap_or_else(|e| {
-        tracing::error!("Failed to register rate limit counter: {}", e);
+        log::error!("Failed to register rate limit counter: {}", e);
         std::process::exit(1)
     })
 });
@@ -63,7 +63,7 @@ pub static RATE_LIMITER_FAILURES: Lazy<CounterVec> = Lazy::new(|| {
         &["endpoint", "failure_type"]
     )
     .unwrap_or_else(|e| {
-        tracing::error!("Failed to register rate limiter failure counter: {}", e);
+        log::error!("Failed to register rate limiter failure counter: {}", e);
         std::process::exit(1)
     })
 });
@@ -104,7 +104,7 @@ pub static CIRCUIT_BREAKER_STATE: Lazy<CounterVec> = Lazy::new(|| {
         &["peer", "state"]
     )
     .unwrap_or_else(|e| {
-        tracing::error!("Failed to register circuit breaker state counter: {}", e);
+        log::error!("Failed to register circuit breaker state counter: {}", e);
         std::process::exit(1)
     })
 });
@@ -129,7 +129,7 @@ pub static HTTP_REQUEST_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
         vec![0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0]
     )
     .unwrap_or_else(|e| {
-        tracing::error!("Failed to register HTTP request duration histogram: {}", e);
+        log::error!("Failed to register HTTP request duration histogram: {}", e);
         std::process::exit(1)
     })
 });
@@ -142,7 +142,7 @@ pub static HTTP_RESPONSE_STATUS: Lazy<CounterVec> = Lazy::new(|| {
         &["method", "endpoint", "status_code"]
     )
     .unwrap_or_else(|e| {
-        tracing::error!("Failed to register HTTP response status counter: {}", e);
+        log::error!("Failed to register HTTP response status counter: {}", e);
         std::process::exit(1)
     })
 });
@@ -156,7 +156,7 @@ pub static HTTP_REQUEST_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
         vec![64.0, 256.0, 1024.0, 4096.0, 16384.0, 65536.0, 262144.0, 1048576.0]
     )
     .unwrap_or_else(|e| {
-        tracing::error!("Failed to register HTTP request size histogram: {}", e);
+        log::error!("Failed to register HTTP request size histogram: {}", e);
         std::process::exit(1)
     })
 });
@@ -170,7 +170,7 @@ pub static HTTP_RESPONSE_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
         vec![64.0, 256.0, 1024.0, 4096.0, 16384.0, 65536.0, 262144.0, 1048576.0]
     )
     .unwrap_or_else(|e| {
-        tracing::error!("Failed to register HTTP response size histogram: {}", e);
+        log::error!("Failed to register HTTP response size histogram: {}", e);
         std::process::exit(1)
     })
 });
@@ -183,7 +183,7 @@ pub static HTTP_CONNECTIONS_ACTIVE: Lazy<IntGauge> = Lazy::new(|| {
         "Number of active HTTP connections"
     )
     .unwrap_or_else(|e| {
-        tracing::error!("Failed to register active HTTP connections gauge: {}", e);
+        log::error!("Failed to register active HTTP connections gauge: {}", e);
         std::process::exit(1)
     })
 });
@@ -196,7 +196,7 @@ pub static HTTP_REQUESTS_ACTIVE: Lazy<IntGaugeVec> = Lazy::new(|| {
         &["method", "endpoint"]
     )
     .unwrap_or_else(|e| {
-        tracing::error!("Failed to register active HTTP requests gauge: {}", e);
+        log::error!("Failed to register active HTTP requests gauge: {}", e);
         std::process::exit(1)
     })
 });
@@ -208,7 +208,7 @@ pub static HTTP_REQUESTS_CONCURRENT: Lazy<IntGauge> = Lazy::new(|| {
         "Total number of concurrent HTTP requests across all endpoints"
     )
     .unwrap_or_else(|e| {
-        tracing::error!("Failed to register concurrent HTTP requests gauge: {}", e);
+        log::error!("Failed to register concurrent HTTP requests gauge: {}", e);
         std::process::exit(1)
     })
 });

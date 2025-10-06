@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use log::{error, warn};
 use prometheus::{self, Counter, Gauge, Histogram, HistogramOpts, Registry};
 
 /// Metric types
@@ -84,20 +85,20 @@ impl CounterMetric {
     pub fn new(name: &str, help: &str) -> Self {
         let registry = Registry::new();
         let counter = Counter::new(name, help).unwrap_or_else(|e| {
-            eprintln!(
-                "Warning: Failed to create counter metric '{}': {}. Using fallback counter.",
+            warn!(
+                "Failed to create counter metric '{}': {}. Using fallback counter.",
                 name, e
             );
             Counter::new("fallback_counter", "Fallback counter metric").unwrap_or_else(|e| {
                 // If even the fallback fails, create a minimal counter with timestamp suffix
-                eprintln!("Warning: Fallback counter creation failed: {}. Using timestamped minimal counter.", e);
+                warn!("Fallback counter creation failed: {}. Using timestamped minimal counter.", e);
                 let timestamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs())
                     .unwrap_or(0);
                 Counter::new(format!("minimal_counter_{}", timestamp), "Minimal counter")
                     .unwrap_or_else(|e| {
-                        eprintln!("Critical: All counter creation attempts failed: {}. Creating no-op counter.", e);
+                        error!("Critical: All counter creation attempts failed: {}. Creating no-op counter.", e);
                         // Return a counter that will work but may not record properly
                         Counter::new("emergency_counter", "Emergency fallback counter")
                             .unwrap_or_else(|_| {
@@ -109,7 +110,7 @@ impl CounterMetric {
         });
 
         if let Err(e) = registry.register(Box::new(counter.clone())) {
-            eprintln!("Failed to register counter metric '{}': {}", name, e);
+            error!("Failed to register counter metric '{}': {}", name, e);
         }
 
         Self { counter, registry }
@@ -141,20 +142,20 @@ impl GaugeMetric {
     pub fn new(name: &str, help: &str) -> Self {
         let registry = Registry::new();
         let gauge = Gauge::new(name, help).unwrap_or_else(|e| {
-            eprintln!(
-                "Warning: Failed to create gauge metric '{}': {}. Using fallback gauge.",
+            warn!(
+                "Failed to create gauge metric '{}': {}. Using fallback gauge.",
                 name, e
             );
             Gauge::new("fallback_gauge", "Fallback gauge metric").unwrap_or_else(|e| {
                 // If even the fallback fails, create a minimal gauge with timestamp suffix
-                eprintln!("Warning: Fallback gauge creation failed: {}. Using timestamped minimal gauge.", e);
+                warn!("Fallback gauge creation failed: {}. Using timestamped minimal gauge.", e);
                 let timestamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs())
                     .unwrap_or(0);
                 Gauge::new(format!("minimal_gauge_{}", timestamp), "Minimal gauge")
                     .unwrap_or_else(|e| {
-                        eprintln!("Critical: All gauge creation attempts failed: {}. Creating emergency gauge.", e);
+                        error!("Critical: All gauge creation attempts failed: {}. Creating emergency gauge.", e);
                         // Return a gauge that will work but may not record properly
                         Gauge::new("emergency_gauge", "Emergency fallback gauge")
                             .unwrap_or_else(|_| {
@@ -166,7 +167,7 @@ impl GaugeMetric {
         });
 
         if let Err(e) = registry.register(Box::new(gauge.clone())) {
-            eprintln!("Failed to register gauge metric '{}': {}", name, e);
+            error!("Failed to register gauge metric '{}': {}", name, e);
         }
 
         Self { gauge, registry }
@@ -198,8 +199,8 @@ impl HistogramMetric {
     pub fn new(name: &str, help: &str) -> Self {
         let registry = Registry::new();
         let histogram = Histogram::with_opts(HistogramOpts::new(name, help)).unwrap_or_else(|e| {
-            eprintln!(
-                "Warning: Failed to create histogram metric '{}': {}. Using fallback histogram.",
+            warn!(
+                "Failed to create histogram metric '{}': {}. Using fallback histogram.",
                 name, e
             );
             Histogram::with_opts(HistogramOpts::new(
@@ -208,14 +209,14 @@ impl HistogramMetric {
             ))
             .unwrap_or_else(|e| {
                 // If even the fallback fails, create a minimal histogram with timestamp suffix
-                eprintln!("Warning: Fallback histogram creation failed: {}. Using timestamped minimal histogram.", e);
+                warn!("Fallback histogram creation failed: {}. Using timestamped minimal histogram.", e);
                 let timestamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs())
                     .unwrap_or(0);
                 Histogram::with_opts(HistogramOpts::new(format!("minimal_histogram_{}", timestamp), "Minimal histogram"))
                     .unwrap_or_else(|e| {
-                        eprintln!("Critical: All histogram creation attempts failed: {}. Creating emergency histogram.", e);
+                        error!("Critical: All histogram creation attempts failed: {}. Creating emergency histogram.", e);
                         // Return a histogram that will work but may not record properly
                         Histogram::with_opts(HistogramOpts::new("emergency_histogram", "Emergency fallback histogram"))
                             .unwrap_or_else(|_| {
@@ -227,7 +228,7 @@ impl HistogramMetric {
         });
 
         if let Err(e) = registry.register(Box::new(histogram.clone())) {
-            eprintln!("Failed to register histogram metric '{}': {}", name, e);
+            error!("Failed to register histogram metric '{}': {}", name, e);
         }
 
         Self {

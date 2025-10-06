@@ -128,17 +128,21 @@ jsonschema = "0.33"
 thiserror = "2.0.17"
 uuid = { version = "1.18.1", features = ["v4", "serde"] }
 serde_json = "1.0.145"
-log = "0.4.28"
+log = { workspace = true }
+env_logger = { workspace = true }
+termcolor = { workspace = true }
 hashbrown = { version = "0.16.0", features = ["serde"] }
 glob = "0.3.3"
 base64 = "0.22.1"
 image = { version = "0.25.2", default-features = false, features = ["png", "jpeg"] }
-tracing = "0.1.41"
-termcolor = { git = "https://github.com/cyrup-ai/termcolor", branch = "main" }
 
 # Content sanitization dependencies (TASK404)
 unicode-normalization = "0.1.24"  # Unicode NFC normalization for security
 html-escape = "0.2"               # HTML entity escaping for XSS prevention
+
+# Content formatting (STUB_1)
+pulldown-cmark = "0.11"
+syntect = "5.2"
 
 # --- Web dependencies ---
 wasm-bindgen = { version = "0.2.104", optional = true }
@@ -214,9 +218,7 @@ mockito = { version = "1.7.0" }
 assert_approx_eq = { version = "1.1.0" }
 criterion = { version = "0.7.0" }
 tempfile = { version = "3.23.0" }
-
-# Existing candle dev dependencies
-tracing-subscriber = "0.3.20"
+env_logger = { workspace = true }
 jemalloc-sys = "0.5.4"
 quanta = "0.12.6"
 weak-table = "0.3.2"

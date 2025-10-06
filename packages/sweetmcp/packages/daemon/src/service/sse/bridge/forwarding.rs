@@ -4,15 +4,65 @@
 //! for the MCP bridge with zero allocation patterns and blazing-fast
 //! performance.
 
-use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use futures::StreamExt;
 use serde_json::Value;
-use tracing::{debug, error, warn};
+use log::{debug, error, warn};
 
 use super::core::McpBridge;
+
+/// Maximum size for a single SSE event to prevent DoS attacks
+///
+/// Set to 10MB which is sufficient for:
+/// - Large JSON-RPC responses with embeddings (typically < 5MB)
+/// - File content transfers (reasonable chunk size)
+/// - Tool outputs with extensive logs
+///
+/// This limit prevents malicious servers from exhausting memory by sending
+/// events without boundaries.
+const MAX_SSE_EVENT_SIZE: usize = 10 * 1024 * 1024; // 10MB
+
+/// Find the earliest event boundary in the buffer and return its position and length
+///
+/// SSE spec allows three boundary types:
+/// - \n\n (LF LF) - 2 bytes
+/// - \r\n\r\n (CRLF CRLF) - 4 bytes
+/// - \r\r (CR CR) - 2 bytes
+///
+/// Returns: Some((position, boundary_length)) or None if no boundary found
+fn find_event_boundary(buffer: &[u8]) -> Option<(usize, usize)> {
+    // Search for all possible boundary patterns
+    let lf_lf = buffer.windows(2).position(|w| w == b"\n\n");
+    let crlf_crlf = buffer.windows(4).position(|w| w == b"\r\n\r\n");
+    let cr_cr = buffer.windows(2).position(|w| w == b"\r\r");
+    
+    // Find the earliest boundary
+    let mut earliest: Option<(usize, usize)> = None;
+    
+    if let Some(pos) = lf_lf {
+        earliest = Some((pos, 2));
+    }
+    
+    if let Some(pos) = crlf_crlf {
+        match earliest {
+            None => earliest = Some((pos, 4)),
+            Some((earliest_pos, _)) if pos < earliest_pos => earliest = Some((pos, 4)),
+            _ => {}
+        }
+    }
+    
+    if let Some(pos) = cr_cr {
+        match earliest {
+            None => earliest = Some((pos, 2)),
+            Some((earliest_pos, _)) if pos < earliest_pos => earliest = Some((pos, 2)),
+            _ => {}
+        }
+    }
+    
+    earliest
+}
 
 impl McpBridge {
     /// Parse a complete SSE event from the buffer
@@ -24,18 +74,16 @@ impl McpBridge {
     /// id: <id>
     /// <blank line>
     fn parse_sse_event(buffer: &mut Vec<u8>) -> Result<Option<super::super::events::SseEvent>> {
-        // Look for event boundary (double newline)
-        let boundary_pos = buffer
-            .windows(2)
-            .position(|w| w == b"\n\n" || w == b"\r\n\r\n");
+        // Look for event boundary (double newline - any SSE-compliant type)
+        let boundary = find_event_boundary(buffer);
         
-        let pos = match boundary_pos {
-            Some(p) => p,
+        let (pos, boundary_len) = match boundary {
+            Some((p, len)) => (p, len),
             None => return Ok(None), // Incomplete event, need more data
         };
         
         // Extract complete event
-        let event_bytes: Vec<u8> = buffer.drain(..pos + 2).collect();
+        let event_bytes: Vec<u8> = buffer.drain(..pos + boundary_len).collect();
         let event_text = String::from_utf8_lossy(&event_bytes);
         
         // Parse SSE fields
@@ -312,9 +360,23 @@ impl McpBridge {
         let mut stream = response.bytes_stream();
         let mut buffer = Vec::new();
         
+        // Track stream statistics
+        let mut events_processed: usize = 0;
+        let mut events_dropped: usize = 0;
+        
         while let Some(chunk_result) = stream.next().await {
             let chunk = chunk_result.context("Failed to read chunk from SSE stream")?;
             buffer.extend_from_slice(&chunk);
+            
+            // Check buffer size to prevent DoS attacks
+            if buffer.len() > MAX_SSE_EVENT_SIZE {
+                return Err(anyhow::anyhow!(
+                    "SSE event exceeded maximum size of {} bytes ({} MB). \
+                     This may indicate a malicious server or a malformed event stream.",
+                    MAX_SSE_EVENT_SIZE,
+                    MAX_SSE_EVENT_SIZE / (1024 * 1024)
+                ));
+            }
             
             // Parse all complete events from buffer
             while let Some(event) = Self::parse_sse_event(&mut buffer)? {
@@ -325,8 +387,10 @@ impl McpBridge {
                         match serde_json::from_str::<Value>(&event.data) {
                             Ok(json_response) => {
                                 response_callback(json_response);
+                                events_processed += 1;
                             }
                             Err(e) => {
+                                events_dropped += 1;
                                 warn!(
                                     "Failed to parse JSON-RPC from SSE event: {}. Data: {}",
                                     e, event.data
@@ -339,6 +403,10 @@ impl McpBridge {
                     }
                     Some(super::super::events::EventType::Error) => {
                         error!("Received SSE error event: {}", event.data);
+                        return Err(anyhow::anyhow!(
+                            "SSE stream terminated by server error: {}",
+                            event.data
+                        ));
                     }
                     Some(super::super::events::EventType::Endpoint) => {
                         debug!("Received SSE endpoint event: {}", event.data);
@@ -347,37 +415,32 @@ impl McpBridge {
             }
         }
         
-        debug!("SSE stream completed");
+        debug!(
+            "SSE stream completed. Processed {} events, dropped {} events",
+            events_processed,
+            events_dropped
+        );
         Ok(())
     }
 
     /// Get forwarding statistics
     #[allow(dead_code)]
     pub fn get_forwarding_stats(&self) -> ForwardingStats {
-        let total = self.stats_tracker.total_requests.load(Ordering::Relaxed);
-        let successful = self.stats_tracker.successful_requests.load(Ordering::Relaxed);
-        let failed = self.stats_tracker.failed_requests.load(Ordering::Relaxed);
-        let total_time_ms = self.stats_tracker.total_response_time_ms.load(Ordering::Relaxed);
+        let stats = self.get_connection_stats();
         
         // Calculate average response time (avoid division by zero)
-        let average_response_time_ms = if successful > 0 {
-            total_time_ms as f64 / successful as f64
+        let average_response_time_ms = if stats.successful_requests > 0 {
+            stats.total_response_time_ms as f64 / stats.successful_requests as f64
         } else {
             0.0
         };
         
-        // Get last request time (handle mutex lock)
-        let last_request_time = self.stats_tracker.last_request_time
-            .lock()
-            .ok()
-            .and_then(|guard| *guard);
-        
         ForwardingStats {
-            total_requests: total,
-            successful_requests: successful,
-            failed_requests: failed,
+            total_requests: stats.total_requests,
+            successful_requests: stats.successful_requests,
+            failed_requests: stats.failed_requests,
             average_response_time_ms,
-            last_request_time,
+            last_request_time: stats.last_request_time,
         }
     }
 

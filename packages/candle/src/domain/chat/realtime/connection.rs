@@ -301,7 +301,7 @@ impl ConnectionManager {
         let active_connections_counter = Arc::clone(&self.active_connections);
 
         std::thread::spawn(move || {
-            tracing::info!("Health check thread started (interval: 1s, timeout: {}s)", heartbeat_timeout);
+            log::info!("Health check thread started (interval: 1s, timeout: {heartbeat_timeout}s)");
             
             while running.load(Ordering::Acquire) {
                 // Step 1: Identify stale connections
@@ -331,7 +331,7 @@ impl ConnectionManager {
                             conn.increment_reconnection_attempts();
                             conn.set_status(ConnectionStatus::Reconnecting);
                             
-                            tracing::warn!(
+                            log::warn!(
                                 "Connection {} (user: {}) unhealthy, reconnect attempt {}/3",
                                 conn_id, user_id, attempts + 1
                             );
@@ -344,9 +344,8 @@ impl ConnectionManager {
                             
                         } else {
                             // Max reconnection attempts exceeded - remove connection
-                            tracing::error!(
-                                "Connection {} (user: {}) failed after 3 reconnection attempts, removing",
-                                conn_id, user_id
+                            log::error!(
+                                "Connection {conn_id} (user: {user_id}) failed after 3 reconnection attempts, removing"
                             );
                             
                             conn.set_status(ConnectionStatus::Failed);
@@ -370,7 +369,7 @@ impl ConnectionManager {
                 std::thread::sleep(Duration::from_secs(1));
             }
             
-            tracing::info!("Health check thread stopped");
+            log::info!("Health check thread stopped");
         });
 
         true

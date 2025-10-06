@@ -102,8 +102,9 @@ impl PartialOrd for TokenProb {
 
 impl Ord for TokenProb {
     fn cmp(&self, other: &Self) -> Ordering {
-        // Handle NaN values by treating them as equal
-        self.partial_cmp(other).unwrap_or(Ordering::Equal)
+        // Reverse order: higher probability sorts first
+        // Direct comparison to avoid infinite recursion
+        other.prob.partial_cmp(&self.prob).unwrap_or(Ordering::Equal)
     }
 }
 /// Token history management for repetition penalty calculation

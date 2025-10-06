@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
 use tokio::runtime::Runtime;
-use tracing::{error, info};
+use log::{error, info};
 use watchexec::Watchexec;
 use watchexec_events::{Event, Tag, Source};
 

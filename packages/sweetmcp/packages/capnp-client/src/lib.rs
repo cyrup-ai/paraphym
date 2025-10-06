@@ -5,6 +5,7 @@
 
 use anyhow::{Context, Result};
 use capnp::{message, serialize_packed};
+use log::{debug, error};
 use serde_json::Value;
 use std::io::Cursor;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -37,6 +38,7 @@ impl McpCapnProtoClient {
         
         // Set request details
         let request_id = Uuid::new_v4().to_string();
+        debug!("Creating Cap'n Proto time request with ID: {}", request_id);
         request.set_request_id(&request_id);
         request.set_tool_name("time");
         
@@ -72,9 +74,10 @@ impl McpCapnProtoClient {
     pub fn create_hash_request(data: &str, algorithm: &str) -> Result<Vec<u8>> {
         let mut message = message::Builder::new_default();
         let mut request = message.init_root::<mcp_tool_request::Builder>();
-        
+
         // Set request details
         let request_id = Uuid::new_v4().to_string();
+        debug!("Creating Cap'n Proto hash request: data={}, algorithm={}", data, algorithm);
         request.set_request_id(&request_id);
         request.set_tool_name("hash");
         
@@ -115,6 +118,8 @@ impl McpCapnProtoClient {
 
     /// Send a Cap'n Proto request to the SweetMCP server and get response
     pub async fn send_request(&self, capnp_request: Vec<u8>) -> Result<McpResponse> {
+        debug!("Sending Cap'n Proto request ({} bytes) to {}", capnp_request.len(), self.base_url);
+
         // Send Cap'n Proto binary data to SweetMCP server
         let response = self
             .client
@@ -143,6 +148,8 @@ impl McpCapnProtoClient {
             .await
             .context("Failed to read response bytes")?;
 
+        debug!("Received Cap'n Proto response ({} bytes)", response_bytes.len());
+
         // Try to parse as Cap'n Proto
         if let Ok(capnp_response) = Self::parse_capnp_response(&response_bytes) {
             return Ok(capnp_response);
@@ -160,31 +167,47 @@ impl McpCapnProtoClient {
     /// Parse Cap'n Proto response
     fn parse_capnp_response(data: &[u8]) -> Result<McpResponse> {
         let mut cursor = Cursor::new(data);
-        let message_reader = serialize_packed::read_message(
+        let message_reader = match serialize_packed::read_message(
             &mut cursor,
             message::ReaderOptions::new(),
-        )
-        .context("Failed to read Cap'n Proto response")?;
+        ) {
+            Ok(reader) => reader,
+            Err(e) => {
+                error!("Failed to read Cap'n Proto response: {}", e);
+                return Err(e).context("Failed to read Cap'n Proto response");
+            }
+        };
 
-        let response = message_reader
-            .get_root::<mcp_tool_response::Reader>()
-            .context("Failed to get response root")?;
+        let response = match message_reader.get_root::<mcp_tool_response::Reader>() {
+            Ok(r) => r,
+            Err(e) => {
+                error!("Failed to get response root: {}", e);
+                return Err(e).context("Failed to get response root");
+            }
+        };
 
-        let request_id = response
+        let request_id = match response
             .get_request_id()
-            .and_then(|id| id.to_string().map_err(|e| capnp::Error::failed(format!("UTF-8 error: {}", e))))
-            .context("Failed to get request ID")?;
+            .and_then(|id| id.to_string().map_err(|e| capnp::Error::failed(format!("UTF-8 error: {}", e)))) {
+            Ok(id) => id,
+            Err(e) => {
+                error!("Failed to get request ID: {}", e);
+                return Err(e).context("Failed to get request ID");
+            }
+        };
 
         let status = match response.get_status() {
             Ok(status_enum) => {
                 match status_enum {
                     mcp_tool_response::ResponseStatus::Success => "success".to_string(),
-                    mcp_tool_response::ResponseStatus::Error => "error".to_string(), 
+                    mcp_tool_response::ResponseStatus::Error => "error".to_string(),
                     mcp_tool_response::ResponseStatus::Timeout => "timeout".to_string(),
                 }
             }
             Err(_) => "unknown".to_string(),
         };
+
+        debug!("Parsing Cap'n Proto response: request_id={}, status={}", request_id, status);
 
         // Parse result content
         let mut content_items = Vec::new();

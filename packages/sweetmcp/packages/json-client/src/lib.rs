@@ -31,7 +31,7 @@ use std::future::Future;
 use std::collections::HashMap;
 
 use reqwest::Client;
-use tracing::{info, debug};
+use log::{debug, error, info};
 use uuid::Uuid;
 use anyhow::{Context, Result};
 
@@ -160,16 +160,18 @@ impl JsonClient {
         if !status.is_success() {
             let error_text = response.text().await
                 .unwrap_or_else(|_| "Failed to read error response".to_string());
-            return Err(ClientError::RequestBuild(
-                format!("Server returned HTTP {}: {}", status, error_text)
-            ));
+            let error_msg = format!("Server returned HTTP {}: {}", status, error_text);
+            error!("JSON-RPC error: {}", error_msg);
+            return Err(ClientError::RequestBuild(error_msg));
         }
 
         // Parse response
         let response_bytes = response.bytes().await
             .map_err(ClientError::Transport)?;
 
-        self.parse_response(&response_bytes)
+        let parsed_response = self.parse_response(&response_bytes)?;
+        debug!("JSON-RPC response: {:?}", parsed_response);
+        Ok(parsed_response)
     }
 
     /// Serialize a Request to JSON bytes using sweet-mcp-type

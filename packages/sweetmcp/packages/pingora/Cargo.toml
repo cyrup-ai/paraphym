@@ -48,9 +48,6 @@ opentelemetry_sdk = { version = "0.31", features = ["trace", "metrics"] }
 opentelemetry-prometheus = "0.29"
 opentelemetry-jaeger = "0.22"
 prometheus = { version = "0.14", features = ["process"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-tracing-opentelemetry = "0.32"
 
 # System monitoring
 sysinfo = { version = "0.37.1", features = ["multithread"] }
@@ -58,6 +55,7 @@ sysinfo = { version = "0.37.1", features = ["multithread"] }
 # Configuration & Environment
 env_logger = "0.11"
 log = "0.4"
+termcolor = { workspace = true }
 dotenvy = "0.15"
 config = { version = "0.15", features = ["yaml", "toml"] }
 
@@ -139,8 +137,8 @@ tower = "0.5"
 
 [features]
 default = ["production"]
-production = ["tracing-subscriber/registry"]
-development = ["tracing-subscriber/fmt"]
+production = []
+development = []
 testing = []
 
 # Benchmarks will be added later

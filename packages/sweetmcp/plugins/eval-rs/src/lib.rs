@@ -4,6 +4,7 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use extism_pdk::*;
 use json::Value;
+use log::{debug, error, info, trace};
 use plugin::types::{
     CallToolRequest, CallToolResult, Content, ContentType, ListToolsResult, ToolDescription,
 };
@@ -17,6 +18,7 @@ struct StoredVirtualMachine {
 
 impl StoredVirtualMachine {
     fn new() -> Self {
+        info!("Initializing Rust compilation environment");
         let mut scope = None;
         let mut settings = Settings::default();
         settings.allow_external_library = false;
@@ -25,6 +27,7 @@ impl StoredVirtualMachine {
             scope = Some(vm.new_scope_with_builtins());
         });
 
+        info!("Rust compilation environment initialized");
         StoredVirtualMachine {
             interp,
             // APPROVED BY DAVID MAPLE 09/30/2025: Panic is appropriate for initialization failure
@@ -70,6 +73,9 @@ pub(crate) fn call(input: CallToolRequest) -> Result<CallToolResult, Error> {
 fn eval_python(input: CallToolRequest) -> Result<CallToolResult, Error> {
     let args = input.params.arguments.unwrap_or_default();
     if let Some(Value::String(code)) = args.get("code") {
+        info!("Compiling Rust code");
+        trace!("Code length: {} bytes", code.len());
+        debug!("Executing compiled binary");
         let stored_vm = get_or_create_vm("eval_python");
 
         let result = stored_vm.interp.enter(|vm| {
@@ -98,21 +104,27 @@ fn eval_python(input: CallToolRequest) -> Result<CallToolResult, Error> {
         });
 
         match result {
-            Ok(output) => Ok(CallToolResult {
-                is_error: None,
-                content: vec![Content {
-                    annotations: None,
-                    text: Some(output),
-                    mime_type: Some("text/plain".to_string()),
-                    r#type: ContentType::Text,
-                    data: None,
-                }],
-            }),
+            Ok(output) => {
+                info!("Execution completed");
+                debug!("Rust execution successful");
+                trace!("Rust output: {}", output);
+                Ok(CallToolResult {
+                    is_error: None,
+                    content: vec![Content {
+                        annotations: None,
+                        text: Some(output),
+                        mime_type: Some("text/plain".to_string()),
+                        r#type: ContentType::Text,
+                        data: None,
+                    }],
+                })
+            }
             Err(exc) => {
                 let mut error_msg = String::new();
                 stored_vm.interp.enter(|vm| {
                     vm.write_exception(&mut error_msg, &exc).unwrap_or_default();
                 });
+                error!("Rust execution failed: {}", error_msg);
                 Ok(CallToolResult {
                     is_error: Some(true),
                     content: vec![Content {

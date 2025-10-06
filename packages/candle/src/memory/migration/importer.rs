@@ -67,14 +67,14 @@ impl DataImporter {
             match result {
                 Ok(record) => records.push(record),
                 Err(e) => {
-                    tracing::warn!("Failed to parse CSV record at line {}: {}", line_number, e);
+                    log::warn!("Failed to parse CSV record at line {}: {}", line_number, e);
                     // Continue processing other records instead of failing completely
                     continue;
                 }
             }
         }
 
-        tracing::info!(
+        log::info!(
             "Successfully imported {} records from CSV file: {}",
             records.len(),
             path.display()

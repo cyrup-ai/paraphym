@@ -5,6 +5,71 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use log::{info, warn, error};
 
+/// Configuration for OCI registry plugin loading
+#[derive(Debug, Clone)]
+pub struct RegistryConfig {
+    /// Registry URL (e.g., "https://ghcr.io")
+    pub registry_url: String,
+    /// Username for authentication
+    pub username: Option<String>,
+    /// Password or token for authentication
+    pub password: Option<String>,
+    /// List of plugin image references to load
+    pub plugins: Vec<String>,
+    /// Local cache directory for downloaded plugins
+    pub cache_dir: PathBuf,
+    /// Whether to verify plugin signatures
+    pub verify_signatures: bool,
+}
+
+impl RegistryConfig {
+    /// Create config from environment variables
+    pub fn from_env() -> Result<Self> {
+        let plugins_str = std::env::var("SWEETMCP_PLUGINS")
+            .context("SWEETMCP_PLUGINS not configured")?;
+        
+        let plugins: Vec<String> = plugins_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        
+        if plugins.is_empty() {
+            anyhow::bail!("No plugins configured in SWEETMCP_PLUGINS");
+        }
+        
+        let cache_dir = if let Ok(cache_home) = std::env::var("XDG_CACHE_HOME") {
+            PathBuf::from(cache_home).join("sweetmcp/plugins")
+        } else if let Some(home) = dirs::home_dir() {
+            home.join(".cache/sweetmcp/plugins")
+        } else {
+            PathBuf::from("/tmp/sweetmcp/plugins")
+        };
+        
+        Ok(Self {
+            registry_url: std::env::var("SWEETMCP_REGISTRY_URL")
+                .unwrap_or_else(|_| "https://ghcr.io".to_string()),
+            username: std::env::var("SWEETMCP_REGISTRY_USER").ok(),
+            password: std::env::var("SWEETMCP_REGISTRY_TOKEN").ok(),
+            plugins,
+            cache_dir,
+            verify_signatures: std::env::var("SWEETMCP_VERIFY_SIGNATURES")
+                .map(|v| v.to_lowercase() == "true")
+                .unwrap_or(false),
+        })
+    }
+    
+    /// Build RegistryAuth from config
+    pub fn build_auth(&self) -> oci_client::secrets::RegistryAuth {
+        match (&self.username, &self.password) {
+            (Some(user), Some(pass)) => {
+                oci_client::secrets::RegistryAuth::Basic(user.clone(), pass.clone())
+            }
+            _ => oci_client::secrets::RegistryAuth::Anonymous,
+        }
+    }
+}
+
 /// Plugin host for tool auto-configuration
 pub struct ToolConfiguratorHost {
     /// Loaded configurator plugins
@@ -77,8 +142,14 @@ impl ToolConfiguratorHost {
             }
         }
         
-        // TODO: Load plugins from OCI registry
-        // self.load_plugins_from_registry(&mut plugins).await?;
+        // Load plugins from OCI registry if configured
+        if let Ok(registry_config) = RegistryConfig::from_env() {
+            info!("Loading plugins from OCI registry...");
+            if let Err(e) = self.load_plugins_from_registry(&mut plugins, &registry_config).await {
+                warn!("Failed to load plugins from registry: {}", e);
+                // Continue with filesystem plugins - registry is optional
+            }
+        }
         
         info!("Loaded {} tool configurator plugins", plugins.len());
         Ok(())
@@ -132,6 +203,125 @@ impl ToolConfiguratorHost {
             .to_string();
             
         Ok((name, plugin))
+    }
+    
+    /// Load plugins from OCI registry
+    async fn load_plugins_from_registry(
+        &self,
+        plugins: &mut HashMap<String, Plugin>,
+        config: &RegistryConfig,
+    ) -> Result<()> {
+        use oci_client::{Client, Reference, manifest};
+        
+        // Create OCI client with default configuration
+        let client_config = oci_client::client::ClientConfig::default();
+        let mut client = Client::new(client_config);
+        
+        let auth = config.build_auth();
+        
+        // Ensure cache directory exists
+        if !config.cache_dir.exists() {
+            std::fs::create_dir_all(&config.cache_dir)
+                .context("Failed to create plugin cache directory")?;
+        }
+        
+        for plugin_ref_str in &config.plugins {
+            match self.load_plugin_from_registry(
+                &mut client,
+                &auth,
+                plugin_ref_str,
+                &config.cache_dir,
+            ).await {
+                Ok((name, plugin)) => {
+                    info!("Loaded plugin from registry: {} ({})", name, plugin_ref_str);
+                    plugins.insert(name, plugin);
+                }
+                Err(e) => {
+                    warn!("Failed to load plugin from registry {}: {}", plugin_ref_str, e);
+                    // Continue loading other plugins - don't fail entire operation
+                }
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Load a single plugin from OCI registry with caching
+    async fn load_plugin_from_registry(
+        &self,
+        client: &mut oci_client::Client,
+        auth: &oci_client::secrets::RegistryAuth,
+        reference_str: &str,
+        cache_dir: &PathBuf,
+    ) -> Result<(String, Plugin)> {
+        use oci_client::{Reference, manifest};
+        
+        // Parse OCI reference
+        let reference: Reference = reference_str.parse()
+            .with_context(|| format!("Invalid OCI reference: {}", reference_str))?;
+        
+        // Check cache first
+        let cache_path = self.build_cache_path(cache_dir, &reference);
+        
+        let wasm_bytes = if cache_path.exists() {
+            info!("Loading plugin from cache: {:?}", cache_path);
+            std::fs::read(&cache_path)
+                .with_context(|| format!("Failed to read cached plugin: {:?}", cache_path))?
+        } else {
+            // Pull from registry
+            info!("Pulling plugin from registry: {}", reference_str);
+            
+            let image_data = client
+                .pull(&reference, auth, vec![manifest::WASM_LAYER_MEDIA_TYPE])
+                .await
+                .with_context(|| format!("Failed to pull plugin: {}", reference_str))?;
+            
+            // Extract WASM bytes from first layer
+            let wasm_bytes = image_data.layers
+                .into_iter()
+                .next()
+                .map(|layer| layer.data)
+                .ok_or_else(|| anyhow::anyhow!("No WASM layer found in {}", reference_str))?;
+            
+            // Write to cache
+            if let Some(parent) = cache_path.parent() {
+                std::fs::create_dir_all(parent)
+                    .with_context(|| format!("Failed to create cache directory: {:?}", parent))?;
+            }
+            
+            std::fs::write(&cache_path, &wasm_bytes)
+                .with_context(|| format!("Failed to write plugin to cache: {:?}", cache_path))?;
+            
+            info!("Cached plugin at: {:?}", cache_path);
+            wasm_bytes
+        };
+        
+        // Load into Extism plugin
+        let manifest = extism::Manifest::new([extism::Wasm::data(wasm_bytes)]);
+        let mut plugin = Plugin::new(&manifest, [], true)
+            .with_context(|| format!("Failed to create plugin from: {}", reference_str))?;
+        
+        // Get plugin metadata
+        let metadata: serde_json::Value = plugin.call("get_metadata", "")
+            .with_context(|| format!("Failed to get metadata from plugin: {}", reference_str))?;
+        
+        let name = metadata["name"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("Plugin metadata missing 'name' field"))?
+            .to_string();
+        
+        Ok((name, plugin))
+    }
+    
+    /// Build cache file path for an OCI reference
+    fn build_cache_path(&self, cache_dir: &PathBuf, reference: &oci_client::Reference) -> PathBuf {
+        let registry = reference.resolve_registry().replace("://", "/").replace(":", "_");
+        let repository = reference.repository().replace("/", "_");
+        let tag = reference.tag().unwrap_or("latest");
+        
+        cache_dir
+            .join(registry)
+            .join(format!("{}-{}.wasm", repository, tag))
     }
     
     /// Detect all installed tools

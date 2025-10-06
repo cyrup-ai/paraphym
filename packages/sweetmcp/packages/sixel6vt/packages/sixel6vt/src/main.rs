@@ -63,11 +63,11 @@ fn main() -> Result<()> {
             });
 
             // Wait for screenshot
-            if let Some(image) = rx.recv().await {
+            if let Some(snapshot) = rx.recv().await {
                 tracing::info!("Screenshot received, encoding to sixel...");
 
                 // Encode to sixel
-                let sixel = renderer::encode_sixel(&image);
+                let sixel = renderer::encode_sixel(&snapshot.image);
                 tracing::info!("Sixel encoded ({} bytes), sending to event loop...", sixel.len());
 
                 // Send custom event to inject sixel
@@ -77,11 +77,8 @@ fn main() -> Result<()> {
                     unsafe { WindowId::dummy() }
                 );
                 
-                if let Err(e) = proxy_clone.send_event(RioEventType::Rio(RioEvent::PtyWrite(sixel)), unsafe { WindowId::dummy() }) {
-                    tracing::error!("Failed to send sixel event: {:?}", e);
-                } else {
-                    tracing::info!("Sixel event sent!");
-                }
+                proxy_clone.send_event(RioEventType::Rio(RioEvent::PtyWrite(sixel)), unsafe { WindowId::dummy() });
+                tracing::info!("Sixel event sent!");
             }
         });
     });

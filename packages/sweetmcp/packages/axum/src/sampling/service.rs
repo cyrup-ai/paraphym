@@ -6,7 +6,7 @@ use rpc_router::HandlerResult;
 use tokio::sync::{mpsc, oneshot};
 
 // Candle inference imports
-use paraphym_candle::providers::kimi_k2::CandleKimiK2Provider;
+use paraphym_candle::capability::text_to_text::CandleKimiK2Provider;
 use paraphym_candle::domain::completion::{
     CandleCompletionModel, CandleCompletionParams, CandleCompletionChunk,
 };

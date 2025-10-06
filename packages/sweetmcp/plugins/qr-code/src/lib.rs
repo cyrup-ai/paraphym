@@ -1,5 +1,6 @@
 use base64::Engine;
 use extism_pdk::*;
+use log::{debug, trace};
 use qrcode_png::{Color, QrCode, QrCodeEcc};
 use serde_json::Value;
 use sweetmcp_plugin_builder::prelude::*;
@@ -42,6 +43,8 @@ impl McpTool for QrCodeTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| Error::msg("data parameter required"))?;
 
+        debug!("Generating QR code for {} bytes of data", data.len());
+
         let ecc_level = args
             .get("ecc")
             .and_then(|v| v.as_str())
@@ -49,9 +52,11 @@ impl McpTool for QrCodeTool {
             .unwrap_or(4);
 
         let ecc = to_ecc(ecc_level);
+        debug!("Error correction level: {:?}", ecc);
 
         match generate_qr_code(data, ecc) {
             Ok(base64_data) => {
+                debug!("QR code generation successful, encoded as base64");
                 use sweetmcp_plugin_builder::{CallToolResult, Content, ContentType};
                 Ok(CallToolResult {
                     is_error: None,
@@ -74,12 +79,22 @@ impl McpTool for QrCodeTool {
 
 /// Generate QR code and return base64 encoded PNG
 fn generate_qr_code(data: &str, ecc: QrCodeEcc) -> Result<String, Box<dyn std::error::Error>> {
+    trace!("Encoding data into QR code structure");
     let mut code = QrCode::new(data, ecc)?;
+    debug!("QR code matrix created");
+    
+    trace!("Setting QR code margin to 10 pixels");
     code.margin(10);
+    trace!("Setting QR code zoom to 10x");
     code.zoom(10);
 
+    trace!("Generating PNG image with grayscale colors");
     let png_bytes = code.generate(Color::Grayscale(0, 255))?;
+    debug!("PNG generation complete: {} bytes", png_bytes.len());
+    
+    trace!("Encoding PNG to base64");
     let base64_data = base64::engine::general_purpose::STANDARD.encode(png_bytes);
+    trace!("Base64 encoding complete: {} chars", base64_data.len());
 
     Ok(base64_data)
 }

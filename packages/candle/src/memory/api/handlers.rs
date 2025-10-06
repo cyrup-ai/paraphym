@@ -46,7 +46,7 @@ pub async fn create_memory(
             Ok(Json(response))
         }
         Err(e) => {
-            tracing::error!("Failed to create memory: {}", e);
+            log::error!("Failed to create memory: {}", e);
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
@@ -78,7 +78,7 @@ pub async fn get_memory(
         }
         Ok(None) => Err(StatusCode::NOT_FOUND),
         Err(e) => {
-            tracing::error!("Failed to get memory {}: {}", id, e);
+            log::error!("Failed to get memory {}: {}", id, e);
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
@@ -115,7 +115,7 @@ pub async fn update_memory(
             Ok(Json(response))
         }
         Err(e) => {
-            tracing::error!("Failed to update memory {}: {}", id, e);
+            log::error!("Failed to update memory {}: {}", id, e);
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
@@ -136,7 +136,7 @@ pub async fn delete_memory(
         Ok(true) => Ok(StatusCode::NO_CONTENT),
         Ok(false) => Err(StatusCode::NOT_FOUND),
         Err(e) => {
-            tracing::error!("Failed to delete memory {}: {}", id, e);
+            log::error!("Failed to delete memory {}: {}", id, e);
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }

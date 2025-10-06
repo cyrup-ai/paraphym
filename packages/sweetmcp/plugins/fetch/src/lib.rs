@@ -7,6 +7,8 @@ mod firecrawl;
 // use std::collections::BTreeMap;
 use std::str::FromStr;
 
+use log::{debug, info, trace, warn};
+
 // Sixel encoding is implemented inline below based on sixel6vt renderer
 use base64::Engine;
 #[cfg(not(target_family = "wasm"))]
@@ -298,6 +300,8 @@ fn parse_options(args: serde_json::Map<String, Value>) -> Result<FetchOptions, E
 // Helper function to run async code from the sync world
 #[cfg(not(target_family = "wasm"))]
 fn block_on_fetch(url: &str) -> Result<chromiumoxide::FetchResult, Error> {
+    debug!("Starting fetch for URL: {}", url);
+    
     // Set up a minimal runtime for async execution
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -308,28 +312,43 @@ fn block_on_fetch(url: &str) -> Result<chromiumoxide::FetchResult, Error> {
         // Multi-stage fetching with fallbacks:
 
         // 1. First attempt: Use chromiumoxide (headless browser)
+        debug!("Attempting fetch with chromiumoxide for: {}", url);
         let chromium_result = chromiumoxide::ChromiumFetcher.fetch_content(url).await;
 
         if let Ok(result) = chromium_result {
+            info!("Successfully fetched with chromiumoxide: {}", url);
             return Ok(result);
+        } else {
+            warn!("Chromiumoxide fetch failed for {}, trying hyper", url);
         }
 
         // 2. Second attempt: Use hyper (HTTP client)
+        debug!("Attempting fetch with hyper for: {}", url);
         let hyper_result = HyperFetcher.fetch_content(url).await;
 
         if let Ok(result) = hyper_result {
+            info!("Fallback to hyper successful for: {}", url);
             return Ok(result);
+        } else {
+            warn!("Hyper fetch failed for {}, trying firecrawl", url);
         }
 
         // 3. Final contingency: Use firecrawl
+        debug!("Attempting fetch with firecrawl for: {}", url);
         let firecrawl_result = firecrawl::FirecrawlFetcher.fetch_content(url).await;
 
         match firecrawl_result {
-            Ok(result) => Ok(result),
-            Err(e) => Err(Error::msg(format!(
-                "All fetch attempts failed. Last error: {}",
-                e
-            ))),
+            Ok(result) => {
+                info!("Firecrawl fallback successful for: {}", url);
+                Ok(result)
+            },
+            Err(e) => {
+                warn!("All fetch attempts failed for {}: {}", url, e);
+                Err(Error::msg(format!(
+                    "All fetch attempts failed. Last error: {}",
+                    e
+                )))
+            },
         }
     })
 }
@@ -337,6 +356,8 @@ fn block_on_fetch(url: &str) -> Result<chromiumoxide::FetchResult, Error> {
 // WASM version: simplified fetching without browser automation
 #[cfg(target_family = "wasm")]
 fn block_on_fetch(url: &str) -> Result<hyper::FetchResult, Error> {
+    debug!("Starting WASM fetch for URL: {}", url);
+    
     // Set up a minimal runtime for async execution
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -347,21 +368,32 @@ fn block_on_fetch(url: &str) -> Result<hyper::FetchResult, Error> {
         // WASM fetching with fallbacks (no browser automation):
 
         // 1. First attempt: Use hyper (HTTP client)
+        debug!("Attempting WASM fetch with hyper for: {}", url);
         let hyper_result = HyperFetcher.fetch_content(url).await;
 
         if let Ok(result) = hyper_result {
+            info!("Successfully fetched with hyper in WASM: {}", url);
             return Ok(result);
+        } else {
+            warn!("Hyper fetch failed in WASM for {}, trying firecrawl", url);
         }
 
         // 2. Final contingency: Use firecrawl
+        debug!("Attempting WASM fetch with firecrawl for: {}", url);
         let firecrawl_result = firecrawl::FirecrawlFetcher.fetch_content(url).await;
 
         match firecrawl_result {
-            Ok(result) => Ok(result),
-            Err(e) => Err(Error::msg(format!(
-                "All fetch attempts failed. Last error: {}",
-                e
-            ))),
+            Ok(result) => {
+                info!("Firecrawl fallback successful in WASM for: {}", url);
+                Ok(result)
+            },
+            Err(e) => {
+                warn!("All WASM fetch attempts failed for {}: {}", url, e);
+                Err(Error::msg(format!(
+                    "All fetch attempts failed. Last error: {}",
+                    e
+                )))
+            },
         }
     })
 }
@@ -374,17 +406,24 @@ fn process_fetch_result(
 ) -> Result<FetchResponse, Error> {
     // Process the screenshot based on the requested format
     let screenshot = match options.screenshot_format {
-        ScreenshotFormat::Base64 => result.screenshot_base64,
+        ScreenshotFormat::Base64 => {
+            // Return empty string if no screenshot available
+            result.screenshot_base64.unwrap_or_default()
+        }
         ScreenshotFormat::Sixel => {
-            // Convert base64 to image, then to sixel
-            let image_data = base64::engine::general_purpose::STANDARD
-                .decode(&result.screenshot_base64)
-                .map_err(|e| Error::msg(format!("Failed to decode screenshot: {}", e)))?;
+            // Only convert to sixel if screenshot exists
+            if let Some(ref base64_data) = result.screenshot_base64 {
+                let image_data = base64::engine::general_purpose::STANDARD
+                    .decode(base64_data)
+                    .map_err(|e| Error::msg(format!("Failed to decode screenshot: {}", e)))?;
 
-            let image = image::load_from_memory(&image_data)
-                .map_err(|e| Error::msg(format!("Failed to load image: {}", e)))?;
+                let image = image::load_from_memory(&image_data)
+                    .map_err(|e| Error::msg(format!("Failed to load image: {}", e)))?;
 
-            encode_sixel(&image.to_rgb8())
+                encode_sixel(&image.to_rgb8())
+            } else {
+                String::new()
+            }
         }
     };
 

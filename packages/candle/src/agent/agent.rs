@@ -15,6 +15,7 @@ use crate::{
 use crate::domain::chat::message::types::{CandleMessageRole as MessageRole, CandleMessageChunk as MessageChunk, CandleConversationTrait as AgentConversation, ZeroOneOrMany as ZeroOneOrMany};
 use crate::domain::chat::CandleChatLoop;
 use crate::domain::agent::core::AgentError;
+use log::debug;
 
 // ============================================================================
 // Configuration constants
@@ -279,15 +280,15 @@ where
             CandleChatLoop::Break => Ok(()),
             CandleChatLoop::Reprompt(response) => {
                 // Process reprompt - this would integrate with the chat system
-                println!("Reprompt: {}", response);
+                debug!("Reprompt: {}", response);
                 Ok(())
             }
             CandleChatLoop::UserPrompt(prompt) => {
                 // Handle user prompt request
                 if let Some(prompt_text) = prompt {
-                    println!("User prompt: {}", prompt_text);
+                    debug!("User prompt: {}", prompt_text);
                 } else {
-                    println!("Waiting for user input...");
+                    debug!("Waiting for user input...");
                 }
                 Ok(())
             }
