@@ -19,6 +19,9 @@ pub mod providers;
 // Download provider abstraction
 pub mod download;
 
+// Model factory for creating providers from registry keys
+pub mod factory;
+
 // ProgressHub model trait (for enforcing download patterns)
 #[cfg(feature = "download-progresshub")]
 pub mod progresshub;
@@ -26,6 +29,7 @@ pub mod progresshub;
 // Re-export commonly used Candle types
 pub use capabilities::*;
 pub use error::{CandleModelError, CandleResult};
+pub use factory::ModelFactory;
 pub use info::CandleModelInfo;
 pub use registry::CandleModelRegistry;
 pub use resolver::*;

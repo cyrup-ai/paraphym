@@ -378,9 +378,13 @@ impl EpisodicMemory {
                     }
                 };
 
+                // Calculate content hash for deduplication
+                let content_hash = crate::domain::memory::serialization::content_hash(&content.text);
+                
                 let memory_node = MemoryNode {
                     id: episodic.base.id.clone(),
                     content,
+                    content_hash,
                     memory_type: MemoryTypeEnum::Episodic,
                     created_at: episodic.base.metadata.created_at,
                     updated_at: episodic.base.updated_at,

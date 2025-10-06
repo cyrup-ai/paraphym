@@ -415,8 +415,8 @@ fn regions_to_sixel(regions: &[EncoderRegion], img_width: u32, img_height: u32) 
     let mut result = String::with_capacity(estimated_capacity);
     result.push_str("\x1BPq");
     
-    // Add raster attributes
-    result.push_str(&format!("\"{};{}", img_width, img_height));
+    // Add raster attributes (aspect ratio 1:1, then dimensions)
+    result.push_str(&format!("\"1;1;{};{}", img_width, img_height));
     
     // Define palette (DRY - generated from PALETTE constant)
     result.push_str(&palette_to_sixel_header());
@@ -682,8 +682,8 @@ pub fn encode_sixel(img: &image::RgbImage) -> String {
 fn encode_sixel_column_based(img: &image::RgbImage) -> String {
         let mut result = String::from("\x1BPq");
 
-        // Add raster attributes (crucial for Rio compatibility)
-        result.push_str(&format!("\"{};{}", img.width(), img.height()));
+        // Add raster attributes (aspect ratio 1:1, then dimensions)
+        result.push_str(&format!("\"1;1;{};{}", img.width(), img.height()));
 
         // Define palette (DRY - generated from PALETTE constant)
         result.push_str(&palette_to_sixel_header());
@@ -806,7 +806,7 @@ mod tests {
         // Verify output format
         assert!(sixel.starts_with("\x1BPq"), "Should start with DCS sequence");
         assert!(sixel.ends_with("\x1B\\"), "Should end with ST sequence");
-        assert!(sixel.contains("\"12;12"), "Should contain raster attributes");
+        assert!(sixel.contains("\"1;1;12;12"), "Should contain raster attributes");
         assert!(sixel.contains("#"), "Should contain color switches");
         assert!(sixel.contains("-"), "Should contain line terminators");
     }
@@ -931,7 +931,7 @@ mod tests {
         // Should have valid sixel format
         assert!(sixel.starts_with("\x1BPq"), "Should start with DCS");
         assert!(sixel.ends_with("\x1B\\"), "Should end with ST");
-        assert!(sixel.contains("\"1;1"), "Should have raster attributes 1;1");
+        assert!(sixel.contains("\"1;1;1;1"), "Should have raster attributes 1:1 aspect, 1x1 dimensions");
     }
     
     #[test]
@@ -951,7 +951,7 @@ mod tests {
         // Should encode correctly without panic
         assert!(sixel.starts_with("\x1BPq"), "Should start with DCS");
         assert!(sixel.ends_with("\x1B\\"), "Should end with ST");
-        assert!(sixel.contains("\"6;7"), "Should have raster attributes 6;7");
+        assert!(sixel.contains("\"1;1;6;7"), "Should have raster attributes 1:1 aspect, 6x7 dimensions");
         // Should have 2 sixel rows (0-5 and 6)
         let row_count = sixel.matches('-').count();
         assert_eq!(row_count, 2, "Should have 2 sixel rows for height=7");

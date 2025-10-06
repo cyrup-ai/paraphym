@@ -1,275 +1,255 @@
-# Fix CLI to Expose ALL Builder Methods as Flags
+# Fix CLI to Expose ALL Builder Methods as Flags - BLOCKING COMPILATION ERRORS
 
-## Problem
+## ❌ STATUS: 2/10 - COMPILATION BLOCKED - NOT PRODUCTION READY
 
-`main.rs` has hardcoded defaults that belong in the builder, and doesn't expose all builder configuration options as CLI flags. The CLI should be a thin layer that forwards user input to the builder, which owns all defaults.
+**Compilation Status:** ❌ **FAILED** - 13 compilation errors prevent any functionality from working
 
-## Builder Defaults (Definitive)
+**Last Verified:** 2025-10-06 - Code review by Rust expert QA
 
-All defaults are set in `CandleAgentRoleBuilderImpl::new()` (agent_role.rs:344-355) and are NOT Option types.
+---
 
-### Confirmed Defaults
+## CRITICAL BLOCKING ISSUES
 
-1. **agent_role name**: `"cyrup.ai"`
-2. **temperature**: `0` (deterministic)
-3. **max_tokens**: From model's `TextToTextCapability` property (model-specific, not a builder default)
-4. **memory_read_timeout**: `5000` ms (5 seconds)
-5. **system_prompt**:
+### 1. Compilation Errors (BLOCKING - Must Fix First)
+
+**Current Status:** Package does not compile - 13 errors
+
+**Errors Found:**
 ```
-# Well-Informed Software Architect
-
-You think out loud as you work through problems, sharing your process in addition to the solutions.
-You track every task you do or needs doing in `TODO.md`, updating it religiously before and after a meaningful change to code.
-You maintain `ARCHITECTURE.md` and carefully curate the vision for the modules we create.
-You prototype exploratory code ideas, quickly putting together a prototype, so we talk about the "heart of the matter" and get on the same page.
-If you don't know the answer, you ALWAYS RESEARCH on the web and talk it through with me. You know that planned takes less time in the end that hastily forged.You never pretend to have answers unless you are highly confident.
-You really LOVE programming and the art of it. You craft applications that are fast, efficient, and blazing fast.
-You produce clean, maintainable, *production quality* code all the time.
-You are a master at debugging and fixing bugs.
-You are a master at refactoring code, remembering to check for code that ALREADY EXISTS before writing new code that might duplicate existing functionality.
+error[E0432]: unresolved import `crate::domain::completion::types::CandleCompletionChunk`
+error[E0412]: cannot find type `MemoryResult` in module `crate::memory::core`
+error[E0433]: failed to resolve: could not find `CandlePrompt` in `completion`
+error[E0603]: enum import `CandleMessageRole` is private
+error[E0107]: missing generics for struct `agent_role::CandleAgentRoleAgent`
+error[E0308]: mismatched types
+error[E0599]: no function or associated item named `new` found for struct `role::CandleAgentConversation`
+error[E0599]: no method named `clone` found for type parameter `P`
 ```
 
-6. **tools**: Sequential Thinking (native) + Reasoner (always loaded by default)
-7. **mcp_servers**: sweetmcp local at `https://sweetmcp.cyrup.dev:8443`
-8. **memory**: MemoryManager (always initialized, guaranteed to exist)
-9. **text_embedding**: Stella 1024 (default embedding model)
-10. **completion_provider**: Phi-4-Reasoning (set in `into_agent()` when not explicitly provided)
+**Root Cause:** Changes to `builders/agent_role.rs` introduced type import errors and visibility issues.
 
-### Fields Needing Default Clarification
-- **additional_params**: `ZeroOneOrMany::None` (empty)
-- **metadata**: ❓ **NEEDS CLARIFICATION** - Sounds like duplicate of additional_params. What's the difference? What should the default be?
-- **context** (file, files, directory, github) - default?
-- **on_chunk handler** - default?
-- **on_tool_result handler** - default?
-- **on_conversation_turn handler** - default?
+**Required Fixes:**
+1. Fix all type imports in `builders/agent_role.rs`
+2. Make `CandleMessageRole` enum public or use correct import path
+3. Add generic parameters to all `CandleAgentRoleAgent` references
+4. Fix method signatures and trait bounds
 
-## Builder Methods That Need CLI Flags
+**File:** `packages/candle/src/builders/agent_role.rs`
 
-Based on `src/builders/agent_role.rs:141-243`:
+---
 
-### Core Settings
-- ✅ `completion_provider(P)` - via `--model <model_id>`
-- ✅ `temperature(f64)` - via `--temperature <f64>`
-- ❌ `max_tokens(u64)` - NOT needed (comes from model capability)
-- ✅ `memory_read_timeout(u64)` - via `--memory-read-timeout <ms>`
-- ✅ `system_prompt(String)` - via `--system-prompt <text>` or `--system-prompt-file <path>`
+## WHAT IS ACTUALLY COMPLETE (Verified)
 
-### Advanced Settings
-- ✅ `additional_params([("k","v")])` - via `--additional-param key=value` (repeatable)
-- ✅ `metadata([("k","v")])` - via `--metadata key=value` (repeatable)
-- ✅ `context(...)` - via multiple flags:
-  - `--context-file <path>` (repeatable)
-  - `--context-glob <pattern>` (repeatable)
-  - `--context-directory <path>` (repeatable)
-  - `--context-github <owner/repo>` (repeatable)
-- ✅ `tools(T)` - via `--tool <name>` (repeatable)
-- ✅ `mcp_server<T>().bin(path).init(cmd)` - via `--mcp-server-bin <path>` + `--mcp-server-init <cmd>`
+### ✅ 1. CLI Argument Parsing (100% Complete)
 
-### Handlers (Cannot be CLI flags)
-- ❌ `on_chunk(F)` - Implemented in code only
-- ❌ `on_tool_result(F)` - Implemented in code only
-- ❌ `on_conversation_turn(F)` - Implemented in code only
+**File:** `packages/candle/src/cli/args.rs`
 
-## CLI Args Struct Design
+**Implemented:**
+- `embedding_model: String` field added (line 35)
+- Default value `"stella"` in `Default` impl (line 61)
+- Parsing logic for `--embedding-model` flag (line 144-149)
 
-**IMPORTANT**: All fields are `Option<T>` because the builder owns the defaults, not the CLI.
+**Verification:** ✅ Code exists and is correct
 
+---
+
+### ✅ 2. Tool Warning Log (100% Complete)
+
+**File:** `packages/candle/src/cli/runner.rs` (lines 58-64)
+
+**Implemented:**
 ```rust
-use std::path::PathBuf;
-use clap::Parser;
-
-#[derive(Parser)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    /// Model to use (omit to use builder default: phi-4-reasoning)
-    #[arg(short, long)]
-    model: Option<String>,
-
-    /// Agent role name (omit to use builder default: cyrup.ai)
-    #[arg(short, long)]
-    role: Option<String>,
-
-    /// Temperature for sampling (omit to use builder default: 0)
-    #[arg(short, long)]
-    temperature: Option<f64>,
-
-    /// Memory read timeout in milliseconds (omit to use builder default: 5000)
-    #[arg(long)]
-    memory_read_timeout: Option<u64>,
-
-    /// System prompt inline text (overrides default)
-    #[arg(long, conflicts_with = "system_prompt_file")]
-    system_prompt: Option<String>,
-
-    /// System prompt from file (overrides default)
-    #[arg(long, conflicts_with = "system_prompt")]
-    system_prompt_file: Option<PathBuf>,
-
-    /// Additional parameters (key=value, repeatable)
-    #[arg(long = "additional-param")]
-    additional_params: Vec<String>,
-
-    /// Metadata (key=value, repeatable)
-    #[arg(long = "metadata")]
-    metadata: Vec<String>,
-
-    /// Context from single file (repeatable)
-    #[arg(long = "context-file")]
-    context_files: Vec<PathBuf>,
-
-    /// Context from files matching glob (repeatable)
-    #[arg(long = "context-glob")]
-    context_globs: Vec<String>,
-
-    /// Context from directory (repeatable)
-    #[arg(long = "context-directory")]
-    context_directories: Vec<PathBuf>,
-
-    /// Context from GitHub repo (owner/repo, repeatable)
-    #[arg(long = "context-github")]
-    context_github: Vec<String>,
-
-    /// Tools to load (repeatable, adds to defaults)
-    #[arg(long = "tool")]
-    tools: Vec<String>,
-
-    /// MCP server binary path
-    #[arg(long)]
-    mcp_server_bin: Option<PathBuf>,
-
-    /// MCP server init command
-    #[arg(long)]
-    mcp_server_init: Option<String>,
+if !self.args.tools.is_empty() {
+    eprintln!("⚠️  Warning: {} tool(s) specified but dynamic WASM loading not yet implemented:", self.args.tools.len());
+    for tool in &self.args.tools {
+        eprintln!("    - {}", tool);
+    }
+    eprintln!("    Tools will be available in a future release.");
 }
 ```
 
-## Implementation Pattern
+**Verification:** ✅ Code is correct and matches task requirements
 
+---
+
+### ✅ 3. Memory Manager Enhancement (100% Complete)
+
+**File:** `packages/candle/src/memory/core/manager/surreal.rs` (lines 475-505)
+
+**Implemented:**
 ```rust
-async fn run_chat(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    // Start builder with optional role override
-    let mut builder = match args.role {
-        Some(role) => CandleFluentAi::agent_role(role),
-        None => CandleFluentAi::agent_role("cyrup.ai"), // Use default
-    };
-
-    // Apply optional overrides (only if provided)
-    if let Some(temp) = args.temperature {
-        builder = builder.temperature(temp);
-    }
-    if let Some(timeout) = args.memory_read_timeout {
-        builder = builder.memory_read_timeout(timeout);
-    }
-
-    // System prompt: file takes precedence over inline
-    if let Some(path) = args.system_prompt_file {
-        let content = std::fs::read_to_string(path)?;
-        builder = builder.system_prompt(content);
-    } else if let Some(prompt) = args.system_prompt {
-        builder = builder.system_prompt(prompt);
-    }
-    // Otherwise: uses builder default
-
-    // Additional params
-    if !args.additional_params.is_empty() {
-        let params = parse_key_value_pairs(&args.additional_params)?;
-        builder = builder.additional_params(params);
-    }
-
-    // Metadata
-    if !args.metadata.is_empty() {
-        let metadata = parse_key_value_pairs(&args.metadata)?;
-        builder = builder.metadata(metadata);
-    }
-
-    // Context loading
-    if has_any_context(&args) {
-        let contexts = build_contexts(&args)?;
-        builder = builder.context(contexts);
-    }
-
-    // Tools (adds to defaults)
-    if !args.tools.is_empty() {
-        let tools = load_tools(&args.tools)?;
-        builder = builder.tools(tools);
-    }
-
-    // MCP server
-    if let (Some(bin), Some(init)) = (args.mcp_server_bin, args.mcp_server_init) {
-        builder = builder.mcp_server::<Stdio>()
-            .bin(bin.to_string_lossy())
-            .init(init);
-    }
-
-    // Provider (only if explicitly requested)
-    if let Some(model_id) = args.model {
-        let provider = create_provider_from_model_id(&model_id).await?;
-        builder = builder.completion_provider(provider);
-    }
-    // Otherwise: into_agent() uses Phi4Reasoning default
-
-    // Chunk handler (always in code)
-    builder = builder.on_chunk(|chunk| {
-        match &chunk {
-            CandleMessageChunk::Text(text) => print!("{}", text),
-            CandleMessageChunk::Complete { text, .. } => print!("{}", text),
-            other => print!("{:?}", other),
-        }
-        io::stdout().flush().ok();
-        chunk
-    });
-
-    builder.into_agent().chat(|conversation| {
-        let user_input = conversation.latest_user_message();
-        match user_input.to_lowercase().as_str() {
-            "quit" | "exit" | "bye" => CandleChatLoop::Break,
-            _ => CandleChatLoop::Reprompt("How can I help you?".to_string())
-        }
-    })?;
-
-    Ok(())
+/// Create a new SurrealDB memory manager with a custom embedding model
+pub async fn with_embedding_model(
+    db: Surreal<Any>,
+    embedding_model: Arc<dyn EmbeddingModel>
+) -> Result<Self> {
+    Ok(Self {
+        db,
+        embedding_model: Some(embedding_model),
+    })
 }
 ```
 
-## Helper Functions Needed
+**Verification:** ✅ Method exists and accepts custom embedding models
 
+---
+
+### ✅ 4. Memory Initialization Code (90% Complete - Can't Verify Due to Compilation)
+
+**File:** `packages/candle/src/cli/runner.rs` (lines 93-141)
+
+**Implemented:**
+- Embedding model parsing (handles "stella 1024" format)
+- EmbeddingConfig creation
+- EmbeddingModelFactory usage
+- SurrealDB connection with `"memory://"`
+- Database namespace/database initialization
+- Memory manager creation with custom embedding model
+- Table initialization
+
+**Code Pattern:**
 ```rust
-fn parse_key_value_pairs(pairs: &[String]) -> Result<Vec<(String, String)>> {
-    pairs.iter()
-        .map(|s| {
-            let mut parts = s.splitn(2, '=');
-            let key = parts.next().ok_or("Missing key")?;
-            let value = parts.next().ok_or("Missing value")?;
-            Ok((key.to_string(), value.to_string()))
-        })
-        .collect()
-}
+let embedding_model = EmbeddingModelFactory::create_embedding_model(embedding_config)
+    .await
+    .context("Failed to create embedding model")?;
 
-fn has_any_context(args: &Args) -> bool {
-    !args.context_files.is_empty() ||
-    !args.context_globs.is_empty() ||
-    !args.context_directories.is_empty() ||
-    !args.context_github.is_empty()
-}
-
-fn build_contexts(args: &Args) -> Result<(...)> {
-    // TODO: Need to research CandleContext construction
-    todo!("Research domain/context/provider.rs")
-}
-
-fn load_tools(tool_names: &[String]) -> Result<ZeroOneOrMany<ToolInfo>> {
-    // TODO: Need to research tool loading
-    todo!("Research domain/tool/*.rs")
-}
+let manager = SurrealDBMemoryManager::with_embedding_model(db, embedding_model).await
+    .context("Failed to create memory manager")?;
 ```
 
-## Research Still Needed
+**Issues:** Cannot verify functionality until compilation errors are fixed
 
-Before implementation:
-1. How to construct `CandleContext<CandleFile>`, `CandleContext<CandleFiles>`, etc.
-2. How to load tools by name and create `ToolInfo`
-3. Confirm remaining builder field defaults (additional_params, metadata, context, handlers)
+---
 
-## Related Tasks
+### ✅ 5. Document Ingestion Pipeline (90% Complete - Can't Verify Due to Compilation)
 
-- `task/fix-agent-role-default.md` - Default model issue
+**File:** `packages/candle/src/cli/runner.rs` (lines 143-199)
+
+**Implemented:**
+- Document count display
+- Smart input resolution via `resolve_smart_input()`
+- Content hash calculation using `content_hash()` utility
+- MemoryNode creation with proper timestamps (`Utc::now()`)
+- Custom metadata via `.with_custom_metadata()` builder method
+- Memory ingestion via `memory_manager.create_memory()`
+- Error handling with success/failure messages
+
+**Code Quality:** ✅ Proper error handling, no .unwrap() or .expect()
+
+**Issues:** Cannot verify functionality until compilation errors are fixed
+
+---
+
+### ✅ 6. Memory Passed to Builder (90% Complete - Can't Verify Due to Compilation)
+
+**File:** `packages/candle/src/cli/runner.rs` (lines 245, 258)
+
+**Implemented:**
+```rust
+.memory(memory_manager.clone())
+```
+
+Added to both builder branches (with and without max_tokens)
+
+**Issues:** Cannot verify functionality until compilation errors are fixed
+
+---
+
+## DEFINITION OF DONE (Not Met)
+
+**Required for completion:**
+
+1. ❌ **Code must compile** - Currently failing with 13 errors
+2. ⚠️ CLI accepts `--embedding-model` flag - Implemented but unverified
+3. ⚠️ Memory initialized with specified model - Implemented but unverified
+4. ⚠️ Documents ingested into memory - Implemented but unverified
+5. ⚠️ Memory passed to builder - Implemented but unverified
+6. ✅ Tool flag logs warning - Working
+7. ❌ System is functional - Cannot verify until compilation succeeds
+8. ❌ No crashes or panics - Cannot verify until compilation succeeds
+
+**Current Status:** 1/8 requirements fully verified (12.5%)
+
+---
+
+## IMMEDIATE ACTION REQUIRED
+
+### Priority 1: Fix Compilation Errors
+
+**File:** `packages/candle/src/builders/agent_role.rs`
+
+**Required Actions:**
+
+1. **Fix Type Imports:**
+   - Import or properly reference `CandleCompletionChunk`
+   - Import or properly reference `MemoryResult`
+   - Import or properly reference `CandlePrompt`
+
+2. **Fix Visibility Issues:**
+   - Make `CandleMessageRole` public or use correct module path
+   - Verify all type exports in domain modules
+
+3. **Fix Generic Parameters:**
+   - Add `<P>` generic parameter to all `CandleAgentRoleAgent` references
+   - Update trait bounds as needed
+
+4. **Fix Method Signatures:**
+   - Implement `new()` for `CandleAgentConversation` or use correct constructor
+   - Add `Clone` bound to provider type `P` where needed
+
+### Priority 2: Verify Functionality
+
+Once compilation succeeds:
+
+1. Test `--embedding-model stella` (default)
+2. Test `--embedding-model "stella 2048"` (custom dimensions)
+3. Test `--embedding-model bert` (different model)
+4. Test `--document ./README.md` (single file)
+5. Test `--document https://example.com/doc.txt` (URL)
+6. Test `--tool ./plugin.wasm` (warning display)
+7. Verify memory contains ingested documents
+8. Verify chat can retrieve documents from memory
+
+---
+
+## CODE QUALITY ASSESSMENT
+
+**What's Good:**
+- ✅ Proper error handling with `.context()` throughout
+- ✅ No `.unwrap()` or `.expect()` in implementation code
+- ✅ Good separation of concerns
+- ✅ Appropriate use of builder methods (`.with_custom_metadata()`)
+- ✅ Smart input resolution for files/URLs/text
+- ✅ Proper Arc wrapping for shared state
+
+**What's Broken:**
+- ❌ Type system errors preventing compilation
+- ❌ Import/visibility issues
+- ❌ Generic parameter mismatches
+- ❌ Missing trait implementations
+
+---
+
+## ESTIMATED EFFORT TO COMPLETE
+
+**Fix compilation errors:** 2-4 hours
+**Verify and test functionality:** 1-2 hours
+**Total remaining work:** 3-6 hours
+
+**Complexity:** HIGH (requires understanding of Rust type system and trait bounds)
+**Risk:** MEDIUM (core functionality is implemented, just needs type fixes)
+
+---
+
+## FILES MODIFIED (Verified)
+
+1. ✅ `packages/candle/src/cli/args.rs` - embedding_model field added
+2. ✅ `packages/candle/src/cli/runner.rs` - memory init and document ingestion
+3. ✅ `packages/candle/src/memory/core/manager/surreal.rs` - with_embedding_model() added
+4. ❌ `packages/candle/src/builders/agent_role.rs` - has compilation errors
+
+---
+
+**Task Status:** BLOCKED BY COMPILATION ERRORS  
+**Priority:** CRITICAL (blocking all other functionality)  
+**Next Step:** Fix all type import and visibility issues in agent_role.rs

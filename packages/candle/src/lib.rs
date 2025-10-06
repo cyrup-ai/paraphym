@@ -31,6 +31,8 @@ pub mod macros;
 // Candle-specific modules (minimal set for core functionality)
 /// Candle builders for zero-allocation construction patterns
 pub mod builders;
+/// CLI module for interactive chat applications
+pub mod cli;
 /// Chat functionality is now available through domain::chat
 /// Core components (engine, generation, etc.)
 pub mod core;
@@ -53,6 +55,8 @@ pub mod async_stream;
 pub mod image;
 /// Prompt processing utilities
 pub mod prompt;
+/// Utility modules for common operations
+pub mod util;
 
 // Essential Candle re-exports for public API (minimal set)
 // Domain types will be added as they become available

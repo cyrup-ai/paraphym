@@ -472,20 +472,36 @@ impl SurrealDBMemoryManager {
         Ok(manager)
     }
 
-    /// Create a new SurrealDB memory manager with embedding support
+    /// Create a new SurrealDB memory manager with a custom embedding model
+    ///
+    /// This factory method initializes the manager with the provided embedding model
+    /// for auto-generating embeddings on memory creation and text search.
+    ///
+    /// # Arguments
+    /// * `db` - Connected SurrealDB instance
+    /// * `embedding_model` - Custom embedding model to use for vector operations
+    pub async fn with_embedding_model(
+        db: Surreal<Any>,
+        embedding_model: Arc<dyn EmbeddingModel>
+    ) -> Result<Self> {
+        Ok(Self {
+            db,
+            embedding_model: Some(embedding_model),
+        })
+    }
+
+    /// Create a new SurrealDB memory manager with default BERT embedding support
     ///
     /// This factory method initializes the manager with BERT embedding capabilities
     /// for auto-generating embeddings on memory creation and text search.
+    /// For custom embedding models, use `with_embedding_model()` instead.
     pub async fn with_embeddings(db: Surreal<Any>) -> Result<Self> {
         // Create BERT embedding model using ProgressHub download
         let embedding_model = Arc::new(
             CandleBertEmbeddingProvider::new().await?
         ) as Arc<dyn EmbeddingModel>;
 
-        Ok(Self {
-            db,
-            embedding_model: Some(embedding_model),
-        })
+        Self::with_embedding_model(db, embedding_model).await
     }
 
     /// Get a reference to the database connection
@@ -513,6 +529,12 @@ impl SurrealDBMemoryManager {
             .await
             .map_err(|e| Error::Database(format!("{:?}", e)))?;
 
+        // Create index for content hash deduplication
+        self.db
+            .query("DEFINE INDEX memory_content_hash_idx ON TABLE memory COLUMNS content_hash")
+            .await
+            .map_err(|e| Error::Database(format!("{:?}", e)))?;
+
         self.db.query("DEFINE INDEX memory_relationship_source_idx ON TABLE memory_relationship COLUMNS source_id")
             .await
             .map_err(|e| Error::Database(format!("{:?}", e)))?;
@@ -528,6 +550,10 @@ impl SurrealDBMemoryManager {
     fn from_schema(schema: MemoryNodeSchema) -> MemoryNode {
         let id = schema.id.key().to_string();
         let embedding = schema.metadata.embedding;
+        let content = crate::memory::core::primitives::types::MemoryContent::new(&schema.content);
+        
+        // Calculate content hash
+        let content_hash = crate::domain::memory::serialization::content_hash(&content.text);
 
         let mut metadata = MemoryMetadata::new();
         metadata.created_at = schema.metadata.created_at;
@@ -538,7 +564,8 @@ impl SurrealDBMemoryManager {
 
         MemoryNode {
             id,
-            content: crate::memory::core::primitives::types::MemoryContent::new(&schema.content),
+            content,
+            content_hash,
             memory_type: schema.memory_type,
             created_at: schema.metadata.created_at,
             updated_at: schema.metadata.last_accessed_at,
@@ -1885,5 +1912,96 @@ impl SurrealDBMemoryManager {
             .into_iter()
             .map(Self::from_schema)
             .collect())
+    }
+
+    /// Check if a document exists by content hash
+    ///
+    /// This method enables content-based deduplication by searching for existing
+    /// memories with the same content hash.
+    ///
+    /// # Arguments
+    /// * `hash` - The u64 content hash to search for
+    ///
+    /// # Returns
+    /// * `Ok(true)` - A memory with this content hash exists
+    /// * `Ok(false)` - No memory with this content hash exists
+    /// * `Err(Error)` - Database query failed
+    pub async fn document_exists_by_hash(&self, hash: u64) -> Result<bool> {
+        let query = "SELECT id FROM memory WHERE content_hash = $hash LIMIT 1";
+        
+        let mut response = self.db
+            .query(query)
+            .bind(("hash", hash))
+            .await
+            .map_err(|e| Error::Database(format!("Failed to query by content_hash: {:?}", e)))?;
+        
+        let results: Vec<serde_json::Value> = response
+            .take(0)
+            .map_err(|e| Error::Database(format!("Failed to parse hash query results: {:?}", e)))?;
+        
+        Ok(!results.is_empty())
+    }
+
+    /// Find a document by content hash
+    ///
+    /// Returns the full memory node if a document with the given hash exists.
+    ///
+    /// # Arguments
+    /// * `hash` - The u64 content hash to search for
+    ///
+    /// # Returns
+    /// * `Ok(Some(MemoryNode))` - Found memory with this hash
+    /// * `Ok(None)` - No memory with this hash exists
+    /// * `Err(Error)` - Database query failed
+    pub async fn find_document_by_hash(&self, hash: u64) -> Result<Option<MemoryNode>> {
+        let query = "SELECT * FROM memory WHERE content_hash = $hash LIMIT 1";
+        
+        let mut response = self.db
+            .query(query)
+            .bind(("hash", hash))
+            .await
+            .map_err(|e| Error::Database(format!("Failed to query by content_hash: {:?}", e)))?;
+        
+        let results: Vec<MemoryNodeSchema> = response
+            .take(0)
+            .map_err(|e| Error::Database(format!("Failed to parse hash query results: {:?}", e)))?;
+        
+        Ok(results.into_iter().next().map(Self::from_schema))
+    }
+
+    /// Update document age/timestamp by content hash
+    ///
+    /// This method "refreshes" a document by updating its timestamps when identical
+    /// content is re-ingested. This ensures frequently referenced documents remain
+    /// fresh in the temporal decay model.
+    ///
+    /// # Arguments
+    /// * `hash` - The u64 content hash to search for
+    /// * `timestamp` - The new timestamp (DateTime<Utc>)
+    ///
+    /// # Returns
+    /// * `Ok(true)` - Successfully updated timestamp
+    /// * `Ok(false)` - No memory with this hash exists
+    /// * `Err(Error)` - Database update failed
+    pub async fn update_document_age_by_hash(
+        &self,
+        hash: u64,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    ) -> Result<bool> {
+        // Update both updated_at and last_accessed_at to "freshen" the document
+        let query = "UPDATE memory SET updated_at = $timestamp, metadata.last_accessed_at = $timestamp WHERE content_hash = $hash";
+        
+        let mut response = self.db
+            .query(query)
+            .bind(("hash", hash))
+            .bind(("timestamp", timestamp))
+            .await
+            .map_err(|e| Error::Database(format!("Failed to update age by content_hash: {:?}", e)))?;
+        
+        let results: Vec<serde_json::Value> = response
+            .take(0)
+            .map_err(|e| Error::Database(format!("Failed to parse update results: {:?}", e)))?;
+        
+        Ok(!results.is_empty())
     }
 }

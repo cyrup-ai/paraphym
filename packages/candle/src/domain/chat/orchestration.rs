@@ -82,17 +82,18 @@ pub fn render_stage1_prompt(user_input: &str, available_tools: &[ToolInfo]) -> R
     let mut variables = HashMap::new();
     variables.insert("user_input".to_string(), user_input.to_string());
     variables.insert("available_tools".to_string(), format_tools_for_selection(available_tools));
-    
-    templates::render_template("tool_selection", variables)
+
+    templates::render_template("tool_selection", &variables)
         .context("Failed to render tool_selection template")
 }
 
 /// Render Stage 2 prompt (Function Calling)
-pub fn render_stage2_prompt(user_input: &str, selected_tools: &[ToolInfo]) -> Result<String> {    let mut variables = HashMap::new();
+pub fn render_stage2_prompt(user_input: &str, selected_tools: &[ToolInfo]) -> Result<String> {
+    let mut variables = HashMap::new();
     variables.insert("user_input".to_string(), user_input.to_string());
     variables.insert("tools_json".to_string(), format_tools_openai(selected_tools)?);
-    
-    templates::render_template("function_calling", variables)
+
+    templates::render_template("function_calling", &variables)
         .context("Failed to render function_calling template")
 }
 
@@ -112,8 +113,8 @@ pub fn render_stage4_prompt(
     
     // Format tool results
     variables.insert("tool_results".to_string(), format_tool_results(tool_calls, results));
-    
-    templates::render_template("result_interpretation", variables)
+
+    templates::render_template("result_interpretation", &variables)
         .context("Failed to render result_interpretation template")
 }
 

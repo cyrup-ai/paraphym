@@ -305,13 +305,57 @@ impl MemoryCoordinator {
             .map_err(|e| crate::memory::utils::Error::Internal(format!("Failed to enqueue cognitive task: {}", e)))
     }
 
-    /// Add a new memory using SurrealDB's native capabilities
+    /// Add a new memory using SurrealDB's native capabilities with deduplication
+    ///
+    /// This method implements content-based deduplication:
+    /// 1. Calculate content hash from document text
+    /// 2. Check if document with same hash already exists
+    /// 3. If exists: Update age/timestamp to "brand new" (skip ingestion)
+    /// 4. If new: Ingest document with hash stored
+    ///
+    /// # Arguments
+    /// * `content` - The text content of the memory
+    /// * `memory_type` - The type of memory (Semantic, Episodic, etc.)
+    /// * `metadata` - Additional metadata (importance, keywords, tags)
+    ///
+    /// # Returns
+    /// * `Ok(MemoryNode)` - The stored or refreshed memory
+    /// * `Err(Error)` - Database or processing error
     pub async fn add_memory(
         &self,
         content: String,
         memory_type: MemoryTypeEnum,
         metadata: MemoryMetadata,
     ) -> Result<MemoryNode> {
+        // Calculate content hash for deduplication
+        let content_hash = crate::domain::memory::serialization::content_hash(&content);
+        
+        // Check if document with same content hash already exists
+        if let Some(_existing_memory) = self.surreal_manager.find_document_by_hash(content_hash).await? {
+            // Document exists - refresh age instead of re-ingesting
+            let now = chrono::Utc::now();
+            let updated = self.surreal_manager.update_document_age_by_hash(content_hash, now).await?;
+            
+            if updated {
+                log::info!(
+                    "Document already exists (hash: {}), age refreshed to brand new",
+                    content_hash
+                );
+                
+                // Return the existing memory with refreshed timestamp (converted to domain)
+                // Re-fetch to get updated timestamps
+                let refreshed_memory = self.surreal_manager.find_document_by_hash(content_hash).await?
+                    .ok_or_else(|| Error::Internal("Failed to re-fetch refreshed document".to_string()))?;
+                return self.convert_memory_to_domain_node(&refreshed_memory);
+            } else {
+                log::warn!("Failed to refresh age for existing document (hash: {})", content_hash);
+                // Fall through to normal ingestion if update failed
+            }
+        }
+        
+        // Document is new - proceed with normal ingestion
+        log::debug!("Ingesting new document (hash: {})", content_hash);
+        
         // Create domain memory node first
         let content_struct = crate::domain::memory::primitives::types::MemoryContent::text(content.clone());
         let mut domain_memory = MemoryNode::new(memory_type, content_struct);
@@ -863,9 +907,13 @@ impl MemoryCoordinator {
             crate::domain::memory::primitives::types::MemoryTypeEnum::Emotional => MemoryMemoryTypeEnum::Episodic,
         };
 
+        // Calculate content hash
+        let content_hash = crate::domain::memory::serialization::content_hash(&memory_content.text);
+        
         MemoryMemoryNode {
             id: domain_node.id().to_string(),
             content: memory_content,
+            content_hash,
             memory_type,
             created_at: domain_node.base_memory.created_at.into(),
             updated_at: domain_node.base_memory.updated_at.into(),

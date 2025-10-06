@@ -18,6 +18,8 @@ pub struct MemoryNode {
     pub id: String,
     /// Content of the memory
     pub content: MemoryContent,
+    /// Content hash for fast deduplication and lookup
+    pub content_hash: u64,
     /// Type of memory
     pub memory_type: MemoryTypeEnum,
     /// Creation timestamp
@@ -40,10 +42,14 @@ impl MemoryNode {
     pub fn new(memory_type: MemoryTypeEnum, content: MemoryContent) -> Self {
         let id = uuid::Uuid::new_v4().to_string();
         let now = Utc::now();
+        
+        // Calculate content hash for deduplication
+        let content_hash = crate::domain::memory::serialization::content_hash(&content.text);
 
         Self {
             id,
             content,
+            content_hash,
             memory_type,
             created_at: now,
             updated_at: now,
@@ -57,10 +63,14 @@ impl MemoryNode {
     /// Create a new memory node with a specific ID
     pub fn with_id(id: String, memory_type: MemoryTypeEnum, content: MemoryContent) -> Self {
         let now = Utc::now();
+        
+        // Calculate content hash for deduplication
+        let content_hash = crate::domain::memory::serialization::content_hash(&content.text);
 
         Self {
             id,
             content,
+            content_hash,
             memory_type,
             created_at: now,
             updated_at: now,
@@ -134,9 +144,13 @@ impl MemoryNode {
 impl Default for MemoryNode {
     fn default() -> Self {
         let now = Utc::now();
+        let content = MemoryContent::default();
+        let content_hash = crate::domain::memory::serialization::content_hash(&content.text);
+        
         Self {
             id: uuid::Uuid::new_v4().to_string(),
-            content: MemoryContent::default(),
+            content,
+            content_hash,
             memory_type: MemoryTypeEnum::default(),
             created_at: now,
             updated_at: now,

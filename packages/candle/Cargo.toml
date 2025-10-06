@@ -136,6 +136,10 @@ glob = "0.3.3"
 base64 = "0.22.1"
 image = { version = "0.25.2", default-features = false, features = ["png", "jpeg"] }
 
+# CLI dependencies for interactive prompts
+inquire = { version = "0.7", features = ["fuzzy"] }
+fuzzy-matcher = "0.3"
+
 # Content sanitization dependencies (TASK404)
 unicode-normalization = "0.1.24"  # Unicode NFC normalization for security
 html-escape = "0.2"               # HTML entity escaping for XSS prevention

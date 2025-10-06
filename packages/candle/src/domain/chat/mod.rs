@@ -23,6 +23,7 @@ pub mod config;
 pub mod conversation;
 pub mod export;
 pub mod formatting;
+pub mod orchestration;
 
 pub mod r#loop;
 pub mod macros;

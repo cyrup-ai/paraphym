@@ -115,25 +115,296 @@ impl CandleMessage {
 }
 
 /// Agent helper type for conversation control in `on_conversation_turn` callbacks.
-/// See `impl` block below for available methods.
-pub struct CandleAgentRoleAgent;
+/// Holds Arc<AgentBuilderState> for recursive inference.
+pub struct CandleAgentRoleAgent<P> 
+where 
+    P: DomainCompletionModel + Send + Clone + 'static 
+{
+    state: Arc<AgentBuilderState<P>>,
+}
 
-impl CandleAgentRoleAgent {
-    /// Chat method for use in on_conversation_turn closure
+impl<P> Clone for CandleAgentRoleAgent<P> 
+where 
+    P: DomainCompletionModel + Send + Clone + 'static 
+{
+    fn clone(&self) -> Self {
+        Self { state: self.state.clone() }
+    }
+}
+
+impl<P> CandleAgentRoleAgent<P> 
+where 
+    P: DomainCompletionModel + Send + Clone + 'static 
+{
+    /// Chat method for use in on_conversation_turn closure - enables recursion
     pub fn chat(&self, chat_loop: CandleChatLoop) -> AsyncStream<CandleMessageChunk> {
-        AsyncStream::with_channel(|sender| match chat_loop {
+        match chat_loop {
             CandleChatLoop::Break => {
-                let final_chunk = CandleMessageChunk::Complete {
-                    text: String::new(),
-                    finish_reason: Some("break".to_string()),
-                    usage: None,
+                AsyncStream::with_channel(|sender| {
+                    let final_chunk = CandleMessageChunk::Complete {
+                        text: String::new(),
+                        finish_reason: Some("break".to_string()),
+                        usage: None,
+                    };
+                    let _ = sender.send(final_chunk);
+                })
+            }
+            CandleChatLoop::UserPrompt(user_message) | CandleChatLoop::Reprompt(user_message) => {
+                self.run_inference_cycle(user_message)
+            }
+        }
+    }
+    
+    fn run_inference_cycle(&self, user_message: String) -> AsyncStream<CandleMessageChunk> {
+        let state = self.state.clone();
+        
+        AsyncStream::with_channel(move |sender| {
+            let _background_stream = ystream::spawn_stream(move |stream_sender| {
+                // Initialize tool router
+                let tool_router = {
+                    let Some(runtime) = crate::runtime::shared_runtime() else {
+                        let error_chunk = CandleMessageChunk::Error("Failed to access shared runtime".to_string());
+                        ystream::emit!(stream_sender, error_chunk);
+                        return;
+                    };
+                    
+                    let reasoner_schema = crate::domain::agent::role::convert_serde_to_sweet_json(serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "thought": {"type": "string", "description": "Current reasoning step"},
+                            "thoughtNumber": {"type": "integer", "description": "Current step number", "minimum": 1},
+                            "totalThoughts": {"type": "integer", "description": "Total expected steps", "minimum": 1},
+                            "nextThoughtNeeded": {"type": "boolean", "description": "Whether another step is needed"}
+                        },
+                        "required": ["thought", "thoughtNumber", "totalThoughts", "nextThoughtNeeded"]
+                    }));
+                    
+                    let default_plugin_config = crate::domain::tool::router::PluginConfig {
+                        tool_name: "mcp-reasoner".to_string(),
+                        wasm_path: "packages/sweetmcp/plugins/reasoner/target/wasm32-unknown-unknown/release/sweetmcp_plugin_reasoner.wasm".to_string(),
+                        description: "Advanced reasoning tool".to_string(),
+                        input_schema: reasoner_schema,
+                    };
+                    
+                    let plugin_configs = vec![default_plugin_config];
+                    let mut router = crate::domain::tool::router::SweetMcpRouter::with_configs(plugin_configs, None);
+                    
+                    match runtime.block_on(router.initialize()) {
+                        Ok(()) => Some(router),
+                        Err(e) => {
+                            let error_chunk = CandleMessageChunk::Error(format!("Tool initialization failed: {}", e));
+                            ystream::emit!(stream_sender, error_chunk);
+                            return;
+                        }
+                    }
                 };
-                let _ = sender.send(final_chunk);
-            }
-            CandleChatLoop::UserPrompt(message) | CandleChatLoop::Reprompt(message) => {
-                let _ = sender.send(CandleMessageChunk::Text(message));
-            }
+
+                // Memory search
+                let memory_context: Option<String> = if let Some(ref mem_manager) = state.memory {
+                    let memory_stream = mem_manager.search_by_content(&user_message);
+                    let results: Vec<crate::memory::core::MemoryResult<crate::memory::core::MemoryNode>> = 
+                        tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(async {
+                                use futures_util::StreamExt;
+                                memory_stream.take(5).collect().await
+                            })
+                        });
+                    let memories: Vec<crate::memory::core::MemoryNode> = results.into_iter()
+                        .filter_map(|r| r.ok())
+                        .collect();
+                    if !memories.is_empty() {
+                        Some(crate::builders::agent_role::format_memory_context(&memories, 1000))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                // Build prompt
+                let full_prompt = match (memory_context, &state.system_prompt) {
+                    (Some(mem_ctx), Some(sys_prompt)) => {
+                        format!("{}\n\n{}\n\nUser: {}", sys_prompt, mem_ctx, user_message)
+                    }
+                    (Some(mem_ctx), None) => {
+                        format!("{}\n\nUser: {}", mem_ctx, user_message)
+                    }
+                    (None, Some(sys_prompt)) => {
+                        format!("{}\n\nUser: {}", sys_prompt, user_message)
+                    }
+                    (None, None) => {
+                        format!("User: {}", user_message)
+                    }
+                };
+
+                // Call provider
+                let prompt = crate::domain::completion::CandlePrompt::new(full_prompt);
+                let mut params = crate::domain::completion::CandleCompletionParams {
+                    temperature: state.temperature,
+                    max_tokens: std::num::NonZeroU64::new(state.max_tokens.unwrap_or(1000)),
+                    ..Default::default()
+                };
+
+                // Add tools
+                if let Some(ref router) = tool_router {
+                    let mut all_tools: Vec<crate::domain::tool::ToolInfo> = state.tools.clone().into();
+                    if let Some(runtime) = crate::runtime::shared_runtime() {
+                        let auto_generated_tools = runtime.block_on(router.get_available_tools());
+                        all_tools.extend(auto_generated_tools);
+                    }
+                    if !all_tools.is_empty() {
+                        params.tools = Some(crate::domain::collections::ZeroOneOrMany::from(all_tools));
+                    }
+                }
+
+                let completion_stream = state.provider.prompt(prompt, &params);
+                let completion_results = completion_stream.collect();
+                let mut assistant_response = String::new();
+                
+                // Stream chunks
+                for completion_chunk in completion_results {
+                    use crate::domain::completion::types::CandleCompletionChunk;
+                    let message_chunk = match completion_chunk {
+                        CandleCompletionChunk::Text(ref text) => {
+                            assistant_response.push_str(text);
+                            CandleMessageChunk::Text(text.clone())
+                        }
+                        CandleCompletionChunk::Complete { ref text, finish_reason, usage } => {
+                            assistant_response.push_str(text);
+                            CandleMessageChunk::Complete {
+                                text: text.clone(),
+                                finish_reason: finish_reason.map(|f| format!("{:?}", f)),
+                                usage: usage.map(|u| format!("{:?}", u)),
+                            }
+                        }
+                        CandleCompletionChunk::ToolCallStart { id, name } => {
+                            CandleMessageChunk::ToolCallStart { id, name }
+                        }
+                        CandleCompletionChunk::ToolCall { id, name, partial_input } => {
+                            CandleMessageChunk::ToolCall { id, name, partial_input }
+                        }
+                        CandleCompletionChunk::ToolCallComplete { id, name, input } => {
+                            if let Some(ref router) = tool_router {
+                                match serde_json::from_str::<serde_json::Value>(&input) {
+                                    Ok(args_json) => {
+                                        let sweet_args = crate::domain::agent::role::convert_serde_to_sweet_json(args_json);
+                                        match crate::runtime::shared_runtime() {
+                                            Some(runtime) => {
+                                                match runtime.block_on(router.call_tool(&name, sweet_args)) {
+                                                    Ok(response) => {
+                                                        CandleMessageChunk::Text(format!("Tool '{}' executed: {:?}", name, response))
+                                                    }
+                                                    Err(e) => {
+                                                        CandleMessageChunk::Error(format!("Tool '{}' failed: {}", name, e))
+                                                    }
+                                                }
+                                            }
+                                            None => CandleMessageChunk::Error("Runtime unavailable".to_string())
+                                        }
+                                    }
+                                    Err(e) => CandleMessageChunk::Error(format!("Invalid JSON: {}", e))
+                                }
+                            } else {
+                                CandleMessageChunk::ToolCallComplete { id, name, input }
+                            }
+                        }
+                        CandleCompletionChunk::Error(error) => CandleMessageChunk::Error(error),
+                    };
+                    ystream::emit!(stream_sender, message_chunk);
+                }
+                
+                // Store in memory
+                if let Some(ref memory_manager) = state.memory {
+                    if !assistant_response.is_empty() {
+                        let user_content = crate::memory::core::primitives::types::MemoryContent::new(&user_message);
+                        let assistant_content = crate::memory::core::primitives::types::MemoryContent::new(&assistant_response);
+                        
+                        let mut user_memory = crate::memory::core::MemoryNode::new(
+                            crate::memory::core::primitives::types::MemoryTypeEnum::Episodic,
+                            user_content
+                        );
+                        user_memory.metadata.tags.push("user_message".to_string());
+                        user_memory.metadata.source = Some("chat".to_string());
+                        user_memory.metadata.importance = 0.8;
+                        
+                        let mut assistant_memory = crate::memory::core::MemoryNode::new(
+                            crate::memory::core::primitives::types::MemoryTypeEnum::Episodic,
+                            assistant_content
+                        );
+                        assistant_memory.metadata.tags.push("assistant_response".to_string());
+                        assistant_memory.metadata.source = Some("chat".to_string());
+                        assistant_memory.metadata.importance = 0.8;
+                        
+                        let user_pending = memory_manager.create_memory(user_memory);
+                        let assistant_pending = memory_manager.create_memory(assistant_memory);
+                        
+                        if let Some(runtime) = crate::runtime::shared_runtime() {
+                            runtime.spawn(async move {
+                                if let Err(e) = user_pending.await {
+                                    log::error!("Failed to store user memory: {:?}", e);
+                                }
+                            });
+                            runtime.spawn(async move {
+                                if let Err(e) = assistant_pending.await {
+                                    log::error!("Failed to store assistant memory: {:?}", e);
+                                }
+                            });
+                        }
+                    }
+                }
+
+                // CRITICAL: Call handler for recursion
+                if let Some(ref handler) = state.on_conversation_turn_handler {
+                    let mut conversation = crate::domain::agent::CandleAgentConversation::new();
+                    conversation.add_message(user_message.clone(), crate::domain::agent::role::CandleMessageRole::User);
+                    conversation.add_message(assistant_response.clone(), crate::domain::agent::role::CandleMessageRole::Assistant);
+                    
+                    let agent = CandleAgentRoleAgent { state: state.clone() };
+                    let handler_stream = handler(&conversation, &agent);
+                    let handler_chunks = handler_stream.collect();
+                    for chunk in handler_chunks {
+                        ystream::emit!(stream_sender, chunk);
+                    }
+                }
+            });
         })
+    }
+}
+
+/// Shared builder state for recursive agent calls
+struct AgentBuilderState<P> 
+where 
+    P: DomainCompletionModel + Send + Clone + 'static 
+{
+    name: String,
+    provider: P,
+    temperature: f64,
+    max_tokens: Option<u64>,
+    memory_read_timeout: Option<u64>,
+    system_prompt: Option<String>,
+    tools: ZeroOneOrMany<ToolInfo>,
+    mcp_servers: Vec<McpServerConfig>,
+    memory: Option<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>>,
+    on_conversation_turn_handler: Option<Arc<dyn Fn(&CandleAgentConversation, &CandleAgentRoleAgent<P>) -> AsyncStream<CandleMessageChunk> + Send + Sync>>,
+}
+
+impl<P> Clone for AgentBuilderState<P> 
+where 
+    P: DomainCompletionModel + Send + Clone + 'static 
+{
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            provider: self.provider.clone(),
+            temperature: self.temperature,
+            max_tokens: self.max_tokens,
+            memory_read_timeout: self.memory_read_timeout,
+            system_prompt: self.system_prompt.clone(),
+            tools: self.tools.clone(),
+            mcp_servers: self.mcp_servers.clone(),
+            memory: self.memory.clone(),
+            on_conversation_turn_handler: self.on_conversation_turn_handler.clone(),
+        }
     }
 }
 
@@ -312,7 +583,6 @@ pub struct McpServerConfig {
 }
 
 /// First builder - no provider yet
-#[derive(Clone)]
 struct CandleAgentRoleBuilderImpl {
     name: String,
     temperature: f64,
@@ -322,6 +592,7 @@ struct CandleAgentRoleBuilderImpl {
     tools: ZeroOneOrMany<ToolInfo>,
     mcp_servers: Vec<McpServerConfig>,
     memory: Option<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>>,
+    on_conversation_turn_handler: Option<Box<dyn Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> AsyncStream<CandleMessageChunk> + Send + Sync>>,
 }
 
 impl std::fmt::Debug for CandleAgentRoleBuilderImpl {
@@ -351,6 +622,7 @@ impl CandleAgentRoleBuilderImpl {
             tools: ZeroOneOrMany::none(),
             mcp_servers: Vec::new(),
             memory: None,
+            on_conversation_turn_handler: None,
         }
     }
 }
@@ -375,6 +647,7 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
             tools: self.tools,
             mcp_servers: self.mcp_servers,
             memory: self.memory,
+            on_conversation_turn_handler: self.on_conversation_turn_handler,
         }
     }
 
@@ -483,13 +756,14 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
     }
 
     /// Set conversation turn handler - EXACT syntax: .on_conversation_turn(|conversation, agent| { ... })
-    fn on_conversation_turn<F>(self, _handler: F) -> impl CandleAgentRoleBuilder
+    fn on_conversation_turn<F>(mut self, handler: F) -> impl CandleAgentRoleBuilder
     where
         F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> AsyncStream<CandleMessageChunk>
             + Send
             + Sync
             + 'static,
     {
+        self.on_conversation_turn_handler = Some(Box::new(handler));
         self
     }
 
@@ -586,6 +860,7 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
             tools: self.tools,
             mcp_servers: self.mcp_servers,
             memory: self.memory,
+            on_conversation_turn_handler: None,
         }
     }
 
@@ -602,7 +877,7 @@ pub struct AgentDebugInfo {
 }
 
 /// Placeholder agent for no-provider case
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct NoProviderAgent {
     _inner: CandleAgentRoleBuilderImpl,
 }
@@ -659,6 +934,7 @@ pub struct CandleAgentBuilderImpl<P> {
     tools: ZeroOneOrMany<ToolInfo>,
     mcp_servers: Vec<McpServerConfig>,
     memory: Option<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>>,
+    on_conversation_turn_handler: Option<Box<dyn Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> AsyncStream<CandleMessageChunk> + Send + Sync>>,
 }
 
 impl<P: std::fmt::Debug> std::fmt::Debug for CandleAgentBuilderImpl<P> {
@@ -700,6 +976,7 @@ where
             tools: self.tools,
             mcp_servers: self.mcp_servers,
             memory: self.memory,
+            on_conversation_turn_handler: self.on_conversation_turn_handler,
         }
     }
 
@@ -794,13 +1071,14 @@ where
         self
     }
 
-    fn on_conversation_turn<F>(self, _handler: F) -> impl CandleAgentRoleBuilder
+    fn on_conversation_turn<F>(mut self, handler: F) -> impl CandleAgentRoleBuilder
     where
         F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> AsyncStream<CandleMessageChunk>
             + Send
             + Sync
             + 'static,
     {
+        self.on_conversation_turn_handler = Some(Box::new(handler));
         self
     }
 
@@ -879,6 +1157,7 @@ where
             tools: self.tools,
             mcp_servers: self.mcp_servers,
             memory: self.memory,
+            on_conversation_turn_handler: None,
         }
     }
 
@@ -901,8 +1180,9 @@ where
         let _memory_read_timeout = self.memory_read_timeout;
         let system_prompt = self.system_prompt.clone();
         let tools = self.tools;
-        let mcp_servers = self.mcp_servers;
+        let _mcp_servers = self.mcp_servers;
         let memory = self.memory;
+        let on_conversation_turn_handler = self.on_conversation_turn_handler;
 
         Ok(AsyncStream::with_channel(move |sender| {
             // Create initial empty conversation for handler to inspect
@@ -931,14 +1211,72 @@ where
                         let _conversation_with_input =
                             CandleAgentConversation::with_user_input(&user_message);
 
-                        // Initialize tool router if tools are provided or MCP servers are configured
-                        let tool_router = if !tools.is_empty() || !mcp_servers.is_empty() {
+                        // Initialize tool router - ALWAYS create with default reasoner plugin
+                        let tool_router = {
                             let Some(runtime) = crate::runtime::shared_runtime() else {
                                 let error_chunk = CandleMessageChunk::Error("Failed to access shared runtime".to_string());
                                 ystream::emit!(stream_sender, error_chunk);
                                 return;
                             };
-                            let mut router = SweetMcpRouter::new();
+                            
+                            // Create default reasoner plugin configuration
+                            let reasoner_schema = crate::domain::agent::role::convert_serde_to_sweet_json(serde_json::json!({
+                                "type": "object",
+                                "properties": {
+                                    "thought": {
+                                        "type": "string",
+                                        "description": "Current reasoning step"
+                                    },
+                                    "thoughtNumber": {
+                                        "type": "integer",
+                                        "description": "Current step number",
+                                        "minimum": 1
+                                    },
+                                    "totalThoughts": {
+                                        "type": "integer",
+                                        "description": "Total expected steps",
+                                        "minimum": 1
+                                    },
+                                    "nextThoughtNeeded": {
+                                        "type": "boolean",
+                                        "description": "Whether another step is needed"
+                                    },
+                                    "parentId": {
+                                        "type": ["string", "null"],
+                                        "description": "Optional parent thought ID for branching"
+                                    },
+                                    "strategyType": {
+                                        "type": ["string", "null"],
+                                        "enum": ["beam_search", "mcts", "mcts_002_alpha", "mcts_002alt_alpha", null],
+                                        "description": "Reasoning strategy to use"
+                                    },
+                                    "beamWidth": {
+                                        "type": ["integer", "null"],
+                                        "description": "Number of top paths to maintain",
+                                        "minimum": 1,
+                                        "maximum": 10
+                                    },
+                                    "numSimulations": {
+                                        "type": ["integer", "null"],
+                                        "description": "Number of MCTS simulations",
+                                        "minimum": 1,
+                                        "maximum": 150
+                                    }
+                                },
+                                "required": ["thought", "thoughtNumber", "totalThoughts", "nextThoughtNeeded"]
+                            }));
+                            
+                            let default_plugin_config = crate::domain::tool::router::PluginConfig {
+                                tool_name: "mcp-reasoner".to_string(),
+                                wasm_path: "packages/sweetmcp/plugins/reasoner/target/wasm32-unknown-unknown/release/sweetmcp_plugin_reasoner.wasm".to_string(),
+                                description: "Advanced reasoning tool with Beam Search and MCTS strategies".to_string(),
+                                input_schema: reasoner_schema,
+                            };
+                            
+                            // Create router with default reasoner plugin
+                            let plugin_configs = vec![default_plugin_config];
+                            let mut router = SweetMcpRouter::with_configs(plugin_configs, None);
+                            
                             match runtime.block_on(router.initialize()) {
                                 Ok(()) => Some(router),
                                 Err(e) => {
@@ -947,8 +1285,6 @@ where
                                     return;
                                 }
                             }
-                        } else {
-                            None
                         };
 
                         // Memory context injection
@@ -1138,6 +1474,38 @@ where
                                         );
                                     }
                                 });
+                            }
+                        }
+
+                        // Invoke on_conversation_turn handler if configured
+                        if let Some(handler) = on_conversation_turn_handler {
+                            // Create conversation with current messages
+                            let mut conversation = CandleAgentConversation::new();
+                            conversation.add_message(user_message.clone(), CandleMessageRole::User);
+                            conversation.add_message(assistant_response.clone(), CandleMessageRole::Assistant);
+
+                            // Create builder state for recursive agent
+                            let builder_state = Arc::new(AgentBuilderState {
+                                name: String::from("agent"),
+                                provider: provider.clone(),
+                                temperature,
+                                max_tokens: Some(max_tokens),
+                                memory_read_timeout: _memory_read_timeout,
+                                system_prompt: system_prompt.clone(),
+                                tools: tools.clone(),
+                                mcp_servers: _mcp_servers.clone(),
+                                memory: memory.clone(),
+                                on_conversation_turn_handler: Some(Arc::new(handler) as Arc<_>),
+                            });
+
+                            // Create agent with full state
+                            let agent = CandleAgentRoleAgent { state: builder_state };
+
+                            // Call handler and forward its stream
+                            let handler_stream = handler(&conversation, &agent);
+                            let handler_chunks = handler_stream.collect();
+                            for chunk in handler_chunks {
+                                ystream::emit!(stream_sender, chunk);
                             }
                         }
                     });
