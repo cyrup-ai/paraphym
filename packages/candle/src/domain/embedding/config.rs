@@ -110,12 +110,16 @@ impl EmbeddingConfig {
     /// let config = EmbeddingConfig::new()
     ///     .with_model("stella")
     ///     .with_validated_dimension(1024, "stella")?; // Valid: Stella supports 1024D
-    /// 
+    ///
     /// let invalid_config = EmbeddingConfig::new()
     ///     .with_model("bert")
     ///     .with_validated_dimension(512, "bert"); // Error: BERT only supports 384D
     /// ```
-    pub fn with_validated_dimension(mut self, dimensions: usize, model_name: &str) -> crate::memory::utils::error::Result<Self> {
+    pub fn with_validated_dimension(
+        mut self,
+        dimensions: usize,
+        model_name: &str,
+    ) -> crate::memory::utils::error::Result<Self> {
         Self::validate_dimension_for_model(dimensions, model_name)?;
         self.dimensions = Some(dimensions);
         Ok(self)
@@ -125,11 +129,14 @@ impl EmbeddingConfig {
     ///
     /// Internal validation method that checks if the requested dimension is supported
     /// by the specified model using the same logic as the factory validation.
-    fn validate_dimension_for_model(dimension: usize, model_name: &str) -> crate::memory::utils::error::Result<()> {
+    fn validate_dimension_for_model(
+        dimension: usize,
+        model_name: &str,
+    ) -> crate::memory::utils::error::Result<()> {
         use crate::memory::utils::error::Error as MemoryError;
-        
+
         let normalized_name = Self::normalize_model_name(model_name);
-        
+
         match normalized_name {
             "bert" | "sentence-transformers" => {
                 if dimension != 384 {
@@ -138,14 +145,14 @@ impl EmbeddingConfig {
                          BERT uses a fixed architecture that produces exactly 384-dimensional embeddings."
                     )));
                 }
-            },
-            "stella" => {
-                match dimension {
-                    256 | 768 | 1024 | 2048 | 4096 | 6144 | 8192 => {},
-                    _ => return Err(MemoryError::Config(format!(
+            }
+            "stella" => match dimension {
+                256 | 768 | 1024 | 2048 | 4096 | 6144 | 8192 => {}
+                _ => {
+                    return Err(MemoryError::Config(format!(
                         "Stella natively supports: 256, 768, 1024, 2048, 4096, 6144, 8192 dimensions. Requested: {dimension}. \
                          These are the actual learned projection dimensions available in the MRL framework."
-                    ))),
+                    )));
                 }
             },
             "gte-qwen" | "gte-qwen2" => {
@@ -155,7 +162,7 @@ impl EmbeddingConfig {
                          This model has a fixed architecture optimized for 1536-dimensional embeddings."
                     )));
                 }
-            },
+            }
             "jina-bert" | "jina" => {
                 if dimension != 768 {
                     return Err(MemoryError::Config(format!(
@@ -163,7 +170,7 @@ impl EmbeddingConfig {
                          This model uses a fixed BERT-based architecture with 768-dimensional output."
                     )));
                 }
-            },
+            }
             "nvembed" | "nv-embed-v2" | "nvidia/nv-embed-v2" => {
                 if dimension != 4096 {
                     return Err(MemoryError::Config(format!(
@@ -171,7 +178,7 @@ impl EmbeddingConfig {
                          This model uses a large transformer architecture optimized for 4096-dimensional embeddings."
                     )));
                 }
-            },
+            }
             "clip-vision" | "clip" => {
                 if dimension != 512 && dimension != 768 {
                     return Err(MemoryError::Config(format!(
@@ -179,14 +186,14 @@ impl EmbeddingConfig {
                          These correspond to the two available CLIP Vision architectures."
                     )));
                 }
-            },
+            }
             _ => {
                 return Err(MemoryError::Config(format!(
                     "Unknown model '{model_name}' for dimension validation. Supported models: bert, stella, gte-qwen, jina-bert, nvembed, clip-vision"
                 )));
             }
         }
-        
+
         Ok(())
     }
 
@@ -196,22 +203,33 @@ impl EmbeddingConfig {
         match lower.as_str() {
             // BERT variants
             "bert" | "sentence-transformers" | "all-minilm-l6-v2" => "bert",
-            
-            // Stella variants  
+
+            // Stella variants
             "stella" | "stella_en_1.5b_v5" | "dunzhang/stella_en_1.5b_v5" => "stella",
-            
+
             // GTE-Qwen variants
-            "gte-qwen" | "gte-qwen2" | "gte-qwen2-1.5b-instruct" | "alibaba-nlp/gte-qwen2-1.5b-instruct" => "gte-qwen",
-            
+            "gte-qwen"
+            | "gte-qwen2"
+            | "gte-qwen2-1.5b-instruct"
+            | "alibaba-nlp/gte-qwen2-1.5b-instruct" => "gte-qwen",
+
             // Jina-BERT variants
-            "jina-bert" | "jina" | "jina-embeddings-v2-base-en" | "jinaai/jina-embeddings-v2-base-en" => "jina-bert",
-            
+            "jina-bert"
+            | "jina"
+            | "jina-embeddings-v2-base-en"
+            | "jinaai/jina-embeddings-v2-base-en" => "jina-bert",
+
             // NVEmbed variants
             "nvembed" | "nv-embed-v2" | "nvidia/nv-embed-v2" => "nvembed",
-            
+
             // CLIP Vision variants
-            "clip-vision" | "clip" | "clip-vit-base-patch32" | "clip-vit-large-patch14" | "openai/clip-vit-base-patch32" | "openai/clip-vit-large-patch14-336" => "clip-vision",
-            
+            "clip-vision"
+            | "clip"
+            | "clip-vit-base-patch32"
+            | "clip-vit-large-patch14"
+            | "openai/clip-vit-base-patch32"
+            | "openai/clip-vit-large-patch14-336" => "clip-vision",
+
             // Default fallback - return generic "unknown" for unrecognized models
             _ => "unknown",
         }
@@ -264,9 +282,17 @@ impl EmbeddingConfig {
     ///
     /// Returns error if configuration is invalid for the embedding model
     pub fn validate(&self) -> Result<()> {
-        // Import factory validation here to avoid circular dependency
-        use crate::memory::vector::embedding_factory::EmbeddingModelFactory;
-        EmbeddingModelFactory::validate_config(self)
+        // Validate dimensions if specified
+        self.validate_dimensions()?;
+
+        // Validate model name exists
+        if let Some(ref model) = self.model {
+            if model.trim().is_empty() {
+                return Err(crate::memory::utils::error::Error::Config("Model name cannot be empty".to_string()));
+            }
+        }
+
+        Ok(())
     }
 
     /// Validate that the dimensions are supported by the configured model
@@ -295,7 +321,7 @@ impl EmbeddingConfig {
     pub fn get_supported_dimensions(&self) -> Vec<usize> {
         let model_name = self.model.as_deref().unwrap_or("stella");
         let normalized_name = Self::normalize_model_name(model_name);
-        
+
         match normalized_name {
             "bert" => vec![384],
             "stella" => vec![256, 768, 1024, 2048, 4096, 6144, 8192],

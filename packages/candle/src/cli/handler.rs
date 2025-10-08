@@ -50,7 +50,6 @@ pub enum CommandResult {
 /// Input handler for CLI
 #[derive(Clone)]
 pub struct InputHandler {
-    completer: CommandCompleter,
     config: CliConfig,
 }
 
@@ -58,7 +57,6 @@ impl InputHandler {
     /// Create new input handler
     pub fn new(config: CliConfig) -> Self {
         Self {
-            completer: CommandCompleter::new(),
             config,
         }
     }
@@ -217,9 +215,9 @@ Chat Commands:
         let prompt = args.join(" ");
         self.config.default_system_prompt = Some(prompt.clone());
 
-        InputHandlerResult::Command(CommandResult::ConfigChanged(format!(
-            "System prompt updated"
-        )))
+        InputHandlerResult::Command(CommandResult::ConfigChanged(
+            "System prompt updated".to_string()
+        ))
     }
 
     /// Handle /temperature command

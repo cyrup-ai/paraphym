@@ -1,6 +1,6 @@
 use progresshub::{ProgressHub, OneOrMany as PHOneOrMany, ZeroOneOrMany};
 use std::path::PathBuf;
-use async_trait::async_trait;
+use ystream::{AsyncTask, spawn_task};
 use super::{ModelDownloadProvider, ModelDownloadResult};
 
 pub struct ProgressHubDownloadProvider {
@@ -27,23 +27,59 @@ impl ProgressHubDownloadProvider {
     }
 }
 
-#[async_trait]
 impl ModelDownloadProvider for ProgressHubDownloadProvider {
-    async fn download_model(
+    fn download_model(
         &self,
         model_id: &str,
         _files: Vec<String>, // ProgressHub handles file selection internally
         quantization: Option<String>,
+    ) -> AsyncTask<Result<ModelDownloadResult, Box<dyn std::error::Error + Send + Sync>>> {
+        let force_download = self.force_download;
+        let show_cli_progress = self.show_cli_progress;
+        let model_id = model_id.to_string();
+        
+        spawn_task(move || {
+            crate::runtime::shared_runtime()
+                .expect("Tokio runtime not initialized")
+                .block_on(Self::download_model_impl(&model_id, force_download, show_cli_progress, quantization))
+        })
+    }
+
+    fn is_cached(&self, _model_id: &str, _files: &[String]) -> AsyncTask<bool> {
+        spawn_task(move || {
+            // ProgressHub handles caching internally
+            // Conservative approach - let progresshub decide
+            false
+        })
+    }
+
+    fn cache_dir(&self) -> PathBuf {
+        // Get from HF_HOME or default
+        std::env::var("HF_HOME")
+            .ok()
+            .map_or_else(|| {
+                dirs::home_dir()
+                    .map_or_else(|| PathBuf::from(".cache/huggingface"), |h| h.join(".cache/huggingface"))
+            }, PathBuf::from)
+    }
+}
+
+impl ProgressHubDownloadProvider {
+    async fn download_model_impl(
+        model_id: &str,
+        force_download: bool,
+        show_cli_progress: bool,
+        quantization: Option<String>,
     ) -> Result<ModelDownloadResult, Box<dyn std::error::Error + Send + Sync>> {
         let mut builder = ProgressHub::builder()
             .model(model_id)
-            .force(self.force_download);
+            .force(force_download);
 
         if let Some(quant) = quantization {
             builder = builder.quantization(quant);
         }
 
-        let result = if self.show_cli_progress {
+        let result = if show_cli_progress {
             let results = builder.with_cli_progress().download().await?;
             // Convert OneOrMany to single result
             match results {
@@ -101,21 +137,5 @@ impl ModelDownloadProvider for ProgressHubDownloadProvider {
             total_bytes: result.total_downloaded_bytes,
             cache_dir,
         })
-    }
-
-    async fn is_cached(&self, _model_id: &str, _files: &[String]) -> bool {
-        // ProgressHub handles caching internally
-        // Could potentially check cache directory directly
-        false // Conservative approach - let progresshub decide
-    }
-
-    fn cache_dir(&self) -> PathBuf {
-        // Get from HF_HOME or default
-        std::env::var("HF_HOME")
-            .ok()
-            .map_or_else(|| {
-                dirs::home_dir()
-                    .map_or_else(|| PathBuf::from(".cache/huggingface"), |h| h.join(".cache/huggingface"))
-            }, PathBuf::from)
     }
 }

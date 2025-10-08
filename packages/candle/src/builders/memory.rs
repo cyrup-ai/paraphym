@@ -3,23 +3,22 @@
 //! Trait-based memory builders following paraphym architecture patterns.
 //! All builders relocated from domain crate for proper architectural separation.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::SystemTime;
-use std::collections::HashMap;
 
 use crate::domain::{
-    ZeroOneOrMany, 
+    ZeroOneOrMany,
     memory::{
-        CandleMemoryNode, CandleMemoryTypeEnum, CandleMemoryContent, CandleBaseMemory, CandleMemoryMetadata,
-        CandleMemoryNodeMetadata, CandleAlignedEmbedding, CandleMemoryResult, CandleMemoryError,
-        CandleMemorySystemConfig, CandleDatabaseConfig, CandleVectorStoreConfig, CandleLLMConfig,
-        CandleCompatibilityMode, CandleVectorStoreType, CandleEmbeddingConfig, CandleLLMProvider,
-        DatabaseType, PoolConfig, DistanceMetric, SimdConfig, PerformanceConfig,
-        IndexConfig, IndexType,
+        CandleAlignedEmbedding, CandleBaseMemory, CandleCompatibilityMode, CandleDatabaseConfig,
+        CandleEmbeddingConfig, CandleMemoryContent, CandleMemoryError, CandleMemoryMetadata,
+        CandleMemoryNode, CandleMemoryNodeMetadata, CandleMemoryResult, CandleMemorySystemConfig,
+        CandleMemoryTypeEnum, CandleVectorStoreConfig, CandleVectorStoreType, DatabaseType,
+        DistanceMetric, IndexConfig, IndexType, PerformanceConfig, PoolConfig, SimdConfig,
     },
 };
-use uuid::Uuid;
 use serde_json::Value;
+use uuid::Uuid;
 
 /// Memory node builder trait - main entry point for fluent memory node configuration
 pub trait MemoryNodeBuilder {
@@ -34,7 +33,8 @@ pub trait MemoryNodeBuilder {
     fn with_last_accessed(self, time: SystemTime) -> impl MemoryNodeBuilder;
     fn with_keyword(self, keyword: impl Into<Arc<str>>) -> impl MemoryNodeBuilder;
     fn with_tag(self, tag: impl Into<Arc<str>>) -> impl MemoryNodeBuilder;
-    fn with_custom_metadata(self, key: impl Into<Arc<str>>, value: Value) -> impl MemoryNodeBuilder;
+    fn with_custom_metadata(self, key: impl Into<Arc<str>>, value: Value)
+    -> impl MemoryNodeBuilder;
     fn build(self) -> MemoryResult<MemoryNode>;
 }
 
@@ -42,7 +42,6 @@ pub trait MemoryNodeBuilder {
 pub trait MemorySystemBuilder {
     fn with_database_config(self, config: DatabaseConfig) -> impl MemorySystemBuilder;
     fn with_vector_config(self, config: VectorStoreConfig) -> impl MemorySystemBuilder;
-    fn with_llm_config(self, config: LLMConfig) -> impl MemorySystemBuilder;
     fn with_cognitive(self, enabled: bool) -> impl MemorySystemBuilder;
     fn with_compatibility_mode(self, mode: CompatibilityMode) -> impl MemorySystemBuilder;
     fn build(self) -> MemoryResult<MemorySystemConfig>;
@@ -130,7 +129,6 @@ struct MemoryNodeBuilderImpl {
 struct MemorySystemBuilderImpl {
     database_config: ZeroOneOrMany<DatabaseConfig>,
     vector_config: ZeroOneOrMany<VectorStoreConfig>,
-    llm_config: ZeroOneOrMany<LLMConfig>,
     enable_cognitive: ZeroOneOrMany<bool>,
     compatibility_mode: ZeroOneOrMany<CompatibilityMode>,
 }
@@ -229,7 +227,11 @@ impl MemoryNodeBuilder for MemoryNodeBuilderImpl {
     }
 
     #[inline]
-    fn with_custom_metadata(self, key: impl Into<Arc<str>>, value: Value) -> impl MemoryNodeBuilder {
+    fn with_custom_metadata(
+        self,
+        key: impl Into<Arc<str>>,
+        value: Value,
+    ) -> impl MemoryNodeBuilder {
         MemoryNodeBuilderImpl {
             custom_metadata: self.custom_metadata.with_pushed((key.into(), value)),
             ..self
@@ -239,27 +241,19 @@ impl MemoryNodeBuilder for MemoryNodeBuilderImpl {
     #[inline]
     fn build(self) -> MemoryResult<MemoryNode> {
         // Extract required fields with proper error handling
-        let memory_type = self.memory_type
+        let memory_type = self
+            .memory_type
             .into_iter()
             .next()
             .ok_or_else(|| MemoryError::validation("Memory type is required"))?;
 
-        let content = self.content
-            .into_iter()
-            .next()
-            .unwrap_or_default();
+        let content = self.content.into_iter().next().unwrap_or_default();
 
-        let id = self.id
-            .into_iter()
-            .next()
-            .unwrap_or_else(Uuid::new_v4);
+        let id = self.id.into_iter().next().unwrap_or_else(Uuid::new_v4);
 
         // Create base memory node with performance optimization
         let now = SystemTime::now();
-        let creation_time = self.creation_time
-            .into_iter()
-            .next()
-            .unwrap_or(now);
+        let creation_time = self.creation_time.into_iter().next().unwrap_or(now);
 
         let mut node = MemoryNode::with_id(id, memory_type, content);
 
@@ -315,14 +309,6 @@ impl MemorySystemBuilder for MemorySystemBuilderImpl {
     }
 
     #[inline]
-    fn with_llm_config(self, config: LLMConfig) -> impl MemorySystemBuilder {
-        MemorySystemBuilderImpl {
-            llm_config: self.llm_config.with_pushed(config),
-            ..self
-        }
-    }
-
-    #[inline]
     fn with_cognitive(self, enabled: bool) -> impl MemorySystemBuilder {
         MemorySystemBuilderImpl {
             enable_cognitive: self.enable_cognitive.with_pushed(enabled),
@@ -341,23 +327,11 @@ impl MemorySystemBuilder for MemorySystemBuilderImpl {
     #[inline]
     fn build(self) -> MemoryResult<MemorySystemConfig> {
         let config = MemorySystemConfig {
-            database: self.database_config
-                .into_iter()
-                .next()
-                .unwrap_or_default(),
-            vector_store: self.vector_config
-                .into_iter()
-                .next()
-                .unwrap_or_default(),
-            llm: self.llm_config
-                .into_iter()
-                .next()
-                .unwrap_or_default(),
-            enable_cognitive: self.enable_cognitive
-                .into_iter()
-                .next()
-                .unwrap_or(true),
-            compatibility_mode: self.compatibility_mode
+            database: self.database_config.into_iter().next().unwrap_or_default(),
+            vector_store: self.vector_config.into_iter().next().unwrap_or_default(),
+            enable_cognitive: self.enable_cognitive.into_iter().next().unwrap_or(true),
+            compatibility_mode: self
+                .compatibility_mode
                 .into_iter()
                 .next()
                 .unwrap_or_default(),
@@ -466,13 +440,9 @@ impl AdvancedMemorySystemBuilder {
         .with_distance_metric(DistanceMetric::Cosine)
         .with_performance_config(PerformanceConfig::optimized(VectorStoreType::FAISS));
 
-        let llm_config = LLMConfig::new(LLMProvider::OpenAI, "gpt-4")?
-            .with_streaming(true);
-
         Ok(Memory::system()
             .with_database_config(database_config)
             .with_vector_config(vector_config)
-            .with_llm_config(llm_config)
             .with_cognitive(true)
             .with_compatibility_mode(CompatibilityMode::Hybrid))
     }
@@ -480,25 +450,15 @@ impl AdvancedMemorySystemBuilder {
     /// Create development memory system - EXACT syntax: AdvancedMemorySystemBuilder::development()
     #[inline]
     pub fn development() -> MemoryResult<impl MemorySystemBuilder> {
-        let database_config = DatabaseConfig::new(
-            DatabaseType::Memory,
-            "memory",
-            "development",
-            "memory_dev",
-        )?;
+        let database_config =
+            DatabaseConfig::new(DatabaseType::Memory, "memory", "development", "memory_dev")?;
 
-        let vector_config = VectorStoreConfig::new(
-            VectorStoreType::Memory,
-            EmbeddingConfig::default(),
-            768,
-        )?;
-
-        let llm_config = LLMConfig::new(LLMProvider::OpenAI, "gpt-3.5-turbo")?;
+        let vector_config =
+            VectorStoreConfig::new(VectorStoreType::Memory, EmbeddingConfig::default(), 768)?;
 
         Ok(Memory::system()
             .with_database_config(database_config)
             .with_vector_config(vector_config)
-            .with_llm_config(llm_config)
             .with_cognitive(false)
             .with_compatibility_mode(CompatibilityMode::Flexible))
     }
@@ -506,27 +466,17 @@ impl AdvancedMemorySystemBuilder {
     /// Create testing memory system - EXACT syntax: AdvancedMemorySystemBuilder::testing()
     #[inline]
     pub fn testing() -> MemoryResult<impl MemorySystemBuilder> {
-        let database_config = DatabaseConfig::new(
-            DatabaseType::Memory,
-            "memory",
-            "test",
-            "memory_test",
-        )?
-        .with_pool_config(PoolConfig::minimal());
+        let database_config =
+            DatabaseConfig::new(DatabaseType::Memory, "memory", "test", "memory_test")?
+                .with_pool_config(PoolConfig::minimal());
 
-        let vector_config = VectorStoreConfig::new(
-            VectorStoreType::Memory,
-            EmbeddingConfig::default(),
-            384,
-        )?
-        .with_performance_config(PerformanceConfig::minimal());
-
-        let llm_config = LLMConfig::new(LLMProvider::OpenAI, "gpt-3.5-turbo")?;
+        let vector_config =
+            VectorStoreConfig::new(VectorStoreType::Memory, EmbeddingConfig::default(), 384)?
+                .with_performance_config(PerformanceConfig::minimal());
 
         Ok(Memory::system()
             .with_database_config(database_config)
             .with_vector_config(vector_config)
-            .with_llm_config(llm_config)
             .with_cognitive(false)
             .with_compatibility_mode(CompatibilityMode::Strict))
     }

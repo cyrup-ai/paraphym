@@ -3,35 +3,44 @@
 //! This module provides a synchronous wrapper around ClipVisionProvider to enable
 //! integration with the EmbeddingModel trait system and EmbeddingModelFactory.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use candle_core::Device;
 
 use crate::core::device_util::detect_best_device;
 use crate::memory::utils::error::{Error as MemoryError, Result};
-use crate::memory::vector::embedding_model::EmbeddingModel;
-use crate::capability::vision::ClipVisionProvider;
+use super::ClipVisionModel;
+use crate::domain::model::traits::CandleModel;
+use crate::domain::model::CandleModelInfo;
 
-/// Synchronous wrapper for ClipVisionProvider implementing EmbeddingModel trait
+/// Synchronous wrapper for ClipVisionModel implementing EmbeddingModel trait
 ///
-/// This adapter bridges the async ClipVisionProvider with the sync EmbeddingModel trait
+/// This adapter bridges the async ClipVisionModel with the sync EmbeddingModel trait
 /// by using tokio runtime to execute async operations synchronously.
-pub struct ClipVisionEmbeddingProvider {
-    provider: Arc<ClipVisionProvider>,
+pub struct ClipVisionEmbeddingModel {
+    provider: Arc<ClipVisionModel>,
     dimension: usize,
 }
 
-impl std::fmt::Debug for ClipVisionEmbeddingProvider {
+impl std::fmt::Debug for ClipVisionEmbeddingModel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ClipVisionEmbeddingProvider")
-            .field("provider", &"ClipVisionProvider { .. }")
+        f.debug_struct("ClipVisionEmbeddingModel")
+            .field("provider", &"ClipVisionModel { .. }")
             .field("dimension", &self.dimension)
             .finish()
     }
 }
 
-impl ClipVisionEmbeddingProvider {
+impl Default for ClipVisionEmbeddingModel {
+    fn default() -> Self {
+        crate::runtime::shared_runtime()
+            .unwrap_or_else(|| panic!("Shared runtime unavailable"))
+            .block_on(Self::new())
+            .unwrap_or_else(|e| panic!("Failed to initialize ClipVisionEmbeddingModel: {}", e))
+    }
+}
+
+impl ClipVisionEmbeddingModel {
     /// Create new CLIP vision embedding provider with ViT-Base configuration (512D)
     pub async fn new() -> Result<Self> {
         Self::with_dimension(512).await
@@ -54,18 +63,18 @@ impl ClipVisionEmbeddingProvider {
             }
         };
 
-        // Create ClipVisionProvider
+        // Create ClipVisionModel
         let device = detect_best_device()
             .unwrap_or_else(|e| {
                 log::warn!("Device detection failed: {}. Using CPU.", e);
                 Device::Cpu
             });
         let provider = if dimension == 512 {
-            ClipVisionProvider::from_pretrained(model_path, device)
-                .map_err(|e| MemoryError::ModelError(format!("Failed to create CLIP provider: {}", e)))?
+            ClipVisionModel::from_pretrained(model_path, device)
+                .map_err(|e| MemoryError::ModelError(format!("Failed to create CLIP model: {}", e)))?
         } else {
-            ClipVisionProvider::from_pretrained_large(model_path, device)
-                .map_err(|e| MemoryError::ModelError(format!("Failed to create CLIP Large provider: {}", e)))?
+            ClipVisionModel::from_pretrained_large(model_path, device)
+                .map_err(|e| MemoryError::ModelError(format!("Failed to create CLIP Large model: {}", e)))?
         };
 
         Ok(Self {
@@ -74,8 +83,17 @@ impl ClipVisionEmbeddingProvider {
         })
     }
 
-    /// Create from existing ClipVisionProvider
-    pub fn from_provider(provider: ClipVisionProvider, dimension: usize) -> Self {
+    /// Create from existing ClipVisionModel
+    pub fn from_model(model: ClipVisionModel, dimension: usize) -> Self {
+        Self {
+            provider: Arc::new(model),
+            dimension,
+        }
+    }
+
+    /// Deprecated: Use from_model instead
+    #[deprecated(since = "0.1.0", note = "Use from_model instead")]
+    pub fn from_provider(provider: ClipVisionModel, dimension: usize) -> Self {
         Self {
             provider: Arc::new(provider),
             dimension,
@@ -164,64 +182,71 @@ impl ClipVisionEmbeddingProvider {
     }
 }
 
-impl EmbeddingModel for ClipVisionEmbeddingProvider {
-    /// CLIP Vision only supports image encoding, not text
-    ///
-    /// This method returns an error to indicate that text embedding is not supported.
-    /// Use `embed_image()` instead for encoding images.
-    fn embed(&self, _text: &str, _task: Option<String>) -> Result<Vec<f32>> {
-        Err(MemoryError::InvalidInput(
-            "CLIP Vision only supports image encoding, not text. Use embed_image() instead.".to_string()
-        ))
-    }
 
-    /// CLIP Vision does not support batch text embedding
-    ///
-    /// This method returns an error. Use `batch_embed_images()` for batch image encoding.
-    fn batch_embed(&self, _texts: &[String], _task: Option<String>) -> Result<Vec<Vec<f32>>> {
-        Err(MemoryError::InvalidInput(
-            "CLIP Vision only supports image encoding, not text. Use batch_embed_images() instead.".to_string()
-        ))
-    }
+// Static model info for CLIP Vision Embedding
+static CLIP_VISION_EMBEDDING_MODEL_INFO: CandleModelInfo = CandleModelInfo {
+    provider: crate::domain::model::CandleProvider::OpenAI,
+    name: "clip-vit-base-patch32",
+    registry_key: "openai/clip-vit-base-patch32",
+    max_input_tokens: None,
+    max_output_tokens: None,
+    input_price: None,
+    output_price: None,
+    supports_vision: true,
+    supports_function_calling: false,
+    supports_streaming: false,
+    supports_embeddings: true,
+    requires_max_tokens: false,
+    supports_thinking: false,
+    optimal_thinking_budget: None,
+    system_prompt_prefix: None,
+    real_name: None,
+    model_type: None,
+    model_id: "clip-vision-embedding",
+    quantization: "none",
+    patch: None,
+};
 
-    fn dimension(&self) -> usize {
+impl CandleModel for ClipVisionEmbeddingModel {
+    fn info(&self) -> &'static CandleModelInfo {
+        &CLIP_VISION_EMBEDDING_MODEL_INFO
+    }
+}
+
+impl crate::capability::traits::ImageEmbeddingCapable for ClipVisionEmbeddingModel {
+    fn embed_image(&self, image_path: &str) 
+        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> 
+    {
+        ClipVisionEmbeddingModel::embed_image(self, image_path)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+    }
+    
+    fn embed_image_url(&self, url: &str) 
+        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> 
+    {
+        ClipVisionEmbeddingModel::embed_image_url(self, url)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+    }
+    
+    fn embed_image_base64(&self, base64_data: &str) 
+        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> 
+    {
+        ClipVisionEmbeddingModel::embed_image_base64(self, base64_data)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+    }
+    
+    fn batch_embed_images(&self, image_paths: Vec<&str>) 
+        -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> 
+    {
+        ClipVisionEmbeddingModel::batch_embed_images(self, image_paths)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+    }
+    
+    fn embedding_dimension(&self) -> usize {
         self.dimension
     }
-
-    fn name(&self) -> &str {
-        "clip-vision"
-    }
-
+    
     fn supported_dimensions(&self) -> Vec<usize> {
-        vec![512, 768]  // ViT-Base-Patch32 (512) and ViT-Large-Patch14 (768)
-    }
-
-    fn config_info(&self) -> HashMap<String, String> {
-        let mut info = HashMap::new();
-        info.insert("name".to_string(), self.name().to_string());
-        info.insert("dimension".to_string(), self.dimension().to_string());
-        info.insert("type".to_string(), "vision".to_string());
-        info.insert(
-            "model".to_string(),
-            if self.dimension == 512 {
-                "openai/clip-vit-base-patch32".to_string()
-            } else {
-                "openai/clip-vit-large-patch14-336".to_string()
-            }
-        );
-        info
-    }
-
-    fn recommended_batch_size(&self) -> usize {
-        8  // Vision models are more memory-intensive
-    }
-
-    fn max_batch_size(&self) -> usize {
-        32  // Conservative limit for vision models
-    }
-
-    fn health_check(&self) -> Result<()> {
-        // Vision models don't need standard health check since they don't support text
-        Ok(())
+        vec![512, 768]
     }
 }

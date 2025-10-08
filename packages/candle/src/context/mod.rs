@@ -14,11 +14,9 @@ pub mod chunk;
 pub mod document;
 pub mod extraction;
 pub mod loader;
-pub mod provider;
 
 // Re-export all types for easy access
 pub use chunk::*;
 pub use document::*;
 pub use extraction::*;
 pub use loader::*;
-pub use provider::*;

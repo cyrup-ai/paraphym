@@ -7,7 +7,7 @@ use std::marker::PhantomData;
 
 use crate::domain::CandleModels as Models;
 use crate::domain::agent::CandleAgent as Agent;
-use crate::domain::completion::CandleCompletionModel as CompletionModel;
+use crate::capability::traits::TextToTextCapable;
 use crate::domain::extractor::{CandleExtractor as Extractor, CandleExtractorImpl as ExtractorImpl};
 use ystream::{AsyncTask, spawn_task as spawn_async};
 use serde::de::DeserializeOwned;

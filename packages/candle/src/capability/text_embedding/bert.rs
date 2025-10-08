@@ -4,16 +4,16 @@
 //! 384-dimensional embeddings with ProgressHub download and Candle inference.
 
 
-use std::collections::HashMap;
 use std::sync::Mutex;
 
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::bert::{BertModel, Config, DTYPE};
 use tokenizers::{Tokenizer, PaddingParams, TruncationParams};
-
 use crate::memory::utils::error::{Error as MemoryError, Result};
-use crate::memory::vector::embedding_model::EmbeddingModel;
+use crate::domain::model::traits::CandleModel;
+use crate::domain::model::CandleModelInfo;
+use std::num::NonZeroU32;
 
 /// Configuration for BERT embedding model
 #[derive(Debug, Clone)]
@@ -43,7 +43,7 @@ impl Default for CandleBertConfig {
 /// 
 /// Provides high-performance local embeddings using sentence-transformers/all-MiniLM-L6-v2
 /// with automatic model download via ProgressHub and zero-allocation inference patterns.
-pub struct CandleBertEmbeddingProvider {
+pub struct CandleBertEmbeddingModel {
     /// Model cache directory path
     model_path: String,
     /// Model configuration
@@ -56,9 +56,9 @@ pub struct CandleBertEmbeddingProvider {
     device: Device,
 }
 
-impl std::fmt::Debug for CandleBertEmbeddingProvider {
+impl std::fmt::Debug for CandleBertEmbeddingModel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CandleBertEmbeddingProvider")
+        f.debug_struct("CandleBertEmbeddingModel")
             .field("model_path", &self.model_path)
             .field("config", &self.config)
             .field("model", &"BertModel { .. }")
@@ -68,7 +68,16 @@ impl std::fmt::Debug for CandleBertEmbeddingProvider {
     }
 }
 
-impl CandleBertEmbeddingProvider {
+impl Default for CandleBertEmbeddingModel {
+    fn default() -> Self {
+        crate::runtime::shared_runtime()
+            .unwrap_or_else(|| panic!("Shared runtime unavailable"))
+            .block_on(Self::new())
+            .unwrap_or_else(|e| panic!("Failed to initialize CandleBertEmbeddingModel: {}", e))
+    }
+}
+
+impl CandleBertEmbeddingModel {
     /// Create new BERT embedding provider with automatic model download
     /// 
     /// Downloads sentence-transformers/all-MiniLM-L6-v2 via ProgressHub and loads
@@ -97,7 +106,8 @@ impl CandleBertEmbeddingProvider {
             "sentence-transformers/all-MiniLM-L6-v2",
             vec!["model.safetensors".to_string(), "tokenizer.json".to_string(), "config.json".to_string()],
             None,
-        ).await
+        ).collect()
+        .map_err(|e| MemoryError::ModelError(format!("Download task failed: {}", e)))?
         .map_err(|e| MemoryError::ModelError(format!("Model download failed: {}", e)))?;
         
         // Use result.cache_dir for model path
@@ -271,65 +281,74 @@ impl CandleBertEmbeddingProvider {
     }
 }
 
-impl EmbeddingModel for CandleBertEmbeddingProvider {
-    fn embed(&self, text: &str, task: Option<String>) -> Result<Vec<f32>> {
+
+// Static model info for BERT embedding
+static BERT_EMBEDDING_MODEL_INFO: CandleModelInfo = CandleModelInfo {
+    provider: crate::domain::model::CandleProvider::SentenceTransformers,
+    name: "all-MiniLM-L6-v2",
+    registry_key: "sentence-transformers/all-MiniLM-L6-v2",
+    max_input_tokens: NonZeroU32::new(512),
+    max_output_tokens: None,
+    input_price: None,
+    output_price: None,
+    supports_vision: false,
+    supports_function_calling: false,
+    supports_streaming: false,
+    supports_embeddings: true,
+    requires_max_tokens: false,
+    supports_thinking: false,
+    optimal_thinking_budget: None,
+    system_prompt_prefix: None,
+    real_name: None,
+    model_type: None,
+    model_id: "bert-minilm-l6-v2",
+    quantization: "none",
+    patch: None,
+};
+
+impl CandleModel for CandleBertEmbeddingModel {
+    fn info(&self) -> &'static CandleModelInfo {
+        &BERT_EMBEDDING_MODEL_INFO
+    }
+}
+
+impl crate::capability::traits::TextEmbeddingCapable for CandleBertEmbeddingModel {
+    fn embed(&self, text: &str, task: Option<String>) 
+        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> 
+    {
         self.validate_input(text)?;
         
-        // BERT doesn't use task-specific instructions, but parameter should be accepted
-        let _ = task; // Explicitly acknowledge parameter
-        let embeddings = self.forward_pass(&[text])?;
+        let _ = task; // BERT doesn't use task-specific instructions
+        let embeddings = self.forward_pass(&[text])
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
         embeddings.into_iter().next()
-            .ok_or_else(|| MemoryError::ModelError("No embeddings generated".to_string()))
+            .ok_or_else(|| "No embeddings generated".into())
     }
-
-    fn batch_embed(&self, texts: &[String], task: Option<String>) -> Result<Vec<Vec<f32>>> {
+    
+    fn batch_embed(&self, texts: &[String], task: Option<String>) 
+        -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> 
+    {
         self.validate_batch(texts)?;
         
-        // BERT doesn't use task-specific instructions, but parameter should be accepted
-        let _ = task; // Explicitly acknowledge parameter
+        let _ = task; // BERT doesn't use task-specific instructions
         let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
         self.forward_pass(&text_refs)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
-
-    fn dimension(&self) -> usize {
+    
+    fn embedding_dimension(&self) -> usize {
         self.config.dimension
     }
-
-    fn name(&self) -> &str {
-        "bert-embedding"
-    }
-
+    
     fn supported_dimensions(&self) -> Vec<usize> {
-        vec![384] // BERT all-MiniLM-L6-v2 produces 384-dimensional embeddings only
+        vec![384]
     }
-
-    fn config_info(&self) -> HashMap<String, String> {
-        let mut info = HashMap::new();
-        info.insert("name".to_string(), self.name().to_string());
-        info.insert("dimension".to_string(), self.dimension().to_string());
-        info.insert("model".to_string(), "sentence-transformers/all-MiniLM-L6-v2".to_string());
-        info.insert("max_length".to_string(), self.config.max_length.to_string());
-        info.insert("device".to_string(), format!("{:?}", self.device));
-        info
-    }
-
+    
     fn recommended_batch_size(&self) -> usize {
-        16 // Optimal for BERT inference
+        16
     }
-
+    
     fn max_batch_size(&self) -> usize {
-        128 // Maximum for memory efficiency
-    }
-
-    fn health_check(&self) -> Result<()> {
-        // Verify model is loaded and ready
-        let test_embedding = self.embed("test", None)?;
-        if test_embedding.len() != self.dimension() {
-            return Err(MemoryError::ModelError(
-                format!("Health check failed: expected {} dimensions, got {}", 
-                        self.dimension(), test_embedding.len())
-            ));
-        }
-        Ok(())
+        128
     }
 }

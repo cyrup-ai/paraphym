@@ -1,10 +1,8 @@
 //! Vision (Multimodal) Capability
 //!
-//! Providers that implement vision/multimodal capabilities.
+//! Providers that implement vision/multimodal capabilities (text generation from images).
 
-pub mod clip_vision;
 pub mod llava;
 
 // Re-exports for convenience
-pub use clip_vision::ClipVisionProvider;
-pub use llava::{LLaVAProvider, LLaVAProviderConfig};
+pub use llava::{LLaVAConfig, LLaVAModel};

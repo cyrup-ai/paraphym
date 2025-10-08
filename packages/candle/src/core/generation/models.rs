@@ -1,18 +1,18 @@
-//! Model integration and wrapper functionality  
+//! Model integration and wrapper functionality
 //!
 //! This module provides model wrappers and integration points for Candle models,
 //! consolidating duplicate CandleLlamaModel definitions and providing a unified
 //! interface for model operations.
 
-use std::sync::Arc;
-use std::path::{Path, PathBuf};
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
+use candle_core::quantized::gguf_file;
 use candle_core::{Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::llama::{Cache, Llama};
 use candle_transformers::models::quantized_llama;
-use candle_core::quantized::gguf_file;
 
 use super::types::CandleResult;
 use crate::core::ModelConfig as CandleConfig;
@@ -85,15 +85,17 @@ impl CandleLlamaModel {
         config: Arc<CandleConfig>,
     ) -> CandleResult<Self> {
         let model_path = model_path.as_ref();
-        
+
         // Extract the LlamaConfig from ModelConfig's architecture
         let llama_config = match &config.architecture {
             ModelArchitecture::Llama(llama_cfg) => llama_cfg,
-            _ => return Err(CandleModelError::InvalidConfiguration(
-                "Expected Llama architecture in config".into()
-            )),
+            _ => {
+                return Err(CandleModelError::InvalidConfiguration(
+                    "Expected Llama architecture in config".into(),
+                ));
+            }
         };
-        
+
         // Determine if single or multi-file model
         let safetensors_files = if model_path.is_file() {
             // Single file provided directly
@@ -110,38 +112,41 @@ impl CandleLlamaModel {
                     vec![single_file]
                 } else {
                     return Err(CandleModelError::InvalidConfiguration(
-                        format!("No model files found in {}", model_path.display()).into()
+                        format!("No model files found in {}", model_path.display()).into(),
                     ));
                 }
             }
         } else {
             return Err(CandleModelError::InvalidConfiguration(
-                format!("Invalid model path: {}", model_path.display()).into()
+                format!("Invalid model path: {}", model_path.display()).into(),
             ));
         };
-        
+
         // Load model weights using memory-mapped safetensors
         let vb = unsafe {
-            VarBuilder::from_mmaped_safetensors(&safetensors_files, config.dtype, &device)
-                .map_err(|e| CandleModelError::InvalidConfiguration(
-                    format!("Failed to load model weights: {}", e).into()
-                ))?
+            VarBuilder::from_mmaped_safetensors(&safetensors_files, config.dtype, &device).map_err(
+                |e| {
+                    CandleModelError::InvalidConfiguration(
+                        format!("Failed to load model weights: {}", e).into(),
+                    )
+                },
+            )?
         };
-        
+
         // Create KV cache for efficient inference
-        let cache = Cache::new(true, config.dtype, llama_config, &device)
-            .map_err(|e| CandleModelError::InvalidConfiguration(
-                format!("Failed to create cache: {}", e).into()
-            ))?;
-        
+        let cache = Cache::new(true, config.dtype, llama_config, &device).map_err(|e| {
+            CandleModelError::InvalidConfiguration(format!("Failed to create cache: {}", e).into())
+        })?;
+
         // Load the Llama model from weights
-        let model = Llama::load(vb, llama_config)
-            .map_err(|e| CandleModelError::InvalidConfiguration(
-                format!("Failed to load Llama model: {}", e).into()
-            ))?;
-        
+        let model = Llama::load(vb, llama_config).map_err(|e| {
+            CandleModelError::InvalidConfiguration(
+                format!("Failed to load Llama model: {}", e).into(),
+            )
+        })?;
+
         let vocab_size = config.vocab_size;
-        
+
         Ok(Self::new(model, cache, device, config, vocab_size))
     }
 
@@ -221,24 +226,30 @@ impl CandleQuantizedLlamaModel {
         device: Device,
         config: Arc<CandleConfig>,
     ) -> CandleResult<Self> {
-        let mut file = std::fs::File::open(&model_path)
-            .map_err(|e| crate::domain::model::error::CandleModelError::InvalidConfiguration(
-                format!("Failed to open GGUF file: {}", e).into()
-            ))?;
-        
-        let gguf_content = gguf_file::Content::read(&mut file)
-            .map_err(|e| crate::domain::model::error::CandleModelError::InvalidConfiguration(
-                format!("Failed to read GGUF file: {}", e).into()
-            ))?;
-        
-        let model_weights = quantized_llama::ModelWeights::from_gguf(gguf_content, &mut file, &device)
-            .map_err(|e| crate::domain::model::error::CandleModelError::InvalidConfiguration(
-                format!("Failed to load model weights from GGUF: {}", e).into()
-            ))?;
-        
+        let mut file = std::fs::File::open(&model_path).map_err(|e| {
+            crate::domain::model::error::CandleModelError::InvalidConfiguration(
+                format!("Failed to open GGUF file: {}", e).into(),
+            )
+        })?;
+
+        let gguf_content = gguf_file::Content::read(&mut file).map_err(|e| {
+            crate::domain::model::error::CandleModelError::InvalidConfiguration(
+                format!("Failed to read GGUF file: {}", e).into(),
+            )
+        })?;
+
+        let model_weights =
+            quantized_llama::ModelWeights::from_gguf(gguf_content, &mut file, &device).map_err(
+                |e| {
+                    crate::domain::model::error::CandleModelError::InvalidConfiguration(
+                        format!("Failed to load model weights from GGUF: {}", e).into(),
+                    )
+                },
+            )?;
+
         // Extract vocab size from config or use default
         let vocab_size = config.vocab_size;
-        
+
         Ok(Self::new(model_weights, device, config, vocab_size))
     }
 
@@ -273,83 +284,40 @@ impl CandleModel for CandleQuantizedLlamaModel {
     }
 }
 
-/// Model factory for creating different model types
-pub struct ModelFactory;
-
-impl ModelFactory {
-    /// Create a quantized Llama model from GGUF file path
-    pub fn create_quantized_llama<P: AsRef<std::path::Path>>(
-        model_path: P,
-        config: Arc<CandleConfig>,
-        device: Device,
-    ) -> CandleResult<CandleQuantizedLlamaModel> {
-        CandleQuantizedLlamaModel::from_gguf_path(model_path, device, config)
-    }
-
-    /// Create a Llama model from configuration (placeholder for regular models)
-    pub fn create_llama(
-        _config: Arc<CandleConfig>,
-        _device: Device,
-    ) -> CandleResult<CandleLlamaModel> {
-        Err(crate::domain::model::error::CandleModelError::OperationNotSupported(
-            "Regular Llama model loading not implemented - use create_quantized_llama for GGUF models".into()
-        ))
-    }
-
-    /// Create a model from a model type string
-    pub fn create_from_type(
-        model_type: &str,
-        config: Arc<CandleConfig>,
-        device: Device,
-    ) -> CandleResult<Box<dyn CandleModel>> {
-        match model_type.to_lowercase().as_str() {
-            "llama" => {
-                let model = Self::create_llama(config, device)?;
-                Ok(Box::new(model))
-            }
-            _ => Err(
-                crate::domain::model::error::CandleModelError::OperationNotSupported(
-                    format!("Unsupported model type: {}", model_type).into(),
-                ),
-            ),
-        }
-    }
-}
-
 /// Helper function to discover model files from a multi-file model index
 ///
 /// Parses a `model.safetensors.index.json` file to find all weight files
 /// referenced in the weight_map, enabling loading of large models split
 /// across multiple safetensors files.
 fn discover_multi_file_model(index_path: &Path) -> CandleResult<Vec<PathBuf>> {
-    let file = std::fs::File::open(index_path)
-        .map_err(|e| CandleModelError::InvalidConfiguration(
-            format!("Failed to open index file: {}", e).into()
-        ))?;
-    
-    let json: serde_json::Value = serde_json::from_reader(&file)
-        .map_err(|e| CandleModelError::InvalidConfiguration(
-            format!("Failed to parse index JSON: {}", e).into()
-        ))?;
-    
-    let weight_map = json.get("weight_map")
+    let file = std::fs::File::open(index_path).map_err(|e| {
+        CandleModelError::InvalidConfiguration(format!("Failed to open index file: {}", e).into())
+    })?;
+
+    let json: serde_json::Value = serde_json::from_reader(&file).map_err(|e| {
+        CandleModelError::InvalidConfiguration(format!("Failed to parse index JSON: {}", e).into())
+    })?;
+
+    let weight_map = json
+        .get("weight_map")
         .and_then(|v| v.as_object())
-        .ok_or_else(|| CandleModelError::InvalidConfiguration(
-            "No weight_map in index file".into()
-        ))?;
-    
-    let base_dir = index_path.parent()
-        .ok_or_else(|| CandleModelError::InvalidConfiguration(
-            format!("Invalid index path: {}", index_path.display()).into()
-        ))?;
-    
+        .ok_or_else(|| {
+            CandleModelError::InvalidConfiguration("No weight_map in index file".into())
+        })?;
+
+    let base_dir = index_path.parent().ok_or_else(|| {
+        CandleModelError::InvalidConfiguration(
+            format!("Invalid index path: {}", index_path.display()).into(),
+        )
+    })?;
+
     let mut files = HashSet::new();
-    
+
     for value in weight_map.values() {
         if let Some(filename) = value.as_str() {
             files.insert(base_dir.join(filename));
         }
     }
-    
+
     Ok(files.into_iter().collect())
 }

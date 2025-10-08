@@ -1,10 +1,11 @@
-//! Committee Evaluators Using Existing Providers
+//! Committee Evaluators Using Existing Models
 //!
-//! Committee evaluation implementation using existing CandleKimiK2Provider and CandleQwen3CoderProvider.
+//! Committee evaluation implementation using existing CandleKimiK2Model and CandleQwen3CoderModel.
 
 use std::sync::Arc;
 use crate::memory::cognitive::types::CognitiveError;
-use crate::domain::completion::traits::CandleCompletionModel;
+use crate::capability::traits::TextToTextCapable;
+use crate::domain::model::traits::CandleModel;
 use crate::memory::cognitive::committee::committee_types::{
     Committee, CommitteeConfig
 };
@@ -14,14 +15,14 @@ use crate::domain::{
     prompt::CandlePrompt,
 };
 
-/// Committee evaluator using existing providers (CandleKimiK2Provider, CandleQwen3CoderProvider)
+/// Committee evaluator using existing models (CandleKimiK2Model, CandleQwen3CoderModel)
 #[derive(Debug)]
-pub struct ProviderCommitteeEvaluator {
+pub struct ModelCommitteeEvaluator {
     committee: Arc<Committee>,
 }
 
-impl ProviderCommitteeEvaluator {
-    /// Create new committee evaluator using existing providers
+impl ModelCommitteeEvaluator {
+    /// Create new committee evaluator using existing models
     pub async fn new() -> Result<Self, CognitiveError> {
         let config = CommitteeConfig::default();
         let committee = Arc::new(Committee::new(config).await?);
@@ -63,7 +64,7 @@ impl ProviderCommitteeEvaluator {
 
         // Get response from KimiK2 provider
         let mut response = String::new();
-        let stream = self.committee.kimi_provider.prompt(prompt, &params);
+        let stream = self.committee.kimi_model.prompt(prompt, &params);
         let stream = Box::pin(stream);
 
         while let Some(chunk) = stream.next().await {
@@ -92,7 +93,7 @@ impl ProviderCommitteeEvaluator {
     /// Generate evaluation report using AI
     pub async fn generate_report(&self, content: &str) -> Result<String, CognitiveError> {
         let score = self.evaluate(content).await?;
-        Ok(format!("AI evaluation score: {:.2} (using local CandleKimiK2Provider)", score))
+        Ok(format!("AI evaluation score: {:.2} (using local CandleKimiK2Model)", score))
     }
 
     /// Evaluate with KimiK2 provider
@@ -106,7 +107,7 @@ impl ProviderCommitteeEvaluator {
         let params = CandleCompletionParams::default();
         
         let mut response = String::new();
-        let stream = self.committee.kimi_provider.prompt(prompt, &params);
+        let stream = self.committee.kimi_model.prompt(prompt, &params);
         let stream = Box::pin(stream);
 
         while let Some(chunk) = stream.next().await {
@@ -134,7 +135,7 @@ impl ProviderCommitteeEvaluator {
         let params = CandleCompletionParams::default();
         
         let mut response = String::new();
-        let stream = self.committee.qwen_provider.prompt(prompt, &params);
+        let stream = self.committee.qwen_model.prompt(prompt, &params);
         let stream = Box::pin(stream);
 
         while let Some(chunk) = stream.next().await {
@@ -164,7 +165,7 @@ impl ProviderCommitteeEvaluator {
 
         // Evaluate with KimiK2 provider
         let mut kimi_response = String::new();
-        let kimi_stream = self.committee.kimi_provider.prompt(prompt.clone(), &params);
+        let kimi_stream = self.committee.kimi_model.prompt(prompt.clone(), &params);
         let kimi_stream = Box::pin(kimi_stream);
 
         while let Some(chunk) = kimi_stream.next().await {
@@ -183,7 +184,7 @@ impl ProviderCommitteeEvaluator {
 
         // Evaluate with Qwen provider
         let mut qwen_response = String::new();
-        let qwen_stream = self.committee.qwen_provider.prompt(prompt, &params);
+        let qwen_stream = self.committee.qwen_model.prompt(prompt, &params);
         let qwen_stream = Box::pin(qwen_stream);
 
         while let Some(chunk) = qwen_stream.next().await {

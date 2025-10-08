@@ -186,6 +186,12 @@ impl From<serde_json::Error> for Error {
     }
 }
 
+impl From<Box<dyn std::error::Error + Send + Sync>> for Error {
+    fn from(err: Box<dyn std::error::Error + Send + Sync>) -> Self {
+        Error::ModelError(err.to_string())
+    }
+}
+
 // Note: anyhow::Error conversion removed due to conflict with surrealdb::Error
 // Use .map_err(|e| Error::Other(e.to_string())) for manual anyhow conversions
 

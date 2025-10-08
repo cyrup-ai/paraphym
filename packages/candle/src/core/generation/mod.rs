@@ -9,7 +9,7 @@
 //! ## Module Organization
 //!
 //! - [`types`] - Core types, aliases and constants
-//! - [`tokens`] - Token management and special token handling  
+//! - [`tokens`] - Token management and special token handling
 //! - [`config`] - Sampling configuration and parameter management
 //! - [`stats`] - Generation statistics and performance monitoring
 //! - [`metrics`] - SIMD-specific performance metrics
@@ -56,11 +56,11 @@ pub mod types;
 
 // Re-export core types for ergonomic usage
 pub use config::{
-    balanced_config, creative_config, deterministic_config, focused_config, SamplingConfig,
+    SamplingConfig, balanced_config, creative_config, deterministic_config, focused_config,
 };
 pub use generator::TextGenerator;
 pub use metrics::SimdMetrics;
-pub use models::{CandleLlamaModel, CandleModel, ModelFactory};
+pub use models::{CandleLlamaModel, CandleModel};
 pub use stats::GenerationStatistics;
 pub use tokens::{SpecialTokens, TokenHistory, TokenProb};
 pub use types::{CandleResult, LogitsBuffer, SAMPLING_CACHE_SIZE, SIMD_THRESHOLD};

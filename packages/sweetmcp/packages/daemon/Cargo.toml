@@ -23,7 +23,7 @@ dirs = "6.0.0"
 thiserror   = "2.0.17"
 cfg-if      = "1.0.3"
 base64      = "0.22.1"
-flate2      = { version = "1.1.2", default-features = false, features = ["rust_backend"] }
+flate2      = { version = "1.1.4", default-features = false, features = ["rust_backend"] }
 async-recursion = "1.1.1"
 cyrup_sugars = { git = "https://github.com/cyrup-ai/cyrup-sugars", branch = "main", package = "cyrup_sugars", features = ["all"] }
 
@@ -31,7 +31,7 @@ cyrup_sugars = { git = "https://github.com/cyrup-ai/cyrup-sugars", branch = "mai
 sweetmcp-client-autoconfig = { path = "../autoconfig" }
 
 # Plugin system support
-extism = "1.10"
+extism = "1.12"
 oci-client = "0.15"
 
 # Pingora TLS integration

@@ -15,7 +15,4 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 anyhow = "1.0.100"
 thiserror = "2.0.17"
-
-# For async trait definitions
-async-trait = "0.1.89"
 tokio = { version = "1.47", features = ["sync"] }

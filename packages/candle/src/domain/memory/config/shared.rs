@@ -46,7 +46,6 @@ impl Default for RetryConfig {
 }
 
 impl RetryConfig {
-
     /// Create optimized retry configuration for high-performance scenarios
     #[inline]
     #[must_use]
@@ -193,8 +192,6 @@ impl RetryConfig {
 /// This is the single source of truth for embedding configuration across memory subsystems.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingConfig {
-    /// Embedding model type
-    pub model_type: EmbeddingModelType,
     /// Model name or identifier
     pub model_name: String,
     /// Expected embedding dimension
@@ -209,28 +206,6 @@ pub struct EmbeddingConfig {
     pub cache_ttl: Duration,
     /// Enable compression of cached embeddings
     pub enable_compression: bool,
-}
-
-/// Embedding model types
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[repr(u8)]
-pub enum EmbeddingModelType {
-    /// `OpenAI` embedding models
-    OpenAI = 0,
-    /// Sentence transformers (BERT-based)
-    SentenceTransformers = 1,
-    /// Cohere embeddings
-    Cohere = 2,
-    /// Custom model
-    Custom = 3,
-    /// Stella embedding models
-    Stella = 4,
-    /// GTE-Qwen embedding models  
-    GteQwen = 5,
-    /// NVIDIA `NVEmbed` models
-    NvEmbed = 6,
-    /// Jina-BERT embedding models
-    JinaBert = 7,
 }
 
 /// Normalization strategies for embeddings
@@ -252,7 +227,6 @@ impl Default for EmbeddingConfig {
     #[inline]
     fn default() -> Self {
         Self {
-            model_type: EmbeddingModelType::OpenAI,
             model_name: "text-embedding-3-small".to_string(),
             dimension: 1536,
             normalization: NormalizationStrategy::L2,
@@ -265,13 +239,11 @@ impl Default for EmbeddingConfig {
 }
 
 impl EmbeddingConfig {
-
     /// Create high-performance embedding configuration
     #[inline]
     #[must_use]
     pub fn high_performance() -> Self {
         Self {
-            model_type: EmbeddingModelType::OpenAI,
             model_name: "text-embedding-3-large".to_string(),
             dimension: 3072,
             normalization: NormalizationStrategy::L2,
@@ -287,7 +259,6 @@ impl EmbeddingConfig {
     #[must_use]
     pub fn compact() -> Self {
         Self {
-            model_type: EmbeddingModelType::SentenceTransformers,
             model_name: "all-MiniLM-L6-v2".to_string(),
             dimension: 384,
             normalization: NormalizationStrategy::L2,
@@ -302,7 +273,6 @@ impl EmbeddingConfig {
     #[must_use]
     pub fn stella_1024() -> Self {
         Self {
-            model_type: EmbeddingModelType::Stella,
             model_name: "dunzhang/stella_en_1.5B_v5".to_string(),
             dimension: 1024,
             normalization: NormalizationStrategy::L2,
@@ -313,11 +283,10 @@ impl EmbeddingConfig {
         }
     }
 
-    /// Create GTE-Qwen2 1536-dim embedding configuration  
+    /// Create GTE-Qwen2 1536-dim embedding configuration
     #[must_use]
     pub fn gte_qwen() -> Self {
         Self {
-            model_type: EmbeddingModelType::GteQwen,
             model_name: "Alibaba-NLP/gte-Qwen2-1.5B-instruct".to_string(),
             dimension: 1536,
             normalization: NormalizationStrategy::L2,
@@ -332,7 +301,6 @@ impl EmbeddingConfig {
     #[must_use]
     pub fn nvembed_v2() -> Self {
         Self {
-            model_type: EmbeddingModelType::NvEmbed,
             model_name: "nvidia/NV-Embed-v2".to_string(),
             dimension: 4096,
             normalization: NormalizationStrategy::L2,
@@ -347,7 +315,6 @@ impl EmbeddingConfig {
     #[must_use]
     pub fn jina_bert() -> Self {
         Self {
-            model_type: EmbeddingModelType::JinaBert,
             model_name: "jinaai/jina-embeddings-v2-base-en".to_string(),
             dimension: 768,
             normalization: NormalizationStrategy::L2,

@@ -6,9 +6,9 @@ use bytes::Bytes;
 use hashbrown::HashMap;
 // Removed unused import: crossbeam_utils::CachePadded
 use serde::{
+    Deserialize, Deserializer, Serialize, Serializer,
     de::{MapAccess, Visitor},
     ser::SerializeStruct,
-    Deserialize, Deserializer, Serialize, Serializer,
 };
 use uuid::Uuid;
 
@@ -24,7 +24,7 @@ use uuid::Uuid;
 pub enum MemoryTypeEnum {
     /// Factual information and knowledge
     Fact = 0,
-    /// Specific events and experiences  
+    /// Specific events and experiences
     Episode = 1,
     /// Semantic knowledge and concepts
     Semantic = 2,
@@ -232,7 +232,7 @@ pub enum MemoryContent {
     Text(String),
     /// Binary image data with zero-copy Bytes
     Image(Bytes),
-    /// Binary audio data with zero-copy Bytes  
+    /// Binary audio data with zero-copy Bytes
     Audio(Bytes),
     /// Binary video data with zero-copy Bytes
     Video(Bytes),
@@ -320,7 +320,10 @@ impl MemoryContent {
         match self {
             Self::Empty => 0,
             Self::Text(text) => text.len(),
-            Self::Image(data) | Self::Audio(data) | Self::Video(data) | Self::Binary { data, .. } => data.len(),
+            Self::Image(data)
+            | Self::Audio(data)
+            | Self::Video(data)
+            | Self::Binary { data, .. } => data.len(),
             Self::Json(value) => {
                 // Estimate JSON size without serialization
                 std::mem::size_of_val(value)
@@ -356,9 +359,9 @@ pub struct BaseMemory {
     pub content: MemoryContent,
     /// Creation timestamp with atomic operations
     pub created_at: SystemTime,
-    /// Last update timestamp with atomic operations  
+    /// Last update timestamp with atomic operations
     pub updated_at: SystemTime,
-    /// Concurrent metadata with crossbeam access optimization  
+    /// Concurrent metadata with crossbeam access optimization
     pub metadata: Arc<parking_lot::RwLock<HashMap<String, serde_json::Value>>>,
 }
 
@@ -534,8 +537,7 @@ impl<'de> Deserialize<'de> for BaseMemory {
             }
         }
 
-        const FIELDS: &[&str] =
-            &["id", "memory_type", "content", "created_at", "updated_at"];
+        const FIELDS: &[&str] = &["id", "memory_type", "content", "created_at", "updated_at"];
         deserializer.deserialize_struct("BaseMemory", FIELDS, BaseMemoryVisitor)
     }
 }
@@ -663,18 +665,3 @@ impl MemoryError {
 // Dead code removed - FluentMemoryError type does not exist
 
 // Trait implementations for error conversions
-impl From<crate::domain::memory::config::llm::LLMConfigError> for MemoryError {
-    fn from(err: crate::domain::memory::config::llm::LLMConfigError) -> Self {
-        match err {
-            crate::domain::memory::config::llm::LLMConfigError::InvalidModel(msg) => {
-                Self::Validation(format!("Invalid LLM model: {msg}"))
-            }
-            crate::domain::memory::config::llm::LLMConfigError::InvalidParameter(msg) => {
-                Self::Validation(format!("Invalid LLM parameter: {msg}"))
-            }
-            crate::domain::memory::config::llm::LLMConfigError::ValidationError(msg) => {
-                Self::Validation(format!("LLM configuration validation failed: {msg}"))
-            }
-        }
-    }
-}

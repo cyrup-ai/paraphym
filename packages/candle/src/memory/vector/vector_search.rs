@@ -16,16 +16,16 @@ use crossbeam_channel::unbounded;
 use serde::{Deserialize, Serialize};
 use surrealdb::Value;
 
+use crate::capability::text_embedding::CandleBertEmbeddingModel;
+use crate::capability::traits::TextEmbeddingCapable;
+use crate::capability::registry::TextEmbeddingModel;
+use crate::domain::model::traits::CandleModel;
 use crate::memory::constants::SEARCH_TASK;
 use crate::memory::utils::error::Result;
-use crate::memory::vector::embedding_model::EmbeddingModel;
 use crate::memory::vector::vector_store::VectorStore;
-use crate::capability::text_embedding::CandleBertEmbeddingProvider;
 
 use crate::domain::memory::cognitive::types::{
-    CognitiveProcessor,
-    CognitiveProcessorConfig,
-    DecisionOutcome,
+    CognitiveProcessor, CognitiveProcessorConfig, DecisionOutcome,
 };
 
 /// Type alias for request info callback function
@@ -50,7 +50,7 @@ fn task_string(task: &'static str) -> Option<String> {
 struct CognitiveSearchState {
     /// Results deferred for secondary evaluation with confidence scores
     deferred_results: Vec<DeferredResult>,
-    
+
     /// Final accepted results
     final_results: Vec<FinalResult>,
 }
@@ -193,7 +193,10 @@ impl std::fmt::Debug for SearchOptions {
             .field("include_rank", &self.include_rank)
             .field("candidate_limit", &self.candidate_limit)
             .field("enable_simd", &self.enable_simd)
-            .field("request_info_callback", &self.request_info_callback.as_ref().map(|_| "<callback>"))
+            .field(
+                "request_info_callback",
+                &self.request_info_callback.as_ref().map(|_| "<callback>"),
+            )
             .finish()
     }
 }
@@ -282,12 +285,12 @@ impl SearchOptions {
 /// - Memory-efficient result processing
 /// - Thread-safe operations for concurrent access
 /// - Comprehensive filtering and ranking capabilities
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VectorSearch {
     /// Vector store for persistence and retrieval
     store: Arc<dyn VectorStore>,
     /// Embedding model for text-to-vector conversion
-    embedding_model: Arc<dyn EmbeddingModel>,
+    embedding_model: TextEmbeddingModel,
     /// Default search options
     default_options: SearchOptions,
     /// Cognitive processor for intelligent result filtering and adaptive thresholds
@@ -303,14 +306,14 @@ impl VectorSearch {
     ///
     /// # Returns
     /// New VectorSearch instance
-    pub fn new(store: Arc<dyn VectorStore>, embedding_model: Arc<dyn EmbeddingModel>) -> Self {
+    pub fn new(store: Arc<dyn VectorStore>, embedding_model: TextEmbeddingModel) -> Self {
         let processor_config = CognitiveProcessorConfig {
             batch_size: 32,
-            decision_threshold: 0.7,  // Matches SearchOptions::default() min_similarity
+            decision_threshold: 0.7, // Matches SearchOptions::default() min_similarity
             learning_rate: 0.01,
             max_iterations: 1000,
         };
-        
+
         Self {
             store,
             embedding_model,
@@ -319,29 +322,10 @@ impl VectorSearch {
         }
     }
 
-    /// Create a new VectorSearch with BERT embedding provider
-    ///
-    /// # Arguments
-    /// * `store` - Vector store implementation
-    ///
-    /// # Returns
-    /// Result containing new VectorSearch instance with BERT embeddings
-    pub async fn with_bert_embeddings(store: Arc<dyn VectorStore>) -> Result<Self> {
-        let bert_provider = create_shared_bert_provider().await?;
-        let processor_config = CognitiveProcessorConfig::default(); // Uses 0.7 threshold
-        
-        Ok(Self {
-            store,
-            embedding_model: bert_provider as Arc<dyn EmbeddingModel>,
-            default_options: SearchOptions::default(),
-            cognitive_processor: Arc::new(CognitiveProcessor::new(processor_config)),
-        })
-    }
-
     /// Create with custom default options
     pub fn with_options(
         store: Arc<dyn VectorStore>,
-        embedding_model: Arc<dyn EmbeddingModel>,
+        embedding_model: TextEmbeddingModel,
         default_options: SearchOptions,
     ) -> Self {
         // Extract threshold from options for processor config (adaptive threshold principle)
@@ -352,7 +336,7 @@ impl VectorSearch {
             learning_rate: 0.01,
             max_iterations: 1000,
         };
-        
+
         Self {
             store,
             embedding_model,
@@ -425,7 +409,7 @@ impl VectorSearch {
         // Use cognitive processor for intelligent result filtering with defer queue
         let filtered_results = if options.min_similarity.is_some() {
             let mut state = CognitiveSearchState::new();
-            
+
             // Stage 1: Initial cognitive filtering with defer queue
             for (id, vector, similarity, metadata) in results {
                 match self.cognitive_processor.process(&vector) {
@@ -467,14 +451,17 @@ impl VectorSearch {
                                     similarity
                                 );
                                 if let Some(ref callback) = options.request_info_callback {
-                                    let should_accept = callback(&id, similarity, decision.confidence);
+                                    let should_accept =
+                                        callback(&id, similarity, decision.confidence);
                                     if should_accept {
                                         log::debug!(
                                             "RequestInfo callback accepted: id={}, similarity={:.4}",
                                             id,
                                             similarity
                                         );
-                                        state.final_results.push((id, vector, similarity, metadata));
+                                        state
+                                            .final_results
+                                            .push((id, vector, similarity, metadata));
                                     } else {
                                         log::debug!(
                                             "RequestInfo callback rejected: id={}, similarity={:.4}",
@@ -509,11 +496,11 @@ impl VectorSearch {
                     }
                 }
             }
-            
+
             // Stage 2: Process deferred results with relaxed threshold
             let defer_threshold = options.min_similarity.unwrap_or(0.7) * 0.8; // 80% of main threshold
             process_deferred_results(&mut state, defer_threshold);
-            
+
             state.final_results
         } else {
             results
@@ -525,11 +512,12 @@ impl VectorSearch {
             .enumerate()
             .map(|(index, (id, vector, similarity, metadata))| {
                 // Get decision confidence from processor
-                let decision_confidence = self.cognitive_processor
+                let decision_confidence = self
+                    .cognitive_processor
                     .process(&vector)
                     .ok()
                     .map(|decision| decision.confidence);
-                
+
                 let vector = if options.include_vectors.unwrap_or(false) {
                     vector
                 } else {
@@ -599,7 +587,7 @@ impl VectorSearch {
         for (index, embedding) in embeddings.into_iter().enumerate() {
             let sender = sender.clone();
             let store = Arc::clone(&self.store);
-            let embedding_model = Arc::clone(&self.embedding_model);
+            let embedding_model = self.embedding_model.clone();
             let options = options.clone();
 
             let handle = thread::spawn(move || {
@@ -650,8 +638,8 @@ impl VectorSearch {
     }
 
     /// Get the embedding model reference
-    pub fn embedding_model(&self) -> Arc<dyn EmbeddingModel> {
-        Arc::clone(&self.embedding_model)
+    pub fn embedding_model(&self) -> &TextEmbeddingModel {
+        &self.embedding_model
     }
 
     /// Update default search options
@@ -674,39 +662,33 @@ impl VectorSearch {
 /// * `state` - Mutable reference to cognitive search state
 /// * `threshold` - Secondary threshold for deferred result acceptance (typically 0.56 = 0.7 * 0.8)
 fn process_deferred_results(state: &mut CognitiveSearchState, threshold: f32) {
-    state.deferred_results.retain(|(id, vector, similarity, metadata, confidence)| {
-        if *confidence >= threshold {
-            log::debug!(
-                "Promoting deferred result: id={}, confidence={:.4}, threshold={:.4}",
-                id,
-                confidence,
-                threshold
-            );
-            state.final_results.push((
-                id.clone(),
-                vector.clone(),
-                *similarity,
-                metadata.clone(),
-            ));
-            false // Remove from deferred queue
-        } else {
-            log::trace!(
-                "Rejecting deferred result: id={}, confidence={:.4}, threshold={:.4}",
-                id,
-                confidence,
-                threshold
-            );
-            false // Remove from deferred queue (rejected)
-        }
-    });
-}
-
-/// Create a shared BERT embedding provider instance for use across VectorSearch operations
-/// This avoids downloading the model multiple times and ensures consistent embeddings
-async fn create_shared_bert_provider() -> Result<Arc<CandleBertEmbeddingProvider>> {
-    let provider = CandleBertEmbeddingProvider::new().await
-        .map_err(|e| crate::memory::utils::error::Error::ModelError(format!("Failed to create BERT provider: {}", e)))?;
-    Ok(Arc::new(provider))
+    state
+        .deferred_results
+        .retain(|(id, vector, similarity, metadata, confidence)| {
+            if *confidence >= threshold {
+                log::debug!(
+                    "Promoting deferred result: id={}, confidence={:.4}, threshold={:.4}",
+                    id,
+                    confidence,
+                    threshold
+                );
+                state.final_results.push((
+                    id.clone(),
+                    vector.clone(),
+                    *similarity,
+                    metadata.clone(),
+                ));
+                false // Remove from deferred queue
+            } else {
+                log::trace!(
+                    "Rejecting deferred result: id={}, confidence={:.4}, threshold={:.4}",
+                    id,
+                    confidence,
+                    threshold
+                );
+                false // Remove from deferred queue (rejected)
+            }
+        });
 }
 
 /// Hybrid search combining vector and keyword search strategies
@@ -716,6 +698,7 @@ async fn create_shared_bert_provider() -> Result<Arc<CandleBertEmbeddingProvider
 /// - Keyword search for exact term matching
 /// - Configurable weighting between strategies
 /// - Advanced result merging and ranking algorithms
+#[derive(Clone)]
 pub struct HybridSearch {
     /// Vector search component
     vector_search: VectorSearch,
@@ -771,7 +754,7 @@ impl HybridSearch {
 
         // Vector search thread
         let vector_sender = sender.clone();
-        let vector_search = self.vector_search.clone_shallow();
+        let vector_search = self.vector_search.clone();
         let text_for_vector = text.to_string();
         let options_for_vector = options.clone();
 
@@ -943,17 +926,5 @@ impl HybridSearch {
 }
 
 // Helper trait for shallow cloning of VectorSearch (for thread usage)
-impl VectorSearch {
-    /// Create a shallow clone for thread-based usage
-    ///
-    /// This creates a new VectorSearch instance that shares the same
-    /// underlying store and embedding model references.
-    fn clone_shallow(&self) -> Self {
-        Self {
-            store: Arc::clone(&self.store),
-            embedding_model: Arc::clone(&self.embedding_model),
-            default_options: self.default_options.clone(),
-            cognitive_processor: Arc::clone(&self.cognitive_processor),
-        }
-    }
-}
+// Note: VectorSearch now derives Clone, so clone_shallow is no longer needed
+// The Clone implementation handles shallow cloning automatically via Arc

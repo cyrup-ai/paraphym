@@ -3,7 +3,7 @@
 //! This module provides helper functions for the 4-stage tool calling process:
 //! - Stage 1: Tool Selection
 //! - Stage 2: Function Calling  
-//! - Stage 3: Tool Execution (handled by SweetMcpRouter)
+//! - Stage 3: Tool Execution (handled by `SweetMcpRouter`)
 //! - Stage 4: Result Interpretation
 
 use std::collections::HashMap;
@@ -15,6 +15,7 @@ use super::templates;
 use super::types::responses::{ToolSelectionResponse, OpenAIFunctionCallResponse, FinalResponse};
 
 /// Format tools as simple text list for Stage 1 (Tool Selection)
+#[must_use]
 pub fn format_tools_for_selection(tools: &[ToolInfo]) -> String {
     tools
         .iter()
@@ -26,7 +27,11 @@ pub fn format_tools_for_selection(tools: &[ToolInfo]) -> String {
         .join("\n")
 }
 
-/// Format tools in OpenAI tools format for Stage 2 (Function Calling)
+/// Format tools in `OpenAI` tools format for Stage 2 (Function Calling)
+///
+/// # Errors
+///
+/// Returns error if serialization to JSON fails
 pub fn format_tools_openai(tools: &[ToolInfo]) -> Result<String> {    let openai_tools: Vec<serde_json::Value> = tools
         .iter()
         .map(|tool| {
@@ -46,6 +51,7 @@ pub fn format_tools_openai(tools: &[ToolInfo]) -> Result<String> {    let openai
 }
 
 /// Format tool execution results for Stage 4 (Result Interpretation)
+#[must_use]
 pub fn format_tool_results(
     tool_calls: &[super::types::responses::ToolCall],
     results: &[(String, Result<serde_json::Value, String>)]
@@ -56,8 +62,7 @@ pub fn format_tool_results(
         .map(|(idx, (call_id, result))| {
             let tool_name = tool_calls
                 .get(idx)
-                .map(|tc| tc.function.name.as_str())
-                .unwrap_or("unknown");            
+                .map_or("unknown", |tc| tc.function.name.as_str());            
             match result {
                 Ok(value) => format!(
                     "Tool: {}\nCall ID: {}\nStatus: Success\nResult: {}",
@@ -66,10 +71,7 @@ pub fn format_tool_results(
                     serde_json::to_string_pretty(value).unwrap_or_else(|_| "{}".to_string())
                 ),
                 Err(error) => format!(
-                    "Tool: {}\nCall ID: {}\nStatus: Error\nError: {}",
-                    tool_name,
-                    call_id,
-                    error
+                    "Tool: {tool_name}\nCall ID: {call_id}\nStatus: Error\nError: {error}"
                 ),
             }
         })
@@ -78,6 +80,10 @@ pub fn format_tool_results(
 }
 
 /// Render Stage 1 prompt (Tool Selection)
+///
+/// # Errors
+///
+/// Returns error if template rendering fails
 pub fn render_stage1_prompt(user_input: &str, available_tools: &[ToolInfo]) -> Result<String> {
     let mut variables = HashMap::new();
     variables.insert("user_input".to_string(), user_input.to_string());
@@ -88,6 +94,10 @@ pub fn render_stage1_prompt(user_input: &str, available_tools: &[ToolInfo]) -> R
 }
 
 /// Render Stage 2 prompt (Function Calling)
+///
+/// # Errors
+///
+/// Returns error if template rendering or tool formatting fails
 pub fn render_stage2_prompt(user_input: &str, selected_tools: &[ToolInfo]) -> Result<String> {
     let mut variables = HashMap::new();
     variables.insert("user_input".to_string(), user_input.to_string());
@@ -98,6 +108,10 @@ pub fn render_stage2_prompt(user_input: &str, selected_tools: &[ToolInfo]) -> Re
 }
 
 /// Render Stage 4 prompt (Result Interpretation)
+///
+/// # Errors
+///
+/// Returns error if template rendering or JSON serialization fails
 pub fn render_stage4_prompt(
     user_message: &str,
     tool_calls: &[super::types::responses::ToolCall],
@@ -119,18 +133,30 @@ pub fn render_stage4_prompt(
 }
 
 /// Parse Stage 1 response (Tool Selection)
+///
+/// # Errors
+///
+/// Returns error if JSON parsing fails
 pub fn parse_tool_selection_response(json_str: &str) -> Result<ToolSelectionResponse> {
     serde_json::from_str(json_str)
         .context("Failed to parse tool selection response")
 }
 
 /// Parse Stage 2 response (Function Calling)
+///
+/// # Errors
+///
+/// Returns error if JSON parsing fails
 pub fn parse_function_call_response(json_str: &str) -> Result<OpenAIFunctionCallResponse> {
     serde_json::from_str(json_str)
         .context("Failed to parse function call response")
 }
 
 /// Parse Stage 4 response (Final Response)
+///
+/// # Errors
+///
+/// Returns error if JSON parsing fails
 pub fn parse_final_response(json_str: &str) -> Result<FinalResponse> {
     serde_json::from_str(json_str)
         .context("Failed to parse final response")
@@ -148,9 +174,10 @@ pub fn get_selected_tool_schemas(
         .collect()
 }
 
-/// Helper to collect AsyncStream into String
+/// Helper to collect `AsyncStream` into String
+#[must_use]
 pub fn collect_stream_to_string(
-    stream: ystream::AsyncStream<crate::domain::context::chunk::CandleStringChunk>
+    stream: &ystream::AsyncStream<crate::domain::context::chunk::CandleStringChunk>
 ) -> String {
     let mut result = String::new();
     while let Some(chunk) = stream.try_next() {

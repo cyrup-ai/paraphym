@@ -9,8 +9,6 @@ pub struct MemoryConfig {
     pub database: DatabaseConfig,
     /// Vector store configuration
     pub vector_store: VectorStoreConfig,
-    /// Completion provider configuration
-    pub completion: CompletionConfig,
     /// API configuration (optional)
     pub api: Option<APIConfig>,
     /// Cache configuration
@@ -80,8 +78,6 @@ pub enum VectorStoreType {
 /// Embedding model configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingModelConfig {
-    /// Model type
-    pub model_type: EmbeddingModelType,
     /// Model name
     pub model_name: String,
     /// API key (optional)
@@ -90,45 +86,6 @@ pub struct EmbeddingModelConfig {
     pub api_base: Option<String>,
     /// Additional options (optional)
     pub options: Option<serde_json::Value>,
-}
-
-/// Embedding model types
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum EmbeddingModelType {
-    /// OpenAI embedding models
-    OpenAI,
-    /// Custom embedding model
-    Custom,
-}
-
-/// Completion provider configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CompletionConfig {
-    /// Completion provider
-    pub provider: CompletionProvider,
-    /// Model name
-    pub model_name: String,
-    /// API key (optional)
-    pub api_key: Option<String>,
-    /// API base URL (optional)
-    pub api_base: Option<String>,
-    /// Temperature (optional)
-    pub temperature: Option<f32>,
-    /// Max tokens (optional)
-    pub max_tokens: Option<usize>,
-    /// Additional options (optional)
-    pub options: Option<serde_json::Value>,
-}
-
-/// Completion providers
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum CompletionProvider {
-    /// OpenAI
-    OpenAI,
-    /// Anthropic
-    Anthropic,
-    /// Custom provider
-    Custom,
 }
 
 /// API configuration
@@ -246,24 +203,9 @@ impl Default for VectorStoreConfig {
 impl Default for EmbeddingModelConfig {
     fn default() -> Self {
         Self {
-            model_type: EmbeddingModelType::OpenAI,
             model_name: "text-embedding-3-small".to_string(),
             api_key: None,
             api_base: None,
-            options: None,
-        }
-    }
-}
-
-impl Default for CompletionConfig {
-    fn default() -> Self {
-        Self {
-            provider: CompletionProvider::OpenAI,
-            model_name: "gpt-4".to_string(),
-            api_key: None,
-            api_base: None,
-            temperature: Some(0.7),
-            max_tokens: Some(2048),
             options: None,
         }
     }
@@ -291,5 +233,3 @@ impl Default for LoggingConfig {
         }
     }
 }
-
-

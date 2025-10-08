@@ -628,4 +628,17 @@ impl EngineStats {
     }
 }
 
+impl Default for Engine {
+    fn default() -> Self {
+        Self {
+            config: EngineConfig::default(),
+            request_count: Arc::new(AtomicU64::new(0)),
+            active_requests: Arc::new(AtomicU64::new(0)),
+            successful_requests: Arc::new(AtomicU64::new(0)),
+            failed_requests: Arc::new(AtomicU64::new(0)),
+            is_healthy: Arc::new(AtomicBool::new(true)),
+        }
+    }
+}
+
 // Engine is automatically Send + Sync due to atomic operations - no unsafe impl needed

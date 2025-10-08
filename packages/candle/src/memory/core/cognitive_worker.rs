@@ -5,7 +5,7 @@ use tokio::time::timeout;
 
 use crate::memory::core::cognitive_queue::{CognitiveProcessingQueue, CognitiveTaskType};
 use crate::memory::core::manager::surreal::{SurrealDBMemoryManager, MemoryManager};
-use crate::memory::cognitive::committee::ProviderCommitteeEvaluator;
+use crate::memory::cognitive::committee::ModelCommitteeEvaluator;
 use crate::domain::memory::cognitive::types::{
     CognitiveMemory,
     CognitiveMemoryConfig,
@@ -20,7 +20,7 @@ use crate::memory::monitoring::operations::{OperationTracker, OperationType};
 pub struct CognitiveWorker {
     queue: Arc<CognitiveProcessingQueue>,
     memory_manager: Arc<SurrealDBMemoryManager>,
-    committee_evaluator: Arc<ProviderCommitteeEvaluator>,
+    committee_evaluator: Arc<ModelCommitteeEvaluator>,
     /// Cognitive memory for quantum features and pattern storage
     _cognitive_memory: Arc<RwLock<CognitiveMemory>>,
     /// Operation tracker for metrics
@@ -194,7 +194,7 @@ impl CognitiveWorker {
     pub fn new(
         queue: Arc<CognitiveProcessingQueue>,
         memory_manager: Arc<SurrealDBMemoryManager>,
-        committee_evaluator: Arc<ProviderCommitteeEvaluator>,
+        committee_evaluator: Arc<ModelCommitteeEvaluator>,
     ) -> Self {
         Self {
             queue,
@@ -744,7 +744,7 @@ impl CognitiveWorker {
 
     /// Evaluate with timeout and retry for transient failures
     async fn evaluate_with_timeout_and_retry(
-        evaluator: Arc<ProviderCommitteeEvaluator>,
+        evaluator: Arc<ModelCommitteeEvaluator>,
         content: &str,
         max_retries: u32,
     ) -> Result<f64, String> {

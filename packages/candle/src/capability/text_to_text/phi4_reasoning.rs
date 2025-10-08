@@ -1,6 +1,6 @@
 //! Phi-4-Reasoning Provider for local Phi-4-reasoning Q4_K_M model inference
 //!
-//! This provider implements the CandleCompletionModel trait for the Phi-4-reasoning
+//! This provider implements the TextToTextCapable trait for the Phi-4-reasoning
 //! model with integrated chain-of-thought reasoning capabilities.
 
 use std::num::NonZeroU32;
@@ -14,10 +14,9 @@ use std::path::Path;
 use tokenizers::Tokenizer;
 use ystream::AsyncStream;
 
-use crate::builders::agent_role::CandleCompletionProvider as BuilderCandleCompletionProvider;
 use crate::domain::model::{info::CandleModelInfo, traits::CandleModel};
 use crate::domain::{
-    completion::{CandleCompletionModel, CandleCompletionParams},
+    completion::CandleCompletionParams,
     context::chunk::CandleCompletionChunk,
     prompt::CandlePrompt,
 };
@@ -253,15 +252,24 @@ impl Phi4ReasoningModel {
     }
 }
 
-/// CandlePhi4ReasoningProvider for local Phi-4-reasoning model inference
+/// CandlePhi4ReasoningModel for local Phi-4-reasoning model inference
 #[derive(Debug, Clone)]
-pub struct CandlePhi4ReasoningProvider {
+pub struct CandlePhi4ReasoningModel {
     /// Model cache directory path
     model_path: String,
     /// Tokenizer path
     tokenizer_path: String,
     /// Provider configuration
     config: CandlePhi4ReasoningConfig,
+}
+
+impl Default for CandlePhi4ReasoningModel {
+    fn default() -> Self {
+        crate::runtime::shared_runtime()
+            .unwrap_or_else(|| panic!("Shared runtime unavailable"))
+            .block_on(Self::new())
+            .unwrap_or_else(|e| panic!("Failed to initialize CandlePhi4ReasoningModel: {}", e))
+    }
 }
 
 /// Configuration for Phi-4-Reasoning model inference
@@ -307,7 +315,13 @@ impl CandlePhi4ReasoningConfig {
     }
 }
 
-impl CandlePhi4ReasoningProvider {
+impl CandlePhi4ReasoningModel {
+    /// Create new Phi-4-Reasoning provider with automatic model download
+    pub async fn new() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let config = CandlePhi4ReasoningConfig::default();
+        Self::with_config_async(config).await
+    }
+
     /// Create provider with async model download
     pub async fn with_config_async(
         config: CandlePhi4ReasoningConfig,
@@ -322,7 +336,8 @@ impl CandlePhi4ReasoningProvider {
             "unsloth/Phi-4-reasoning-GGUF",
             vec!["phi-4-reasoning-Q4_K_M.gguf".to_string(), "tokenizer.json".to_string()],
             Some("Q4_K_M".to_string()),
-        ).await?;
+        ).collect()
+            .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(format!("Download task failed: {}", e)))??;
 
         // Find GGUF and tokenizer files
         let gguf_file = result.files.iter()
@@ -383,7 +398,7 @@ impl CandlePhi4ReasoningProvider {
     }
 }
 
-impl CandleCompletionModel for CandlePhi4ReasoningProvider {
+impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
     fn prompt(
         &self,
         prompt: CandlePrompt,
@@ -466,13 +481,11 @@ impl CandleCompletionModel for CandlePhi4ReasoningProvider {
     }
 }
 
-// Implement builder trait
-impl BuilderCandleCompletionProvider for CandlePhi4ReasoningProvider {}
-
 // Static model info for Phi-4-Reasoning
 static PHI4_REASONING_MODEL_INFO: CandleModelInfo = CandleModelInfo {
-    provider_name: "candle-phi4-reasoning",
+    provider: crate::domain::model::CandleProvider::Unsloth,
     name: "phi-4-reasoning-q4-k-m",
+    registry_key: "unsloth/Phi-4-reasoning-GGUF",
     max_input_tokens: NonZeroU32::new(32768),
     max_output_tokens: NonZeroU32::new(32768),
     input_price: None,
@@ -488,12 +501,11 @@ static PHI4_REASONING_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     real_name: None,
     model_type: None,
     model_id: "phi-4-reasoning",
-    hf_repo_url: "unsloth/Phi-4-reasoning-GGUF",
     quantization: "Q4_K_M",
     patch: None,
 };
 
-impl CandleModel for CandlePhi4ReasoningProvider {
+impl CandleModel for CandlePhi4ReasoningModel {
     fn info(&self) -> &'static CandleModelInfo {
         &PHI4_REASONING_MODEL_INFO
     }

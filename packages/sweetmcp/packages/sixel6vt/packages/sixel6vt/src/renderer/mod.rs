@@ -680,6 +680,8 @@ pub fn encode_sixel(img: &image::RgbImage) -> String {
 /// complex images where geometric encoding would be too slow.
 /// This approach processes the image column-by-column with run-length encoding.
 fn encode_sixel_column_based(img: &image::RgbImage) -> String {
+        use std::collections::HashSet;
+        
         let mut result = String::from("\x1BPq");
 
         // Add raster attributes (aspect ratio 1:1, then dimensions)
@@ -690,89 +692,78 @@ fn encode_sixel_column_based(img: &image::RgbImage) -> String {
 
         // Process the image in sixel format (6 vertical pixels at a time)
         for y in (0..img.height()).step_by(SIXEL_HEIGHT as usize) {
-            // Initialize with color 0
-            result.push_str("#0");
-
-            let mut current_color = 0;
-            let mut run_length = 0;
-            let mut last_sixel_value = 0;
-
-            for x in 0..img.width() {
-                // Get the color for this column and select the dominant one
-                let mut column_colors = [0u16; SIXEL_HEIGHT as usize];
-
-                for i in 0..SIXEL_HEIGHT {
-                    if y + i < img.height() {
-                        let pixel = img.get_pixel(x, y + i);
-                        column_colors[i as usize] =
-                            find_closest_color_in_palette(pixel[0], pixel[1], pixel[2], &PALETTE);
+            // Collect all colors used in this sixel row
+            let mut colors_in_row = HashSet::new();
+            for row_offset in 0..SIXEL_HEIGHT {
+                if y + row_offset < img.height() {
+                    for x in 0..img.width() {
+                        let pixel = img.get_pixel(x, y + row_offset);
+                        let color = find_closest_color_in_palette(pixel[0], pixel[1], pixel[2], &PALETTE);
+                        colors_in_row.insert(color);
                     }
-                }
-
-                // Use most common color in this column
-                let dominant_color = find_dominant_color(&column_colors);
-
-                // Switch color if needed
-                if dominant_color != current_color {
-                    // Output any pending run-length
-                    if run_length > 0 {
-                        if run_length > 1 {
-                            result.push_str(&format!("!{}", run_length));
-                        }
-                        if let Some(ch) = char::from_u32(63 + last_sixel_value) {
-                            result.push(ch);
-                        }
-                        run_length = 0;
-                    }
-
-                    result.push_str(&format!("#{}", dominant_color));
-                    current_color = dominant_color;
-                }
-
-                // Calculate sixel value for this column
-                let mut sixel_value = 0;
-                for i in 0..SIXEL_HEIGHT {
-                    if y + i < img.height() {
-                        // Set bit i if pixel is closer to foreground than background
-                        let color = column_colors[i as usize];
-
-                        // If color matches dominant, set the bit
-                        if color == current_color {
-                            sixel_value |= 1 << i;
-                        }
-                    }
-                }
-
-                // Check if we can use run-length encoding
-                if sixel_value == last_sixel_value && run_length > 0 {
-                    run_length += 1;
-                } else {
-                    // Output any pending run-length
-                    if run_length > 0 {
-                        if run_length > 1 {
-                            result.push_str(&format!("!{}", run_length));
-                        }
-                        if let Some(ch) = char::from_u32(63 + last_sixel_value) {
-                            result.push(ch);
-                        }
-                    }
-
-                    last_sixel_value = sixel_value;
-                    run_length = 1;
                 }
             }
-
-            // Output the last run
-            if run_length > 0 {
-                if run_length > 1 {
-                    result.push_str(&format!("!{}", run_length));
+            
+            // Convert to sorted vec for deterministic output
+            let mut colors: Vec<u16> = colors_in_row.into_iter().collect();
+            colors.sort_unstable();
+            
+            // For each color in this row, output a complete pass over all columns
+            for (color_idx, &color) in colors.iter().enumerate() {
+                result.push_str(&format!("#{}", color));
+                
+                // Encode all columns for this specific color
+                let mut run_length = 0;
+                let mut last_sixel_value = 0u32;
+                
+                for x in 0..img.width() {
+                    // Calculate sixel value for this column and this specific color
+                    let mut sixel_value = 0u32;
+                    for i in 0..SIXEL_HEIGHT {
+                        if y + i < img.height() {
+                            let pixel = img.get_pixel(x, y + i);
+                            let pixel_color = find_closest_color_in_palette(pixel[0], pixel[1], pixel[2], &PALETTE);
+                            if pixel_color == color {
+                                sixel_value |= 1 << i;
+                            }
+                        }
+                    }
+                    
+                    // Run-length encoding
+                    if sixel_value == last_sixel_value && run_length > 0 {
+                        run_length += 1;
+                    } else {
+                        // Output previous run
+                        if run_length > 0 {
+                            if run_length > 1 {
+                                result.push_str(&format!("!{}", run_length));
+                            }
+                            if let Some(ch) = char::from_u32(63 + last_sixel_value) {
+                                result.push(ch);
+                            }
+                        }
+                        last_sixel_value = sixel_value;
+                        run_length = 1;
+                    }
                 }
-                if let Some(ch) = char::from_u32(63 + last_sixel_value) {
-                    result.push(ch);
+                
+                // Output final run for this color
+                if run_length > 0 {
+                    if run_length > 1 {
+                        result.push_str(&format!("!{}", run_length));
+                    }
+                    if let Some(ch) = char::from_u32(63 + last_sixel_value) {
+                        result.push(ch);
+                    }
+                }
+                
+                // Carriage return to start of row for next color pass (except after last color)
+                if color_idx < colors.len() - 1 {
+                    result.push('$');
                 }
             }
-
-            // End of line - use "-" for Rio compatibility instead of "$\n"
+            
+            // Next line (move to next sixel row)
             result.push('-');
         }
 

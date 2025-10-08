@@ -1,19 +1,19 @@
 //! Core agent data structures with automatic memory tool injection
 
-use std::sync::{atomic::AtomicUsize, Arc};
+use std::sync::{Arc, atomic::AtomicUsize};
 
 use crossbeam_utils::CachePadded;
-use ystream::AsyncStream;
 use serde_json::Value;
 use sweet_mcp_type::ToolInfo;
+use ystream::AsyncStream;
 
-use crate::domain::context::CandleDocument as Document;
-use crate::domain::memory::config::memory::MemoryConfig as ComprehensiveMemoryConfig;
-use crate::domain::memory::MemoryConfig;
-use crate::domain::memory::{Error as MemoryError, MemoryTool, MemoryToolError};
-use crate::memory::core::SurrealDBMemoryManager;
-use crate::domain::model::CandleModel as Model;
 use crate::core::EngineError;
+use crate::domain::context::CandleDocument as Document;
+use crate::domain::memory::MemoryConfig;
+use crate::domain::memory::config::memory::MemoryConfig as ComprehensiveMemoryConfig;
+use crate::domain::memory::{Error as MemoryError, MemoryTool, MemoryToolError};
+use crate::domain::model::CandleModel as Model;
+use crate::memory::core::SurrealDBMemoryManager;
 // Tool data now comes from SweetMCP ToolInfo directly
 use cyrup_sugars::ZeroOneOrMany;
 
@@ -138,7 +138,8 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
                 // Initialize memory system with cognitive settings optimized for performance
                 let comprehensive_config = ComprehensiveMemoryConfig::default();
                 // Convert comprehensive config to Memory::new() format
-                let _memory_config = MemoryConfig { // Reserved for future memory configuration
+                let _memory_config = MemoryConfig {
+                    // Reserved for future memory configuration
                     database: crate::domain::memory::config::database::DatabaseConfig {
                         db_type: crate::domain::memory::config::database::DatabaseType::SurrealDB,
                         connection_string: comprehensive_config.database.connection_string.clone(),
@@ -147,50 +148,65 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
                         username: None,
                         password: None,
                         pool_config: crate::domain::memory::config::database::PoolConfig::default(),
-                        timeout_config: crate::domain::memory::config::database::TimeoutConfig::default(),
-                        health_check_config: crate::domain::memory::config::database::HealthCheckConfig::default(),
+                        timeout_config:
+                            crate::domain::memory::config::database::TimeoutConfig::default(),
+                        health_check_config:
+                            crate::domain::memory::config::database::HealthCheckConfig::default(),
                         options: None,
                     },
-                    vector_store: crate::domain::memory::config::vector::VectorStoreConfig::default(),
+                    vector_store: crate::domain::memory::config::vector::VectorStoreConfig::default(
+                    ),
                     provider_model: crate::domain::chat::config::CandleModelConfig::default(),
-                    cognitive: crate::domain::memory::cognitive::types::CognitiveMemoryConfig::default(),
-                    cognitive_processor: crate::domain::memory::cognitive::types::CognitiveProcessorConfig::default(),
-                    performance: crate::domain::memory::config::memory::MemoryPerformanceConfig::default(),
-                    retention: crate::domain::memory::config::memory::MemoryRetentionConfig::default(),
-                    security: crate::domain::memory::config::memory::MemorySecurityConfig::default(),
-                    monitoring: crate::domain::memory::config::memory::MemoryMonitoringConfig::default(),
+                    cognitive:
+                        crate::domain::memory::cognitive::types::CognitiveMemoryConfig::default(),
+                    cognitive_processor:
+                        crate::domain::memory::cognitive::types::CognitiveProcessorConfig::default(),
+                    performance:
+                        crate::domain::memory::config::memory::MemoryPerformanceConfig::default(),
+                    retention:
+                        crate::domain::memory::config::memory::MemoryRetentionConfig::default(),
+                    security: crate::domain::memory::config::memory::MemorySecurityConfig::default(
+                    ),
+                    monitoring:
+                        crate::domain::memory::config::memory::MemoryMonitoringConfig::default(),
                 };
 
                 // Spawn async task to properly initialize memory and create agent
                 tokio::spawn(async move {
                     // Initialize the memory system asynchronously
-                    let memory_manager = match crate::memory::initialize(&crate::memory::MemoryConfig {
-                        database: crate::memory::utils::config::DatabaseConfig {
-                            db_type: crate::memory::utils::config::DatabaseType::SurrealDB,
-                            connection_string: comprehensive_config.database.connection_string.clone(),
-                            namespace: "test".to_string(),
-                            database: "memory".to_string(),
-                            username: None,
-                            password: None,
-                            pool_size: None,
-                            options: None,
-                        },
-                        vector_store: crate::memory::utils::config::VectorStoreConfig::default(),
-                        completion: crate::memory::utils::config::CompletionConfig::default(),
-                        api: None,
-                        cache: crate::memory::utils::config::CacheConfig::default(),
-                        logging: crate::memory::utils::config::LoggingConfig::default(),
-                    }).await {
-                        Ok(manager) => manager,
-                        Err(e) => {
-                            let _ = sender.send(crate::domain::context::chunk::CandleResult { 
-                                result: Err(AgentError::Config(
-                                    format!("Failed to initialize memory: {e}"),
-                                ))
-                            });
-                            return;
-                        }
-                    };
+                    let memory_manager =
+                        match crate::memory::initialize(&crate::memory::MemoryConfig {
+                            database: crate::memory::utils::config::DatabaseConfig {
+                                db_type: crate::memory::utils::config::DatabaseType::SurrealDB,
+                                connection_string: comprehensive_config
+                                    .database
+                                    .connection_string
+                                    .clone(),
+                                namespace: "test".to_string(),
+                                database: "memory".to_string(),
+                                username: None,
+                                password: None,
+                                pool_size: None,
+                                options: None,
+                            },
+                            vector_store: crate::memory::utils::config::VectorStoreConfig::default(
+                            ),
+                            api: None,
+                            cache: crate::memory::utils::config::CacheConfig::default(),
+                            logging: crate::memory::utils::config::LoggingConfig::default(),
+                        })
+                        .await
+                        {
+                            Ok(manager) => manager,
+                            Err(e) => {
+                                let _ = sender.send(crate::domain::context::chunk::CandleResult {
+                                    result: Err(AgentError::Config(format!(
+                                        "Failed to initialize memory: {e}"
+                                    ))),
+                                });
+                                return;
+                            }
+                        };
 
                     // Create memory tool with the initialized manager
                     let memory_manager_arc = Arc::new(memory_manager);
@@ -211,9 +227,8 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
                     };
 
                     // Send the successfully created agent
-                    let _ = sender.send(crate::domain::context::chunk::CandleResult { 
-                        result: Ok(agent)
-                    });
+                    let _ = sender
+                        .send(crate::domain::context::chunk::CandleResult { result: Ok(agent) });
                 });
             });
         })
@@ -251,50 +266,62 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
                         username: None,
                         password: None,
                         pool_config: crate::domain::memory::config::database::PoolConfig::default(),
-                        timeout_config: crate::domain::memory::config::database::TimeoutConfig::default(),
-                        health_check_config: crate::domain::memory::config::database::HealthCheckConfig::default(),
+                        timeout_config:
+                            crate::domain::memory::config::database::TimeoutConfig::default(),
+                        health_check_config:
+                            crate::domain::memory::config::database::HealthCheckConfig::default(),
                         options: None,
                     },
-                    vector_store: crate::domain::memory::config::vector::VectorStoreConfig::default(),
+                    vector_store: crate::domain::memory::config::vector::VectorStoreConfig::default(
+                    ),
                     provider_model: crate::domain::chat::config::CandleModelConfig::default(),
-                    cognitive: crate::domain::memory::cognitive::types::CognitiveMemoryConfig::default(),
-                    cognitive_processor: crate::domain::memory::cognitive::types::CognitiveProcessorConfig::default(),
-                    performance: crate::domain::memory::config::memory::MemoryPerformanceConfig::default(),
-                    retention: crate::domain::memory::config::memory::MemoryRetentionConfig::default(),
-                    security: crate::domain::memory::config::memory::MemorySecurityConfig::default(),
-                    monitoring: crate::domain::memory::config::memory::MemoryMonitoringConfig::default(),
+                    cognitive:
+                        crate::domain::memory::cognitive::types::CognitiveMemoryConfig::default(),
+                    cognitive_processor:
+                        crate::domain::memory::cognitive::types::CognitiveProcessorConfig::default(),
+                    performance:
+                        crate::domain::memory::config::memory::MemoryPerformanceConfig::default(),
+                    retention:
+                        crate::domain::memory::config::memory::MemoryRetentionConfig::default(),
+                    security: crate::domain::memory::config::memory::MemorySecurityConfig::default(
+                    ),
+                    monitoring:
+                        crate::domain::memory::config::memory::MemoryMonitoringConfig::default(),
                 };
 
                 // Spawn async task to properly initialize memory and create agent
                 tokio::spawn(async move {
                     // Initialize the memory system asynchronously
-                    let memory_manager = match crate::memory::initialize(&crate::memory::MemoryConfig {
-                        database: crate::memory::utils::config::DatabaseConfig {
-                            db_type: crate::memory::utils::config::DatabaseType::SurrealDB,
-                            connection_string: memory_cfg.database.connection_string.clone(),
-                            namespace: "test".to_string(),
-                            database: "memory".to_string(),
-                            username: None,
-                            password: None,
-                            pool_size: None,
-                            options: None,
-                        },
-                        vector_store: crate::memory::utils::config::VectorStoreConfig::default(),
-                        completion: crate::memory::utils::config::CompletionConfig::default(),
-                        api: None,
-                        cache: crate::memory::utils::config::CacheConfig::default(),
-                        logging: crate::memory::utils::config::LoggingConfig::default(),
-                    }).await {
-                        Ok(manager) => manager,
-                        Err(e) => {
-                            let _ = sender.send(crate::domain::context::chunk::CandleResult { 
-                                result: Err(AgentError::Config(
-                                    format!("Failed to initialize memory: {e}"),
-                                ))
-                            });
-                            return;
-                        }
-                    };
+                    let memory_manager =
+                        match crate::memory::initialize(&crate::memory::MemoryConfig {
+                            database: crate::memory::utils::config::DatabaseConfig {
+                                db_type: crate::memory::utils::config::DatabaseType::SurrealDB,
+                                connection_string: memory_cfg.database.connection_string.clone(),
+                                namespace: "test".to_string(),
+                                database: "memory".to_string(),
+                                username: None,
+                                password: None,
+                                pool_size: None,
+                                options: None,
+                            },
+                            vector_store: crate::memory::utils::config::VectorStoreConfig::default(
+                            ),
+                            api: None,
+                            cache: crate::memory::utils::config::CacheConfig::default(),
+                            logging: crate::memory::utils::config::LoggingConfig::default(),
+                        })
+                        .await
+                        {
+                            Ok(manager) => manager,
+                            Err(e) => {
+                                let _ = sender.send(crate::domain::context::chunk::CandleResult {
+                                    result: Err(AgentError::Config(format!(
+                                        "Failed to initialize memory: {e}"
+                                    ))),
+                                });
+                                return;
+                            }
+                        };
 
                     // Create memory tool with the initialized manager
                     let memory_manager_arc = Arc::new(memory_manager);
@@ -315,9 +342,8 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
                     };
 
                     // Send the successfully created agent
-                    let _ = sender.send(crate::domain::context::chunk::CandleResult { 
-                        result: Ok(agent)
-                    });
+                    let _ = sender
+                        .send(crate::domain::context::chunk::CandleResult { result: Ok(agent) });
                 });
             });
         })
@@ -360,9 +386,8 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
                     error: None,
                 };
 
-                let _ = sender.send(crate::domain::context::chunk::CandleResult { 
-                    result: Ok(agent)
-                });
+                let _ =
+                    sender.send(crate::domain::context::chunk::CandleResult { result: Ok(agent) });
             });
         })
     }
@@ -476,7 +501,7 @@ use cyrup_sugars::prelude::MessageChunk;
 impl<M: Model + Clone + Send + 'static + Default> MessageChunk for Agent<M> {
     fn bad_chunk(error: String) -> Self {
         let typed_error = AgentError::Unknown(error.clone());
-        
+
         Self {
             model: M::default(),
             system_prompt: error, // Keep error string in system_prompt for error() lifetime
@@ -509,13 +534,13 @@ impl<M: Model> Agent<M> {
     pub fn get_error(&self) -> Option<&AgentError> {
         self.error.as_ref()
     }
-    
+
     /// Check if agent is in error state
     #[inline]
     pub fn has_error(&self) -> bool {
         self.error.is_some()
     }
-    
+
     /// Clear error state
     pub fn clear_error(&mut self) {
         self.error = None;

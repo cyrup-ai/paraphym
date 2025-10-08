@@ -3,50 +3,41 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
-use tokio::sync::RwLock;
 use chrono;
 use moka::sync::Cache;
+use tokio::sync::RwLock;
 
-use crate::capability::text_embedding::CandleBertEmbeddingProvider;
-use crate::memory::vector::embedding_model::EmbeddingModel;
+use crate::capability::text_embedding::CandleBertEmbeddingModel;
+use crate::capability::traits::TextEmbeddingCapable;
+use crate::capability::registry::TextEmbeddingModel;
+use crate::domain::model::traits::CandleModel;
 
-use crate::memory::{
-    MemoryMetadata, MemoryRelationship, 
-    repository::MemoryRepository,
+use crate::domain::memory::cognitive::types::{CognitiveState, EntanglementType};
+use crate::domain::memory::primitives::{node::MemoryNode, types::MemoryTypeEnum};
+use crate::memory::core::manager::surreal::{
+    MemoryManager, MemoryQuery, MemoryStream, PendingDeletion, PendingEntanglementEdge,
+    PendingMemory, PendingQuantumSignature, PendingQuantumUpdate, PendingRelationship,
+    RelationshipStream, SurrealDBMemoryManager,
 };
 use crate::memory::core::ops::filter::MemoryFilter;
-use crate::domain::memory::primitives::{
-    types::MemoryTypeEnum,
-    node::MemoryNode,
-};
 use crate::memory::core::primitives::{
-    types::MemoryTypeEnum as CoreMemoryTypeEnum,
-    node::MemoryNode as CoreMemoryNode,
+    node::MemoryNode as CoreMemoryNode, types::MemoryTypeEnum as CoreMemoryTypeEnum,
 };
 use crate::memory::utils::{Error, Result};
-use crate::memory::core::manager::surreal::{
-    SurrealDBMemoryManager, MemoryManager, MemoryStream, 
-    PendingMemory, MemoryQuery, PendingDeletion, 
-    PendingRelationship, RelationshipStream,
-    PendingQuantumUpdate, PendingQuantumSignature, PendingEntanglementEdge
-};
-use crate::domain::memory::cognitive::types::{CognitiveState, EntanglementType};
+use crate::memory::{MemoryMetadata, MemoryRelationship, repository::MemoryRepository};
 use futures_util::StreamExt;
-
-
 
 // Cognitive queue from memory/core module
 use crate::memory::core::cognitive_queue::{
-    CognitiveProcessingQueue, CognitiveTask, CognitiveTaskType
+    CognitiveProcessingQueue, CognitiveTask, CognitiveTaskType,
 };
 
 // Committee evaluator from memory/cognitive module
-use crate::memory::cognitive::committee::ProviderCommitteeEvaluator;
+use crate::memory::cognitive::committee::ModelCommitteeEvaluator;
 
 // Quantum components from memory/cognitive/quantum module
 use crate::memory::cognitive::quantum::{
-    QuantumRouter, QuantumState, RoutingStrategy,
-    EnhancedQuery, TemporalContext
+    EnhancedQuery, QuantumRouter, QuantumState, RoutingStrategy, TemporalContext,
 };
 
 /// Strategy for handling memories with pending cognitive evaluation
@@ -62,17 +53,17 @@ pub enum LazyEvalStrategy {
 }
 
 /// High-level memory manager that uses SurrealDB's native capabilities directly
-/// 
+///
 /// Note: cognitive_queue, committee_evaluator, quantum_router, and quantum_state
 /// are wired in but not used until COGMEM_4 worker implementation
 #[allow(dead_code)]
 pub struct MemoryCoordinator {
     surreal_manager: Arc<SurrealDBMemoryManager>,
     repository: Arc<RwLock<MemoryRepository>>,
-    embedding_model: Arc<dyn EmbeddingModel>,
+    embedding_model: TextEmbeddingModel,
     // NEW COGNITIVE FIELDS:
     cognitive_queue: Arc<CognitiveProcessingQueue>,
-    committee_evaluator: Arc<ProviderCommitteeEvaluator>,
+    committee_evaluator: Arc<ModelCommitteeEvaluator>,
     quantum_router: Arc<QuantumRouter>,
     quantum_state: Arc<RwLock<QuantumState>>,
     cognitive_workers: Arc<std::sync::RwLock<Vec<std::thread::JoinHandle<()>>>>,
@@ -84,17 +75,17 @@ pub struct MemoryCoordinator {
 }
 
 impl MemoryCoordinator {
-    /// Create a new memory coordinator with SurrealDB
-    pub async fn new(surreal_manager: Arc<SurrealDBMemoryManager>) -> Result<Self> {
-        // Initialize BERT embedding model (existing)
-        let embedding_model = Arc::new(CandleBertEmbeddingProvider::new().await?) 
-            as Arc<dyn EmbeddingModel>;
-
+    /// Create a new memory coordinator with SurrealDB and embedding model
+    pub async fn new(
+        surreal_manager: Arc<SurrealDBMemoryManager>,
+        embedding_model: TextEmbeddingModel,
+    ) -> Result<Self> {
         // Initialize committee evaluator with error handling
-        // Note: ProviderCommitteeEvaluator::new() is async and returns Result<Self, CognitiveError>
+        // Note: ModelCommitteeEvaluator::new() is async and returns Result<Self, CognitiveError>
         let committee_evaluator = Arc::new(
-            ProviderCommitteeEvaluator::new().await
-                .map_err(|e| Error::Internal(format!("Failed to init committee: {:?}", e)))?
+            ModelCommitteeEvaluator::new()
+                .await
+                .map_err(|e| Error::Internal(format!("Failed to init committee: {:?}", e)))?,
         );
 
         let cognitive_queue = Arc::new(CognitiveProcessingQueue::new());
@@ -102,20 +93,18 @@ impl MemoryCoordinator {
         let quantum_state = Arc::new(RwLock::new(QuantumState::new()));
 
         // Spawn cognitive workers
-        let num_workers = 2;  // Start with 2 worker threads
+        let num_workers = 2; // Start with 2 worker threads
         let mut cognitive_workers = Vec::new();
-        
+
         for worker_id in 0..num_workers {
             let queue = cognitive_queue.clone();
             let manager = surreal_manager.clone();
             let evaluator = committee_evaluator.clone();
-            
+
             let worker = crate::memory::core::cognitive_worker::CognitiveWorker::new(
-                queue, 
-                manager, 
-                evaluator,
+                queue, manager, evaluator,
             );
-            
+
             let handle = std::thread::Builder::new()
                 .name(format!("cognitive-worker-{}", worker_id))
                 .spawn(move || {
@@ -123,13 +112,18 @@ impl MemoryCoordinator {
                     worker.run();
                     log::info!("Cognitive worker {} stopped", worker_id);
                 })
-                .map_err(|e| Error::Internal(format!("Failed to spawn cognitive worker thread {}: {}", worker_id, e)))?;
-            
+                .map_err(|e| {
+                    Error::Internal(format!(
+                        "Failed to spawn cognitive worker thread {}: {}",
+                        worker_id, e
+                    ))
+                })?;
+
             cognitive_workers.push(handle);
         }
-        
+
         log::info!("Started {} cognitive worker threads", num_workers);
-        
+
         Ok(Self {
             surreal_manager,
             repository: Arc::new(RwLock::new(MemoryRepository::new())),
@@ -158,7 +152,10 @@ impl MemoryCoordinator {
     /// This method calculates exponential decay based on memory age and updates:
     /// - Memory importance score (reduced over time)
     /// - Quantum coherence level (simulating decoherence)
-    async fn apply_temporal_decay(&self, memory: &mut crate::domain::memory::primitives::node::MemoryNode) -> Result<()> {
+    async fn apply_temporal_decay(
+        &self,
+        memory: &mut crate::domain::memory::primitives::node::MemoryNode,
+    ) -> Result<()> {
         // Convert SystemTime to DateTime<Utc> for calculation
         let created_time = chrono::DateTime::<chrono::Utc>::from(memory.base_memory.created_at);
         let now = chrono::Utc::now();
@@ -167,7 +164,7 @@ impl MemoryCoordinator {
         let age = now.signed_duration_since(created_time);
 
         // Calculate days old with fractional precision
-        let days_old = age.num_seconds() as f64 / 86400.0;  // seconds per day
+        let days_old = age.num_seconds() as f64 / 86400.0; // seconds per day
 
         // Apply exponential decay: e^(-decay_rate * days)
         // Using self.decay_rate for configurability
@@ -175,10 +172,11 @@ impl MemoryCoordinator {
 
         // Apply decay to importance (ensure it doesn't go below minimum threshold)
         let current_importance = memory.importance();
-        let new_importance = (current_importance * decay as f32).max(0.01);  // Minimum threshold 0.01
+        let new_importance = (current_importance * decay as f32).max(0.01); // Minimum threshold 0.01
 
         // Update memory importance using existing setter
-        memory.set_importance(new_importance)
+        memory
+            .set_importance(new_importance)
             .map_err(|e| Error::Internal(format!("Failed to set decayed importance: {}", e)))?;
 
         // Also decay quantum coherence if applicable
@@ -190,22 +188,28 @@ impl MemoryCoordinator {
 
         // Update last_accessed_at in metadata to track access patterns
         memory.stats.record_read();
-        
+
         log::trace!(
             "Temporal decay applied to {}: importance {} -> {} (age: {:.2} days)",
-            memory.id(), current_importance, new_importance, days_old
+            memory.id(),
+            current_importance,
+            new_importance,
+            days_old
         );
 
         Ok(())
     }
 
     /// Apply temporal decay to core memory node (for internal use)
-    /// 
+    ///
     /// Note: Currently unused as architecture applies decay at domain layer.
     /// Retained for future optimization where decay might be applied to core nodes
     /// before domain conversion to reduce conversion overhead.
     #[allow(dead_code)]
-    async fn apply_temporal_decay_core(&self, memory: &mut crate::memory::core::primitives::node::MemoryNode) -> Result<()> {
+    async fn apply_temporal_decay_core(
+        &self,
+        memory: &mut crate::memory::core::primitives::node::MemoryNode,
+    ) -> Result<()> {
         let now = chrono::Utc::now();
         let age = now.signed_duration_since(memory.created_at);
 
@@ -233,7 +237,9 @@ impl MemoryCoordinator {
     ///   - 0.5: Fast decay (strong recency bias)
     pub fn set_decay_rate(&mut self, rate: f64) -> Result<()> {
         if rate <= 0.0 || rate > 1.0 {
-            return Err(Error::InvalidInput("Decay rate must be between 0.0 and 1.0".into()));
+            return Err(Error::InvalidInput(
+                "Decay rate must be between 0.0 and 1.0".into(),
+            ));
         }
         self.decay_rate = rate;
         log::info!("Temporal decay rate updated to {}", rate);
@@ -246,25 +252,25 @@ impl MemoryCoordinator {
     }
 
     /// Spawn background cognitive workers
-    /// 
+    ///
     /// Returns the number of workers successfully spawned
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns `Error::Internal` if unable to store worker handles due to lock poisoning
     pub fn spawn_cognitive_workers(&self, worker_count: usize) -> Result<usize> {
         use crate::memory::core::cognitive_worker::CognitiveWorker;
-        
+
         let mut handles = vec![];
         let mut spawned_count = 0;
-        
+
         for i in 0..worker_count {
             let worker = CognitiveWorker::new(
                 self.cognitive_queue.clone(),
                 self.surreal_manager.clone(),
                 self.committee_evaluator.clone(),
             );
-            
+
             match std::thread::Builder::new()
                 .name(format!("cognitive-worker-{}", i))
                 .spawn(move || {
@@ -273,36 +279,49 @@ impl MemoryCoordinator {
                 Ok(handle) => {
                     handles.push(handle);
                     spawned_count += 1;
-                },
+                }
                 Err(e) => {
                     log::error!("Failed to spawn cognitive worker thread {}: {}", i, e);
                     // Continue with remaining workers rather than failing completely
                 }
             }
         }
-        
+
         // Store handles for potential future graceful shutdown
         self.cognitive_workers
             .write()
-            .map_err(|e| Error::Internal(format!("Failed to acquire write lock for cognitive workers: {}", e)))?
+            .map_err(|e| {
+                Error::Internal(format!(
+                    "Failed to acquire write lock for cognitive workers: {}",
+                    e
+                ))
+            })?
             .extend(handles);
-        
-        log::info!("Spawned {}/{} cognitive worker threads", spawned_count, worker_count);
+
+        log::info!(
+            "Spawned {}/{} cognitive worker threads",
+            spawned_count,
+            worker_count
+        );
         Ok(spawned_count)
     }
 
     /// Enqueue a cognitive task for background processing
     pub fn enqueue_cognitive_task(
-        &self, 
-        memory_id: String, 
-        task_type: CognitiveTaskType, 
-        priority: u8
+        &self,
+        memory_id: String,
+        task_type: CognitiveTaskType,
+        priority: u8,
     ) -> crate::memory::utils::Result<()> {
         use crate::memory::core::cognitive_queue::CognitiveTask;
-        
+
         let task = CognitiveTask::new(memory_id, task_type, priority);
-        self.cognitive_queue.enqueue(task)
-            .map_err(|e| crate::memory::utils::Error::Internal(format!("Failed to enqueue cognitive task: {}", e)))
+        self.cognitive_queue.enqueue(task).map_err(|e| {
+            crate::memory::utils::Error::Internal(format!(
+                "Failed to enqueue cognitive task: {}",
+                e
+            ))
+        })
     }
 
     /// Add a new memory using SurrealDB's native capabilities with deduplication
@@ -329,97 +348,128 @@ impl MemoryCoordinator {
     ) -> Result<MemoryNode> {
         // Calculate content hash for deduplication
         let content_hash = crate::domain::memory::serialization::content_hash(&content);
-        
+
         // Check if document with same content hash already exists
-        if let Some(_existing_memory) = self.surreal_manager.find_document_by_hash(content_hash).await? {
+        if let Some(_existing_memory) = self
+            .surreal_manager
+            .find_document_by_hash(content_hash)
+            .await?
+        {
             // Document exists - refresh age instead of re-ingesting
             let now = chrono::Utc::now();
-            let updated = self.surreal_manager.update_document_age_by_hash(content_hash, now).await?;
-            
+            let updated = self
+                .surreal_manager
+                .update_document_age_by_hash(content_hash, now)
+                .await?;
+
             if updated {
                 log::info!(
                     "Document already exists (hash: {}), age refreshed to brand new",
                     content_hash
                 );
-                
+
                 // Return the existing memory with refreshed timestamp (converted to domain)
                 // Re-fetch to get updated timestamps
-                let refreshed_memory = self.surreal_manager.find_document_by_hash(content_hash).await?
-                    .ok_or_else(|| Error::Internal("Failed to re-fetch refreshed document".to_string()))?;
+                let refreshed_memory = self
+                    .surreal_manager
+                    .find_document_by_hash(content_hash)
+                    .await?
+                    .ok_or_else(|| {
+                        Error::Internal("Failed to re-fetch refreshed document".to_string())
+                    })?;
                 return self.convert_memory_to_domain_node(&refreshed_memory);
             } else {
-                log::warn!("Failed to refresh age for existing document (hash: {})", content_hash);
+                log::warn!(
+                    "Failed to refresh age for existing document (hash: {})",
+                    content_hash
+                );
                 // Fall through to normal ingestion if update failed
             }
         }
-        
+
         // Document is new - proceed with normal ingestion
         log::debug!("Ingesting new document (hash: {})", content_hash);
-        
+
         // Create domain memory node first
-        let content_struct = crate::domain::memory::primitives::types::MemoryContent::text(content.clone());
+        let content_struct =
+            crate::domain::memory::primitives::types::MemoryContent::text(content.clone());
         let mut domain_memory = MemoryNode::new(memory_type, content_struct);
-        domain_memory.set_importance(metadata.importance)
+        domain_memory
+            .set_importance(metadata.importance)
             .map_err(|e| Error::Internal(format!("Failed to set importance: {}", e)))?;
 
         // Apply metadata keywords and tags
         for keyword in &metadata.keywords {
             domain_memory.set_custom_metadata(
                 format!("keyword_{}", keyword),
-                serde_json::Value::String(keyword.clone())
+                serde_json::Value::String(keyword.clone()),
             );
         }
 
         for tag in &metadata.tags {
             domain_memory.set_custom_metadata(
                 format!("tag_{}", tag),
-                serde_json::Value::String(tag.clone())
+                serde_json::Value::String(tag.clone()),
             );
         }
 
         // Generate embedding for the content
         let embedding_vec = self.generate_embedding(&content).await?;
-        domain_memory.embedding = Some(crate::domain::memory::primitives::node::AlignedEmbedding::new(embedding_vec.clone()));
+        domain_memory.embedding = Some(
+            crate::domain::memory::primitives::node::AlignedEmbedding::new(embedding_vec.clone()),
+        );
 
         // Convert to memory system format for SurrealDB storage
         let memory_for_storage = self.convert_domain_to_memory_node(&domain_memory);
 
         // Store in SurrealDB - it handles embedding indexing natively
-        let stored_memory = self.surreal_manager.create_memory(memory_for_storage.clone()).await?;
+        let stored_memory = self
+            .surreal_manager
+            .create_memory(memory_for_storage.clone())
+            .await?;
 
         // Queue cognitive evaluation task with batching (non-blocking)
-        if let Err(e) = self.cognitive_queue.enqueue_with_batching(
-            CognitiveTask::new(
+        if let Err(e) = self
+            .cognitive_queue
+            .enqueue_with_batching(CognitiveTask::new(
                 stored_memory.id.clone(),
                 CognitiveTaskType::CommitteeEvaluation,
-                5  // Priority: medium (0-255 scale)
-            )
-        ) {
+                5, // Priority: medium (0-255 scale)
+            ))
+        {
             // Log warning but don't fail - memory already stored
-            log::warn!("Failed to queue committee evaluation for memory {}: {}", stored_memory.id, e);
+            log::warn!(
+                "Failed to queue committee evaluation for memory {}: {}",
+                stored_memory.id,
+                e
+            );
         }
 
         // Queue quantum routing task for search optimization
-        if let Err(e) = self.cognitive_queue.enqueue(
-            CognitiveTask::new(
-                stored_memory.id.clone(),
-                CognitiveTaskType::QuantumRouting,
-                3  // Priority: lower than committee
-            )
-        ) {
-            log::warn!("Failed to queue quantum routing for memory {}: {}", stored_memory.id, e);
+        if let Err(e) = self.cognitive_queue.enqueue(CognitiveTask::new(
+            stored_memory.id.clone(),
+            CognitiveTaskType::QuantumRouting,
+            3, // Priority: lower than committee
+        )) {
+            log::warn!(
+                "Failed to queue quantum routing for memory {}: {}",
+                stored_memory.id,
+                e
+            );
         }
 
         // Queue entanglement discovery task for background processing
-        if let Err(e) = self.cognitive_queue.enqueue(
-            CognitiveTask::new(
-                stored_memory.id.clone(),
-                CognitiveTaskType::EntanglementDiscovery,
-                3  // Lower priority than committee evaluation
-            )
-        ) {
+        if let Err(e) = self.cognitive_queue.enqueue(CognitiveTask::new(
+            stored_memory.id.clone(),
+            CognitiveTaskType::EntanglementDiscovery,
+            3, // Lower priority than committee evaluation
+        )) {
             // Log but don't fail - entanglement is enhancement, not critical
-            log::warn!("Failed to queue entanglement discovery for {}: {}", stored_memory.id, e);
+            log::warn!(
+                "Failed to queue entanglement discovery for {}: {}",
+                stored_memory.id,
+                e
+            );
         }
 
         // Add to repository cache
@@ -466,17 +516,19 @@ impl MemoryCoordinator {
     /// ```
     pub async fn get_memory(&self, id: &str) -> Result<Option<MemoryNode>> {
         let memory_option = self.surreal_manager.get_memory(id).await?;
-        
+
         match memory_option {
             Some(mut memory) => {
                 // Apply lazy evaluation strategy if memory evaluation is pending
-                if memory.evaluation_status == crate::memory::monitoring::operations::OperationStatus::Pending {
+                if memory.evaluation_status
+                    == crate::memory::monitoring::operations::OperationStatus::Pending
+                {
                     match self.lazy_eval_strategy {
                         LazyEvalStrategy::WaitForCompletion => {
                             // Poll database until evaluation completes or timeout
                             let timeout = Duration::from_secs(5);
                             let start = Instant::now();
-                            
+
                             loop {
                                 // Re-fetch to check if background worker completed evaluation
                                 if let Ok(Some(updated)) = self.surreal_manager.get_memory(&memory.id).await
@@ -484,12 +536,15 @@ impl MemoryCoordinator {
                                     memory = updated;
                                     break;
                                 }
-                                
+
                                 if start.elapsed() >= timeout {
-                                    log::warn!("Evaluation timeout for memory {}, returning with Pending status", memory.id);
+                                    log::warn!(
+                                        "Evaluation timeout for memory {}, returning with Pending status",
+                                        memory.id
+                                    );
                                     break;
                                 }
-                                
+
                                 tokio::time::sleep(Duration::from_millis(100)).await;
                             }
                         }
@@ -500,27 +555,48 @@ impl MemoryCoordinator {
                         LazyEvalStrategy::TriggerAndWait => {
                             // Check cache first to avoid redundant LLM calls
                             if let Some(cached_score) = self.evaluation_cache.get(&memory.id) {
-                                memory.metadata.set_custom("quality_score", cached_score).ok();
-                                memory.evaluation_status = crate::memory::monitoring::operations::OperationStatus::Success;
+                                memory
+                                    .metadata
+                                    .set_custom("quality_score", cached_score)
+                                    .ok();
+                                memory.evaluation_status =
+                                    crate::memory::monitoring::operations::OperationStatus::Success;
                             } else {
                                 // Trigger immediate synchronous evaluation
-                                match self.committee_evaluator.evaluate(&memory.content.text).await {
+                                match self
+                                    .committee_evaluator
+                                    .evaluate(&memory.content.text)
+                                    .await
+                                {
                                     Ok(score) => {
                                         memory.metadata.set_custom("quality_score", score).ok();
                                         memory.evaluation_status = crate::memory::monitoring::operations::OperationStatus::Success;
-                                        
+
                                         // Cache the result
                                         self.evaluation_cache.insert(memory.id.clone(), score);
-                                        
+
                                         // Persist to database
-                                        if let Err(e) = self.surreal_manager.update_memory(memory.clone()).await {
-                                            log::error!("Failed to update evaluated memory {}: {:?}", memory.id, e);
+                                        if let Err(e) =
+                                            self.surreal_manager.update_memory(memory.clone()).await
+                                        {
+                                            log::error!(
+                                                "Failed to update evaluated memory {}: {:?}",
+                                                memory.id,
+                                                e
+                                            );
                                         }
                                     }
                                     Err(e) => {
-                                        log::error!("Immediate evaluation failed for {}: {:?}", memory.id, e);
+                                        log::error!(
+                                            "Immediate evaluation failed for {}: {:?}",
+                                            memory.id,
+                                            e
+                                        );
                                         memory.evaluation_status = crate::memory::monitoring::operations::OperationStatus::Failed;
-                                        memory.metadata.set_custom("error_message", e.to_string()).ok();
+                                        memory
+                                            .metadata
+                                            .set_custom("error_message", e.to_string())
+                                            .ok();
                                     }
                                 }
                             }
@@ -548,14 +624,18 @@ impl MemoryCoordinator {
         metadata: Option<MemoryMetadata>,
     ) -> Result<MemoryNode> {
         // Get existing memory from SurrealDB
-        let existing_memory = self.surreal_manager.get_memory(id).await?.ok_or_else(||
-            Error::NotFound(format!("Memory with id {} not found", id)))?;
+        let existing_memory = self
+            .surreal_manager
+            .get_memory(id)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Memory with id {} not found", id)))?;
 
         let mut updated_memory = existing_memory;
 
         // Update content if provided
         if let Some(new_content) = content {
-            updated_memory.content = crate::memory::core::primitives::types::MemoryContent::new(&new_content);
+            updated_memory.content =
+                crate::memory::core::primitives::types::MemoryContent::new(&new_content);
 
             // Re-generate embedding for updated content
             let embedding = self.generate_embedding(&new_content).await?;
@@ -568,7 +648,10 @@ impl MemoryCoordinator {
         }
 
         // Update in SurrealDB - it handles embedding indexing natively
-        let stored_memory = self.surreal_manager.update_memory(updated_memory.clone()).await?;
+        let stored_memory = self
+            .surreal_manager
+            .update_memory(updated_memory.clone())
+            .await?;
 
         // Update in repository cache
         self.repository.write().await.update(updated_memory);
@@ -599,7 +682,9 @@ impl MemoryCoordinator {
         let query_embedding = self.generate_embedding(query).await?;
 
         // Use SurrealDB's native vector similarity search directly
-        let memory_stream = self.surreal_manager.search_by_vector(query_embedding, top_k);
+        let memory_stream = self
+            .surreal_manager
+            .search_by_vector(query_embedding, top_k);
 
         // Collect results using StreamExt::collect()
         let memories: Vec<_> = memory_stream.collect().await;
@@ -610,19 +695,23 @@ impl MemoryCoordinator {
             match memory_result {
                 Ok(mut memory) => {
                     // Apply lazy evaluation strategy if pending
-                    if memory.evaluation_status == crate::memory::monitoring::operations::OperationStatus::Pending {
+                    if memory.evaluation_status
+                        == crate::memory::monitoring::operations::OperationStatus::Pending
+                    {
                         match self.lazy_eval_strategy {
                             LazyEvalStrategy::WaitForCompletion => {
                                 let timeout = Duration::from_secs(5);
                                 let start = Instant::now();
-                                
+
                                 loop {
                                     if let Ok(Some(updated)) = self.surreal_manager.get_memory(&memory.id).await
                                         && updated.evaluation_status != crate::memory::monitoring::operations::OperationStatus::Pending {
                                         memory = updated;
                                         break;
                                     }
-                                    if start.elapsed() >= timeout { break; }
+                                    if start.elapsed() >= timeout {
+                                        break;
+                                    }
                                     tokio::time::sleep(Duration::from_millis(100)).await;
                                 }
                             }
@@ -632,15 +721,25 @@ impl MemoryCoordinator {
                             LazyEvalStrategy::TriggerAndWait => {
                                 // Check cache first
                                 if let Some(cached_score) = self.evaluation_cache.get(&memory.id) {
-                                    memory.metadata.set_custom("quality_score", cached_score).ok();
+                                    memory
+                                        .metadata
+                                        .set_custom("quality_score", cached_score)
+                                        .ok();
                                     memory.evaluation_status = crate::memory::monitoring::operations::OperationStatus::Success;
                                 } else {
                                     // Evaluate immediately
-                                    if let Ok(score) = self.committee_evaluator.evaluate(&memory.content.text).await {
+                                    if let Ok(score) = self
+                                        .committee_evaluator
+                                        .evaluate(&memory.content.text)
+                                        .await
+                                    {
                                         memory.metadata.set_custom("quality_score", score).ok();
                                         memory.evaluation_status = crate::memory::monitoring::operations::OperationStatus::Success;
                                         self.evaluation_cache.insert(memory.id.clone(), score);
-                                        self.surreal_manager.update_memory(memory.clone()).await.ok();
+                                        self.surreal_manager
+                                            .update_memory(memory.clone())
+                                            .await
+                                            .ok();
                                     }
                                 }
                             }
@@ -666,15 +765,18 @@ impl MemoryCoordinator {
         // Apply quantum decoherence to accessed memories
         for memory in &result_memories {
             let mut state = self.quantum_state.write().await;
-            let coherence = state.measure();  // Reduces coherence by 5%
-            
+            let coherence = state.measure(); // Reduces coherence by 5%
+
             // Calculate decayed importance based on coherence
             let current_importance = memory.importance();
             let decayed_importance = current_importance * coherence as f32;
-            
+
             log::trace!(
                 "Decoherence applied to {}: importance {} -> {} (coherence: {})",
-                memory.id(), current_importance, decayed_importance, coherence
+                memory.id(),
+                current_importance,
+                decayed_importance,
+                coherence
             );
         }
 
@@ -743,30 +845,37 @@ impl MemoryCoordinator {
         let mut boosted_memories = filtered_memories;
         {
             let state = self.quantum_state.read().await;
-            
+
             for memory in &mut boosted_memories {
                 let memory_id = memory.id().to_string();
-                
+
                 // Find all entanglement links involving this memory
-                let entangled_links: Vec<&crate::memory::cognitive::quantum::EntanglementLink> = state.entanglement_links.iter()
-                    .filter(|link| link.node_a == memory_id || link.node_b == memory_id)
-                    .collect();
-                
+                let entangled_links: Vec<&crate::memory::cognitive::quantum::EntanglementLink> =
+                    state
+                        .entanglement_links
+                        .iter()
+                        .filter(|link| link.node_a == memory_id || link.node_b == memory_id)
+                        .collect();
+
                 // Boost importance based on entanglement strength
                 if !entangled_links.is_empty() {
-                    let total_entanglement: f64 = entangled_links.iter()
+                    let total_entanglement: f64 = entangled_links
+                        .iter()
                         .map(|link| link.entanglement_strength)
                         .sum();
-                    
-                    let boost_factor = 1.0 + (total_entanglement * 0.2);  // 20% boost per entanglement
+
+                    let boost_factor = 1.0 + (total_entanglement * 0.2); // 20% boost per entanglement
                     let current_importance = memory.importance();
                     let boosted_importance = (current_importance as f64 * boost_factor) as f32;
-                    
+
                     log::trace!(
                         "Entanglement boost for {}: {} links, importance {} -> {}",
-                        memory_id, entangled_links.len(), current_importance, boosted_importance
+                        memory_id,
+                        entangled_links.len(),
+                        current_importance,
+                        boosted_importance
                     );
-                    
+
                     // Note: This is a query-time boost, not persisted to DB
                     // The boost only affects this search result ranking
                 }
@@ -778,7 +887,9 @@ impl MemoryCoordinator {
             // Sort by importance descending (higher importance first)
             let a_importance = a.importance();
             let b_importance = b.importance();
-            b_importance.partial_cmp(&a_importance).unwrap_or(std::cmp::Ordering::Equal)
+            b_importance
+                .partial_cmp(&a_importance)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         // Apply top_k limit after sorting
@@ -817,7 +928,8 @@ impl MemoryCoordinator {
         }
 
         // Store relationship in SurrealDB
-        let stored_relationship = self.surreal_manager
+        let stored_relationship = self
+            .surreal_manager
             .create_relationship(relationship)
             .await?;
 
@@ -837,7 +949,12 @@ impl MemoryCoordinator {
         for relationship_result in relationships {
             match relationship_result {
                 Ok(relationship) => result_relationships.push(relationship),
-                Err(e) => return Err(Error::Internal(format!("Failed to retrieve relationships: {}", e))),
+                Err(e) => {
+                    return Err(Error::Internal(format!(
+                        "Failed to retrieve relationships: {}",
+                        e
+                    )));
+                }
             }
         }
 
@@ -845,40 +962,71 @@ impl MemoryCoordinator {
     }
 
     /// Convert domain MemoryNode to memory MemoryNode for storage compatibility
-    fn convert_domain_to_memory_node(&self, domain_node: &crate::domain::memory::primitives::node::MemoryNode) -> crate::memory::core::primitives::node::MemoryNode {
+    fn convert_domain_to_memory_node(
+        &self,
+        domain_node: &crate::domain::memory::primitives::node::MemoryNode,
+    ) -> crate::memory::core::primitives::node::MemoryNode {
         use crate::memory::core::primitives::{
-            node::MemoryNode as MemoryMemoryNode,
-            metadata::MemoryMetadata as MemoryMemoryMetadata,
+            metadata::MemoryMetadata as MemoryMemoryMetadata, node::MemoryNode as MemoryMemoryNode,
             types::MemoryContent as MemoryMemoryContent,
             types::MemoryTypeEnum as MemoryMemoryTypeEnum,
         };
 
-        let embedding_vec = domain_node.embedding().map(|aligned_emb| aligned_emb.to_vec());
-        
+        let embedding_vec = domain_node
+            .embedding()
+            .map(|aligned_emb| aligned_emb.to_vec());
+
         // Create memory system metadata preserving domain metadata
         let memory_metadata = MemoryMemoryMetadata {
-            user_id: domain_node.metadata.custom.get("user_id")
+            user_id: domain_node
+                .metadata
+                .custom
+                .get("user_id")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
-            agent_id: domain_node.metadata.custom.get("agent_id")
+            agent_id: domain_node
+                .metadata
+                .custom
+                .get("agent_id")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
-            context: domain_node.metadata.custom.get("context")
+            context: domain_node
+                .metadata
+                .custom
+                .get("context")
                 .and_then(|v| v.as_str())
                 .unwrap_or("default")
                 .to_string(),
             importance: domain_node.importance(),
-            keywords: domain_node.metadata.keywords.iter().map(|k| k.to_string()).collect(),
-            tags: domain_node.metadata.tags.iter().map(|t| t.to_string()).collect(),
-            category: domain_node.metadata.custom.get("category")
+            keywords: domain_node
+                .metadata
+                .keywords
+                .iter()
+                .map(|k| k.to_string())
+                .collect(),
+            tags: domain_node
+                .metadata
+                .tags
+                .iter()
+                .map(|t| t.to_string())
+                .collect(),
+            category: domain_node
+                .metadata
+                .custom
+                .get("category")
                 .and_then(|v| v.as_str())
                 .unwrap_or("general")
                 .to_string(),
-            source: domain_node.metadata.custom.get("source")
+            source: domain_node
+                .metadata
+                .custom
+                .get("source")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
             created_at: domain_node.base_memory.created_at.into(),
-            last_accessed_at: Some(chrono::DateTime::<chrono::Utc>::from(domain_node.last_accessed())),
+            last_accessed_at: Some(chrono::DateTime::<chrono::Utc>::from(
+                domain_node.last_accessed(),
+            )),
             embedding: embedding_vec.clone(),
             custom: serde_json::to_value(&domain_node.metadata.custom)
                 .unwrap_or_else(|_| serde_json::Value::Object(serde_json::Map::new())),
@@ -889,27 +1037,57 @@ impl MemoryCoordinator {
 
         // Convert memory type - map to closest equivalent
         let memory_type = match domain_node.memory_type() {
-            crate::domain::memory::primitives::types::MemoryTypeEnum::Semantic => MemoryMemoryTypeEnum::Semantic,
-            crate::domain::memory::primitives::types::MemoryTypeEnum::Episodic => MemoryMemoryTypeEnum::Episodic,
-            crate::domain::memory::primitives::types::MemoryTypeEnum::Procedural => MemoryMemoryTypeEnum::Procedural,
-            crate::domain::memory::primitives::types::MemoryTypeEnum::Working => MemoryMemoryTypeEnum::Working,
-            crate::domain::memory::primitives::types::MemoryTypeEnum::LongTerm => MemoryMemoryTypeEnum::LongTerm,
+            crate::domain::memory::primitives::types::MemoryTypeEnum::Semantic => {
+                MemoryMemoryTypeEnum::Semantic
+            }
+            crate::domain::memory::primitives::types::MemoryTypeEnum::Episodic => {
+                MemoryMemoryTypeEnum::Episodic
+            }
+            crate::domain::memory::primitives::types::MemoryTypeEnum::Procedural => {
+                MemoryMemoryTypeEnum::Procedural
+            }
+            crate::domain::memory::primitives::types::MemoryTypeEnum::Working => {
+                MemoryMemoryTypeEnum::Working
+            }
+            crate::domain::memory::primitives::types::MemoryTypeEnum::LongTerm => {
+                MemoryMemoryTypeEnum::LongTerm
+            }
             // Map additional domain variants to closest memory system equivalents
-            crate::domain::memory::primitives::types::MemoryTypeEnum::Fact => MemoryMemoryTypeEnum::Semantic,
-            crate::domain::memory::primitives::types::MemoryTypeEnum::Episode => MemoryMemoryTypeEnum::Episodic,
-            crate::domain::memory::primitives::types::MemoryTypeEnum::Declarative => MemoryMemoryTypeEnum::Semantic,
-            crate::domain::memory::primitives::types::MemoryTypeEnum::Implicit => MemoryMemoryTypeEnum::Procedural,
-            crate::domain::memory::primitives::types::MemoryTypeEnum::Explicit => MemoryMemoryTypeEnum::Semantic,
-            crate::domain::memory::primitives::types::MemoryTypeEnum::Contextual => MemoryMemoryTypeEnum::Semantic,
-            crate::domain::memory::primitives::types::MemoryTypeEnum::Temporal => MemoryMemoryTypeEnum::Episodic,
-            crate::domain::memory::primitives::types::MemoryTypeEnum::Spatial => MemoryMemoryTypeEnum::Episodic,
-            crate::domain::memory::primitives::types::MemoryTypeEnum::Associative => MemoryMemoryTypeEnum::Semantic,
-            crate::domain::memory::primitives::types::MemoryTypeEnum::Emotional => MemoryMemoryTypeEnum::Episodic,
+            crate::domain::memory::primitives::types::MemoryTypeEnum::Fact => {
+                MemoryMemoryTypeEnum::Semantic
+            }
+            crate::domain::memory::primitives::types::MemoryTypeEnum::Episode => {
+                MemoryMemoryTypeEnum::Episodic
+            }
+            crate::domain::memory::primitives::types::MemoryTypeEnum::Declarative => {
+                MemoryMemoryTypeEnum::Semantic
+            }
+            crate::domain::memory::primitives::types::MemoryTypeEnum::Implicit => {
+                MemoryMemoryTypeEnum::Procedural
+            }
+            crate::domain::memory::primitives::types::MemoryTypeEnum::Explicit => {
+                MemoryMemoryTypeEnum::Semantic
+            }
+            crate::domain::memory::primitives::types::MemoryTypeEnum::Contextual => {
+                MemoryMemoryTypeEnum::Semantic
+            }
+            crate::domain::memory::primitives::types::MemoryTypeEnum::Temporal => {
+                MemoryMemoryTypeEnum::Episodic
+            }
+            crate::domain::memory::primitives::types::MemoryTypeEnum::Spatial => {
+                MemoryMemoryTypeEnum::Episodic
+            }
+            crate::domain::memory::primitives::types::MemoryTypeEnum::Associative => {
+                MemoryMemoryTypeEnum::Semantic
+            }
+            crate::domain::memory::primitives::types::MemoryTypeEnum::Emotional => {
+                MemoryMemoryTypeEnum::Episodic
+            }
         };
 
         // Calculate content hash
         let content_hash = crate::domain::memory::serialization::content_hash(&memory_content.text);
-        
+
         MemoryMemoryNode {
             id: domain_node.id().to_string(),
             content: memory_content,
@@ -925,28 +1103,45 @@ impl MemoryCoordinator {
     }
 
     /// Convert memory MemoryNode to domain MemoryNode for API compatibility
-    fn convert_memory_to_domain_node(&self, memory_node: &crate::memory::core::primitives::node::MemoryNode) -> Result<crate::domain::memory::primitives::node::MemoryNode> {
-        use uuid::Uuid;
+    fn convert_memory_to_domain_node(
+        &self,
+        memory_node: &crate::memory::core::primitives::node::MemoryNode,
+    ) -> Result<crate::domain::memory::primitives::node::MemoryNode> {
         use crate::domain::memory::primitives::{
-            node::{MemoryNode as DomainMemoryNode, MemoryNodeMetadata, AlignedEmbedding},
+            node::{AlignedEmbedding, MemoryNode as DomainMemoryNode, MemoryNodeMetadata},
             types::{MemoryContent as DomainMemoryContent, MemoryTypeEnum as DomainMemoryTypeEnum},
         };
+        use uuid::Uuid;
 
         // Convert memory type - map to closest equivalent
         let domain_memory_type = match memory_node.memory_type {
-            crate::memory::core::primitives::types::MemoryTypeEnum::Semantic => DomainMemoryTypeEnum::Semantic,
-            crate::memory::core::primitives::types::MemoryTypeEnum::Episodic => DomainMemoryTypeEnum::Episodic,
-            crate::memory::core::primitives::types::MemoryTypeEnum::Procedural => DomainMemoryTypeEnum::Procedural,
-            crate::memory::core::primitives::types::MemoryTypeEnum::Working => DomainMemoryTypeEnum::Working,
-            crate::memory::core::primitives::types::MemoryTypeEnum::LongTerm => DomainMemoryTypeEnum::LongTerm,
+            crate::memory::core::primitives::types::MemoryTypeEnum::Semantic => {
+                DomainMemoryTypeEnum::Semantic
+            }
+            crate::memory::core::primitives::types::MemoryTypeEnum::Episodic => {
+                DomainMemoryTypeEnum::Episodic
+            }
+            crate::memory::core::primitives::types::MemoryTypeEnum::Procedural => {
+                DomainMemoryTypeEnum::Procedural
+            }
+            crate::memory::core::primitives::types::MemoryTypeEnum::Working => {
+                DomainMemoryTypeEnum::Working
+            }
+            crate::memory::core::primitives::types::MemoryTypeEnum::LongTerm => {
+                DomainMemoryTypeEnum::LongTerm
+            }
         };
 
         // Create domain content
         let domain_content = DomainMemoryContent::text(&memory_node.content.text);
 
         // Parse UUID from string ID - fail fast on corruption
-        let uuid = Uuid::parse_str(&memory_node.id)
-            .map_err(|e| Error::Internal(format!("Invalid UUID in memory node {}: {}", memory_node.id, e)))?;
+        let uuid = Uuid::parse_str(&memory_node.id).map_err(|e| {
+            Error::Internal(format!(
+                "Invalid UUID in memory node {}: {}",
+                memory_node.id, e
+            ))
+        })?;
 
         // Create domain node
         let mut domain_node = DomainMemoryNode::with_id(uuid, domain_memory_type, domain_content);
@@ -957,28 +1152,46 @@ impl MemoryCoordinator {
         }
 
         // Convert metadata, preserving evaluation_status in custom field
-        let mut custom_map: std::collections::HashMap<Arc<str>, Arc<serde_json::Value>> = memory_node.metadata.custom
-            .as_object()
-            .map(|obj| obj.iter()
-                .map(|(k, v)| (Arc::from(k.as_str()), Arc::new(v.clone())))
-                .collect())
-            .unwrap_or_default();
+        let mut custom_map: std::collections::HashMap<Arc<str>, Arc<serde_json::Value>> =
+            memory_node
+                .metadata
+                .custom
+                .as_object()
+                .map(|obj| {
+                    obj.iter()
+                        .map(|(k, v)| (Arc::from(k.as_str()), Arc::new(v.clone())))
+                        .collect()
+                })
+                .unwrap_or_default();
 
         // Store evaluation_status in custom metadata for domain layer
         custom_map.insert(
             Arc::from("evaluation_status"),
-            Arc::new(serde_json::to_value(&memory_node.evaluation_status)
-                .unwrap_or(serde_json::Value::Null))
+            Arc::new(
+                serde_json::to_value(&memory_node.evaluation_status)
+                    .unwrap_or(serde_json::Value::Null),
+            ),
         );
 
         let domain_metadata = MemoryNodeMetadata {
             importance: memory_node.metadata.importance,
-            keywords: memory_node.metadata.keywords.iter().map(|k| k.clone().into()).collect(),
-            tags: memory_node.metadata.tags.iter().map(|t| t.clone().into()).collect(),
+            keywords: memory_node
+                .metadata
+                .keywords
+                .iter()
+                .map(|k| k.clone().into())
+                .collect(),
+            tags: memory_node
+                .metadata
+                .tags
+                .iter()
+                .map(|t| t.clone().into())
+                .collect(),
             custom: custom_map,
             version: 1,
         };
-        domain_node.metadata = std::sync::Arc::new(crossbeam_utils::CachePadded::new(domain_metadata));
+        domain_node.metadata =
+            std::sync::Arc::new(crossbeam_utils::CachePadded::new(domain_metadata));
 
         Ok(domain_node)
     }
@@ -986,7 +1199,9 @@ impl MemoryCoordinator {
     /// Generate embedding for text content using BERT model
     async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>> {
         // Use existing BERT embedding provider
-        let embedding = self.embedding_model.embed(text, None)
+        let embedding = self
+            .embedding_model
+            .embed(text, None)
             .map_err(|e| Error::Internal(format!("BERT embedding failed: {}", e)))?;
         Ok(embedding)
     }
@@ -1009,16 +1224,18 @@ impl MemoryCoordinator {
                 log::info!("All cognitive workers shut down");
             }
             Err(e) => {
-                log::error!("Failed to acquire write lock for cognitive workers during shutdown: {}", e);
+                log::error!(
+                    "Failed to acquire write lock for cognitive workers during shutdown: {}",
+                    e
+                );
             }
         }
     }
-
 }
 
 impl MemoryManager for MemoryCoordinator {
     // Delegate non-search methods directly to surreal_manager
-    
+
     fn create_memory(&self, memory: CoreMemoryNode) -> PendingMemory {
         self.surreal_manager.create_memory(memory)
     }
@@ -1052,16 +1269,15 @@ impl MemoryManager for MemoryCoordinator {
     }
 
     // QUANTUM-ROUTED SEARCH METHODS
-    
+
     fn search_by_content(&self, query: &str) -> MemoryStream {
         // ALWAYS try vector search first for semantic similarity
         // Generate embedding for the query
         let embedding = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                self.generate_embedding(query).await
-            })
+            tokio::runtime::Handle::current()
+                .block_on(async { self.generate_embedding(query).await })
         });
-        
+
         match embedding {
             Ok(emb) => {
                 // Successfully generated embedding - use vector search with cosine similarity
@@ -1069,8 +1285,11 @@ impl MemoryManager for MemoryCoordinator {
             }
             Err(e) => {
                 // Only fall back to substring search if embedding generation fails
-                log::warn!("Embedding generation failed, falling back to substring search: {}", e);
-                
+                log::warn!(
+                    "Embedding generation failed, falling back to substring search: {}",
+                    e
+                );
+
                 // Try quantum routing as secondary option
                 let _enhanced_query = EnhancedQuery {
                     query: query.to_string(),
@@ -1099,20 +1318,18 @@ impl MemoryManager for MemoryCoordinator {
     }
 
     fn update_quantum_signature(
-        &self, 
-        memory_id: &str, 
-        cognitive_state: &CognitiveState
+        &self,
+        memory_id: &str,
+        cognitive_state: &CognitiveState,
     ) -> PendingQuantumUpdate {
-        self.surreal_manager.update_quantum_signature(memory_id, cognitive_state)
+        self.surreal_manager
+            .update_quantum_signature(memory_id, cognitive_state)
     }
-    
-    fn get_quantum_signature(
-        &self, 
-        memory_id: &str
-    ) -> PendingQuantumSignature {
+
+    fn get_quantum_signature(&self, memory_id: &str) -> PendingQuantumSignature {
         self.surreal_manager.get_quantum_signature(memory_id)
     }
-    
+
     fn create_entanglement_edge(
         &self,
         source_id: &str,
@@ -1120,39 +1337,28 @@ impl MemoryManager for MemoryCoordinator {
         strength: f32,
         bond_type: EntanglementType,
     ) -> PendingEntanglementEdge {
-        self.surreal_manager.create_entanglement_edge(source_id, target_id, strength, bond_type)
+        self.surreal_manager
+            .create_entanglement_edge(source_id, target_id, strength, bond_type)
     }
 
-    fn get_entangled_memories(
-        &self, 
-        memory_id: &str, 
-        min_strength: f32
-    ) -> MemoryStream {
-        self.surreal_manager.get_entangled_memories(memory_id, min_strength)
-    }
-    
-    fn get_entangled_by_type(
-        &self, 
-        memory_id: &str, 
-        bond_type: EntanglementType
-    ) -> MemoryStream {
-        self.surreal_manager.get_entangled_by_type(memory_id, bond_type)
+    fn get_entangled_memories(&self, memory_id: &str, min_strength: f32) -> MemoryStream {
+        self.surreal_manager
+            .get_entangled_memories(memory_id, min_strength)
     }
 
-    fn traverse_entanglement_graph(
-        &self, 
-        memory_id: &str, 
-        max_depth: usize
-    ) -> MemoryStream {
-        self.surreal_manager.traverse_entanglement_graph(memory_id, max_depth)
+    fn get_entangled_by_type(&self, memory_id: &str, bond_type: EntanglementType) -> MemoryStream {
+        self.surreal_manager
+            .get_entangled_by_type(memory_id, bond_type)
     }
 
-    fn expand_via_entanglement(
-        &self, 
-        memory_ids: Vec<String>, 
-        min_strength: f32
-    ) -> MemoryStream {
-        self.surreal_manager.expand_via_entanglement(memory_ids, min_strength)
+    fn traverse_entanglement_graph(&self, memory_id: &str, max_depth: usize) -> MemoryStream {
+        self.surreal_manager
+            .traverse_entanglement_graph(memory_id, max_depth)
+    }
+
+    fn expand_via_entanglement(&self, memory_ids: Vec<String>, min_strength: f32) -> MemoryStream {
+        self.surreal_manager
+            .expand_via_entanglement(memory_ids, min_strength)
     }
 }
 
@@ -1163,5 +1369,3 @@ impl Drop for MemoryCoordinator {
         self.shutdown_workers();
     }
 }
-
-

@@ -8,7 +8,6 @@
 //!
 //! All operations use static dispatch and avoid heap allocations wherever possible.
 
-use std::convert::Infallible;
 use std::fmt;
 use std::marker::PhantomData;
 use std::str::FromStr;
@@ -145,7 +144,8 @@ pub mod stringified_json {
 #[inline]
 pub fn string_or_vec<'de, T, D>(deserializer: D) -> Result<Vec<T>, D::Error>
 where
-    T: Deserialize<'de> + FromStr<Err = Infallible>,
+    T: Deserialize<'de> + FromStr,
+    T::Err: fmt::Display,
     D: Deserializer<'de>,
 {
     /// Zero-sized visitor for maximum performance
@@ -153,7 +153,8 @@ where
 
     impl<'de, T> Visitor<'de> for VisitorImpl<T>
     where
-        T: Deserialize<'de> + FromStr<Err = Infallible>,
+        T: Deserialize<'de> + FromStr,
+        T::Err: fmt::Display,
     {
         type Value = Vec<T>;
 

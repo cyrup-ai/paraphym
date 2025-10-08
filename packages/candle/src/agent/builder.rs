@@ -26,7 +26,7 @@
 
 use core::marker::PhantomData;
 use ystream::AsyncStream;
-use crate::domain::completion::CandleCompletionModel;
+use crate::capability::traits::TextToTextCapable;
 use paraphym_provider::Model;
 
 use mcp_client_traits::ToolInfo;
@@ -87,7 +87,7 @@ impl ModelAdapter {
     }
 }
 
-impl CandleCompletionModel for ModelAdapter {
+impl TextToTextCapable for ModelAdapter {
     fn complete(&self, prompt: &str) -> AsyncStream<String> {
         let model_name = self.model_variant.name();
         let prompt = prompt.to_string();

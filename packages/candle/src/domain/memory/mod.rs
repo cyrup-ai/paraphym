@@ -12,12 +12,11 @@ pub mod cognitive;
 /// High-performance configuration system
 pub mod config;
 
-// Re-export configuration types
-pub use config::llm::{LLMConfig, LLMProvider};
+// Configuration types are now in config module
 
 // Re-export real memory manager from packages/memory
-pub use crate::memory::core::manager::surreal::SurrealDBMemoryManager;
 pub use crate::memory::core::manager::MemoryManager;
+pub use crate::memory::core::manager::surreal::SurrealDBMemoryManager;
 
 /// SIMD-optimized vector operations for high-performance memory processing
 pub mod ops;
@@ -48,7 +47,7 @@ pub mod traits;
 pub enum CompatibilityMode {
     /// Strict mode: Only allow exact matches
     Strict,
-    /// Flexible mode: Allow best-effort conversions  
+    /// Flexible mode: Allow best-effort conversions
     #[default]
     Flexible,
     /// Hybrid mode: Support both modern and transitional types simultaneously
@@ -58,8 +57,8 @@ pub enum CompatibilityMode {
 // Re-export specific types to avoid ambiguous glob re-exports
 pub use cognitive::{CognitiveMemory, CognitiveProcessor};
 pub use config::database::{DatabaseType, PoolConfig};
+pub use config::shared::EmbeddingConfig;
 pub use config::shared::RetryConfig;
-pub use config::shared::{EmbeddingConfig, EmbeddingModelType};
 pub use config::vector::{
     DistanceMetric, IndexConfig, IndexType, PerformanceConfig, SimdConfig, VectorStoreType,
 };
@@ -71,7 +70,7 @@ pub use config::{DatabaseConfig, MemoryConfig, VectorStoreConfig};
 // Re-export memory primitives from packages/memory for backward compatibility
 pub use crate::memory::core::primitives::MemoryNode;
 pub use ops::{
-    CpuArchitecture, CpuFeatures, Op, EMBEDDING_DIMENSION, SIMD_WIDTH, SMALL_EMBEDDING_DIMENSION,
+    CpuArchitecture, CpuFeatures, EMBEDDING_DIMENSION, Op, SIMD_WIDTH, SMALL_EMBEDDING_DIMENSION,
 };
 pub use primitives::*;
 // Re-export commonly used primitives types
@@ -104,14 +103,13 @@ pub type VectorStoreError = Error;
 // MemoryError alias removed to avoid conflict with paraphym_memory::Error
 
 /// Memory system configuration combining all subsystem configurations
+/// Generic over any model that implements CandleModel + TextToTextCapable
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MemorySystemConfig {
     /// Database configuration for persistent storage
     pub database: DatabaseConfig,
     /// Vector store configuration for embeddings and similarity search
     pub vector_store: VectorStoreConfig,
-    /// LLM configuration for AI operations like summarization and querying
-    pub llm: LLMConfig,
     /// Enable cognitive features for advanced memory processing
     pub enable_cognitive: bool,
     /// Compatibility mode for transitional systems migration
@@ -128,7 +126,6 @@ impl MemorySystemConfig {
         Ok(Self {
             database: DatabaseConfig::default(),
             vector_store: VectorStoreConfig::default(),
-            llm: LLMConfig::default(),
             enable_cognitive: true,
             compatibility_mode: CompatibilityMode::Hybrid,
         })
@@ -147,7 +144,6 @@ impl MemorySystemConfig {
                 EmbeddingConfig::default(),
                 768,
             )?,
-            llm: LLMConfig::new(LLMProvider::OpenAI, "gpt-4")?,
             enable_cognitive: false,
             compatibility_mode: CompatibilityMode::Strict,
         })
@@ -157,10 +153,9 @@ impl MemorySystemConfig {
     ///
     /// # Errors
     ///
-    /// Returns error if vector store or LLM configuration is invalid
+    /// Returns error if vector store configuration is invalid
     pub fn validate(&self) -> primitives::MemoryResult<()> {
         self.vector_store.validate()?;
-        self.llm.validate()?;
         Ok(())
     }
 }
@@ -172,7 +167,6 @@ impl Default for MemorySystemConfig {
         Self {
             database: DatabaseConfig::default(),
             vector_store: VectorStoreConfig::default(),
-            llm: LLMConfig::default(),
             enable_cognitive: true,
             compatibility_mode: CompatibilityMode::Hybrid,
         }
@@ -196,7 +190,6 @@ impl MemorySystemConfig {
             )?
             .with_distance_metric(DistanceMetric::Cosine)
             .with_simd_config(SimdConfig::optimized()),
-            llm: LLMConfig::default(),
             enable_cognitive: true,
             compatibility_mode: CompatibilityMode::Hybrid,
         })
@@ -206,7 +199,7 @@ impl MemorySystemConfig {
     ///
     /// # Errors
     ///
-    /// Returns error if database, vector store, or LLM configuration fails
+    /// Returns error if database or vector store configuration fails
     pub fn for_realtime_chat() -> primitives::MemoryResult<Self> {
         Ok(Self {
             database: DatabaseConfig::new(DatabaseType::Memory, "memory", "chat", "realtime")?
@@ -217,7 +210,6 @@ impl MemorySystemConfig {
                 1536,
             )?
             .with_performance_config(PerformanceConfig::minimal()),
-            llm: LLMConfig::new(LLMProvider::OpenAI, "gpt-4")?.with_streaming(true),
             enable_cognitive: false,
             compatibility_mode: CompatibilityMode::Hybrid,
         })
@@ -244,7 +236,6 @@ impl MemorySystemConfig {
             )?
             .with_index_config(IndexConfig::optimized(IndexType::IVFPQ, 1536, 1_000_000))
             .with_performance_config(PerformanceConfig::optimized(VectorStoreType::FAISS)),
-            llm: LLMConfig::default(),
             enable_cognitive: true,
             compatibility_mode: CompatibilityMode::Hybrid,
         })

@@ -1,7 +1,5 @@
 //! Core traits for AI models and their capabilities
 
-use std::sync::Arc;
-
 use serde::{Deserialize, Serialize};
 
 use crate::domain::model::{CandleModelInfo, CandleUsage};
@@ -24,7 +22,7 @@ pub trait CandleModel: Send + Sync + std::fmt::Debug + 'static {
     /// Get the model's provider name
     #[inline]
     fn provider(&self) -> &'static str {
-        self.info().provider()
+        self.info().provider_str()
     }
 
     /// Get the model's maximum input tokens
@@ -71,7 +69,7 @@ pub trait CandleModel: Send + Sync + std::fmt::Debug + 'static {
 
     /// Get the `HuggingFace` repository URL for automatic model downloads
     #[inline]
-    fn hf_repo_url(&self) -> &'static str {
+    fn hf_repo_url(&self) -> String {
         self.info().hf_repo_url()
     }
 
@@ -239,46 +237,6 @@ pub struct FineTuningConfig {
     pub validation_split: Option<f32>,
 }
 
-/// Trait for models that can generate text
-pub trait TextGenerationCapable: CandleModel {
-    /// Check if the model supports text generation
-    fn supports_text_generation(&self) -> bool {
-        true
-    }
-
-    /// Get the default generation parameters for this model
-    fn default_generation_params(&self) -> GenerationParams {
-        GenerationParams::default()
-    }
-
-    /// Get the maximum prompt length for this model
-    fn max_prompt_length(&self) -> Option<usize> {
-        self.max_input_tokens().map(|n| n as usize)
-    }
-}
-
-/// Trait for models that can handle chat conversations
-pub trait ChatCompletionCapable: CandleModel {
-    /// Check if the model supports chat conversations
-    fn supports_chat(&self) -> bool {
-        true
-    }
-
-    /// Get the maximum conversation length for this model
-    fn max_conversation_length(&self) -> Option<usize> {
-        self.max_input_tokens().map(|n| n as usize)
-    }
-
-    /// Get the supported message types
-    fn supported_message_types(&self) -> Vec<&'static str> {
-        vec!["system", "user", "assistant"]
-    }
-
-    /// Check if the model supports function calling in chat
-    fn supports_function_calling_in_chat(&self) -> bool {
-        self.supports_function_calling()
-    }
-}
 
 /// Trait for models that can generate embeddings
 pub trait EmbeddingCapable: CandleModel {
@@ -344,26 +302,3 @@ pub trait FineTunable: CandleModel {
     }
 }
 
-/// A model that can be used for multiple tasks
-pub trait MultiTaskCapable:
-    TextGenerationCapable + ChatCompletionCapable + EmbeddingCapable
-{
-}
-
-// Blanket implementation for types that implement all required traits
-impl<T> MultiTaskCapable for T where
-    T: TextGenerationCapable + ChatCompletionCapable + EmbeddingCapable
-{
-}
-
-/// A boxed model that can be used for any task
-pub type AnyModel = Arc<dyn MultiTaskCapable + Send + Sync>;
-
-/// A boxed text generation model
-pub type AnyTextGenerationCapable = Arc<dyn TextGenerationCapable + Send + Sync>;
-
-/// A boxed chat completion model
-pub type AnyChatCompletionCapable = Arc<dyn ChatCompletionCapable + Send + Sync>;
-
-/// A boxed embedding model
-pub type AnyEmbeddingCapable = Arc<dyn EmbeddingCapable + Send + Sync>;

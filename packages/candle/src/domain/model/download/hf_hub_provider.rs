@@ -1,7 +1,7 @@
 use hf_hub::{api::tokio::Api, Cache};
 use std::path::PathBuf;
-use async_trait::async_trait;
 use log::warn;
+use ystream::{AsyncTask, spawn_task};
 use super::{ModelDownloadProvider, ModelDownloadResult};
 
 /// API response types for `HuggingFace` repository metadata
@@ -184,9 +184,52 @@ impl HfHubDownloadProvider {
     }
 }
 
-#[async_trait]
 impl ModelDownloadProvider for HfHubDownloadProvider {
-    async fn download_model(
+    fn download_model(
+        &self,
+        model_id: &str,
+        files: Vec<String>,
+        quantization: Option<String>,
+    ) -> AsyncTask<Result<ModelDownloadResult, Box<dyn std::error::Error + Send + Sync>>> {
+        let api = self.api.clone();
+        let http_client = self.http_client.clone();
+        let auth_token = self.auth_token.clone();
+        let cache_dir = self.cache_dir.clone();
+        let model_id = model_id.to_string();
+        
+        spawn_task(move || {
+            let provider = Self {
+                api,
+                http_client,
+                auth_token,
+                cache_dir,
+            };
+            // Use shared runtime to block on async code
+            crate::runtime::shared_runtime()
+                .expect("Tokio runtime not initialized")
+                .block_on(provider.download_model_impl(&model_id, files, quantization))
+        })
+    }
+
+    fn is_cached(&self, model_id: &str, files: &[String]) -> AsyncTask<bool> {
+        let cache_dir = self.cache_dir.clone();
+        let model_id = model_id.to_string();
+        let files = files.to_vec();
+        
+        spawn_task(move || {
+            crate::runtime::shared_runtime()
+                .expect("Tokio runtime not initialized")
+                .block_on(Self::is_cached_impl(&cache_dir, &model_id, &files))
+        })
+    }
+
+    fn cache_dir(&self) -> PathBuf {
+        self.cache_dir.clone()
+    }
+}
+
+impl HfHubDownloadProvider {
+    async fn download_model_impl(
         &self,
         model_id: &str,
         files: Vec<String>,
@@ -281,7 +324,7 @@ impl ModelDownloadProvider for HfHubDownloadProvider {
         })
     }
 
-    async fn is_cached(&self, model_id: &str, files: &[String]) -> bool {
+    async fn is_cached_impl(cache_dir: &PathBuf, model_id: &str, files: &[String]) -> bool {
         // Early return for empty file list
         if files.is_empty() {
             return true;
@@ -294,7 +337,7 @@ impl ModelDownloadProvider for HfHubDownloadProvider {
         
         // Construct the expected cache directory path
         let model_id_safe = model_id.replace('/', "--");
-        let model_cache_dir = self.cache_dir.join(format!("models--{model_id_safe}"));
+        let model_cache_dir = cache_dir.join(format!("models--{model_id_safe}"));
         
         // For patterns, we can't check without knowing actual filenames
         // For exact files, check if they exist in expected locations
@@ -326,9 +369,5 @@ impl ModelDownloadProvider for HfHubDownloadProvider {
             
             false
         }
-    }
-
-    fn cache_dir(&self) -> PathBuf {
-        self.cache_dir.clone()
     }
 }

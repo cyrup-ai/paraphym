@@ -3,14 +3,15 @@
 //! This provider uses nvidia/NV-Embed-v2 model for generating
 //! 4096-dimensional embeddings with Mistral decoder and latent attention.
 
-use std::collections::HashMap;
 use std::sync::Mutex;
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::nvembed_v2::model::Model as NvEmbedModel;
 use tokenizers::{Tokenizer, PaddingParams, TruncationParams};
 use crate::memory::utils::error::{Error as MemoryError, Result};
-use crate::memory::vector::embedding_model::EmbeddingModel as EmbeddingModelTrait;
+use crate::domain::model::traits::CandleModel;
+use crate::domain::model::CandleModelInfo;
+use std::num::NonZeroU32;
 
 /// Configuration for NVEmbed v2 embedding model
 #[derive(Debug, Clone)]
@@ -33,7 +34,7 @@ impl Default for CandleNvEmbedConfig {
 }
 
 /// NVEmbed v2 embedding provider using Candle ML framework
-pub struct CandleNvEmbedEmbeddingProvider {
+pub struct CandleNvEmbedEmbeddingModel {
     #[allow(dead_code)] // Used in path construction and config_info - false positive warning
     model_path: String,
     config: CandleNvEmbedConfig,
@@ -42,9 +43,9 @@ pub struct CandleNvEmbedEmbeddingProvider {
     device: Device,
 }
 
-impl std::fmt::Debug for CandleNvEmbedEmbeddingProvider {
+impl std::fmt::Debug for CandleNvEmbedEmbeddingModel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CandleNvEmbedEmbeddingProvider")
+        f.debug_struct("CandleNvEmbedEmbeddingModel")
             .field("model_path", &self.model_path)
             .field("config", &self.config)
             .field("model", &"<NvEmbedModel>")
@@ -54,7 +55,16 @@ impl std::fmt::Debug for CandleNvEmbedEmbeddingProvider {
     }
 }
 
-impl CandleNvEmbedEmbeddingProvider {
+impl Default for CandleNvEmbedEmbeddingModel {
+    fn default() -> Self {
+        crate::runtime::shared_runtime()
+            .unwrap_or_else(|| panic!("Shared runtime unavailable"))
+            .block_on(Self::new())
+            .unwrap_or_else(|e| panic!("Failed to initialize CandleNvEmbedEmbeddingModel: {}", e))
+    }
+}
+
+impl CandleNvEmbedEmbeddingModel {
     pub async fn new() -> Result<Self> {
         let config = CandleNvEmbedConfig::default();
         Self::with_config(config).await
@@ -133,7 +143,8 @@ impl CandleNvEmbedEmbeddingProvider {
             "nvidia/NV-Embed-v2",
             vec!["*.safetensors".to_string(), "tokenizer.json".to_string(), "config.json".to_string()],
             None,
-        ).await
+        ).collect()
+        .map_err(|e| MemoryError::ModelError(format!("Download task failed: {}", e)))?
         .map_err(|e| MemoryError::ModelError(format!("Model download failed: {}", e)))?;
         
         // Use result.cache_dir for model path
@@ -280,67 +291,72 @@ impl CandleNvEmbedEmbeddingProvider {
     }
 }
 
-impl EmbeddingModelTrait for CandleNvEmbedEmbeddingProvider {
-    fn embed(&self, text: &str, task: Option<String>) -> Result<Vec<f32>> {
+
+// Static model info for NV-Embed
+static NVEMBED_MODEL_INFO: CandleModelInfo = CandleModelInfo {
+    provider: crate::domain::model::CandleProvider::Nvidia,
+    name: "NV-Embed-v2",
+    registry_key: "nvidia/NV-Embed-v2",
+    max_input_tokens: NonZeroU32::new(32768),
+    max_output_tokens: None,
+    input_price: None,
+    output_price: None,
+    supports_vision: false,
+    supports_function_calling: false,
+    supports_streaming: false,
+    supports_embeddings: true,
+    requires_max_tokens: false,
+    supports_thinking: false,
+    optimal_thinking_budget: None,
+    system_prompt_prefix: None,
+    real_name: None,
+    model_type: None,
+    model_id: "nvembed-v2",
+    quantization: "none",
+    patch: None,
+};
+
+impl CandleModel for CandleNvEmbedEmbeddingModel {
+    fn info(&self) -> &'static CandleModelInfo {
+        &NVEMBED_MODEL_INFO
+    }
+}
+
+impl crate::capability::traits::TextEmbeddingCapable for CandleNvEmbedEmbeddingModel {
+    fn embed(&self, text: &str, task: Option<String>) 
+        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> 
+    {
         self.validate_input(text)?;
         let task_ref = task.as_deref();
-        let embeddings = self.forward_pass_with_instruction(&[text], task_ref)?;
+        let embeddings = self.forward_pass_with_instruction(&[text], task_ref)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
         embeddings.into_iter().next()
-            .ok_or_else(|| MemoryError::ModelError("No embeddings generated".to_string()))
+            .ok_or_else(|| "No embeddings generated".into())
     }
-
-    fn batch_embed(&self, texts: &[String], task: Option<String>) -> Result<Vec<Vec<f32>>> {
+    
+    fn batch_embed(&self, texts: &[String], task: Option<String>) 
+        -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> 
+    {
         self.validate_batch(texts)?;
         let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
         let task_ref = task.as_deref();
         self.forward_pass_with_instruction(&text_refs, task_ref)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
-
-    fn dimension(&self) -> usize {
+    
+    fn embedding_dimension(&self) -> usize {
         self.config.embed_dim as usize
     }
-
-    fn name(&self) -> &str {
-        "nvembed-v2-embedding"
-    }
-
+    
     fn supported_dimensions(&self) -> Vec<usize> {
-        vec![4096] // NVEmbed v2 produces 4096-dimensional embeddings only
+        vec![4096]
     }
-
-    fn config_info(&self) -> HashMap<String, String> {
-        let mut info = HashMap::new();
-        info.insert("name".to_string(), self.name().to_string());
-        info.insert("dimension".to_string(), self.dimension().to_string());
-        info.insert("model".to_string(), "nvidia/NV-Embed-v2".to_string());
-        info.insert("embed_dim".to_string(), self.config.embed_dim.to_string());
-        info.insert("max_length".to_string(), self.config.max_length.to_string());
-        info.insert("dtype".to_string(), format!("{:?}", self.config.dtype));
-        info.insert("device".to_string(), format!("{:?}", self.device));
-        info.insert("padding".to_string(), "right".to_string());
-        info.insert("architecture".to_string(), "mistral-decoder".to_string());
-        info.insert("instruction_masking".to_string(), "enabled".to_string());
-        info.insert("supported_tasks".to_string(), "search_query,search_document,classification,clustering,retrieval".to_string());
-        info
-    }
-
+    
     fn recommended_batch_size(&self) -> usize {
-        2 // Very conservative for large 4096-dim model
+        2
     }
-
+    
     fn max_batch_size(&self) -> usize {
         8
-    }
-
-    fn health_check(&self) -> Result<()> {
-        // Verify model is loaded and ready
-        let test_embedding = self.embed("test", None)?;
-        if test_embedding.len() != self.dimension() {
-            return Err(MemoryError::ModelError(
-                format!("Health check failed: expected {} dimensions, got {}", 
-                        self.dimension(), test_embedding.len())
-            ));
-        }
-        Ok(())
     }
 }

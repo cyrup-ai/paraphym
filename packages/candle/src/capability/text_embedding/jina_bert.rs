@@ -3,14 +3,15 @@
 //! This provider uses jinaai/jina-embeddings-v2-base-en model for generating
 //! 768-dimensional embeddings with ALiBi positional embeddings and mean pooling.
 
-use std::collections::HashMap;
 use std::sync::Mutex;
 use candle_core::{DType, Device, Tensor, Module};
 use candle_nn::VarBuilder;
 use candle_transformers::models::jina_bert::{BertModel, Config, PositionEmbeddingType};
 use tokenizers::{Tokenizer, PaddingParams, TruncationParams};
 use crate::memory::utils::error::{Error as MemoryError, Result};
-use crate::memory::vector::embedding_model::EmbeddingModel as EmbeddingModelTrait;
+use crate::domain::model::traits::CandleModel;
+use crate::domain::model::CandleModelInfo;
+use std::num::NonZeroU32;
 
 /// Configuration for Jina-BERT embedding model
 #[derive(Debug, Clone)]
@@ -34,7 +35,7 @@ impl Default for CandleJinaBertConfig {
 
 /// Jina-BERT embedding provider using Candle ML framework
 #[derive(Debug)]
-pub struct CandleJinaBertEmbeddingProvider {
+pub struct CandleJinaBertEmbeddingModel {
     #[allow(dead_code)] // Used in path construction and config_info - false positive warning
     model_path: String,
     config: CandleJinaBertConfig,
@@ -43,7 +44,16 @@ pub struct CandleJinaBertEmbeddingProvider {
     device: Device,
 }
 
-impl CandleJinaBertEmbeddingProvider {
+impl Default for CandleJinaBertEmbeddingModel {
+    fn default() -> Self {
+        crate::runtime::shared_runtime()
+            .unwrap_or_else(|| panic!("Shared runtime unavailable"))
+            .block_on(Self::new())
+            .unwrap_or_else(|e| panic!("Failed to initialize CandleJinaBertEmbeddingModel: {}", e))
+    }
+}
+
+impl CandleJinaBertEmbeddingModel {
     pub async fn new() -> Result<Self> {
         let config = CandleJinaBertConfig::default();
         Self::with_config(config).await
@@ -61,7 +71,8 @@ impl CandleJinaBertEmbeddingProvider {
             "jinaai/jina-embeddings-v2-base-en",
             vec!["model.safetensors".to_string(), "tokenizer.json".to_string(), "config.json".to_string()],
             None,
-        ).await
+        ).collect()
+        .map_err(|e| MemoryError::ModelError(format!("Download task failed: {}", e)))?
         .map_err(|e| MemoryError::ModelError(format!("Model download failed: {}", e)))?;
         
         // Use result.cache_dir for model path
@@ -226,68 +237,72 @@ impl CandleJinaBertEmbeddingProvider {
     }
 }
 
-impl EmbeddingModelTrait for CandleJinaBertEmbeddingProvider {
-    fn embed(&self, text: &str, task: Option<String>) -> Result<Vec<f32>> {
-        self.validate_input(text)?;
-        // Jina-BERT doesn't use task-specific instructions, but parameter should be accepted
-        let _ = task; // Explicitly acknowledge parameter
-        let embeddings = self.forward_pass(&[text])?;
-        embeddings.into_iter().next()
-            .ok_or_else(|| MemoryError::ModelError("No embeddings generated".to_string()))
-    }
 
-    fn batch_embed(&self, texts: &[String], task: Option<String>) -> Result<Vec<Vec<f32>>> {
+// Static model info for Jina-BERT
+static JINA_BERT_MODEL_INFO: CandleModelInfo = CandleModelInfo {
+    provider: crate::domain::model::CandleProvider::JinaAI,
+    name: "jina-embeddings-v2-base-en",
+    registry_key: "jinaai/jina-embeddings-v2-base-en",
+    max_input_tokens: NonZeroU32::new(8192),
+    max_output_tokens: None,
+    input_price: None,
+    output_price: None,
+    supports_vision: false,
+    supports_function_calling: false,
+    supports_streaming: false,
+    supports_embeddings: true,
+    requires_max_tokens: false,
+    supports_thinking: false,
+    optimal_thinking_budget: None,
+    system_prompt_prefix: None,
+    real_name: None,
+    model_type: None,
+    model_id: "jina-bert-v2",
+    quantization: "none",
+    patch: None,
+};
+
+impl CandleModel for CandleJinaBertEmbeddingModel {
+    fn info(&self) -> &'static CandleModelInfo {
+        &JINA_BERT_MODEL_INFO
+    }
+}
+
+impl crate::capability::traits::TextEmbeddingCapable for CandleJinaBertEmbeddingModel {
+    fn embed(&self, text: &str, task: Option<String>) 
+        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> 
+    {
+        self.validate_input(text)?;
+        let _ = task;
+        let embeddings = self.forward_pass(&[text])
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+        embeddings.into_iter().next()
+            .ok_or_else(|| "No embeddings generated".into())
+    }
+    
+    fn batch_embed(&self, texts: &[String], task: Option<String>) 
+        -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> 
+    {
         self.validate_batch(texts)?;
-        // Jina-BERT doesn't use task-specific instructions, but parameter should be accepted
-        let _ = task; // Explicitly acknowledge parameter
+        let _ = task;
         let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
         self.forward_pass(&text_refs)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
-
-    fn dimension(&self) -> usize {
+    
+    fn embedding_dimension(&self) -> usize {
         self.config.embed_dim as usize
     }
-
-    fn name(&self) -> &str {
-        "jina-bert-embedding"
-    }
-
+    
     fn supported_dimensions(&self) -> Vec<usize> {
-        vec![768] // Jina-BERT v2 produces 768-dimensional embeddings only
+        vec![768]
     }
-
-    fn config_info(&self) -> HashMap<String, String> {
-        let mut info = HashMap::new();
-        info.insert("name".to_string(), self.name().to_string());
-        info.insert("dimension".to_string(), self.dimension().to_string());
-        info.insert("model".to_string(), "jinaai/jina-embeddings-v2-base-en".to_string());
-        info.insert("model_path".to_string(), self.model_path.clone());
-        info.insert("embed_dim".to_string(), self.config.embed_dim.to_string());
-        info.insert("max_length".to_string(), self.config.max_length.to_string());
-        info.insert("dtype".to_string(), format!("{:?}", self.config.dtype));
-        info.insert("device".to_string(), format!("{:?}", self.device));
-        info.insert("position_embedding".to_string(), "alibi".to_string());
-        info.insert("pooling".to_string(), "mean".to_string());
-        info
-    }
-
+    
     fn recommended_batch_size(&self) -> usize {
-        16 // Moderate batch size for 768-dim model
+        16
     }
-
+    
     fn max_batch_size(&self) -> usize {
         64
-    }
-
-    fn health_check(&self) -> Result<()> {
-        // Verify model is loaded and ready
-        let test_embedding = self.embed("test", None)?;
-        if test_embedding.len() != self.dimension() {
-            return Err(MemoryError::ModelError(
-                format!("Health check failed: expected {} dimensions, got {}", 
-                        self.dimension(), test_embedding.len())
-            ));
-        }
-        Ok(())
     }
 }

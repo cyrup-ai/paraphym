@@ -8,8 +8,8 @@ use std::num::NonZeroU32;
 use std::path::Path;
 use std::sync::Arc;
 
-use candle_core::quantized::gguf_file;
 use candle_core::DType;
+use candle_core::quantized::gguf_file;
 use candle_transformers::models::llama::LlamaConfig;
 use ystream::AsyncStream;
 // SIMD optimizations for high-performance inference
@@ -18,16 +18,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::{Engine, EngineConfig};
 
-use crate::domain::chat::message::types::CandleMessageChunk;
-use crate::domain::completion::{
-    CandleCompletionChunk, CandleCompletionModel, CandleCompletionParams,
-};
+use crate::domain::completion::{CandleCompletionChunk, CandleCompletionParams};
 use crate::domain::context::CandleStringChunk;
 use crate::domain::model::{info::CandleModelInfo, traits::CandleModel};
 use crate::domain::prompt::CandlePrompt;
 
 /// Builder trait for Qwen3 Coder completion providers
-pub trait BuilderCandleQwen3CoderProvider: Send + Sync + 'static {
+pub trait BuilderCandleQwen3CoderModel: Send + Sync + 'static {
     // Default implementations for all builders
 }
 
@@ -36,7 +33,7 @@ pub trait BuilderCandleQwen3CoderProvider: Send + Sync + 'static {
 /// Provides streaming text generation capabilities using the Qwen3-Coder-30B-A3B-Instruct model
 /// with automatic model downloading via ProgressHub.
 #[derive(Debug, Clone)]
-pub struct CandleQwen3CoderProvider {
+pub struct CandleQwen3CoderModel {
     /// Model cache directory path
     model_path: String,
     /// GGUF model file path
@@ -47,6 +44,15 @@ pub struct CandleQwen3CoderProvider {
     model_config: LlamaConfig,
     /// Engine for orchestration and stream conversion
     engine: Arc<Engine>,
+}
+
+impl Default for CandleQwen3CoderModel {
+    fn default() -> Self {
+        crate::runtime::shared_runtime()
+            .unwrap_or_else(|| panic!("Shared runtime unavailable"))
+            .block_on(Self::new())
+            .unwrap_or_else(|e| panic!("Failed to initialize CandleQwen3CoderModel: {}", e))
+    }
 }
 
 /// Configuration for Qwen3 Coder model inference
@@ -144,7 +150,7 @@ impl CandleQwen3CoderConfig {
     }
 }
 
-impl CandleQwen3CoderProvider {
+impl CandleQwen3CoderModel {
     /// Create new Qwen3 Coder provider with automatic model download
     ///
     /// This method automatically downloads the Qwen3-Coder-30B model from HuggingFace
@@ -152,7 +158,7 @@ impl CandleQwen3CoderProvider {
     ///
     /// # Example
     /// ```rust
-    /// let provider = CandleQwen3CoderProvider::new().await?;
+    /// let provider = CandleQwen3CoderModel::new().await?;
     /// ```
     ///
     /// # Errors
@@ -167,33 +173,51 @@ impl CandleQwen3CoderProvider {
         config: CandleQwen3CoderConfig,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         use crate::domain::model::download::DownloadProviderFactory;
-        
+
         // Use factory to get download provider (works with both backends)
         let downloader = DownloadProviderFactory::create_default()?;
-        
+
         // Download model files with quantization
-        let result = downloader.download_model(
-            "Qwen/Qwen2.5-Coder-32B-Instruct-GGUF",
-            vec!["*.gguf".to_string(), "tokenizer.json".to_string()],
-            Some("Q4_K_M".to_string()), // Default quantization for GGUF
-        ).await?;
-        
+        let result = downloader
+            .download_model(
+                "Qwen/Qwen2.5-Coder-32B-Instruct-GGUF",
+                vec!["*.gguf".to_string(), "tokenizer.json".to_string()],
+                Some("Q4_K_M".to_string()), // Default quantization for GGUF
+            )
+            .collect()
+            .map_err(|e| {
+                Box::<dyn std::error::Error + Send + Sync>::from(format!(
+                    "Download task failed: {}",
+                    e
+                ))
+            })??;
+
         // Find GGUF file from results
-        let gguf_file = result.files.iter()
+        let gguf_file = result
+            .files
+            .iter()
             .find(|f| f.extension().and_then(|s| s.to_str()) == Some("gguf"))
-            .ok_or_else(|| Box::<dyn std::error::Error + Send + Sync>::from("GGUF file not found in download"))?;
-        
+            .ok_or_else(|| {
+                Box::<dyn std::error::Error + Send + Sync>::from("GGUF file not found in download")
+            })?;
+
         Self::with_config_sync_gguf(
-            result.cache_dir.to_str()
-                .ok_or_else(|| Box::<dyn std::error::Error + Send + Sync>::from("Invalid cache directory"))?
+            result
+                .cache_dir
+                .to_str()
+                .ok_or_else(|| {
+                    Box::<dyn std::error::Error + Send + Sync>::from("Invalid cache directory")
+                })?
                 .to_string(),
-            gguf_file.to_str()
-                .ok_or_else(|| Box::<dyn std::error::Error + Send + Sync>::from("Invalid GGUF file path"))?
+            gguf_file
+                .to_str()
+                .ok_or_else(|| {
+                    Box::<dyn std::error::Error + Send + Sync>::from("Invalid GGUF file path")
+                })?
                 .to_string(),
             config,
         )
     }
-
 
     /// Create provider with custom configuration and existing model path
     pub fn with_config_sync(
@@ -232,7 +256,7 @@ impl CandleQwen3CoderProvider {
             .with_streaming()
             .with_max_tokens(config.max_context)
             .with_temperature(config.temperature as f32);
-        
+
         let engine = Arc::new(Engine::new(engine_config)?);
 
         Ok(Self {
@@ -359,15 +383,21 @@ impl CandleQwen3CoderProvider {
         };
 
         // Log extracted configuration for debugging
-        log::debug!("Extracted GGUF metadata for Qwen3-Coder: hidden_size={}, layers={}, heads={}, kv_heads={:?}, rope_theta={}", 
-                   hidden_size, num_hidden_layers, num_attention_heads, num_key_value_heads, rope_theta);
+        log::debug!(
+            "Extracted GGUF metadata for Qwen3-Coder: hidden_size={}, layers={}, heads={}, kv_heads={:?}, rope_theta={}",
+            hidden_size,
+            num_hidden_layers,
+            num_attention_heads,
+            num_key_value_heads,
+            rope_theta
+        );
 
         // Create engine configuration
         let engine_config = EngineConfig::new("qwen3-coder", "candle-qwen")
             .with_streaming()
             .with_max_tokens(config.max_context)
             .with_temperature(config.temperature as f32);
-        
+
         let engine = Arc::new(Engine::new(engine_config)?);
 
         Ok(Self {
@@ -390,65 +420,13 @@ impl CandleQwen3CoderProvider {
     pub fn config(&self) -> &CandleQwen3CoderConfig {
         &self.config
     }
-
-    /// Generate streaming completion for code generation (LEGACY - use prompt() instead)
-    ///
-    /// # Arguments
-    /// * `prompt` - Input text prompt for code generation
-    ///
-    /// # Returns
-    /// AsyncStream of CandleMessageChunk tokens
-    #[deprecated(note = "Use CandleCompletionModel::prompt() instead")]
-    pub fn generate_stream(&self, prompt: &str) -> AsyncStream<CandleMessageChunk> {
-        use std::num::NonZeroU64;
-
-        use crate::domain::completion::types::CandleCompletionParams;
-        use crate::domain::prompt::CandlePrompt;
-
-        // Convert to new API
-        let candle_prompt = CandlePrompt::new(prompt);
-        let params = CandleCompletionParams {
-            temperature: self.config.temperature(),
-            max_tokens: NonZeroU64::new(1000),
-            ..Default::default()
-        };
-
-        // Use real inference via prompt() method
-        let completion_stream = self.prompt(candle_prompt, &params);
-
-        // Convert CandleCompletionChunk to legacy CandleMessageChunk format
-        AsyncStream::with_channel(move |sender| {
-            let completion_chunks: Vec<crate::domain::completion::CandleCompletionChunk> = completion_stream.collect();
-            for completion_chunk in completion_chunks {
-                let message_chunk = match completion_chunk {
-                    crate::domain::completion::CandleCompletionChunk::Text(text) => {
-                        CandleMessageChunk::Text(text)
-                    }
-                    crate::domain::completion::CandleCompletionChunk::Complete {
-                        text,
-                        finish_reason,
-                        usage,
-                    } => CandleMessageChunk::Complete {
-                        text,
-                        finish_reason: finish_reason.map(|f| format!("{:?}", f)),
-                        usage: usage.map(|u| format!("{:?}", u)),
-                    },
-                    _ => CandleMessageChunk::Error("Unknown completion chunk type".to_string()),
-                };
-
-                let _ = sender.send(message_chunk);
-            }
-        })
-    }
 }
 
-// Implement builder trait
-impl BuilderCandleQwen3CoderProvider for CandleQwen3CoderProvider {}
-
 // Static model info for Qwen3-Coder-30B
-static QWEN3_CODER_MODEL_INFO: CandleModelInfo = CandleModelInfo {
-    provider_name: "candle-qwen",
+pub static QWEN3_CODER_MODEL_INFO: CandleModelInfo = CandleModelInfo {
+    provider: crate::domain::model::CandleProvider::Unsloth,
     name: "qwen3-coder-30b-instruct",
+    registry_key: "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
     max_input_tokens: NonZeroU32::new(32768), // 32K context
     max_output_tokens: NonZeroU32::new(8192),
     input_price: None, // Local model - no pricing
@@ -464,12 +442,11 @@ static QWEN3_CODER_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     real_name: None,
     model_type: None,
     model_id: "qwen-coder",
-    hf_repo_url: "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
     quantization: "Q4_0",
     patch: None,
 };
 
-impl CandleCompletionModel for CandleQwen3CoderProvider {
+impl crate::capability::traits::TextToTextCapable for CandleQwen3CoderModel {
     fn prompt(
         &self,
         prompt: CandlePrompt,
@@ -481,25 +458,27 @@ impl CandleCompletionModel for CandleQwen3CoderProvider {
         let gguf_file_path = self.gguf_file_path.clone();
         let config = self.config.clone();
         let model_config = self.model_config.clone();
-        
+
         // Create SIMD-optimized SamplingConfig from params
         // Extract top_k and top_p with priority: params > config > None
         // This allows runtime override via additional_params while respecting config defaults
-        let top_k = params.additional_params
+        let top_k = params
+            .additional_params
             .as_ref()
             .and_then(|p| p.get("top_k"))
             .and_then(|v| v.as_u64())
             .map(|v| v as usize)
             .or(config.top_k);
 
-        let top_p = params.additional_params
+        let top_p = params
+            .additional_params
             .as_ref()
             .and_then(|p| p.get("top_p"))
             .and_then(|v| v.as_f64())
             .or(config.top_p);
 
         // Build sampling config with extracted parameters
-        let mut sampling_config = 
+        let mut sampling_config =
             crate::core::generation::SamplingConfig::new(params.temperature as f32);
 
         if let Some(k) = top_k {
@@ -520,66 +499,79 @@ impl CandleCompletionModel for CandleQwen3CoderProvider {
 
         // Use Engine's coordinate_generation for automatic metrics and stream conversion
         engine.coordinate_generation(move || {
-            use crate::core::generation::{
-                generator::TextGenerator,
-                tokens::SpecialTokens,
-                models::ModelFactory,
-            };
             use crate::core::ModelConfig as CandleConfig;
+            use crate::core::generation::{
+                generator::TextGenerator, models::CandleQuantizedLlamaModel, tokens::SpecialTokens,
+            };
             use candle_core::Device;
-            use tokenizers::Tokenizer;
             use std::sync::Arc;
+            use tokenizers::Tokenizer;
 
             // Load device (prefer GPU if available)
-            let device = crate::core::device_util::detect_best_device()
-                .unwrap_or_else(|e| {
-                    log::warn!("Device detection failed: {}. Using CPU.", e);
-                    Device::Cpu
-                });
+            let device = crate::core::device_util::detect_best_device().unwrap_or_else(|e| {
+                log::warn!("Device detection failed: {}. Using CPU.", e);
+                Device::Cpu
+            });
 
             // Load tokenizer - return error stream on failure
             let tokenizer = match Tokenizer::from_file(format!("{}/tokenizer.json", model_path)) {
                 Ok(t) => t,
                 Err(e) => {
                     return AsyncStream::with_channel(move |sender| {
-                        let _ = sender.send(CandleStringChunk(format!("ERROR: Failed to load tokenizer: {}", e)));
+                        let _ = sender.send(CandleStringChunk(format!(
+                            "ERROR: Failed to load tokenizer: {}",
+                            e
+                        )));
                     });
                 }
             };
 
             // Create model configuration for the quantized model
-            let candle_model_config = Arc::new(CandleConfig::new(
-                &gguf_file_path,
-                format!("{}/tokenizer.json", model_path),
-                crate::core::ModelArchitecture::Llama(candle_transformers::models::llama::Config {
-                    hidden_size: model_config.hidden_size,
-                    intermediate_size: model_config.intermediate_size,
-                    vocab_size: model_config.vocab_size,
-                    num_hidden_layers: model_config.num_hidden_layers,
-                    num_attention_heads: model_config.num_attention_heads,
-                    num_key_value_heads: model_config.num_key_value_heads.unwrap_or(model_config.num_attention_heads),
-                    use_flash_attn: false,
-                    rms_norm_eps: model_config.rms_norm_eps,
-                    rope_theta: model_config.rope_theta,
-                    bos_token_id: model_config.bos_token_id,
-                    eos_token_id: model_config.eos_token_id.clone(),
-                    rope_scaling: model_config.rope_scaling.clone(),
-                    max_position_embeddings: model_config.max_position_embeddings,
-                    tie_word_embeddings: model_config.tie_word_embeddings.unwrap_or(false),
-                }),
-                "qwen3-coder",
-                "qwen3-coder",
-            )
-            .with_vocab_size(model_config.vocab_size)
-            .with_context_length(config.max_context as usize)
-            .with_dtype(config.dtype));
+            let candle_model_config = Arc::new(
+                CandleConfig::new(
+                    &gguf_file_path,
+                    format!("{}/tokenizer.json", model_path),
+                    crate::core::ModelArchitecture::Llama(
+                        candle_transformers::models::llama::Config {
+                            hidden_size: model_config.hidden_size,
+                            intermediate_size: model_config.intermediate_size,
+                            vocab_size: model_config.vocab_size,
+                            num_hidden_layers: model_config.num_hidden_layers,
+                            num_attention_heads: model_config.num_attention_heads,
+                            num_key_value_heads: model_config
+                                .num_key_value_heads
+                                .unwrap_or(model_config.num_attention_heads),
+                            use_flash_attn: false,
+                            rms_norm_eps: model_config.rms_norm_eps,
+                            rope_theta: model_config.rope_theta,
+                            bos_token_id: model_config.bos_token_id,
+                            eos_token_id: model_config.eos_token_id.clone(),
+                            rope_scaling: model_config.rope_scaling.clone(),
+                            max_position_embeddings: model_config.max_position_embeddings,
+                            tie_word_embeddings: model_config.tie_word_embeddings.unwrap_or(false),
+                        },
+                    ),
+                    "qwen3-coder",
+                    "qwen3-coder",
+                )
+                .with_vocab_size(model_config.vocab_size)
+                .with_context_length(config.max_context as usize)
+                .with_dtype(config.dtype),
+            );
 
             // Load the real quantized model - return error stream on failure
-            let quantized_model = match ModelFactory::create_quantized_llama(&gguf_file_path, candle_model_config, device.clone()) {
+            let quantized_model = match CandleQuantizedLlamaModel::from_gguf_path(
+                &gguf_file_path,
+                device.clone(),
+                candle_model_config,
+            ) {
                 Ok(model) => model,
                 Err(e) => {
                     return AsyncStream::with_channel(move |sender| {
-                        let _ = sender.send(CandleStringChunk(format!("ERROR: Failed to load quantized model: {}", e)));
+                        let _ = sender.send(CandleStringChunk(format!(
+                            "ERROR: Failed to load quantized model: {}",
+                            e
+                        )));
                     });
                 }
             };
@@ -604,21 +596,21 @@ impl CandleCompletionModel for CandleQwen3CoderProvider {
 
             // Convert u64 to u32, capping at u32::MAX if necessary
             let max_tokens_u32 = max_tokens.try_into().unwrap_or_else(|_| {
-                log::warn!("max_tokens value {} exceeds u32::MAX, capping at {}", max_tokens, u32::MAX);
+                log::warn!(
+                    "max_tokens value {} exceeds u32::MAX, capping at {}",
+                    max_tokens,
+                    u32::MAX
+                );
                 u32::MAX
             });
 
             // Generate and return text stream - Engine handles conversion to CandleCompletionChunk
-            text_generator.generate(
-                prompt_text,
-                max_tokens_u32,
-                special_tokens,
-            )
+            text_generator.generate(prompt_text, max_tokens_u32, special_tokens)
         })
     }
 }
 
-impl CandleModel for CandleQwen3CoderProvider {
+impl CandleModel for CandleQwen3CoderModel {
     fn info(&self) -> &'static CandleModelInfo {
         &QWEN3_CODER_MODEL_INFO
     }

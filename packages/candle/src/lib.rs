@@ -29,34 +29,34 @@ pub fn init_candle() {
 pub mod macros;
 
 // Candle-specific modules (minimal set for core functionality)
+/// Async stream utilities re-exporting ystream
+pub mod async_stream;
 /// Candle builders for zero-allocation construction patterns
 pub mod builders;
+/// Candle macros for ARCHITECTURE.md syntax support
+/// Candle capabilities organized by what models can do
+pub mod capability;
 /// CLI module for interactive chat applications
 pub mod cli;
 /// Chat functionality is now available through domain::chat
 /// Core components (engine, generation, etc.)
 pub mod core;
-/// Candle domain types (replaces paraphym_domain dependency)  
+/// Candle domain types (replaces paraphym_domain dependency)
 pub mod domain;
 /// Extension integration for Raycast and Alfred (macOS)
 pub mod extensions;
-/// Candle macros for ARCHITECTURE.md syntax support
-/// Candle capabilities organized by what models can do
-pub mod capability;
-/// Real workflow execution system with streams-only architecture
-pub mod workflow;
-/// Memory system with cognitive features and vector storage
-pub mod memory;
-/// Shared Tokio runtime for avoiding multiple runtime creation
-pub mod runtime;
-/// Async stream utilities re-exporting ystream
-pub mod async_stream;
 /// Image processing utilities
 pub mod image;
+/// Memory system with cognitive features and vector storage
+pub mod memory;
 /// Prompt processing utilities
 pub mod prompt;
+/// Shared Tokio runtime for avoiding multiple runtime creation
+pub mod runtime;
 /// Utility modules for common operations
 pub mod util;
+/// Real workflow execution system with streams-only architecture
+pub mod workflow;
 
 // Essential Candle re-exports for public API (minimal set)
 // Domain types will be added as they become available
@@ -70,167 +70,34 @@ pub mod prelude {
         SpecialTokens, TextGenerator, TokenHistory,
     };
     // Core engine types for model-agnostic inference
+    pub use crate::capability::{
+        text_to_image::{FluxConfig, FluxSchnell, SD35TurboConfig, StableDiffusion35Turbo},
+        text_to_text::{
+            CandleKimiK2Config, CandleKimiK2Model, CandlePhi4ReasoningConfig,
+            CandlePhi4ReasoningModel, CandleQwen3CoderConfig, CandleQwen3CoderModel,
+        },
+        vision::{LLaVAConfig, LLaVAModel},
+    };
     pub use crate::core::{
         Engine, EngineConfig, EngineError, EngineResult, ModelArchitecture, ModelConfig,
         ModelConfigError,
     };
-    pub use crate::domain::chat::message::CandleMessageChunk;
     pub use crate::domain::chat::CandleChatLoop;
+    pub use crate::domain::chat::message::CandleMessageChunk;
     pub use crate::domain::{
         agent::CandleAgent,
         chat::message::types::CandleMessageRole,
         context::{
-            provider::{CandleContext, CandleDirectory, CandleFile, CandleFiles, CandleGithub},
             FinishReason,
-        },
-        tool::{
-            SweetMcpRouter, RouterError, ToolRoute, ToolInfo,
+            provider::{CandleContext, CandleDirectory, CandleFile, CandleFiles, CandleGithub},
         },
         image_generation::{
-            ImageGenerationConfig,
-            ImageGenerationChunk,
-            ImageGenerationModel,
-            tensor_to_image,
+            ImageGenerationChunk, ImageGenerationConfig, ImageGenerationModel, tensor_to_image,
         },
-    };
-    pub use crate::capability::{
-        text_to_text::{CandleKimiK2Config, CandleKimiK2Provider, CandleQwen3CoderConfig, CandleQwen3CoderProvider, CandlePhi4ReasoningConfig, CandlePhi4ReasoningProvider},
-        text_to_image::{SD35TurboConfig, StableDiffusion35Turbo, FluxConfig, FluxSchnell},
-        vision::{LLaVAProvider, LLaVAProviderConfig},
+        tool::{RouterError, SweetMcpRouter, ToolInfo, ToolRoute},
     };
     // Real workflow execution types - streams-only architecture
-    pub use crate::workflow::{candle_workflow, CandleExecutableWorkflow, CandleWorkflowStep};
-
-    // Model types for ARCHITECTURE.md integration with generation system
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub enum CandleModels {
-        KimiK2,
-        Qwen3Coder,
-        Llama,
-    }
-
-    impl CandleModels {
-        /// Get the model type string for ModelFactory::create_from_type()
-        pub fn model_type(&self) -> &'static str {
-            match self {
-                CandleModels::KimiK2 => "kimi-k2",
-                CandleModels::Qwen3Coder => "qwen3-coder",
-                CandleModels::Llama => "llama",
-            }
-        }
-
-        /// Create model using the generation system ModelFactory
-        pub fn create_model(
-            &self,
-            config: std::sync::Arc<crate::core::ModelConfig>,
-            device: candle_core::Device,
-        ) -> Result<
-            Box<dyn crate::core::generation::models::CandleModel>,
-            crate::domain::model::error::CandleModelError,
-        > {
-            crate::core::generation::models::ModelFactory::create_from_type(
-                self.model_type(),
-                config,
-                device,
-            )
-        }
-    }
-
-    // Implement CandleCompletionModel trait for builder integration
-    impl crate::domain::completion::CandleCompletionModel for CandleModels {
-        fn prompt(
-            &self,
-            prompt: crate::domain::prompt::CandlePrompt,
-            _params: &crate::domain::completion::types::CandleCompletionParams,
-        ) -> ystream::AsyncStream<crate::domain::completion::CandleCompletionChunk>
-        {
-            // Delegate to the appropriate provider based on model type
-            let model_type = *self; // Copy the enum value to move into closure
-            let params = _params.clone(); // Clone params to own the data
-            ystream::AsyncStream::with_channel(move |sender| {
-                match model_type {
-                    CandleModels::KimiK2 => {
-                        // Clone values before moving into async closure
-                        let prompt_clone = prompt.clone();
-                        let params_clone = params.clone();
-                        
-                        // Route to KimiK2Provider with async handling
-                        ystream::spawn_task(|| async move {
-                            // Create provider with default config
-                            let provider_result =
-                                crate::capability::text_to_text::kimi_k2::CandleKimiK2Provider::new().await;
-
-                            match provider_result {
-                                Ok(provider) => {
-                                    // Call real provider.prompt() method for inference
-                                    let completion_stream = provider.prompt(prompt_clone, &params_clone);
-                                    
-                                    // Stream all chunks from provider to outer sender
-                                    while let Some(chunk) = completion_stream.try_next() {
-                                        if sender.send(chunk).is_err() {
-                                            // Receiver dropped, exit gracefully
-                                            return;
-                                        }
-                                    }
-                                }
-                                Err(err) => {
-                                    // Send error chunk if provider creation fails
-                                    let error_chunk =
-                                        crate::domain::completion::CandleCompletionChunk::Error(
-                                            format!("Failed to initialize KimiK2 provider: {}", err)
-                                        );
-                                    let _ = sender.send(error_chunk);
-                                }
-                            }
-                        });
-                    }
-                    CandleModels::Qwen3Coder => {
-                        // Clone values before moving into async closure
-                        let prompt_clone = prompt.clone();
-                        let params_clone = params.clone();
-                        
-                        // Route to Qwen3CoderProvider with async handling
-                        ystream::spawn_task(|| async move {
-                            // Create provider with default config
-                            let provider_result =
-                                crate::capability::text_to_text::qwen3_coder::CandleQwen3CoderProvider::new().await;
-
-                            match provider_result {
-                                Ok(provider) => {
-                                    // Call real provider.prompt() method for inference
-                                    let completion_stream = provider.prompt(prompt_clone, &params_clone);
-                                    
-                                    // Stream all chunks from provider to outer sender
-                                    while let Some(chunk) = completion_stream.try_next() {
-                                        if sender.send(chunk).is_err() {
-                                            // Receiver dropped, exit gracefully
-                                            return;
-                                        }
-                                    }
-                                }
-                                Err(err) => {
-                                    // Send error chunk if provider creation fails
-                                    let error_chunk =
-                                        crate::domain::completion::CandleCompletionChunk::Error(
-                                            format!("Failed to initialize Qwen3Coder provider: {}", err)
-                                        );
-                                    let _ = sender.send(error_chunk);
-                                }
-                            }
-                        });
-                    }
-                    CandleModels::Llama => {
-                        // Llama provider not yet implemented
-                        let error_chunk =
-                            crate::domain::completion::CandleCompletionChunk::Error(
-                                "Llama provider not yet implemented. Available models: KimiK2, Qwen3Coder".to_string()
-                            );
-                        let _ = sender.send(error_chunk);
-                    }
-                }
-            })
-        }
-    }
+    pub use crate::workflow::{CandleExecutableWorkflow, CandleWorkflowStep, candle_workflow};
 
     pub struct CandleLibrary;
 
@@ -254,7 +121,7 @@ pub mod prelude {
 pub use ystream as async_task;
 pub use ystream::spawn_task as spawn_async;
 // Streaming primitives from paraphym-async (kept as-is per requirements)
-pub use ystream::{spawn_task, AsyncStream, AsyncStreamSender, AsyncTask};
+pub use ystream::{AsyncStream, AsyncStreamSender, AsyncTask, spawn_task};
 // SIMD operations from paraphym-simd for high-performance ML workloads
 pub use paraphym_simd;
 pub use prelude::*;

@@ -6,21 +6,13 @@
 pub mod capabilities;
 pub mod error;
 pub mod info;
-pub mod registry;
 pub mod resolver;
 pub mod traits;
 pub mod usage;
 pub mod validation;
 
-// Generated modules - created by build system
-pub mod models;
-pub mod providers;
-
 // Download provider abstraction
 pub mod download;
-
-// Model factory for creating providers from registry keys
-pub mod factory;
 
 // ProgressHub model trait (for enforcing download patterns)
 #[cfg(feature = "download-progresshub")]
@@ -29,13 +21,8 @@ pub mod progresshub;
 // Re-export commonly used Candle types
 pub use capabilities::*;
 pub use error::{CandleModelError, CandleResult};
-pub use factory::ModelFactory;
-pub use info::CandleModelInfo;
-pub use registry::CandleModelRegistry;
+pub use info::{CandleModelInfo, CandleProvider};
 pub use resolver::*;
 pub use traits::*;
 pub use usage::CandleUsage;
 pub use validation::*;
-
-// Re-export model types (canonical definitions in providers module)
-pub use providers::*;

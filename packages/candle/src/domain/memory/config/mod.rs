@@ -2,7 +2,7 @@
 pub mod cache;
 /// Database connection and storage configuration
 pub mod database;
-/// Large Language Model provider configuration
+/// LLM module - no longer contains provider configurations
 pub mod llm;
 /// Memory system configuration and settings
 pub mod memory;
@@ -16,7 +16,7 @@ pub use cache::{
     get_cached_config, get_pool_stats, get_pooled_memory, return_pooled_memory, update_config_cache,
 };
 pub use database::DatabaseConfig;
-pub use llm::{LLMConfig, LLMConfigError, LLMProvider};
+// LLM types removed - use generic models with CandleModel + TextToTextCapable instead
 pub use memory::MemoryConfig;
 pub use shared::{EmbeddingConfig, RetryConfig};
 pub use vector::VectorStoreConfig;

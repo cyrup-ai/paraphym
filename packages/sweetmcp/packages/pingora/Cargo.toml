@@ -17,9 +17,6 @@ pingora-proxy = { path = "../../../../forks/pingora/pingora-proxy" }
 pingora-load-balancing = { path = "../../../../forks/pingora/pingora-load-balancing" }
 pingora-rustls = { path = "../../../../forks/pingora/pingora-rustls" }
 
-# Async trait support
-async-trait = "0.1.42"
-
 # CLI argument parsing
 clap = { version = "4.5", features = ["derive"] }
 
@@ -50,7 +47,7 @@ opentelemetry-jaeger = "0.22"
 prometheus = { version = "0.14", features = ["process"] }
 
 # System monitoring
-sysinfo = { version = "0.37.1", features = ["multithread"] }
+sysinfo = { version = "0.37.2", features = ["multithread"] }
 
 # Configuration & Environment
 env_logger = "0.11"

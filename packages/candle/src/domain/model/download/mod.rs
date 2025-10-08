@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use async_trait::async_trait;
+use ystream::AsyncTask;
 
 /// Result type for model downloads
 #[derive(Debug, Clone)]
@@ -15,18 +15,17 @@ pub struct ModelDownloadResult {
 }
 
 /// Common trait for model download providers
-#[async_trait]
 pub trait ModelDownloadProvider: Send + Sync + 'static {
     /// Download a model with optional quantization filter
-    async fn download_model(
+    fn download_model(
         &self,
         model_id: &str,
         files: Vec<String>,
         quantization: Option<String>,
-    ) -> Result<ModelDownloadResult, Box<dyn std::error::Error + Send + Sync>>;
+    ) -> AsyncTask<Result<ModelDownloadResult, Box<dyn std::error::Error + Send + Sync>>>;
 
     /// Check if model is cached
-    async fn is_cached(&self, model_id: &str, files: &[String]) -> bool;
+    fn is_cached(&self, model_id: &str, files: &[String]) -> AsyncTask<bool>;
 
     /// Get cache directory
     fn cache_dir(&self) -> PathBuf;

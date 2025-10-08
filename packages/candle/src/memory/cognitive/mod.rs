@@ -10,7 +10,7 @@ pub mod quantum;
 pub mod types;
 
 // Re-export key types
-pub use committee::{Committee, CommitteeConfig, ProviderCommitteeEvaluator};
+pub use committee::{Committee, CommitteeConfig, ModelCommitteeEvaluator};
 pub use common::models::{LocalModel, LocalModelType};
 pub use quantum::{QuantumSignature, QuantumRouter};
 pub use types::{CognitiveError, CognitiveState};

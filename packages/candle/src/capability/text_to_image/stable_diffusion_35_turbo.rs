@@ -22,10 +22,12 @@ use crate::domain::image_generation::{
     ImageGenerationConfig, 
     ImageGenerationChunk
 };
+use crate::domain::model::traits::CandleModel;
+use crate::domain::model::CandleModelInfo;
 
 /// Stable Diffusion 3.5 Large Turbo provider
 /// Stores model paths, loads models on-demand in generate()
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct StableDiffusion35Turbo {
     clip_g_file: PathBuf,
     clip_l_file: PathBuf,
@@ -75,6 +77,13 @@ struct T5WithTokenizer {
     t5: T5EncoderModel,
     tokenizer: Tokenizer,
     max_tokens: usize,
+}
+
+impl Default for StableDiffusion35Turbo {
+    fn default() -> Self {
+        Self::from_pretrained()
+            .unwrap_or_else(|e| panic!("Failed to initialize StableDiffusion35Turbo: {}", e))
+    }
 }
 
 impl StableDiffusion35Turbo {
@@ -566,5 +575,55 @@ impl T5WithTokenizer {
         
         self.t5.forward_dt(&tokens_tensor, Some(DType::F32))
             .map_err(|e| format!("T5 forward failed: {}", e))
+    }
+}
+
+// Static model info for Stable Diffusion 3.5 Turbo
+static SD35_TURBO_MODEL_INFO: CandleModelInfo = CandleModelInfo {
+    provider: crate::domain::model::CandleProvider::StabilityAI,
+    name: "stable-diffusion-3.5-large-turbo",
+    registry_key: "stabilityai/stable-diffusion-3.5-large-turbo",
+    max_input_tokens: None,
+    max_output_tokens: None,
+    input_price: None,
+    output_price: None,
+    supports_vision: false,
+    supports_function_calling: false,
+    supports_streaming: true,
+    supports_embeddings: false,
+    requires_max_tokens: false,
+    supports_thinking: false,
+    optimal_thinking_budget: None,
+    system_prompt_prefix: None,
+    real_name: None,
+    model_type: None,
+    model_id: "sd35-turbo",
+    quantization: "fp16",
+    patch: None,
+};
+
+impl CandleModel for StableDiffusion35Turbo {
+    fn info(&self) -> &'static CandleModelInfo {
+        &SD35_TURBO_MODEL_INFO
+    }
+}
+
+impl crate::capability::traits::TextToImageCapable for StableDiffusion35Turbo {
+    fn generate_image(
+        &self,
+        prompt: &str,
+        config: &crate::domain::image_generation::ImageGenerationConfig,
+        device: &candle_core::Device,
+    ) -> AsyncStream<crate::domain::image_generation::ImageGenerationChunk> {
+        // Delegate to ImageGenerationModel trait
+        <Self as ImageGenerationModel>::generate(self, prompt, config, device)
+    }
+    
+    fn model_name(&self) -> &str {
+        <Self as ImageGenerationModel>::model_name(self)
+    }
+    
+    fn default_steps(&self) -> usize {
+        <Self as ImageGenerationModel>::default_steps(self)
     }
 }

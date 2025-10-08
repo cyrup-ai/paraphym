@@ -10,9 +10,10 @@ use thiserror::Error;
 
 // Import real completion infrastructure
 // Removed unused import: use tokio_stream::StreamExt;
-use crate::domain::agent::role::{CandleAgentRole, CandleAgentRoleImpl};
+use crate::domain::agent::role::CandleAgentRole;
 use crate::domain::completion::PromptFormatter;
-use crate::domain::completion::traits::CandleCompletionModel;
+use crate::capability::traits::TextToTextCapable;
+use crate::domain::model::traits::CandleModel;
 use crate::domain::prompt::CandlePrompt;
 use crate::domain::completion::types::CandleCompletionParams;
 use crate::domain::context::chunk::CandleCompletionChunk;
@@ -134,6 +135,8 @@ impl MessageChunk for MemoryEnhancedChatResponse {
 
 
 
+// LEGACY: This entire impl block for the deleted CandleAgentRoleImpl struct has been commented out
+/*
 impl CandleAgentRoleImpl {
     /// Generate real AI response using Provider with Engine orchestration and proper memory vs context sectioning
     ///
@@ -601,6 +604,8 @@ impl CandleAgentRoleImpl {
         })
     }
 }
+*/
+// End of commented-out CandleAgentRoleImpl impl block
 
 /// Candle-specific chat error types
 #[derive(Error, Debug)]

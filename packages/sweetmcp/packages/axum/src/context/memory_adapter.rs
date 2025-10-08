@@ -78,10 +78,14 @@ impl MemoryContextAdapter {
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to update context: {}", e))?;
         } else {
+            // Calculate content hash for deduplication
+            let content_hash = paraphym_candle::domain::memory::serialization::content_hash(&json_str);
+            
             // Create new memory node with metadata
             let memory = MemoryNode {
                 id: uuid::Uuid::new_v4().to_string(),
                 content: MemoryContent::new(&json_str),
+                content_hash,
                 memory_type: MemoryTypeEnum::Semantic,
                 created_at: chrono::Utc::now(),
                 updated_at: chrono::Utc::now(),

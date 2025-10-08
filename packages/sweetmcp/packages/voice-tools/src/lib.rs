@@ -46,19 +46,21 @@ pub struct ToolInputSchemaProperty {
 }
 
 /// Voice service trait that implementations must provide
-#[async_trait::async_trait]
+///
+/// Note: Methods return `impl Future` instead of using async-trait.
+/// Implementors should use `async fn` or return boxed futures.
 pub trait VoiceService: Send + Sync {
     /// Synthesize speech from text
-    async fn speak(&self, params: SpeakParams) -> VoiceResult<()>;
+    fn speak(&self, params: SpeakParams) -> impl std::future::Future<Output = VoiceResult<()>> + Send;
 
     /// Listen for speech and transcribe to text
-    async fn listen(&self, params: ListenParams) -> VoiceResult<ListenResult>;
+    fn listen(&self, params: ListenParams) -> impl std::future::Future<Output = VoiceResult<ListenResult>> + Send;
 
     /// Get available voice IDs
-    async fn list_voices(&self) -> VoiceResult<Vec<String>>;
+    fn list_voices(&self) -> impl std::future::Future<Output = VoiceResult<Vec<String>>> + Send;
 
     /// Get available microphone devices
-    async fn list_microphones(&self) -> VoiceResult<Vec<String>>;
+    fn list_microphones(&self) -> impl std::future::Future<Output = VoiceResult<Vec<String>>> + Send;
 }
 
 /// Tool registry helper

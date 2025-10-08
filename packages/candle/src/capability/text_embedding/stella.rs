@@ -6,7 +6,6 @@
 //! Supports only trained MRL projection dimensions: 256, 768, 1024, 2048, 4096, 6144, 8192.
 //! Architecture follows the real Candle EmbeddingModel pattern with native lm_head projections.
 
-use std::collections::HashMap;
 use std::sync::Mutex;
 
 use candle_core::{DType, Device, Tensor};
@@ -15,7 +14,9 @@ use candle_transformers::models::stella_en_v5::{Config, EmbedDim, EmbeddingModel
 use tokenizers::{Tokenizer, PaddingParams, PaddingDirection, PaddingStrategy, TruncationParams};
 
 use crate::memory::utils::error::{Error as MemoryError, Result};
-use crate::memory::vector::embedding_model::EmbeddingModel as EmbeddingModelTrait;
+use crate::domain::model::traits::CandleModel;
+use crate::domain::model::CandleModelInfo;
+use std::num::NonZeroU32;
 
 /// Configuration for Stella embedding model with proper embed_head support
 #[derive(Debug, Clone)]
@@ -117,7 +118,7 @@ impl Default for StellaConfig {
 /// Provides high-performance local embeddings using dunzhang/stella models
 /// with automatic model download via ProgressHub and configurable output dimensions.
 /// Uses integrated lm_head projection following real Candle patterns.
-pub struct StellaEmbeddingProvider {
+pub struct StellaEmbeddingModel {
     /// Model cache directory path
     model_path: String,
     /// Model configuration
@@ -130,9 +131,9 @@ pub struct StellaEmbeddingProvider {
     device: Device,
 }
 
-impl std::fmt::Debug for StellaEmbeddingProvider {
+impl std::fmt::Debug for StellaEmbeddingModel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("StellaEmbeddingProvider")
+        f.debug_struct("StellaEmbeddingModel")
             .field("model_path", &self.model_path)
             .field("config", &self.config)
             .field("model", &"EmbeddingModel { .. }")
@@ -142,7 +143,16 @@ impl std::fmt::Debug for StellaEmbeddingProvider {
     }
 }
 
-impl StellaEmbeddingProvider {
+impl Default for StellaEmbeddingModel {
+    fn default() -> Self {
+        crate::runtime::shared_runtime()
+            .unwrap_or_else(|| panic!("Shared runtime unavailable"))
+            .block_on(Self::new())
+            .unwrap_or_else(|e| panic!("Failed to initialize StellaEmbeddingModel: {}", e))
+    }
+}
+
+impl StellaEmbeddingModel {
     /// Create new Stella embedding provider with 1024-dimensional embeddings (400M model)
     pub async fn new() -> Result<Self> {
         let config = StellaConfig::default();
@@ -170,7 +180,8 @@ impl StellaEmbeddingProvider {
                 format!("{}/*", config.embed_head_dir()), // MRL projection heads
             ],
             None,
-        ).await
+        ).collect()
+        .map_err(|e| MemoryError::ModelError(format!("Download task failed: {}", e)))?
         .map_err(|e| MemoryError::ModelError(format!("Model download failed: {}", e)))?;
         
         // Use result.cache_dir for model path
@@ -343,79 +354,80 @@ impl StellaEmbeddingProvider {
     }
 }
 
-impl EmbeddingModelTrait for StellaEmbeddingProvider {
-    fn embed(&self, text: &str, task: Option<String>) -> Result<Vec<f32>> {
+
+// Static model info for Stella
+static STELLA_MODEL_INFO: CandleModelInfo = CandleModelInfo {
+    provider: crate::domain::model::CandleProvider::Dunzhang,
+    name: "stella_en_400M_v5",
+    registry_key: "dunzhang/stella_en_400M_v5",
+    max_input_tokens: NonZeroU32::new(512),
+    max_output_tokens: None,
+    input_price: None,
+    output_price: None,
+    supports_vision: false,
+    supports_function_calling: false,
+    supports_streaming: false,
+    supports_embeddings: true,
+    requires_max_tokens: false,
+    supports_thinking: false,
+    optimal_thinking_budget: None,
+    system_prompt_prefix: None,
+    real_name: None,
+    model_type: None,
+    model_id: "stella-en-400m-v5",
+    quantization: "none",
+    patch: None,
+};
+
+impl CandleModel for StellaEmbeddingModel {
+    fn info(&self) -> &'static CandleModelInfo {
+        &STELLA_MODEL_INFO
+    }
+}
+
+impl crate::capability::traits::TextEmbeddingCapable for StellaEmbeddingModel {
+    fn embed(&self, text: &str, task: Option<String>) 
+        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> 
+    {
         self.validate_input(text)?;
         
-        // Stella uses task-specific instructions: s2p (retrieval) and s2s (similarity)
         let task_ref = task.as_deref();
-        let embeddings = self.forward_pass_with_task(&[text], task_ref)?;
+        let embeddings = self.forward_pass_with_task(&[text], task_ref)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
         embeddings.into_iter().next()
-            .ok_or_else(|| MemoryError::ModelError("No embeddings generated".to_string()))
+            .ok_or_else(|| "No embeddings generated".into())
     }
-
-    fn batch_embed(&self, texts: &[String], task: Option<String>) -> Result<Vec<Vec<f32>>> {
+    
+    fn batch_embed(&self, texts: &[String], task: Option<String>) 
+        -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> 
+    {
         self.validate_batch(texts)?;
         
-        // Stella uses task-specific instructions: s2p (retrieval) and s2s (similarity)
         let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
         let task_ref = task.as_deref();
         self.forward_pass_with_task(&text_refs, task_ref)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
-
-    fn dimension(&self) -> usize {
+    
+    fn embedding_dimension(&self) -> usize {
         self.config.dimension
     }
-
-    fn name(&self) -> &str {
-        match self.config.variant {
-            ModelVariant::Large => "stella-1.5B-embedding",
-            ModelVariant::Small => "stella-400M-embedding",
-        }
-    }
-
+    
     fn supported_dimensions(&self) -> Vec<usize> {
-        // Stella MRL framework supports these learned projection dimensions only
         vec![256, 768, 1024, 2048, 4096, 6144, 8192]
     }
-
-    fn config_info(&self) -> HashMap<String, String> {
-        let mut info = HashMap::new();
-        info.insert("name".to_string(), self.name().to_string());
-        info.insert("dimension".to_string(), self.dimension().to_string());
-        info.insert("model".to_string(), self.config.repo_name().to_string());
-        info.insert("variant".to_string(), format!("{:?}", self.config.variant));
-        info.insert("max_length".to_string(), self.config.max_length.to_string());
-        info.insert("device".to_string(), format!("{:?}", self.device));
-        info.insert("architecture".to_string(), "EmbeddingModel+lm_head".to_string());
-        info.insert("instruction_masking".to_string(), "enabled".to_string());
-        info.insert("supported_tasks".to_string(), "s2p,s2s,search_query,search_document,classification,clustering,retrieval".to_string());
-        info
-    }
-
+    
     fn recommended_batch_size(&self) -> usize {
         match self.config.variant {
-            ModelVariant::Large => 8,  // Larger model needs smaller batches
-            ModelVariant::Small => 16, // Smaller model can handle larger batches
+            ModelVariant::Large => 8,
+            ModelVariant::Small => 16,
         }
     }
-
+    
     fn max_batch_size(&self) -> usize {
         match self.config.variant {
             ModelVariant::Large => 32,
             ModelVariant::Small => 64,
         }
-    }
-
-    fn health_check(&self) -> Result<()> {
-        // Verify model is loaded and ready
-        let test_embedding = self.embed("test", None)?;
-        if test_embedding.len() != self.dimension() {
-            return Err(MemoryError::ModelError(
-                format!("Health check failed: expected {} dimensions, got {}", 
-                        self.dimension(), test_embedding.len())
-            ));
-        }
-        Ok(())
     }
 }

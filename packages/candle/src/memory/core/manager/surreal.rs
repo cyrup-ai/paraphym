@@ -11,25 +11,30 @@ use surrealdb::Surreal;
 use surrealdb::engine::any::Any;
 
 // Remove imports that conflict with local definitions
+use crate::domain::memory::cognitive::types::{CognitiveState, EntanglementType};
+use crate::memory::migration::{
+    BuiltinMigrations, DataExporter, DataImporter, ExportFormat, ImportFormat, MigrationManager,
+};
 use crate::memory::primitives::types::MemoryTypeEnum;
 use crate::memory::primitives::{MemoryNode, MemoryRelationship};
 use crate::memory::schema::memory_schema::{MemoryMetadataSchema, MemoryNodeSchema};
-use crate::memory::schema::relationship_schema::Relationship;
 use crate::memory::schema::quantum_schema::QuantumSignatureSchema;
+use crate::memory::schema::relationship_schema::Relationship;
 use crate::memory::utils::error::Error;
-use crate::memory::migration::{DataExporter, ExportFormat, MigrationManager, BuiltinMigrations, DataImporter, ImportFormat};
-use crate::domain::memory::cognitive::types::{CognitiveState, EntanglementType};
 use std::path::Path;
 
 // Vector search and embedding imports
-use crate::memory::vector::embedding_model::EmbeddingModel;
-use crate::capability::text_embedding::CandleBertEmbeddingProvider;
-use log;  // For logging in create_memory
+use crate::capability::text_embedding::CandleBertEmbeddingModel;
+use crate::capability::traits::TextEmbeddingCapable;
+use crate::capability::registry::TextEmbeddingModel;
+use crate::domain::model::traits::CandleModel;
+use log; // For logging in create_memory
 
 /// Content structure for creating/updating memory nodes (without ID)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct MemoryNodeCreateContent {
     pub content: String,
+    pub content_hash: u64,
     pub memory_type: MemoryTypeEnum,
     pub metadata: MemoryMetadataSchema,
 }
@@ -38,6 +43,7 @@ impl From<&MemoryNode> for MemoryNodeCreateContent {
     fn from(memory: &MemoryNode) -> Self {
         Self {
             content: memory.content.text.clone(),
+            content_hash: memory.content_hash,
             memory_type: memory.memory_type,
             metadata: MemoryMetadataSchema {
                 created_at: memory.metadata.created_at,
@@ -286,6 +292,62 @@ impl Future for PendingEntanglementEdge {
     }
 }
 
+/// Pending single embedding generation operation
+pub struct PendingEmbedding {
+    rx: tokio::sync::oneshot::Receiver<Result<Vec<f32>>>,
+}
+
+impl PendingEmbedding {
+    pub fn new(rx: tokio::sync::oneshot::Receiver<Result<Vec<f32>>>) -> Self {
+        Self { rx }
+    }
+}
+
+impl Future for PendingEmbedding {
+    type Output = Result<Vec<f32>>;
+
+    fn poll(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        match Pin::new(&mut self.rx).poll(cx) {
+            std::task::Poll::Ready(Ok(result)) => std::task::Poll::Ready(result),
+            std::task::Poll::Ready(Err(_)) => {
+                std::task::Poll::Ready(Err(Error::Other("Channel closed".to_string())))
+            }
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+}
+
+/// Pending batch embedding generation operation
+pub struct PendingBatchEmbedding {
+    rx: tokio::sync::oneshot::Receiver<Result<Vec<Vec<f32>>>>,
+}
+
+impl PendingBatchEmbedding {
+    pub fn new(rx: tokio::sync::oneshot::Receiver<Result<Vec<Vec<f32>>>>) -> Self {
+        Self { rx }
+    }
+}
+
+impl Future for PendingBatchEmbedding {
+    type Output = Result<Vec<Vec<f32>>>;
+
+    fn poll(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        match Pin::new(&mut self.rx).poll(cx) {
+            std::task::Poll::Ready(Ok(result)) => std::task::Poll::Ready(result),
+            std::task::Poll::Ready(Err(_)) => {
+                std::task::Poll::Ready(Err(Error::Other("Channel closed".to_string())))
+            }
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+}
+
 /// A stream of memory nodes
 pub struct MemoryStream {
     rx: tokio::sync::mpsc::Receiver<Result<MemoryNode>>,
@@ -371,18 +433,15 @@ pub trait MemoryManager: Send + Sync + 'static {
     /// Update quantum signature for a memory node
     /// Persists the CognitiveState's quantum signature (denormalized cache)
     fn update_quantum_signature(
-        &self, 
-        memory_id: &str, 
-        cognitive_state: &CognitiveState
+        &self,
+        memory_id: &str,
+        cognitive_state: &CognitiveState,
     ) -> PendingQuantumUpdate;
-    
+
     /// Get quantum signature for a memory node
     /// Returns None if memory has no quantum signature
-    fn get_quantum_signature(
-        &self, 
-        memory_id: &str
-    ) -> PendingQuantumSignature;
-    
+    fn get_quantum_signature(&self, memory_id: &str) -> PendingQuantumSignature;
+
     /// Create entanglement edge using RELATE (SurrealDB graph optimized)
     /// This creates an edge in the entangled RELATION table with graph pointers
     fn create_entanglement_edge(
@@ -392,49 +451,33 @@ pub trait MemoryManager: Send + Sync + 'static {
         strength: f32,
         bond_type: EntanglementType,
     ) -> PendingEntanglementEdge;
-    
+
     /// Get memories entangled with a given memory (graph traversal)
     /// Uses SurrealDB's ->entangled syntax with pointer-based O(1) lookups
     /// Filters by minimum strength threshold
-    fn get_entangled_memories(
-        &self, 
-        memory_id: &str, 
-        min_strength: f32
-    ) -> MemoryStream;
-    
+    fn get_entangled_memories(&self, memory_id: &str, min_strength: f32) -> MemoryStream;
+
     /// Get entangled memories filtered by bond type (graph + index)
     /// Types: Semantic, Bell, BellPair, Temporal, Causal, etc.
     /// Uses both graph pointers and bond_type index
-    fn get_entangled_by_type(
-        &self, 
-        memory_id: &str, 
-        bond_type: EntanglementType
-    ) -> MemoryStream;
-    
+    fn get_entangled_by_type(&self, memory_id: &str, bond_type: EntanglementType) -> MemoryStream;
+
     /// Traverse entanglement graph to specified depth
     /// Returns all memories reachable within max_depth hops
     /// Uses recursive graph traversal with SurrealDB range syntax
-    fn traverse_entanglement_graph(
-        &self, 
-        memory_id: &str, 
-        max_depth: usize
-    ) -> MemoryStream;
-    
+    fn traverse_entanglement_graph(&self, memory_id: &str, max_depth: usize) -> MemoryStream;
+
     /// Expand a set of memory IDs via entanglement
     /// For each input memory, finds entangled neighbors
     /// Returns union of all entangled memories (deduplicated)
-    fn expand_via_entanglement(
-        &self, 
-        memory_ids: Vec<String>, 
-        min_strength: f32
-    ) -> MemoryStream;
+    fn expand_via_entanglement(&self, memory_ids: Vec<String>, min_strength: f32) -> MemoryStream;
 }
 
 /// SurrealDB implementation of the memory manager
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SurrealDBMemoryManager {
     db: Surreal<Any>,
-    embedding_model: Option<Arc<dyn EmbeddingModel>>,
+    embedding_model: Option<TextEmbeddingModel>,
 }
 
 /// Data structure for memory export containing nodes and relationships
@@ -444,34 +487,8 @@ struct ExportData {
     relationships: Vec<MemoryRelationship>,
 }
 
+// Implementation for SurrealDBMemoryManager
 impl SurrealDBMemoryManager {
-    /// Create a new SurrealDB memory manager from configuration
-    ///
-    /// This factory method initializes the manager from a MemoryConfig, connecting
-    /// to the database and setting up embedding support.
-    pub async fn with_config(config: crate::memory::utils::config::MemoryConfig) -> Result<Self> {
-        use surrealdb::engine::any::connect;
-
-        // Connect to database using connection string from config
-        let db = connect(&config.database.connection_string)
-            .await
-            .map_err(|e| Error::Database(format!("Failed to connect to database: {:?}", e)))?;
-
-        // Use namespace and database from config
-        db.use_ns(&config.database.namespace)
-            .use_db(&config.database.database)
-            .await
-            .map_err(|e| Error::Database(format!("Failed to use namespace/database: {:?}", e)))?;
-
-        // Create manager with embeddings
-        let manager = Self::with_embeddings(db).await?;
-
-        // Initialize tables and indexes
-        manager.initialize().await?;
-
-        Ok(manager)
-    }
-
     /// Create a new SurrealDB memory manager with a custom embedding model
     ///
     /// This factory method initializes the manager with the provided embedding model
@@ -480,28 +497,36 @@ impl SurrealDBMemoryManager {
     /// # Arguments
     /// * `db` - Connected SurrealDB instance
     /// * `embedding_model` - Custom embedding model to use for vector operations
-    pub async fn with_embedding_model(
-        db: Surreal<Any>,
-        embedding_model: Arc<dyn EmbeddingModel>
-    ) -> Result<Self> {
+    pub async fn with_embedding_model(db: Surreal<Any>, embedding_model: TextEmbeddingModel) -> Result<Self> {
         Ok(Self {
             db,
             embedding_model: Some(embedding_model),
         })
     }
 
-    /// Create a new SurrealDB memory manager with default BERT embedding support
-    ///
-    /// This factory method initializes the manager with BERT embedding capabilities
-    /// for auto-generating embeddings on memory creation and text search.
-    /// For custom embedding models, use `with_embedding_model()` instead.
-    pub async fn with_embeddings(db: Surreal<Any>) -> Result<Self> {
-        // Create BERT embedding model using ProgressHub download
-        let embedding_model = Arc::new(
-            CandleBertEmbeddingProvider::new().await?
-        ) as Arc<dyn EmbeddingModel>;
+    /// Create a new SurrealDB memory manager without an embedding model
+    pub async fn new(db: Surreal<Any>) -> Result<Self> {
+        Ok(Self {
+            db,
+            embedding_model: None,
+        })
+    }
 
-        Self::with_embedding_model(db, embedding_model).await
+    /// Create a new SurrealDB memory manager with default embedding model from registry
+    ///
+    /// Convenience method that uses Stella 1024 as the default embedding model.
+    /// This is the recommended way to create a memory manager with embeddings.
+    ///
+    /// # Arguments
+    /// * `db` - Connected SurrealDB instance
+    ///
+    /// # Returns
+    /// Memory manager with default Stella embedding model from registry
+    pub async fn with_embeddings(db: Surreal<Any>) -> Result<Self> {
+        use crate::capability::registry;
+        let default_model: TextEmbeddingModel = registry::get("dunzhang/stella_en_1.5B_v5")
+            .ok_or_else(|| Error::Config("Default Stella embedding model not found in registry".into()))?;
+        Self::with_embedding_model(db, default_model).await
     }
 
     /// Get a reference to the database connection
@@ -529,6 +554,12 @@ impl SurrealDBMemoryManager {
             .await
             .map_err(|e| Error::Database(format!("{:?}", e)))?;
 
+        // Define content_hash as required field
+        self.db
+            .query("DEFINE FIELD content_hash ON TABLE memory TYPE number")
+            .await
+            .map_err(|e| Error::Database(format!("{:?}", e)))?;
+
         // Create index for content hash deduplication
         self.db
             .query("DEFINE INDEX memory_content_hash_idx ON TABLE memory COLUMNS content_hash")
@@ -551,9 +582,7 @@ impl SurrealDBMemoryManager {
         let id = schema.id.key().to_string();
         let embedding = schema.metadata.embedding;
         let content = crate::memory::core::primitives::types::MemoryContent::new(&schema.content);
-        
-        // Calculate content hash
-        let content_hash = crate::domain::memory::serialization::content_hash(&content.text);
+        let content_hash = schema.content_hash;
 
         let mut metadata = MemoryMetadata::new();
         metadata.created_at = schema.metadata.created_at;
@@ -608,7 +637,8 @@ impl SurrealDBMemoryManager {
 
         // Create migration manager with shared database connection
         let db_arc = Arc::new(self.db.clone());
-        let mut manager = MigrationManager::new(db_arc).await
+        let mut manager = MigrationManager::new(db_arc)
+            .await
             .map_err(|e| Error::Other(format!("Failed to create migration manager: {}", e)))?;
 
         // Add all builtin migrations
@@ -619,7 +649,9 @@ impl SurrealDBMemoryManager {
         log::info!("Running schema migrations...");
 
         // Run migrations (now async, not returning PendingMigration)
-        manager.migrate().await
+        manager
+            .migrate()
+            .await
             .map_err(|e| Error::Other(format!("Migration execution failed: {}", e)))?;
 
         log::info!("Schema migrations completed successfully");
@@ -642,20 +674,20 @@ impl SurrealDBMemoryManager {
     /// # Errors
     /// Returns Error::Database if database queries fail
     /// Returns Error::Migration if export operation fails
-    pub async fn export_memories(
-        &self,
-        path: &Path,
-        format: ExportFormat,
-    ) -> Result<usize> {
+    pub async fn export_memories(&self, path: &Path, format: ExportFormat) -> Result<usize> {
         log::info!("Exporting memories to {:?} in {:?} format", path, format);
 
         // Query all memory nodes from 'memory' table
         let nodes_query = "SELECT * FROM memory";
-        let mut nodes_response = self.db.query(nodes_query).await
+        let mut nodes_response = self
+            .db
+            .query(nodes_query)
+            .await
             .map_err(|e| Error::Database(format!("Failed to query memory nodes: {}", e)))?;
 
         // Get as schema first, then convert using established helper
-        let node_schemas: Vec<MemoryNodeSchema> = nodes_response.take(0)
+        let node_schemas: Vec<MemoryNodeSchema> = nodes_response
+            .take(0)
             .map_err(|e| Error::Database(format!("Failed to parse memory nodes: {}", e)))?;
 
         // Use from_schema for consistent conversion (see line 328)
@@ -666,11 +698,15 @@ impl SurrealDBMemoryManager {
 
         // Query all relationships from 'memory_relationship' table
         let rels_query = "SELECT * FROM memory_relationship";
-        let mut rels_response = self.db.query(rels_query).await
+        let mut rels_response = self
+            .db
+            .query(rels_query)
+            .await
             .map_err(|e| Error::Database(format!("Failed to query relationships: {}", e)))?;
 
         // Get as Relationship first, then convert properly
-        let relationship_schemas: Vec<Relationship> = rels_response.take(0)
+        let relationship_schemas: Vec<Relationship> = rels_response
+            .take(0)
             .map_err(|e| Error::Database(format!("Failed to parse relationships: {}", e)))?;
 
         // Convert with full field preservation
@@ -699,7 +735,9 @@ impl SurrealDBMemoryManager {
 
         // Use DataExporter to write to file
         let exporter = DataExporter::new(format);
-        exporter.export_to_file(export_slice, path).await
+        exporter
+            .export_to_file(export_slice, path)
+            .await
             .map_err(|e| Error::Migration(format!("Export failed: {}", e)))?;
 
         let total = nodes.len() + relationships.len();
@@ -723,19 +761,19 @@ impl SurrealDBMemoryManager {
     /// # Errors
     /// Returns Error::Migration if import or deserialization fails
     /// Returns Error::Database if database insertion fails
-    pub async fn import_memories(
-        &self,
-        path: &Path,
-        format: ImportFormat,
-    ) -> Result<usize> {
+    pub async fn import_memories(&self, path: &Path, format: ImportFormat) -> Result<usize> {
         log::info!("Importing memories from {:?} in {:?} format", path, format);
 
         // Use DataImporter to read from file
         let importer = DataImporter::new();
         let import_vec: Vec<ExportData> = match format {
-            ImportFormat::Json => importer.import_json(path).await
+            ImportFormat::Json => importer
+                .import_json(path)
+                .await
                 .map_err(|e| Error::Migration(format!("JSON import failed: {}", e)))?,
-            ImportFormat::Csv => importer.import_csv(path).await
+            ImportFormat::Csv => importer
+                .import_csv(path)
+                .await
                 .map_err(|e| Error::Migration(format!("CSV import failed: {}", e)))?,
         };
 
@@ -750,34 +788,54 @@ impl SurrealDBMemoryManager {
         // Insert memory nodes
         for node in import_data.nodes {
             let create_content = MemoryNodeCreateContent::from(&node);
-            let result: Option<MemoryNodeSchema> = self.db
+            let result: Option<MemoryNodeSchema> = self
+                .db
                 .create(("memory", node.id.as_str()))
                 .content(create_content)
                 .await
-                .map_err(|e| Error::Database(format!("Failed to insert memory node {}: {}", node.id, e)))?;
+                .map_err(|e| {
+                    Error::Database(format!("Failed to insert memory node {}: {}", node.id, e))
+                })?;
 
             match result {
                 Some(_) => inserted_count += 1,
-                None => return Err(Error::NotFound(format!("Failed to create memory node {}", node.id))),
+                None => {
+                    return Err(Error::NotFound(format!(
+                        "Failed to create memory node {}",
+                        node.id
+                    )));
+                }
             }
         }
 
         // Insert relationships
         for rel in import_data.relationships {
             let create_content = RelationshipCreateContent::from(&rel);
-            let result: Option<Relationship> = self.db
+            let result: Option<Relationship> = self
+                .db
                 .create(("memory_relationship", rel.id.as_str()))
                 .content(create_content)
                 .await
-                .map_err(|e| Error::Database(format!("Failed to insert relationship {}: {}", rel.id, e)))?;
+                .map_err(|e| {
+                    Error::Database(format!("Failed to insert relationship {}: {}", rel.id, e))
+                })?;
 
             match result {
                 Some(_) => inserted_count += 1,
-                None => return Err(Error::NotFound(format!("Failed to create relationship {}", rel.id))),
+                None => {
+                    return Err(Error::NotFound(format!(
+                        "Failed to create relationship {}",
+                        rel.id
+                    )));
+                }
             }
         }
 
-        log::info!("Successfully imported {} items from {:?}", inserted_count, path);
+        log::info!(
+            "Successfully imported {} items from {:?}",
+            inserted_count,
+            path
+        );
 
         Ok(inserted_count)
     }
@@ -793,27 +851,28 @@ impl MemoryManager for SurrealDBMemoryManager {
         tokio::spawn(async move {
             // Auto-generate embedding if missing and model is available
             if memory.embedding.is_none()
-                && let Some(ref model) = embedding_model {
-                    // Extract text content for embedding
-                    let content_text = memory.content.text.clone();
-                    
-                    // Generate embedding synchronously (EmbeddingModel trait methods are sync)
-                    match model.embed(&content_text, Some("search".to_string())) {
-                        Ok(embedding_vec) => {
-                            memory.embedding = Some(embedding_vec);
-                            // Also update metadata.embedding for consistency
-                            memory.metadata.embedding = memory.embedding.clone();
-                        }
-                        Err(e) => {
-                            // Log but don't fail - memory can exist without embedding
-                            log::warn!("Failed to generate embedding: {:?}", e);
-                        }
+                && let Some(ref model) = embedding_model
+            {
+                // Extract text content for embedding
+                let content_text = memory.content.text.clone();
+
+                // Generate embedding synchronously (EmbeddingModel trait methods are sync)
+                match model.embed(&content_text, Some("search".to_string())) {
+                    Ok(embedding_vec) => {
+                        memory.embedding = Some(embedding_vec);
+                        // Also update metadata.embedding for consistency
+                        memory.metadata.embedding = memory.embedding.clone();
+                    }
+                    Err(e) => {
+                        // Log but don't fail - memory can exist without embedding
+                        log::warn!("Failed to generate embedding: {:?}", e);
                     }
                 }
-            
+            }
+
             // Continue with existing storage logic
             let memory_content = MemoryNodeCreateContent::from(&memory);
-            
+
             // Create the memory in SurrealDB with specific ID
             // The embedding is stored directly in the metadata field
             let created: Option<MemoryNodeSchema> = match db
@@ -1089,10 +1148,10 @@ impl MemoryManager for SurrealDBMemoryManager {
 
             // Use SurrealDB's native vector similarity search
             let sql_query = format!(
-                "SELECT *, vector::similarity::cosine(metadata.embedding, {vector_json}) AS score 
-                FROM memory 
-                WHERE metadata.embedding != NULL 
-                ORDER BY score DESC 
+                "SELECT *, vector::similarity::cosine(metadata.embedding, {vector_json}) AS score
+                FROM memory
+                WHERE metadata.embedding != NULL
+                ORDER BY score DESC
                 LIMIT {limit};"
             );
 
@@ -1103,16 +1162,17 @@ impl MemoryManager for SurrealDBMemoryManager {
 
                     for result in results {
                         // Extract the score from the result
-                        let score = result.get("score")
+                        let score = result
+                            .get("score")
                             .and_then(|s| s.as_f64())
                             .map(|s| s as f32);
-                        
+
                         // Parse the rest as a MemoryNodeSchema
                         if let Ok(schema) = serde_json::from_value::<MemoryNodeSchema>(result) {
                             let mut memory = SurrealDBMemoryManager::from_schema(schema);
                             // Set the actual cosine similarity score
                             memory.relevance_score = score;
-                            
+
                             if tx.send(Ok(memory)).await.is_err() {
                                 break;
                             }
@@ -1136,9 +1196,9 @@ impl MemoryManager for SurrealDBMemoryManager {
         tokio::spawn(async move {
             // Query memories ordered by created_at descending (recent first)
             let sql = format!(
-                "SELECT * FROM memory 
-                 WHERE content.text CONTAINS $query 
-                 ORDER BY created_at DESC 
+                "SELECT * FROM memory
+                 WHERE content.text CONTAINS $query
+                 ORDER BY created_at DESC
                  LIMIT {limit}"
             );
 
@@ -1171,17 +1231,18 @@ impl MemoryManager for SurrealDBMemoryManager {
             // Uses SurrealDB's text search operators for pattern recognition
             let pattern = format!("%{}%", query); // Wildcard pattern
             let sql = format!(
-                "SELECT * FROM memory 
-                 WHERE content.text LIKE $pattern 
+                "SELECT * FROM memory
+                 WHERE content.text LIKE $pattern
                  OR metadata.keywords CONTAINS $query
                  ORDER BY metadata.importance DESC
                  LIMIT {limit}"
             );
 
-            match db.query(&sql)
+            match db
+                .query(&sql)
                 .bind(("pattern", pattern))
                 .bind(("query", query))
-                .await 
+                .await
             {
                 Ok(mut response) => {
                     let results: Vec<MemoryNodeSchema> = response.take(0).unwrap_or_default();
@@ -1212,22 +1273,23 @@ impl MemoryManager for SurrealDBMemoryManager {
         let source_id = source_id.to_string();
         let target_id = target_id.to_string();
         let bond_type_str = format!("{:?}", bond_type);
-        
+
         let (tx, rx) = tokio::sync::oneshot::channel();
-        
+
         tokio::spawn(async move {
             // Use RELATE statement for graph-optimized edge creation
             // This creates bidirectional IN/OUT pointers automatically
             // SurrealDB stores 4 pointers: source->OUT, edge->IN, edge->OUT, target->IN
             let sql = "
-                RELATE $source->entangled->$target 
-                SET 
+                RELATE $source->entangled->$target
+                SET
                     strength = $strength,
                     bond_type = $bond_type,
                     created_at = time::now()
             ";
-            
-            let result = match db.query(sql)
+
+            let result = match db
+                .query(sql)
                 .bind(("source", format!("memory:{}", source_id)))
                 .bind(("target", format!("memory:{}", target_id)))
                 .bind(("strength", strength))
@@ -1254,33 +1316,30 @@ impl MemoryManager for SurrealDBMemoryManager {
                     Err(Error::Database(format!("RELATE failed: {:?}", e)))
                 }
             };
-            
+
             let _ = tx.send(result);
         });
-        
+
         PendingEntanglementEdge::new(rx)
     }
 
-    fn get_entangled_memories(
-        &self, 
-        memory_id: &str, 
-        min_strength: f32
-    ) -> MemoryStream {
+    fn get_entangled_memories(&self, memory_id: &str, min_strength: f32) -> MemoryStream {
         let db = self.db.clone();
         let memory_id = memory_id.to_string();
         let (tx, rx) = tokio::sync::mpsc::channel(100);
-        
+
         tokio::spawn(async move {
             // OPTIMIZED: Use SurrealDB graph syntax with inline filtering
             // ->entangled uses graph pointers (O(1) lookup per edge)
             // [WHERE strength >= $min] filters during traversal (uses strength_idx)
             // .out.* fetches target memory records
             let sql = "
-                SELECT ->entangled[WHERE strength >= $min_strength].out.* 
+                SELECT ->entangled[WHERE strength >= $min_strength].out.*
                 FROM $memory_id
             ";
-            
-            match db.query(sql)
+
+            match db
+                .query(sql)
                 .bind(("memory_id", format!("memory:{}", memory_id)))
                 .bind(("min_strength", min_strength))
                 .await
@@ -1288,14 +1347,14 @@ impl MemoryManager for SurrealDBMemoryManager {
                 Ok(mut response) => {
                     // SurrealDB returns array of target memories directly
                     let results: Vec<MemoryNodeSchema> = response.take(0).unwrap_or_default();
-                    
+
                     log::debug!(
                         "Retrieved {} entangled memories for {} (min_strength: {}) via graph pointers",
                         results.len(),
                         memory_id,
                         min_strength
                     );
-                    
+
                     for schema in results {
                         let memory = SurrealDBMemoryManager::from_schema(schema);
                         if tx.send(Ok(memory)).await.is_err() {
@@ -1313,45 +1372,42 @@ impl MemoryManager for SurrealDBMemoryManager {
                 }
             }
         });
-        
+
         MemoryStream::new(rx)
     }
 
-    fn get_entangled_by_type(
-        &self, 
-        memory_id: &str, 
-        bond_type: EntanglementType
-    ) -> MemoryStream {
+    fn get_entangled_by_type(&self, memory_id: &str, bond_type: EntanglementType) -> MemoryStream {
         let db = self.db.clone();
         let memory_id = memory_id.to_string();
         let type_str = format!("{:?}", bond_type);
         let (tx, rx) = tokio::sync::mpsc::channel(100);
-        
+
         tokio::spawn(async move {
             // OPTIMIZED: Graph traversal + index lookup
             // ->entangled uses graph pointers
             // [WHERE bond_type = $type] uses bond_type_idx for fast equality check
             // .out.* fetches target memory records
             let sql = "
-                SELECT ->entangled[WHERE bond_type = $bond_type].out.* 
+                SELECT ->entangled[WHERE bond_type = $bond_type].out.*
                 FROM $memory_id
             ";
-            
-            match db.query(sql)
+
+            match db
+                .query(sql)
                 .bind(("memory_id", format!("memory:{}", memory_id)))
                 .bind(("bond_type", type_str.clone()))
                 .await
             {
                 Ok(mut response) => {
                     let results: Vec<MemoryNodeSchema> = response.take(0).unwrap_or_default();
-                    
+
                     log::debug!(
                         "Retrieved {} {:?} entangled memories for {} via graph + index",
                         results.len(),
                         bond_type,
                         memory_id
                     );
-                    
+
                     for schema in results {
                         let memory = SurrealDBMemoryManager::from_schema(schema);
                         if tx.send(Ok(memory)).await.is_err() {
@@ -1370,19 +1426,15 @@ impl MemoryManager for SurrealDBMemoryManager {
                 }
             }
         });
-        
+
         MemoryStream::new(rx)
     }
 
-    fn traverse_entanglement_graph(
-        &self, 
-        memory_id: &str, 
-        max_depth: usize
-    ) -> MemoryStream {
+    fn traverse_entanglement_graph(&self, memory_id: &str, max_depth: usize) -> MemoryStream {
         let db = self.db.clone();
         let memory_id = memory_id.to_string();
         let (tx, rx) = tokio::sync::mpsc::channel(100);
-        
+
         tokio::spawn(async move {
             // SurrealDB multi-hop graph traversal using 4-pointer structure
             // Since SurrealDB doesn't support ->edge{1..N} syntax for graph traversal,
@@ -1395,13 +1447,13 @@ impl MemoryManager for SurrealDBMemoryManager {
             //
             // Performance: O(E^D) where E = avg edges/node, D = depth
             // DISTINCT eliminates duplicates across all depths: O(N log N)
-            
+
             // Validate depth within SurrealDB limits (max 256)
             let safe_depth = max_depth.clamp(1, 256);
-            
+
             // Build UNION query for each depth level
             let mut depth_queries = Vec::new();
-            
+
             for depth in 1..=safe_depth {
                 // Build chain: ->entangled->memory->entangled->memory...->entangled.out.*
                 // Depth 1: ->entangled.out.*
@@ -1415,26 +1467,30 @@ impl MemoryManager for SurrealDBMemoryManager {
                     chain.push_str("->entangled");
                 }
                 chain.push_str(".out.*");
-                
+
                 depth_queries.push(format!("SELECT {} FROM $memory_id", chain));
             }
-            
-            let sql = format!("SELECT DISTINCT * FROM ({}) ", depth_queries.join(" UNION "));
-            
-            match db.query(&sql)
+
+            let sql = format!(
+                "SELECT DISTINCT * FROM ({}) ",
+                depth_queries.join(" UNION ")
+            );
+
+            match db
+                .query(&sql)
                 .bind(("memory_id", format!("memory:{}", memory_id)))
                 .await
             {
                 Ok(mut response) => {
                     let results: Vec<MemoryNodeSchema> = response.take(0).unwrap_or_default();
-                    
+
                     log::info!(
                         "Traversed entanglement graph from {} (depth {}): {} memories found",
                         memory_id,
                         safe_depth,
                         results.len()
                     );
-                    
+
                     for schema in results {
                         let memory = SurrealDBMemoryManager::from_schema(schema);
                         if tx.send(Ok(memory)).await.is_err() {
@@ -1453,30 +1509,26 @@ impl MemoryManager for SurrealDBMemoryManager {
                 }
             }
         });
-        
+
         MemoryStream::new(rx)
     }
 
-    fn expand_via_entanglement(
-        &self, 
-        memory_ids: Vec<String>, 
-        min_strength: f32
-    ) -> MemoryStream {
+    fn expand_via_entanglement(&self, memory_ids: Vec<String>, min_strength: f32) -> MemoryStream {
         let db = self.db.clone();
         let (tx, rx) = tokio::sync::mpsc::channel(100);
-        
+
         tokio::spawn(async move {
             // Handle empty input gracefully
             if memory_ids.is_empty() {
                 return; // Empty stream
             }
-            
+
             // Convert memory IDs to SurrealDB record format
             let record_ids: Vec<String> = memory_ids
                 .iter()
                 .map(|id| format!("memory:{}", id))
                 .collect();
-            
+
             // Parallel expansion using graph pointers (based on working QENT_4 pattern)
             // Uses proven ->entangled[WHERE ...].out.* syntax from get_entangled_memories
             //
@@ -1489,26 +1541,26 @@ impl MemoryManager for SurrealDBMemoryManager {
             //
             // Performance: O(S * E * log E) where S = seeds, E = avg edges/seed
             // Without index: O(S * E²) - 100-1000x slower
-            
-            let sql = format!("
+
+            let sql = format!(
+                "
                 SELECT DISTINCT ->entangled[WHERE strength >= $min_strength].out.*
                 FROM {}
-            ", record_ids.join(", "));
-            
-            match db.query(&sql)
-                .bind(("min_strength", min_strength))
-                .await
-            {
+            ",
+                record_ids.join(", ")
+            );
+
+            match db.query(&sql).bind(("min_strength", min_strength)).await {
                 Ok(mut response) => {
                     let results: Vec<MemoryNodeSchema> = response.take(0).unwrap_or_default();
-                    
+
                     log::info!(
                         "Expanded {} seed memories via entanglement (min_strength {}): {} total memories",
                         memory_ids.len(),
                         min_strength,
                         results.len()
                     );
-                    
+
                     for schema in results {
                         let memory = SurrealDBMemoryManager::from_schema(schema);
                         if tx.send(Ok(memory)).await.is_err() {
@@ -1526,29 +1578,30 @@ impl MemoryManager for SurrealDBMemoryManager {
                 }
             }
         });
-        
+
         MemoryStream::new(rx)
     }
 
     fn update_quantum_signature(
-        &self, 
-        memory_id: &str, 
-        cognitive_state: &CognitiveState
+        &self,
+        memory_id: &str,
+        cognitive_state: &CognitiveState,
     ) -> PendingQuantumUpdate {
         let db = self.db.clone();
         let memory_id = memory_id.to_string();
-        
+
         // Convert CognitiveState to schema
         let signature_schema = QuantumSignatureSchema::from_cognitive_state(cognitive_state);
-        
+
         let (tx, rx) = tokio::sync::oneshot::channel();
-        
+
         tokio::spawn(async move {
             // Update memory record with quantum signature (denormalized cache)
             // Primary edges are in entangled RELATION table
             let sql = "UPDATE memory SET quantum_signature = $signature WHERE id = $memory_id";
-            
-            let result = match db.query(sql)
+
+            let result = match db
+                .query(sql)
                 .bind(("memory_id", format!("memory:{}", memory_id)))
                 .bind(("signature", signature_schema.clone()))
                 .await
@@ -1567,37 +1620,40 @@ impl MemoryManager for SurrealDBMemoryManager {
                         memory_id,
                         e
                     );
-                    Err(Error::Database(format!("Quantum signature update failed: {:?}", e)))
+                    Err(Error::Database(format!(
+                        "Quantum signature update failed: {:?}",
+                        e
+                    )))
                 }
             };
-            
+
             let _ = tx.send(result);
         });
-        
+
         PendingQuantumUpdate::new(rx)
     }
 
     fn get_quantum_signature(&self, memory_id: &str) -> PendingQuantumSignature {
         let db = self.db.clone();
         let memory_id = memory_id.to_string();
-        
+
         let (tx, rx) = tokio::sync::oneshot::channel();
-        
+
         tokio::spawn(async move {
             // Query for quantum signature field (denormalized cache)
             // For live edges, query entangled RELATION table separately
             let sql = "SELECT quantum_signature FROM memory WHERE id = $memory_id";
-            
-            let result = match db.query(sql)
+
+            let result = match db
+                .query(sql)
                 .bind(("memory_id", format!("memory:{}", memory_id)))
                 .await
             {
                 Ok(mut response) => {
                     // Extract quantum_signature field
-                    let signatures: Vec<Option<QuantumSignatureSchema>> = response
-                        .take(0)
-                        .unwrap_or_default();
-                    
+                    let signatures: Vec<Option<QuantumSignatureSchema>> =
+                        response.take(0).unwrap_or_default();
+
                     if let Some(Some(schema)) = signatures.first() {
                         // Convert schema back to CognitiveState
                         match schema.to_cognitive_state() {
@@ -1632,10 +1688,10 @@ impl MemoryManager for SurrealDBMemoryManager {
                     Err(Error::Database(format!("Query failed: {:?}", e)))
                 }
             };
-            
+
             let _ = tx.send(result);
         });
-        
+
         PendingQuantumSignature::new(rx)
     }
 }
@@ -1643,17 +1699,17 @@ impl MemoryManager for SurrealDBMemoryManager {
 // Additional methods for SurrealDBMemoryManager
 impl SurrealDBMemoryManager {
     /// # Hybrid Search with Entanglement Expansion
-    /// 
+    ///
     /// Combines vector similarity search with graph-based context expansion.
-    /// 
+    ///
     /// ## How It Works
-    /// 
+    ///
     /// 1. **Vector Search**: Find top-N most similar memories by cosine similarity
     /// 2. **Graph Expansion**: Traverse entanglement graph from seed memories
     /// 3. **Merge Results**: Return union of vector matches + entangled neighbors
-    /// 
+    ///
     /// ## Parameters
-    /// 
+    ///
     /// - `vector`: Query embedding (f32 vector)
     /// - `limit`: Maximum total results to return
     /// - `expand_depth`: Graph traversal depth
@@ -1661,34 +1717,34 @@ impl SurrealDBMemoryManager {
     ///   - `1`: Include direct entangled neighbors
     ///   - `2`: Include neighbors of neighbors
     ///   - `3+`: Deeper traversal (use with caution)
-    /// 
+    ///
     /// ## Returns
-    /// 
+    ///
     /// `MemoryStream` containing:
     /// - Top vector similarity matches (seed memories)
     /// - Memories entangled with seeds (within `expand_depth` hops)
     /// - Deduplicated (DISTINCT)
-    /// 
+    ///
     /// ## Example
-    /// 
+    ///
     /// ```rust,ignore
     /// // Search with depth-2 entanglement expansion
     /// let results = manager.search_with_entanglement(query_vec, 20, 2);
     /// let memories: Vec<_> = results.collect().await;
-    /// 
+    ///
     /// // Results contain:
     /// // - 10 best vector matches (seeds)
     /// // - ~10-30 entangled memories (neighbors + neighbors-of-neighbors)
     /// ```
     pub fn search_with_entanglement(
-        &self, 
-        vector: Vec<f32>, 
-        limit: usize, 
-        expand_depth: usize
+        &self,
+        vector: Vec<f32>,
+        limit: usize,
+        expand_depth: usize,
     ) -> MemoryStream {
         let db = self.db.clone();
         let (tx, rx) = tokio::sync::mpsc::channel(100);
-        
+
         tokio::spawn(async move {
             // SURREALDB HYBRID SEARCH OPTIMIZATION
             // ====================================
@@ -1710,23 +1766,22 @@ impl SurrealDBMemoryManager {
             //   - O(N log N) HashSet-based deduplication
             //
             // Total complexity: O(log N) + O(S * E^D * log E) + O(N log N)
-            
+
             // Validate and clamp expand_depth to SurrealDB limits (max 256 levels)
             let safe_depth = if expand_depth > 0 {
                 expand_depth.clamp(1, 256)
             } else {
                 0
             };
-            
-            let initial_limit = if safe_depth > 0 { 
-                limit / 2  // Reserve half for expansion
-            } else { 
-                limit  // No expansion, use full limit
+
+            let initial_limit = if safe_depth > 0 {
+                limit / 2 // Reserve half for expansion
+            } else {
+                limit // No expansion, use full limit
             };
-            
-            let vector_json = serde_json::to_string(&vector)
-                .unwrap_or_else(|_| "[]".to_string());
-            
+
+            let vector_json = serde_json::to_string(&vector).unwrap_or_else(|_| "[]".to_string());
+
             // OPTIMIZED SINGLE-QUERY APPROACH using CTE
             // Combines vector search + graph expansion in one roundtrip
             let sql = if safe_depth > 0 {
@@ -1736,34 +1791,34 @@ impl SurrealDBMemoryManager {
                 // Depth 3: ->entangled->memory->entangled->memory->entangled
                 // Each depth gets its own subquery joined with UNION
                 let mut depth_queries = Vec::new();
-                
+
                 for depth in 1..=safe_depth {
                     // Build chain: start with ->entangled, add ->memory->entangled for each additional hop
                     let mut chain = String::from("->entangled");
                     for _ in 1..depth {
                         chain.push_str("->memory->entangled");
                     }
-                    
+
                     // Each depth subquery: traverse chain from seeds, filter by strength
                     depth_queries.push(format!(
                         "SELECT DISTINCT out AS id FROM (SELECT VALUE id FROM $seeds){} WHERE strength >= 0.7",
                         chain
                     ));
                 }
-                
+
                 let union_queries = depth_queries.join(" UNION ");
-                
+
                 format!("
                     -- CTE for vector similarity seeds
                     LET $seeds = (
-                        SELECT id, 
-                               vector::similarity::cosine(metadata.embedding, {vector_json}) AS vector_score 
-                        FROM memory 
-                        WHERE metadata.embedding != NULL 
-                        ORDER BY vector_score DESC 
+                        SELECT id,
+                               vector::similarity::cosine(metadata.embedding, {vector_json}) AS vector_score
+                        FROM memory
+                        WHERE metadata.embedding != NULL
+                        ORDER BY vector_score DESC
                         LIMIT {initial_limit}
                     );
-                    
+
                     -- Hybrid query: seeds + multi-hop graph expansion
                     SELECT DISTINCT m.* FROM memory m
                     WHERE m.id IN (SELECT VALUE id FROM $seeds)  -- Include seed memories
@@ -1776,26 +1831,26 @@ impl SurrealDBMemoryManager {
             } else {
                 // No expansion: pure MTREE vector search
                 format!("
-                    SELECT *, 
-                           vector::similarity::cosine(metadata.embedding, {vector_json}) AS vector_score 
-                    FROM memory 
-                    WHERE metadata.embedding != NULL 
-                    ORDER BY vector_score DESC 
+                    SELECT *,
+                           vector::similarity::cosine(metadata.embedding, {vector_json}) AS vector_score
+                    FROM memory
+                    WHERE metadata.embedding != NULL
+                    ORDER BY vector_score DESC
                     LIMIT {limit}
                 ", vector_json = vector_json, limit = limit)
             };
-            
+
             match db.query(&sql).await {
                 Ok(mut response) => {
                     let results: Vec<MemoryNodeSchema> = response.take(0).unwrap_or_default();
-                    
+
                     log::info!(
                         "Hybrid search (depth {}): {} total results (limit {})",
                         safe_depth,
                         results.len(),
                         limit
                     );
-                    
+
                     for schema in results {
                         let memory = SurrealDBMemoryManager::from_schema(schema);
                         if tx.send(Ok(memory)).await.is_err() {
@@ -1809,30 +1864,23 @@ impl SurrealDBMemoryManager {
                 }
             }
         });
-        
+
         MemoryStream::new(rx)
     }
 
     /// Search memories by text with auto-embedding generation
-    pub async fn search_by_text(
-        &self,
-        text: &str,
-        limit: usize
-    ) -> Result<MemoryStream> {
+    pub async fn search_by_text(&self, text: &str, limit: usize) -> Result<MemoryStream> {
         // Generate embedding from text
         if let Some(ref embedding_model) = self.embedding_model {
             // Generate embedding synchronously
-            let embedding = embedding_model.embed(
-                text,
-                Some("search".to_string())
-            )?;
-            
+            let embedding = embedding_model.embed(text, Some("search".to_string()))?;
+
             // Delegate to existing search_by_vector
             let stream = self.search_by_vector(embedding, limit);
             Ok(stream)
         } else {
             Err(Error::Config(
-                "No embedding model configured for text search".to_string()
+                "No embedding model configured for text search".to_string(),
             ))
         }
     }
@@ -1840,42 +1888,42 @@ impl SurrealDBMemoryManager {
     /// Query memories by metadata filters
     pub async fn query_by_metadata(
         &self,
-        metadata_filters: std::collections::HashMap<String, serde_json::Value>
+        metadata_filters: std::collections::HashMap<String, serde_json::Value>,
     ) -> Result<MemoryStream> {
         let db = self.db.clone();
-        
+
         let (tx, rx) = tokio::sync::mpsc::channel(100);
-        
+
         tokio::spawn(async move {
             // Build WHERE clause from filters
             let mut conditions = Vec::new();
             let mut bindings = Vec::new();
-            
+
             for (idx, (key, value)) in metadata_filters.iter().enumerate() {
                 // Use parameter binding to prevent injection
                 let param_name = format!("param_{}", idx);
                 conditions.push(format!("metadata.custom.{} = ${}", key, param_name));
                 bindings.push((param_name, value.clone()));
             }
-            
+
             let where_clause = if conditions.is_empty() {
                 String::new()
             } else {
                 format!(" WHERE {}", conditions.join(" AND "))
             };
-            
+
             let query_str = format!("SELECT * FROM memory{}", where_clause);
-            
+
             // Build and execute query with bindings
             let mut query_builder = db.query(&query_str);
             for (param, value) in bindings {
                 query_builder = query_builder.bind((param, value));
             }
-            
+
             match query_builder.await {
                 Ok(mut response) => {
                     let results: Vec<MemoryNodeSchema> = response.take(0).unwrap_or_default();
-                    
+
                     for schema in results {
                         let memory = SurrealDBMemoryManager::from_schema(schema);
                         if tx.send(Ok(memory)).await.is_err() {
@@ -1888,7 +1936,7 @@ impl SurrealDBMemoryManager {
                 }
             }
         });
-        
+
         Ok(MemoryStream::new(rx))
     }
 
@@ -1897,21 +1945,19 @@ impl SurrealDBMemoryManager {
     async fn get_memories_by_ids(&self, ids: Vec<String>) -> Result<Vec<MemoryNode>> {
         // Use SurrealDB's batch select for efficiency
         let query = "SELECT * FROM memory WHERE id IN $ids";
-        
-        let mut response = self.db
+
+        let mut response = self
+            .db
             .query(query)
             .bind(("ids", ids))
             .await
             .map_err(|e| Error::Database(format!("{:?}", e)))?;
-        
+
         let results: Vec<MemoryNodeSchema> = response
             .take(0)
             .map_err(|e| Error::Database(format!("{:?}", e)))?;
-        
-        Ok(results
-            .into_iter()
-            .map(Self::from_schema)
-            .collect())
+
+        Ok(results.into_iter().map(Self::from_schema).collect())
     }
 
     /// Check if a document exists by content hash
@@ -1928,17 +1974,18 @@ impl SurrealDBMemoryManager {
     /// * `Err(Error)` - Database query failed
     pub async fn document_exists_by_hash(&self, hash: u64) -> Result<bool> {
         let query = "SELECT id FROM memory WHERE content_hash = $hash LIMIT 1";
-        
-        let mut response = self.db
+
+        let mut response = self
+            .db
             .query(query)
             .bind(("hash", hash))
             .await
             .map_err(|e| Error::Database(format!("Failed to query by content_hash: {:?}", e)))?;
-        
+
         let results: Vec<serde_json::Value> = response
             .take(0)
             .map_err(|e| Error::Database(format!("Failed to parse hash query results: {:?}", e)))?;
-        
+
         Ok(!results.is_empty())
     }
 
@@ -1955,17 +2002,18 @@ impl SurrealDBMemoryManager {
     /// * `Err(Error)` - Database query failed
     pub async fn find_document_by_hash(&self, hash: u64) -> Result<Option<MemoryNode>> {
         let query = "SELECT * FROM memory WHERE content_hash = $hash LIMIT 1";
-        
-        let mut response = self.db
+
+        let mut response = self
+            .db
             .query(query)
             .bind(("hash", hash))
             .await
             .map_err(|e| Error::Database(format!("Failed to query by content_hash: {:?}", e)))?;
-        
+
         let results: Vec<MemoryNodeSchema> = response
             .take(0)
             .map_err(|e| Error::Database(format!("Failed to parse hash query results: {:?}", e)))?;
-        
+
         Ok(results.into_iter().next().map(Self::from_schema))
     }
 
@@ -1990,18 +2038,21 @@ impl SurrealDBMemoryManager {
     ) -> Result<bool> {
         // Update both updated_at and last_accessed_at to "freshen" the document
         let query = "UPDATE memory SET updated_at = $timestamp, metadata.last_accessed_at = $timestamp WHERE content_hash = $hash";
-        
-        let mut response = self.db
+
+        let mut response = self
+            .db
             .query(query)
             .bind(("hash", hash))
             .bind(("timestamp", timestamp))
             .await
-            .map_err(|e| Error::Database(format!("Failed to update age by content_hash: {:?}", e)))?;
-        
+            .map_err(|e| {
+                Error::Database(format!("Failed to update age by content_hash: {:?}", e))
+            })?;
+
         let results: Vec<serde_json::Value> = response
             .take(0)
             .map_err(|e| Error::Database(format!("Failed to parse update results: {:?}", e)))?;
-        
+
         Ok(!results.is_empty())
     }
 }

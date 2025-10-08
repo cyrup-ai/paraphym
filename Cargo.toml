@@ -30,7 +30,6 @@ repository = "https://github.com/cyrup-ai/paraphym"
 
 [workspace.dependencies]
 ahash = "0.8.12"
-async-trait = "0.1.89"
 bytes = "1.10.1"
 derivative = "2.2.0"
 h2 = "0.4.12"
@@ -42,7 +41,4 @@ termcolor = { git = "https://github.com/cyrup-ai/termcolor" }
 lru = "0.16.1"
 once_cell = "1.21.3"
 tokio = "1.47.1"
-
-[patch.crates-io]
-num-bigint-dig = { path = "tmp/num-bigint-dig" }
 

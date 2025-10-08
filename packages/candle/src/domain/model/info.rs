@@ -10,6 +10,73 @@ use serde::{Deserialize, Serialize};
 // Removed unused import: smallvec::SmallVec
 use crate::domain::model::error::{CandleModelError, CandleResult};
 
+/// AI model provider organizations
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CandleProvider {
+    /// Moonshot AI (Kimi models)
+    #[serde(rename = "moonshot-ai")]
+    MoonshotAI,
+    /// Microsoft (Phi models)
+    #[serde(rename = "microsoft")]
+    Microsoft,
+    /// Alibaba NLP (GTE, Qwen models)
+    #[serde(rename = "alibaba-nlp")]
+    AlibabaNLP,
+    /// Stability AI (Stable Diffusion models)
+    #[serde(rename = "stability-ai")]
+    StabilityAI,
+    /// Black Forest Labs (FLUX models)
+    #[serde(rename = "black-forest-labs")]
+    BlackForestLabs,
+    /// OpenAI (CLIP models)
+    #[serde(rename = "openai")]
+    OpenAI,
+    /// Sentence Transformers (BERT models)
+    #[serde(rename = "sentence-transformers")]
+    SentenceTransformers,
+    /// Jina AI (Jina-BERT models)
+    #[serde(rename = "jina-ai")]
+    JinaAI,
+    /// NVIDIA (NV-Embed models)
+    #[serde(rename = "nvidia")]
+    Nvidia,
+    /// Dunzhang (Stella models)
+    #[serde(rename = "dunzhang")]
+    Dunzhang,
+    /// LLaVA HF (LLaVA models)
+    #[serde(rename = "llava-hf")]
+    LLaVAHF,
+    /// Unsloth (Quantized models)
+    #[serde(rename = "unsloth")]
+    Unsloth,
+}
+
+impl CandleProvider {
+    /// Convert provider to string representation
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CandleProvider::MoonshotAI => "moonshot-ai",
+            CandleProvider::Microsoft => "microsoft",
+            CandleProvider::AlibabaNLP => "alibaba-nlp",
+            CandleProvider::StabilityAI => "stability-ai",
+            CandleProvider::BlackForestLabs => "black-forest-labs",
+            CandleProvider::OpenAI => "openai",
+            CandleProvider::SentenceTransformers => "sentence-transformers",
+            CandleProvider::JinaAI => "jina-ai",
+            CandleProvider::Nvidia => "nvidia",
+            CandleProvider::Dunzhang => "dunzhang",
+            CandleProvider::LLaVAHF => "llava-hf",
+            CandleProvider::Unsloth => "unsloth",
+        }
+    }
+}
+
+impl std::fmt::Display for CandleProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Core metadata and capabilities for a Candle AI model
 ///
 /// This struct provides a standardized way to represent Candle model capabilities,
@@ -22,11 +89,14 @@ use crate::domain::model::error::{CandleModelError, CandleResult};
 #[must_use = "CandleModelInfo should be used to make informed decisions about model selection"]
 #[allow(clippy::struct_excessive_bools)] // YAML deserialization; bools are independent feature flags from external source
 pub struct CandleModelInfo {
-    /// The name of the provider (e.g., "candle-kimi", "candle-qwen")
-    pub provider_name: &'static str,
+    /// The model provider organization
+    pub provider: CandleProvider,
 
     /// The name of the model (e.g., "kimi-k2-instruct", "qwen3-coder-30b")
     pub name: &'static str,
+
+    /// HuggingFace registry key (org/model-id)
+    pub registry_key: &'static str,
 
     /// Maximum number of input tokens supported by the model
     pub max_input_tokens: Option<NonZeroU32>,
@@ -82,10 +152,7 @@ pub struct CandleModelInfo {
     /// Short CLI identifier for model selection (e.g., "kimi-k2", "qwen-coder")
     pub model_id: &'static str,
 
-    /// `HuggingFace` repository URL for automatic model downloads
-    pub hf_repo_url: &'static str,
-
-    /// Model quantization format (e.g., "`Q4_0`", "`Q5_0`", "F16")
+    /// Model quantization format (e.g., "`Q4_0`", "`Q5_0`", "F16", "none")
     pub quantization: &'static str,
 
     /// Patch configuration for API requests
@@ -101,11 +168,32 @@ impl CandleModelInfo {
         self.name
     }
 
-    /// Get the provider name
+    /// Get the provider
     #[inline]
     #[must_use]
-    pub fn provider(&self) -> &'static str {
-        self.provider_name
+    pub fn provider(&self) -> CandleProvider {
+        self.provider
+    }
+
+    /// Get the registry key (org/model-id for HuggingFace)
+    #[inline]
+    #[must_use]
+    pub fn registry_key(&self) -> &'static str {
+        self.registry_key
+    }
+
+    /// Get the provider as a string
+    #[inline]
+    #[must_use]
+    pub fn provider_str(&self) -> &'static str {
+        self.provider.as_str()
+    }
+
+    /// Get the `HuggingFace` repository URL (computed from registry_key)
+    #[inline]
+    #[must_use]
+    pub fn hf_repo_url(&self) -> String {
+        format!("https://huggingface.co/{}", self.registry_key)
     }
 
     /// Get the model name
@@ -171,12 +259,6 @@ impl CandleModelInfo {
         self.model_id
     }
 
-    /// Get the `HuggingFace` repository URL for automatic downloads
-    #[inline]
-    #[must_use]
-    pub fn hf_repo_url(&self) -> &'static str {
-        self.hf_repo_url
-    }
 
     /// Get the model's quantization format
     #[inline]
@@ -250,9 +332,9 @@ impl CandleModelInfo {
     /// - `provider_name` or `name` is empty
     /// - `max_input_tokens` or `max_output_tokens` is 0
     pub fn validate(&self) -> CandleResult<()> {
-        if self.provider_name.is_empty() {
+        if self.registry_key.is_empty() {
             return Err(CandleModelError::InvalidConfiguration(
-                "provider_name cannot be empty".into(),
+                "registry_key cannot be empty".into(),
             ));
         }
 
@@ -290,15 +372,15 @@ impl CandleModelInfo {
 
 impl Hash for CandleModelInfo {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.provider_name.hash(state);
+        self.provider.hash(state);
         self.name.hash(state);
     }
 }
 
 /// A collection of model information for a specific provider
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct CandleProviderModels {
-    provider_name: &'static str,
+    provider: CandleProvider,
     models: Vec<CandleModelInfo>,
 }
 
@@ -306,9 +388,9 @@ impl CandleProviderModels {
     /// Create a new provider model collection
     #[inline]
     #[must_use]
-    pub fn new(provider_name: &'static str) -> Self {
+    pub fn new(provider: CandleProvider) -> Self {
         Self {
-            provider_name,
+            provider,
             models: Vec::new(),
         }
     }
@@ -321,7 +403,7 @@ impl CandleProviderModels {
     /// - Model provider doesn't match collection provider
     /// - Model with same name already exists in collection
     pub fn add_model(&mut self, model: CandleModelInfo) -> CandleResult<()> {
-        if model.provider_name != self.provider_name {
+        if model.provider != self.provider {
             return Err(CandleModelError::InvalidConfiguration(
                 "model provider does not match collection provider".into(),
             ));
@@ -329,7 +411,7 @@ impl CandleProviderModels {
 
         if self.models.iter().any(|m| m.name == model.name) {
             return Err(CandleModelError::ModelAlreadyExists {
-                provider: self.provider_name.into(),
+                provider: self.provider.to_string().into(),
                 name: model.name.into(),
             });
         }
@@ -351,10 +433,10 @@ impl CandleProviderModels {
         &self.models
     }
 
-    /// Get the provider name
+    /// Get the provider
     #[inline]
     #[must_use]
-    pub fn provider_name(&self) -> &'static str {
-        self.provider_name
+    pub fn provider(&self) -> CandleProvider {
+        self.provider
     }
 }

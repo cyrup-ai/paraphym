@@ -3,6 +3,9 @@
 //! Models organized by what they CAN DO rather than who created them.
 //! See GLOSSARY.md for architecture details.
 
+pub mod traits;
+pub mod registry;
+
 pub mod text_to_text;
 pub mod text_to_image;
 pub mod text_embedding;

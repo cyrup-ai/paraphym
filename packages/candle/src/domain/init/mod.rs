@@ -57,7 +57,7 @@ pub async fn initialize_memory_service_with_config(
         .await
         .map_err(|e| DomainInitError::DatabaseInitializationFailed(e.to_string()))?;
 
-    // Create the real memory manager with SurrealDB connection and embeddings
+    // Create the real memory manager with SurrealDB connection and default embeddings from registry
     let manager = SurrealDBMemoryManager::with_embeddings(db)
         .await
         .map_err(|e| DomainInitError::MemoryInitializationFailed(e.to_string()))?;

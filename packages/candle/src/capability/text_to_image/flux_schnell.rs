@@ -18,10 +18,12 @@ use crate::domain::image_generation::{
     ImageGenerationConfig, 
     ImageGenerationChunk
 };
+use crate::domain::model::traits::CandleModel;
+use crate::domain::model::CandleModelInfo;
 
 /// FLUX.1-schnell provider for fast 4-step text-to-image generation
 /// Stores model paths, loads models on-demand in generate()
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct FluxSchnell {
     flux_file: PathBuf,
     t5_model_file: PathBuf,
@@ -59,6 +61,13 @@ struct T5WithTokenizer {
 struct ClipWithTokenizer {
     clip: ClipTextTransformer,
     tokenizer: Tokenizer,
+}
+
+impl Default for FluxSchnell {
+    fn default() -> Self {
+        Self::from_pretrained()
+            .unwrap_or_else(|e| panic!("Failed to initialize FluxSchnell: {}", e))
+    }
 }
 
 impl FluxSchnell {
@@ -440,5 +449,55 @@ impl ClipWithTokenizer {
         
         self.clip.forward(&tokens_tensor)
             .map_err(|e| format!("CLIP forward failed: {}", e))
+    }
+}
+
+// Static model info for FLUX Schnell
+static FLUX_SCHNELL_MODEL_INFO: CandleModelInfo = CandleModelInfo {
+    provider: crate::domain::model::CandleProvider::BlackForestLabs,
+    name: "FLUX.1-schnell",
+    registry_key: "black-forest-labs/FLUX.1-schnell",
+    max_input_tokens: None,
+    max_output_tokens: None,
+    input_price: None,
+    output_price: None,
+    supports_vision: false,
+    supports_function_calling: false,
+    supports_streaming: true,
+    supports_embeddings: false,
+    requires_max_tokens: false,
+    supports_thinking: false,
+    optimal_thinking_budget: None,
+    system_prompt_prefix: None,
+    real_name: None,
+    model_type: None,
+    model_id: "flux-schnell",
+    quantization: "bf16",
+    patch: None,
+};
+
+impl CandleModel for FluxSchnell {
+    fn info(&self) -> &'static CandleModelInfo {
+        &FLUX_SCHNELL_MODEL_INFO
+    }
+}
+
+impl crate::capability::traits::TextToImageCapable for FluxSchnell {
+    fn generate_image(
+        &self,
+        prompt: &str,
+        config: &crate::domain::image_generation::ImageGenerationConfig,
+        device: &candle_core::Device,
+    ) -> AsyncStream<crate::domain::image_generation::ImageGenerationChunk> {
+        // Delegate to ImageGenerationModel trait
+        <Self as ImageGenerationModel>::generate(self, prompt, config, device)
+    }
+    
+    fn model_name(&self) -> &str {
+        <Self as ImageGenerationModel>::model_name(self)
+    }
+    
+    fn default_steps(&self) -> usize {
+        <Self as ImageGenerationModel>::default_steps(self)
     }
 }

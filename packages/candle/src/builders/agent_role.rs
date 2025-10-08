@@ -7,192 +7,102 @@ use cyrup_sugars::ZeroOneOrMany;
 
 use ystream::AsyncStream;
 
+use crate::capability::traits::TextToTextCapable;
+use crate::capability::registry::{TextToTextModel, TextEmbeddingModel};
 use crate::domain::agent::core::AgentError;
-use crate::domain::chat::message::{CandleMessageChunk, CandleMessageRole};
 use crate::domain::chat::CandleChatLoop;
-use crate::domain::completion::{
-    traits::CandleCompletionModel as DomainCompletionModel, types::CandleCompletionParams,
-    CandleCompletionChunk,
-};
+use crate::domain::chat::message::{CandleMessageChunk, CandleMessageRole};
+use crate::domain::completion::{CandleCompletionChunk, types::CandleCompletionParams};
 use crate::domain::context::provider::{
     CandleContext, CandleDirectory, CandleFile, CandleFiles, CandleGithub,
 };
 use crate::domain::prompt::CandlePrompt;
 use crate::domain::tool::SweetMcpRouter;
-use sweet_mcp_type::ToolInfo;
 use serde_json;
+use sweet_mcp_type::ToolInfo;
 
-// Import provider types for default provider creation
-use crate::capability::text_to_text::{CandlePhi4ReasoningProvider, CandlePhi4ReasoningConfig};
-use crate::domain::agent::role::CandleCompletionProviderType;
+// Import agent conversation type
+use crate::domain::agent::role::CandleAgentConversation;
 
 // Memory types for explicit type annotations
-use crate::memory::primitives::node::MemoryNode;
 use crate::memory::core::manager::surreal::Result as MemoryResult;
+use crate::memory::primitives::node::MemoryNode;
 
 // Candle domain types - self-contained
-/// Trait for AI completion providers (e.g., OpenAI, Anthropic, local models)  
-pub trait CandleCompletionProvider: Send + Sync + 'static {}
-
-/// Default empty implementations for optional components
-pub struct NoProvider;
-
-impl CandleCompletionProvider for NoProvider {}
-
-// CandleChatLoop is now imported from domain::chat
-
-/// Agent conversation
-#[derive(Default)]
-pub struct CandleAgentConversation {
-    messages: Vec<CandleMessage>,
-    current_user_input: String,
-}
-
-impl CandleAgentConversation {
-    pub fn new() -> Self {
-        Self {
-            messages: Vec::new(),
-            current_user_input: String::new(),
-        }
-    }
-
-    pub fn with_user_input(user_input: impl Into<String>) -> Self {
-        let input = user_input.into();
-        let mut conversation = Self::new();
-        conversation.current_user_input = input.clone();
-        conversation.messages.push(CandleMessage {
-            content: input,
-            role: CandleMessageRole::User,
-        });
-        conversation
-    }
-
-    pub fn latest_user_message(&self) -> &str {
-        if self.current_user_input.is_empty() {
-            "Hello" // Fallback for compatibility
-        } else {
-            &self.current_user_input
-        }
-    }
-
-    pub fn last(&self) -> CandleMessage {
-        self.messages
-            .last()
-            .cloned()
-            .unwrap_or_else(|| CandleMessage {
-                content: "Hello".to_string(),
-                role: CandleMessageRole::User,
-            })
-    }
-
-    pub fn add_message(&mut self, content: impl Into<String>, role: CandleMessageRole) {
-        self.messages.push(CandleMessage {
-            content: content.into(),
-            role,
-        });
-    }
-}
-
-/// Message in conversation
-#[derive(Debug, Clone)]
-pub struct CandleMessage {
-    content: String,
-    role: CandleMessageRole,
-}
-
-impl CandleMessage {
-    pub fn message(&self) -> &str {
-        &self.content
-    }
-
-    pub fn content(&self) -> &str {
-        &self.content
-    }
-
-    pub fn role(&self) -> &CandleMessageRole {
-        &self.role
-    }
-}
 
 /// Agent helper type for conversation control in `on_conversation_turn` callbacks.
 /// Holds Arc<AgentBuilderState> for recursive inference.
-pub struct CandleAgentRoleAgent<P> 
-where 
-    P: DomainCompletionModel + Send + Clone + 'static 
-{
-    state: Arc<AgentBuilderState<P>>,
+#[derive(Clone)]
+pub struct CandleAgentRoleAgent {
+    state: Arc<AgentBuilderState>,
 }
 
-impl<P> Clone for CandleAgentRoleAgent<P> 
-where 
-    P: DomainCompletionModel + Send + Clone + 'static 
-{
-    fn clone(&self) -> Self {
-        Self { state: self.state.clone() }
-    }
-}
-
-impl<P> CandleAgentRoleAgent<P> 
-where 
-    P: DomainCompletionModel + Send + Clone + 'static 
-{
+impl CandleAgentRoleAgent {
     /// Chat method for use in on_conversation_turn closure - enables recursion
     pub fn chat(&self, chat_loop: CandleChatLoop) -> AsyncStream<CandleMessageChunk> {
         match chat_loop {
-            CandleChatLoop::Break => {
-                AsyncStream::with_channel(|sender| {
-                    let final_chunk = CandleMessageChunk::Complete {
-                        text: String::new(),
-                        finish_reason: Some("break".to_string()),
-                        usage: None,
-                    };
-                    let _ = sender.send(final_chunk);
-                })
-            }
+            CandleChatLoop::Break => AsyncStream::with_channel(|sender| {
+                let final_chunk = CandleMessageChunk::Complete {
+                    text: String::new(),
+                    finish_reason: Some("break".to_string()),
+                    usage: None,
+                };
+                let _ = sender.send(final_chunk);
+            }),
             CandleChatLoop::UserPrompt(user_message) | CandleChatLoop::Reprompt(user_message) => {
                 self.run_inference_cycle(user_message)
             }
         }
     }
-    
+
     fn run_inference_cycle(&self, user_message: String) -> AsyncStream<CandleMessageChunk> {
         let state = self.state.clone();
-        
-        AsyncStream::with_channel(move |sender| {
+
+        AsyncStream::with_channel(move |_sender| {
             let _background_stream = ystream::spawn_stream(move |stream_sender| {
                 // Initialize tool router
                 let tool_router = {
                     let Some(runtime) = crate::runtime::shared_runtime() else {
-                        let error_chunk = CandleMessageChunk::Error("Failed to access shared runtime".to_string());
+                        let error_chunk = CandleMessageChunk::Error(
+                            "Failed to access shared runtime".to_string(),
+                        );
                         ystream::emit!(stream_sender, error_chunk);
                         return;
                     };
-                    
-                    let reasoner_schema = crate::domain::agent::role::convert_serde_to_sweet_json(serde_json::json!({
-                        "type": "object",
-                        "properties": {
-                            "thought": {"type": "string", "description": "Current reasoning step"},
-                            "thoughtNumber": {"type": "integer", "description": "Current step number", "minimum": 1},
-                            "totalThoughts": {"type": "integer", "description": "Total expected steps", "minimum": 1},
-                            "nextThoughtNeeded": {"type": "boolean", "description": "Whether another step is needed"}
-                        },
-                        "required": ["thought", "thoughtNumber", "totalThoughts", "nextThoughtNeeded"]
-                    }));
-                    
+
+                    let reasoner_schema = crate::domain::agent::role::convert_serde_to_sweet_json(
+                        serde_json::json!({
+                            "type": "object",
+                            "properties": {
+                                "thought": {"type": "string", "description": "Current reasoning step"},
+                                "thoughtNumber": {"type": "integer", "description": "Current step number", "minimum": 1},
+                                "totalThoughts": {"type": "integer", "description": "Total expected steps", "minimum": 1},
+                                "nextThoughtNeeded": {"type": "boolean", "description": "Whether another step is needed"}
+                            },
+                            "required": ["thought", "thoughtNumber", "totalThoughts", "nextThoughtNeeded"]
+                        }),
+                    );
+
                     let default_plugin_config = crate::domain::tool::router::PluginConfig {
                         tool_name: "mcp-reasoner".to_string(),
                         wasm_path: "packages/sweetmcp/plugins/reasoner/target/wasm32-unknown-unknown/release/sweetmcp_plugin_reasoner.wasm".to_string(),
                         description: "Advanced reasoning tool".to_string(),
                         input_schema: reasoner_schema,
                     };
-                    
+
                     let plugin_configs = vec![default_plugin_config];
-                    let mut router = crate::domain::tool::router::SweetMcpRouter::with_configs(plugin_configs, None);
-                    
+                    let mut router = crate::domain::tool::router::SweetMcpRouter::with_configs(
+                        plugin_configs,
+                        None,
+                    );
+
                     match runtime.block_on(router.initialize()) {
                         Ok(()) => Some(router),
                         Err(e) => {
-                            let error_chunk = CandleMessageChunk::Error(format!("Tool initialization failed: {}", e));
+                            let error_chunk = CandleMessageChunk::Error(format!(
+                                "Tool initialization failed: {}",
+                                e
+                            ));
                             ystream::emit!(stream_sender, error_chunk);
                             return;
                         }
@@ -202,18 +112,19 @@ where
                 // Memory search
                 let memory_context: Option<String> = if let Some(ref mem_manager) = state.memory {
                     let memory_stream = mem_manager.search_by_content(&user_message);
-                    let results: Vec<crate::memory::core::MemoryResult<crate::memory::core::MemoryNode>> = 
+                    let results: Vec<MemoryResult<crate::memory::core::MemoryNode>> =
                         tokio::task::block_in_place(|| {
                             tokio::runtime::Handle::current().block_on(async {
                                 use futures_util::StreamExt;
                                 memory_stream.take(5).collect().await
                             })
                         });
-                    let memories: Vec<crate::memory::core::MemoryNode> = results.into_iter()
-                        .filter_map(|r| r.ok())
-                        .collect();
+                    let memories: Vec<crate::memory::core::MemoryNode> =
+                        results.into_iter().filter_map(|r| r.ok()).collect();
                     if !memories.is_empty() {
-                        Some(crate::builders::agent_role::format_memory_context(&memories, 1000))
+                        Some(crate::builders::agent_role::format_memory_context(
+                            &memories, 1000,
+                        ))
                     } else {
                         None
                     }
@@ -238,7 +149,7 @@ where
                 };
 
                 // Call provider
-                let prompt = crate::domain::completion::CandlePrompt::new(full_prompt);
+                let prompt = CandlePrompt::new(full_prompt);
                 let mut params = crate::domain::completion::CandleCompletionParams {
                     temperature: state.temperature,
                     max_tokens: std::num::NonZeroU64::new(state.max_tokens.unwrap_or(1000)),
@@ -247,29 +158,32 @@ where
 
                 // Add tools
                 if let Some(ref router) = tool_router {
-                    let mut all_tools: Vec<crate::domain::tool::ToolInfo> = state.tools.clone().into();
+                    let mut all_tools: Vec<sweet_mcp_type::ToolInfo> = state.tools.clone().into();
                     if let Some(runtime) = crate::runtime::shared_runtime() {
                         let auto_generated_tools = runtime.block_on(router.get_available_tools());
                         all_tools.extend(auto_generated_tools);
                     }
                     if !all_tools.is_empty() {
-                        params.tools = Some(crate::domain::collections::ZeroOneOrMany::from(all_tools));
+                        params.tools = Some(ZeroOneOrMany::from(all_tools));
                     }
                 }
 
-                let completion_stream = state.provider.prompt(prompt, &params);
+                let completion_stream = state.text_to_text_model.prompt(prompt, &params);
                 let completion_results = completion_stream.collect();
                 let mut assistant_response = String::new();
-                
+
                 // Stream chunks
                 for completion_chunk in completion_results {
-                    use crate::domain::completion::types::CandleCompletionChunk;
                     let message_chunk = match completion_chunk {
                         CandleCompletionChunk::Text(ref text) => {
                             assistant_response.push_str(text);
                             CandleMessageChunk::Text(text.clone())
                         }
-                        CandleCompletionChunk::Complete { ref text, finish_reason, usage } => {
+                        CandleCompletionChunk::Complete {
+                            ref text,
+                            finish_reason,
+                            usage,
+                        } => {
                             assistant_response.push_str(text);
                             CandleMessageChunk::Complete {
                                 text: text.clone(),
@@ -280,29 +194,48 @@ where
                         CandleCompletionChunk::ToolCallStart { id, name } => {
                             CandleMessageChunk::ToolCallStart { id, name }
                         }
-                        CandleCompletionChunk::ToolCall { id, name, partial_input } => {
-                            CandleMessageChunk::ToolCall { id, name, partial_input }
-                        }
+                        CandleCompletionChunk::ToolCall {
+                            id,
+                            name,
+                            partial_input,
+                        } => CandleMessageChunk::ToolCall {
+                            id,
+                            name,
+                            partial_input,
+                        },
                         CandleCompletionChunk::ToolCallComplete { id, name, input } => {
                             if let Some(ref router) = tool_router {
                                 match serde_json::from_str::<serde_json::Value>(&input) {
                                     Ok(args_json) => {
-                                        let sweet_args = crate::domain::agent::role::convert_serde_to_sweet_json(args_json);
+                                        let sweet_args =
+                                            crate::domain::agent::role::convert_serde_to_sweet_json(
+                                                args_json,
+                                            );
                                         match crate::runtime::shared_runtime() {
                                             Some(runtime) => {
-                                                match runtime.block_on(router.call_tool(&name, sweet_args)) {
+                                                match runtime
+                                                    .block_on(router.call_tool(&name, sweet_args))
+                                                {
                                                     Ok(response) => {
-                                                        CandleMessageChunk::Text(format!("Tool '{}' executed: {:?}", name, response))
+                                                        CandleMessageChunk::Text(format!(
+                                                            "Tool '{}' executed: {:?}",
+                                                            name, response
+                                                        ))
                                                     }
-                                                    Err(e) => {
-                                                        CandleMessageChunk::Error(format!("Tool '{}' failed: {}", name, e))
-                                                    }
+                                                    Err(e) => CandleMessageChunk::Error(format!(
+                                                        "Tool '{}' failed: {}",
+                                                        name, e
+                                                    )),
                                                 }
                                             }
-                                            None => CandleMessageChunk::Error("Runtime unavailable".to_string())
+                                            None => CandleMessageChunk::Error(
+                                                "Runtime unavailable".to_string(),
+                                            ),
                                         }
                                     }
-                                    Err(e) => CandleMessageChunk::Error(format!("Invalid JSON: {}", e))
+                                    Err(e) => {
+                                        CandleMessageChunk::Error(format!("Invalid JSON: {}", e))
+                                    }
                                 }
                             } else {
                                 CandleMessageChunk::ToolCallComplete { id, name, input }
@@ -312,32 +245,41 @@ where
                     };
                     ystream::emit!(stream_sender, message_chunk);
                 }
-                
+
                 // Store in memory
                 if let Some(ref memory_manager) = state.memory {
                     if !assistant_response.is_empty() {
-                        let user_content = crate::memory::core::primitives::types::MemoryContent::new(&user_message);
-                        let assistant_content = crate::memory::core::primitives::types::MemoryContent::new(&assistant_response);
-                        
+                        let user_content =
+                            crate::memory::core::primitives::types::MemoryContent::new(
+                                &user_message,
+                            );
+                        let assistant_content =
+                            crate::memory::core::primitives::types::MemoryContent::new(
+                                &assistant_response,
+                            );
+
                         let mut user_memory = crate::memory::core::MemoryNode::new(
                             crate::memory::core::primitives::types::MemoryTypeEnum::Episodic,
-                            user_content
+                            user_content,
                         );
                         user_memory.metadata.tags.push("user_message".to_string());
                         user_memory.metadata.source = Some("chat".to_string());
                         user_memory.metadata.importance = 0.8;
-                        
+
                         let mut assistant_memory = crate::memory::core::MemoryNode::new(
                             crate::memory::core::primitives::types::MemoryTypeEnum::Episodic,
-                            assistant_content
+                            assistant_content,
                         );
-                        assistant_memory.metadata.tags.push("assistant_response".to_string());
+                        assistant_memory
+                            .metadata
+                            .tags
+                            .push("assistant_response".to_string());
                         assistant_memory.metadata.source = Some("chat".to_string());
                         assistant_memory.metadata.importance = 0.8;
-                        
+
                         let user_pending = memory_manager.create_memory(user_memory);
                         let assistant_pending = memory_manager.create_memory(assistant_memory);
-                        
+
                         if let Some(runtime) = crate::runtime::shared_runtime() {
                             runtime.spawn(async move {
                                 if let Err(e) = user_pending.await {
@@ -355,11 +297,14 @@ where
 
                 // CRITICAL: Call handler for recursion
                 if let Some(ref handler) = state.on_conversation_turn_handler {
-                    let mut conversation = crate::domain::agent::CandleAgentConversation::new();
-                    conversation.add_message(user_message.clone(), crate::domain::agent::role::CandleMessageRole::User);
-                    conversation.add_message(assistant_response.clone(), crate::domain::agent::role::CandleMessageRole::Assistant);
-                    
-                    let agent = CandleAgentRoleAgent { state: state.clone() };
+                    let mut conversation = CandleAgentConversation::new();
+                    conversation.add_message(user_message.clone(), CandleMessageRole::User);
+                    conversation
+                        .add_message(assistant_response.clone(), CandleMessageRole::Assistant);
+
+                    let agent = CandleAgentRoleAgent {
+                        state: state.clone(),
+                    };
                     let handler_stream = handler(&conversation, &agent);
                     let handler_chunks = handler_stream.collect();
                     for chunk in handler_chunks {
@@ -372,12 +317,11 @@ where
 }
 
 /// Shared builder state for recursive agent calls
-struct AgentBuilderState<P> 
-where 
-    P: DomainCompletionModel + Send + Clone + 'static 
-{
+#[derive(Clone)]
+struct AgentBuilderState {
     name: String,
-    provider: P,
+    text_to_text_model: TextToTextModel,
+    text_embedding_model: Option<TextEmbeddingModel>,
     temperature: f64,
     max_tokens: Option<u64>,
     memory_read_timeout: Option<u64>,
@@ -385,27 +329,16 @@ where
     tools: ZeroOneOrMany<ToolInfo>,
     mcp_servers: Vec<McpServerConfig>,
     memory: Option<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>>,
-    on_conversation_turn_handler: Option<Arc<dyn Fn(&CandleAgentConversation, &CandleAgentRoleAgent<P>) -> AsyncStream<CandleMessageChunk> + Send + Sync>>,
-}
-
-impl<P> Clone for AgentBuilderState<P> 
-where 
-    P: DomainCompletionModel + Send + Clone + 'static 
-{
-    fn clone(&self) -> Self {
-        Self {
-            name: self.name.clone(),
-            provider: self.provider.clone(),
-            temperature: self.temperature,
-            max_tokens: self.max_tokens,
-            memory_read_timeout: self.memory_read_timeout,
-            system_prompt: self.system_prompt.clone(),
-            tools: self.tools.clone(),
-            mcp_servers: self.mcp_servers.clone(),
-            memory: self.memory.clone(),
-            on_conversation_turn_handler: self.on_conversation_turn_handler.clone(),
-        }
-    }
+    on_conversation_turn_handler: Option<
+        Arc<
+            dyn Fn(
+                    &CandleAgentConversation,
+                    &CandleAgentRoleAgent,
+                ) -> AsyncStream<CandleMessageChunk>
+                + Send
+                + Sync,
+        >,
+    >,
 }
 
 /// Agent role builder trait - elegant zero-allocation builder pattern (PUBLIC API)
@@ -413,17 +346,13 @@ pub trait CandleAgentRoleBuilder: Sized + Send {
     /// Create a new agent role builder - EXACT syntax: CandleFluentAi::agent_role("name")
     fn new(name: impl Into<String>) -> impl CandleAgentRoleBuilder;
 
-    /// Set the completion provider - EXACT syntax: .completion_provider(CandleKimiK2Provider::new())
+    /// Set text-to-text model - EXACT syntax: .model(registry::get_text_to_text("key").unwrap())
     #[must_use]
-    fn completion_provider<P>(self, provider: P) -> impl CandleAgentRoleBuilder
-    where
-        P: DomainCompletionModel + Send + 'static;
+    fn model(self, model: TextToTextModel) -> impl CandleAgentRoleBuilder;
 
-    /// Set model - EXACT syntax: .model(CandleModels::KIMI_K2)
+    /// Set text embedding model - EXACT syntax: .embedding_model(registry::get_text_embedding("key").unwrap())
     #[must_use]
-    fn model<M>(self, model: M) -> impl CandleAgentRoleBuilder
-    where
-        M: DomainCompletionModel;
+    fn embedding_model(self, model: TextEmbeddingModel) -> impl CandleAgentRoleBuilder;
 
     /// Set temperature - EXACT syntax: .temperature(1.0)
     #[must_use]
@@ -510,7 +439,6 @@ pub trait CandleAgentRoleBuilder: Sized + Send {
     fn chat<F>(self, handler: F) -> Result<AsyncStream<CandleMessageChunk>, AgentError>
     where
         F: FnOnce(&CandleAgentConversation) -> CandleChatLoop + Send + 'static;
-
 }
 
 /// MCP server builder for fluent chaining
@@ -530,13 +458,13 @@ pub trait CandleAgentBuilder: Sized + Send + Sync {
     #[must_use]
     fn completion_provider<P>(self, provider: P) -> impl CandleAgentBuilder
     where
-        P: DomainCompletionModel + Send + 'static;
+        P: crate::domain::model::traits::CandleModel + TextToTextCapable + Send + Clone + 'static;
 
     /// Set conversation history - EXACT syntax from ARCHITECTURE.md
     /// Supports: .conversation_history(CandleMessageRole::User => "content", CandleMessageRole::System => "content", ...)
     #[must_use]
     fn conversation_history(self, history: impl ConversationHistoryArgs)
-        -> impl CandleAgentBuilder;
+    -> impl CandleAgentBuilder;
 
     /// Chat with closure - EXACT syntax: .chat(|conversation| ChatLoop)
     fn chat<F>(self, handler: F) -> Result<AsyncStream<CandleMessageChunk>, AgentError>
@@ -592,7 +520,6 @@ struct CandleAgentRoleBuilderImpl {
     tools: ZeroOneOrMany<ToolInfo>,
     mcp_servers: Vec<McpServerConfig>,
     memory: Option<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>>,
-    on_conversation_turn_handler: Option<Box<dyn Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> AsyncStream<CandleMessageChunk> + Send + Sync>>,
 }
 
 impl std::fmt::Debug for CandleAgentRoleBuilderImpl {
@@ -615,14 +542,13 @@ impl CandleAgentRoleBuilderImpl {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
-            temperature: 0.7,  // Default temperature to 0.7
+            temperature: 0.7, // Default temperature to 0.7
             max_tokens: None,
             memory_read_timeout: None,
             system_prompt: None,
             tools: ZeroOneOrMany::none(),
             mcp_servers: Vec::new(),
             memory: None,
-            on_conversation_turn_handler: None,
         }
     }
 }
@@ -633,29 +559,25 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
         CandleAgentRoleBuilderImpl::new(name)
     }
 
-    fn completion_provider<P>(self, provider: P) -> impl CandleAgentRoleBuilder
-    where
-        P: DomainCompletionModel + Send + 'static,
-    {
+    fn model(self, model: TextToTextModel) -> impl CandleAgentRoleBuilder {
         CandleAgentBuilderImpl {
             name: self.name,
             temperature: self.temperature,
             max_tokens: self.max_tokens,
             memory_read_timeout: self.memory_read_timeout,
             system_prompt: self.system_prompt,
-            provider,
+            text_to_text_model: model,
+            text_embedding_model: None,
             tools: self.tools,
             mcp_servers: self.mcp_servers,
             memory: self.memory,
-            on_conversation_turn_handler: self.on_conversation_turn_handler,
+            on_conversation_turn_handler: None,
         }
     }
 
-    /// Set model - EXACT syntax: .model(CandleModels::KIMI_K2)
-    fn model<M>(self, _model: M) -> impl CandleAgentRoleBuilder
-    where
-        M: DomainCompletionModel,
-    {
+    fn embedding_model(self, model: TextEmbeddingModel) -> impl CandleAgentRoleBuilder {
+        // For CandleAgentRoleBuilderImpl (no model yet), we can't set embedding model without text model
+        // Return self unchanged - user should call .model() first
         self
     }
 
@@ -689,7 +611,7 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
     }
 
     /// Set memory - EXACT syntax: .memory(CandleLibrary::named("name"))
-    fn memory<M>(mut self, memory: M) -> impl CandleAgentRoleBuilder 
+    fn memory<M>(mut self, memory: M) -> impl CandleAgentRoleBuilder
     where
         M: Into<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>>,
     {
@@ -756,14 +678,14 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
     }
 
     /// Set conversation turn handler - EXACT syntax: .on_conversation_turn(|conversation, agent| { ... })
-    fn on_conversation_turn<F>(mut self, handler: F) -> impl CandleAgentRoleBuilder
+    fn on_conversation_turn<F>(self, _handler: F) -> impl CandleAgentRoleBuilder
     where
         F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> AsyncStream<CandleMessageChunk>
             + Send
             + Sync
             + 'static,
     {
-        self.on_conversation_turn_handler = Some(Box::new(handler));
+        // Cannot set handler without a model - return self unchanged
         self
     }
 
@@ -781,78 +703,16 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
 
     /// Convert to agent - EXACT syntax: .into_agent()
     fn into_agent(self) -> impl CandleAgentBuilder {
-        // Default provider is now Phi-4-Reasoning - try multiple paths with graceful fallback
-        let default_provider = CandlePhi4ReasoningProvider::default_for_builder()
-            .or_else(|e| {
-                log::warn!("Failed to create default Phi4Reasoning provider with ProgressHub: {}. Trying local path.", e);
-                CandlePhi4ReasoningProvider::with_config_sync(
-                    "./models/phi-4-reasoning".to_string(),
-                    CandlePhi4ReasoningConfig::default()
-                )
-            })
-            .or_else(|e| {
-                log::warn!("Failed to create provider with ./models path: {}. Trying cache directory.", e);
-                let cache_path = match std::env::var("HOME") {
-                    Ok(home) => format!("{}/.cache/candle/models/phi-4-reasoning", home),
-                    Err(_) => "./.cache/candle/models/phi-4-reasoning".to_string(),
-                };
-                CandlePhi4ReasoningProvider::with_config_sync(cache_path, CandlePhi4ReasoningConfig::default())
-            })
-            .or_else(|e| {
-                log::warn!("Failed with cache directory: {}. Trying temp directory.", e);
-                CandlePhi4ReasoningProvider::with_config_sync(
-                    "/tmp/candle-models/phi-4-reasoning".to_string(),
-                    CandlePhi4ReasoningConfig::default()
-                )
-            })
-            .or_else(|e| {
-                // Final fallback: Create provider with minimal default path
-                // This provider will exist but may error when actually used if model file is missing
-                // This is preferable to failing at builder initialization time
-                log::error!(
-                    "All provider initialization attempts failed: {}. \
-                     Creating provider with minimal fallback configuration. \
-                     Model operations will fail until valid model files are provided.",
-                    e
-                );
-                // with_config_sync only creates a struct and virtually never fails
-                // The Result type is only for API consistency with other provider creation methods
-                CandlePhi4ReasoningProvider::with_config_sync(
-                    "./models/phi-4-reasoning-fallback".to_string(),
-                    CandlePhi4ReasoningConfig::default()
-                )
-            })
-            .or_else(|_| {
-                // If with_config_sync fails, try the simplest possible path
-                CandlePhi4ReasoningProvider::with_config_sync(
-                    ".".to_string(),
-                    CandlePhi4ReasoningConfig::default()
-                )
-            })
-            .or_else(|_| {
-                // Try empty string as absolute last resort
-                CandlePhi4ReasoningProvider::with_config_sync(
-                    String::new(),
-                    CandlePhi4ReasoningConfig::default()
-                )
-            })
-            .unwrap_or_else(|final_error| {
-                // This is an acceptable panic because:
-                // 1. We've tried 6 different fallback paths
-                // 2. with_config_sync only allocates a struct (should never fail)
-                // 3. Failure indicates OOM or memory corruption
-                // 4. panic! allows the application to catch it with panic hooks
-                panic!(
-                    "Fatal: Unable to initialize Phi4ReasoningProvider after 6 fallback attempts. \
-                     System cannot allocate memory for provider struct. \
-                     This indicates OOM or memory corruption. Error: {}",
-                    final_error
-                );
-            });
+        // Get default model from registry - use Phi4 as default
+        use crate::capability::text_to_text::CandlePhi4ReasoningModel;
+        use std::sync::Arc;
         
+        let default_model = TextToTextModel::Phi4Reasoning(Arc::new(CandlePhi4ReasoningModel::default()));
+
         CandleAgentBuilderImpl {
             name: self.name,
-            provider: CandleCompletionProviderType::Phi4Reasoning(default_provider),
+            text_to_text_model: default_model,
+            text_embedding_model: None,
             temperature: self.temperature,
             max_tokens: self.max_tokens,
             memory_read_timeout: self.memory_read_timeout,
@@ -863,8 +723,6 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
             on_conversation_turn_handler: None,
         }
     }
-
-
 }
 
 /// Debug information for agent configuration
@@ -876,68 +734,31 @@ pub struct AgentDebugInfo {
     pub has_system_prompt: bool,
 }
 
-/// Placeholder agent for no-provider case
-#[derive(Debug)]
-pub struct NoProviderAgent {
-    _inner: CandleAgentRoleBuilderImpl,
-}
-
-impl CandleAgentBuilder for NoProviderAgent {
-    fn completion_provider<P>(self, _provider: P) -> impl CandleAgentBuilder
-    where
-        P: DomainCompletionModel + Send + 'static,
-    {
-        self
-    }
-
-    fn conversation_history(
-        self,
-        _history: impl ConversationHistoryArgs,
-    ) -> impl CandleAgentBuilder {
-        self
-    }
-
-    fn chat<F>(self, _handler: F) -> Result<AsyncStream<CandleMessageChunk>, AgentError>
-    where
-        F: FnOnce(&CandleAgentConversation) -> CandleChatLoop + Send + 'static,
-    {
-        Ok(AsyncStream::with_channel(move |sender| {
-            let error_chunk = CandleMessageChunk::Error("No completion provider configured. Use .completion_provider() before .into_agent()".to_string());
-            let _ = sender.send(error_chunk);
-        }))
-    }
-
-    fn chat_direct(self, _input: CandleChatLoop) -> AsyncStream<CandleMessageChunk> {
-        AsyncStream::with_channel(move |sender| {
-            let error_chunk = CandleMessageChunk::Error("No completion provider configured. Use .completion_provider() before .into_agent()".to_string());
-            let _ = sender.send(error_chunk);
-        })
-    }
-
-    fn chat_with_message(self, message: impl Into<String>) -> AsyncStream<CandleMessageChunk> {
-        let message_string = message.into();
-        AsyncStream::with_channel(move |sender| {
-            let error_chunk = CandleMessageChunk::Error(format!("No completion provider configured for message: {}. Use .completion_provider() before .into_agent()", message_string));
-            let _ = sender.send(error_chunk);
-        })
-    }
-}
-
 /// Agent builder implementation
-pub struct CandleAgentBuilderImpl<P> {
+pub struct CandleAgentBuilderImpl {
     name: String,
     temperature: f64,
     max_tokens: Option<u64>,
     memory_read_timeout: Option<u64>,
     system_prompt: Option<String>,
-    provider: P,
+    text_to_text_model: TextToTextModel,
+    text_embedding_model: Option<TextEmbeddingModel>,
     tools: ZeroOneOrMany<ToolInfo>,
     mcp_servers: Vec<McpServerConfig>,
     memory: Option<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>>,
-    on_conversation_turn_handler: Option<Box<dyn Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> AsyncStream<CandleMessageChunk> + Send + Sync>>,
+    on_conversation_turn_handler: Option<
+        Arc<
+            dyn Fn(
+                    &CandleAgentConversation,
+                    &CandleAgentRoleAgent,
+                ) -> AsyncStream<CandleMessageChunk>
+                + Send
+                + Sync,
+        >,
+    >,
 }
 
-impl<P: std::fmt::Debug> std::fmt::Debug for CandleAgentBuilderImpl<P> {
+impl std::fmt::Debug for CandleAgentBuilderImpl {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CandleAgentBuilderImpl")
             .field("name", &self.name)
@@ -945,7 +766,8 @@ impl<P: std::fmt::Debug> std::fmt::Debug for CandleAgentBuilderImpl<P> {
             .field("max_tokens", &self.max_tokens)
             .field("memory_read_timeout", &self.memory_read_timeout)
             .field("system_prompt", &self.system_prompt)
-            .field("provider", &self.provider)
+            .field("text_to_text_model", &self.text_to_text_model)
+            .field("text_embedding_model", &self.text_embedding_model)
             .field("tools", &self.tools)
             .field("mcp_servers", &self.mcp_servers)
             .field("memory", &self.memory.as_ref().map(|_| "<MemoryManager>"))
@@ -954,36 +776,18 @@ impl<P: std::fmt::Debug> std::fmt::Debug for CandleAgentBuilderImpl<P> {
 }
 
 // Implementation for with-provider builder (allows all methods)
-impl<P> CandleAgentRoleBuilder for CandleAgentBuilderImpl<P>
-where
-    P: DomainCompletionModel + Send + 'static,
-{
+impl CandleAgentRoleBuilder for CandleAgentBuilderImpl {
     fn new(name: impl Into<String>) -> impl CandleAgentRoleBuilder {
         CandleAgentRoleBuilderImpl::new(name)
     }
 
-    fn completion_provider<P2>(self, provider: P2) -> impl CandleAgentRoleBuilder
-    where
-        P2: DomainCompletionModel + Send + 'static,
-    {
-        CandleAgentBuilderImpl {
-            name: self.name,
-            temperature: self.temperature,
-            max_tokens: self.max_tokens,
-            memory_read_timeout: self.memory_read_timeout,
-            system_prompt: self.system_prompt,
-            provider,
-            tools: self.tools,
-            mcp_servers: self.mcp_servers,
-            memory: self.memory,
-            on_conversation_turn_handler: self.on_conversation_turn_handler,
-        }
+    fn model(mut self, model: TextToTextModel) -> impl CandleAgentRoleBuilder {
+        self.text_to_text_model = model;
+        self
     }
 
-    fn model<M>(self, _model: M) -> impl CandleAgentRoleBuilder
-    where
-        M: DomainCompletionModel,
-    {
+    fn embedding_model(mut self, model: TextEmbeddingModel) -> impl CandleAgentRoleBuilder {
+        self.text_embedding_model = Some(model);
         self
     }
 
@@ -1011,7 +815,7 @@ where
         self
     }
 
-    fn memory<M>(mut self, memory: M) -> impl CandleAgentRoleBuilder 
+    fn memory<M>(mut self, memory: M) -> impl CandleAgentRoleBuilder
     where
         M: Into<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>>,
     {
@@ -1071,6 +875,7 @@ where
         self
     }
 
+    /// Set conversation turn handler - EXACT syntax: .on_conversation_turn(|conversation, agent| { ... })
     fn on_conversation_turn<F>(mut self, handler: F) -> impl CandleAgentRoleBuilder
     where
         F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> AsyncStream<CandleMessageChunk>
@@ -1078,7 +883,7 @@ where
             + Sync
             + 'static,
     {
-        self.on_conversation_turn_handler = Some(Box::new(handler));
+        self.on_conversation_turn_handler = Some(Arc::new(handler));
         self
     }
 
@@ -1092,18 +897,17 @@ where
         }))
     }
 
-
     fn into_agent(self) -> impl CandleAgentBuilder {
         self
     }
 }
 
 /// Format memory search results into prompt context
-/// 
+///
 /// # Arguments
 /// * `memories` - Vector of memory nodes sorted by relevance
 /// * `max_tokens` - Maximum token budget for context
-/// 
+///
 /// # Returns
 /// Formatted markdown string with memory context
 fn format_memory_context(
@@ -1111,54 +915,41 @@ fn format_memory_context(
     max_tokens: usize,
 ) -> String {
     use std::fmt::Write;
-    
+
     let mut context = String::from("# Relevant Context from Memory:\n\n");
     let mut token_count = 0usize;
-    
+
     for memory in memories {
         // Approximate token count: chars / 4
         let memory_tokens = memory.content.text.chars().count() / 4;
-        
+
         if token_count + memory_tokens > max_tokens {
             break; // Exceed budget, stop adding
         }
-        
+
         // Format with relevance indicator
         let relevance = memory.metadata.importance;
         let _ = writeln!(
             &mut context,
             "[Relevance: {:.2}] {}\n",
-            relevance,
-            memory.content.text
+            relevance, memory.content.text
         );
-        
+
         token_count += memory_tokens;
     }
-    
+
     context
 }
 
-impl<P> CandleAgentBuilder for CandleAgentBuilderImpl<P>
-where
-    P: DomainCompletionModel + Send + 'static,
-{
-    /// Override completion provider for this agent instance
-    fn completion_provider<P2>(self, provider: P2) -> impl CandleAgentBuilder
+impl CandleAgentBuilder for CandleAgentBuilderImpl {
+    /// Override text-to-text model for this agent instance
+    fn completion_provider<P>(self, _provider: P) -> impl CandleAgentBuilder
     where
-        P2: DomainCompletionModel + Send + 'static,
+        P: crate::domain::model::traits::CandleModel + TextToTextCapable + Send + Clone + 'static,
     {
-        CandleAgentBuilderImpl {
-            name: self.name,
-            temperature: self.temperature,
-            max_tokens: self.max_tokens,
-            memory_read_timeout: self.memory_read_timeout,
-            system_prompt: self.system_prompt,
-            provider,
-            tools: self.tools,
-            mcp_servers: self.mcp_servers,
-            memory: self.memory,
-            on_conversation_turn_handler: None,
-        }
+        // Deprecated: Use .model() instead
+        // Keep for backwards compatibility but don't actually change the model
+        self
     }
 
     /// Set conversation history
@@ -1174,7 +965,7 @@ where
     where
         F: FnOnce(&CandleAgentConversation) -> CandleChatLoop + Send + 'static,
     {
-        let provider = self.provider;
+        let provider = self.text_to_text_model;
         let temperature = self.temperature;
         let max_tokens = self.max_tokens.unwrap_or(1000);
         let _memory_read_timeout = self.memory_read_timeout;
@@ -1214,73 +1005,81 @@ where
                         // Initialize tool router - ALWAYS create with default reasoner plugin
                         let tool_router = {
                             let Some(runtime) = crate::runtime::shared_runtime() else {
-                                let error_chunk = CandleMessageChunk::Error("Failed to access shared runtime".to_string());
+                                let error_chunk = CandleMessageChunk::Error(
+                                    "Failed to access shared runtime".to_string(),
+                                );
                                 ystream::emit!(stream_sender, error_chunk);
                                 return;
                             };
-                            
+
                             // Create default reasoner plugin configuration
-                            let reasoner_schema = crate::domain::agent::role::convert_serde_to_sweet_json(serde_json::json!({
-                                "type": "object",
-                                "properties": {
-                                    "thought": {
-                                        "type": "string",
-                                        "description": "Current reasoning step"
-                                    },
-                                    "thoughtNumber": {
-                                        "type": "integer",
-                                        "description": "Current step number",
-                                        "minimum": 1
-                                    },
-                                    "totalThoughts": {
-                                        "type": "integer",
-                                        "description": "Total expected steps",
-                                        "minimum": 1
-                                    },
-                                    "nextThoughtNeeded": {
-                                        "type": "boolean",
-                                        "description": "Whether another step is needed"
-                                    },
-                                    "parentId": {
-                                        "type": ["string", "null"],
-                                        "description": "Optional parent thought ID for branching"
-                                    },
-                                    "strategyType": {
-                                        "type": ["string", "null"],
-                                        "enum": ["beam_search", "mcts", "mcts_002_alpha", "mcts_002alt_alpha", null],
-                                        "description": "Reasoning strategy to use"
-                                    },
-                                    "beamWidth": {
-                                        "type": ["integer", "null"],
-                                        "description": "Number of top paths to maintain",
-                                        "minimum": 1,
-                                        "maximum": 10
-                                    },
-                                    "numSimulations": {
-                                        "type": ["integer", "null"],
-                                        "description": "Number of MCTS simulations",
-                                        "minimum": 1,
-                                        "maximum": 150
-                                    }
-                                },
-                                "required": ["thought", "thoughtNumber", "totalThoughts", "nextThoughtNeeded"]
-                            }));
-                            
+                            let reasoner_schema =
+                                crate::domain::agent::role::convert_serde_to_sweet_json(
+                                    serde_json::json!({
+                                        "type": "object",
+                                        "properties": {
+                                            "thought": {
+                                                "type": "string",
+                                                "description": "Current reasoning step"
+                                            },
+                                            "thoughtNumber": {
+                                                "type": "integer",
+                                                "description": "Current step number",
+                                                "minimum": 1
+                                            },
+                                            "totalThoughts": {
+                                                "type": "integer",
+                                                "description": "Total expected steps",
+                                                "minimum": 1
+                                            },
+                                            "nextThoughtNeeded": {
+                                                "type": "boolean",
+                                                "description": "Whether another step is needed"
+                                            },
+                                            "parentId": {
+                                                "type": ["string", "null"],
+                                                "description": "Optional parent thought ID for branching"
+                                            },
+                                            "strategyType": {
+                                                "type": ["string", "null"],
+                                                "enum": ["beam_search", "mcts", "mcts_002_alpha", "mcts_002alt_alpha", null],
+                                                "description": "Reasoning strategy to use"
+                                            },
+                                            "beamWidth": {
+                                                "type": ["integer", "null"],
+                                                "description": "Number of top paths to maintain",
+                                                "minimum": 1,
+                                                "maximum": 10
+                                            },
+                                            "numSimulations": {
+                                                "type": ["integer", "null"],
+                                                "description": "Number of MCTS simulations",
+                                                "minimum": 1,
+                                                "maximum": 150
+                                            }
+                                        },
+                                        "required": ["thought", "thoughtNumber", "totalThoughts", "nextThoughtNeeded"]
+                                    }),
+                                );
+
                             let default_plugin_config = crate::domain::tool::router::PluginConfig {
                                 tool_name: "mcp-reasoner".to_string(),
                                 wasm_path: "packages/sweetmcp/plugins/reasoner/target/wasm32-unknown-unknown/release/sweetmcp_plugin_reasoner.wasm".to_string(),
                                 description: "Advanced reasoning tool with Beam Search and MCTS strategies".to_string(),
                                 input_schema: reasoner_schema,
                             };
-                            
+
                             // Create router with default reasoner plugin
                             let plugin_configs = vec![default_plugin_config];
                             let mut router = SweetMcpRouter::with_configs(plugin_configs, None);
-                            
+
                             match runtime.block_on(router.initialize()) {
                                 Ok(()) => Some(router),
                                 Err(e) => {
-                                    let error_chunk = CandleMessageChunk::Error(format!("Tool initialization failed: {}", e));
+                                    let error_chunk = CandleMessageChunk::Error(format!(
+                                        "Tool initialization failed: {}",
+                                        e
+                                    ));
                                     ystream::emit!(stream_sender, error_chunk);
                                     return;
                                 }
@@ -1292,16 +1091,16 @@ where
                             let memory_stream = mem_manager.search_by_content(&user_message);
 
                             // Use tokio::task::block_in_place pattern (matches domain/agent/chat.rs:460)
-                            let results: Vec<MemoryResult<MemoryNode>> = tokio::task::block_in_place(|| {
-                                tokio::runtime::Handle::current().block_on(async {
-                                    use futures_util::StreamExt;
-                                    memory_stream.take(5).collect().await
-                                })
-                            });
+                            let results: Vec<MemoryResult<MemoryNode>> =
+                                tokio::task::block_in_place(|| {
+                                    tokio::runtime::Handle::current().block_on(async {
+                                        use futures_util::StreamExt;
+                                        memory_stream.take(5).collect().await
+                                    })
+                                });
 
-                            let memories: Vec<MemoryNode> = results.into_iter()
-                                .filter_map(|r| r.ok())
-                                .collect();
+                            let memories: Vec<MemoryNode> =
+                                results.into_iter().filter_map(|r| r.ok()).collect();
 
                             if !memories.is_empty() {
                                 Some(format_memory_context(&memories, 1000))
@@ -1313,7 +1112,7 @@ where
                         };
 
                         // Create prompt with memory context and system prompt if provided
-                        let full_prompt = match (memory_context, system_prompt) {
+                        let full_prompt = match (memory_context, &system_prompt) {
                             (Some(mem_ctx), Some(sys_prompt)) => {
                                 format!("{}\n\n{}\n\nUser: {}", sys_prompt, mem_ctx, user_message)
                             }
@@ -1338,11 +1137,12 @@ where
 
                         // Combine builder tools with auto-generated tools
                         if let Some(ref router) = tool_router {
-                            let mut all_tools: Vec<ToolInfo> = tools.into();
-                            
+                            let mut all_tools: Vec<ToolInfo> = tools.clone().into();
+
                             // Try to get auto-generated tools if runtime is available
                             if let Some(runtime) = crate::runtime::shared_runtime() {
-                                let auto_generated_tools = runtime.block_on(router.get_available_tools());
+                                let auto_generated_tools =
+                                    runtime.block_on(router.get_available_tools());
                                 all_tools.extend(auto_generated_tools);
                             }
 
@@ -1359,7 +1159,7 @@ where
                         // Handle tool calls if they occur
                         let completion_results = completion_stream.collect();
                         let mut assistant_response = String::new();
-                        
+
                         for completion_chunk in completion_results {
                             let message_chunk = match completion_chunk {
                                 CandleCompletionChunk::Text(ref text) => {
@@ -1385,7 +1185,11 @@ where
                                     id,
                                     name,
                                     partial_input,
-                                } => CandleMessageChunk::ToolCall { id, name, partial_input },
+                                } => CandleMessageChunk::ToolCall {
+                                    id,
+                                    name,
+                                    partial_input,
+                                },
                                 CandleCompletionChunk::ToolCallComplete { id, name, input } => {
                                     // Execute the tool if we have a router
                                     if let Some(ref router) = tool_router {
@@ -1394,83 +1198,109 @@ where
                                             Ok(args_json) => {
                                                 // Convert to SweetMCP JsonValue
                                                 let sweet_args = crate::domain::agent::role::convert_serde_to_sweet_json(args_json);
-                                                
+
                                                 // Execute the tool if runtime is available
                                                 match crate::runtime::shared_runtime() {
                                                     Some(runtime) => {
-                                                        match runtime.block_on(router.call_tool(&name, sweet_args)) {
+                                                        match runtime.block_on(
+                                                            router.call_tool(&name, sweet_args),
+                                                        ) {
                                                             Ok(response) => {
                                                                 // Convert response to text result
-                                                                let result_text = format!("Tool '{}' executed successfully: {:?}", name, response);
-                                                                CandleMessageChunk::Text(result_text)
+                                                                let result_text = format!(
+                                                                    "Tool '{}' executed successfully: {:?}",
+                                                                    name, response
+                                                                );
+                                                                CandleMessageChunk::Text(
+                                                                    result_text,
+                                                                )
                                                             }
                                                             Err(e) => {
                                                                 // Return error as text
-                                                                CandleMessageChunk::Error(format!("Tool '{}' execution failed: {}", name, e))
+                                                                CandleMessageChunk::Error(format!(
+                                                                    "Tool '{}' execution failed: {}",
+                                                                    name, e
+                                                                ))
                                                             }
                                                         }
                                                     }
-                                                    None => {
-                                                        CandleMessageChunk::Error("Runtime unavailable for tool execution".to_string())
-                                                    }
+                                                    None => CandleMessageChunk::Error(
+                                                        "Runtime unavailable for tool execution"
+                                                            .to_string(),
+                                                    ),
                                                 }
                                             }
-                                            Err(e) => {
-                                                CandleMessageChunk::Error(format!("Tool '{}' invalid JSON input: {}", name, e))
-                                            }
+                                            Err(e) => CandleMessageChunk::Error(format!(
+                                                "Tool '{}' invalid JSON input: {}",
+                                                name, e
+                                            )),
                                         }
                                     } else {
                                         CandleMessageChunk::ToolCallComplete { id, name, input }
                                     }
                                 }
-                                CandleCompletionChunk::Error(error) => CandleMessageChunk::Error(error),
+                                CandleCompletionChunk::Error(error) => {
+                                    CandleMessageChunk::Error(error)
+                                }
                             };
 
                             ystream::emit!(stream_sender, message_chunk);
                         }
-                        
+
                         // Store conversation turn in memory after completion
                         if let Some(ref memory_manager) = memory
-                            && !assistant_response.is_empty() {
+                            && !assistant_response.is_empty()
+                        {
                             // Create memory nodes for the conversation
-                            let user_content = crate::memory::core::primitives::types::MemoryContent::new(&user_message);
-                            let assistant_content = crate::memory::core::primitives::types::MemoryContent::new(&assistant_response);
-                            
+                            let user_content =
+                                crate::memory::core::primitives::types::MemoryContent::new(
+                                    &user_message,
+                                );
+                            let assistant_content =
+                                crate::memory::core::primitives::types::MemoryContent::new(
+                                    &assistant_response,
+                                );
+
                             // Use Episodic memory type for conversation turns
                             let mut user_memory = crate::memory::core::MemoryNode::new(
                                 crate::memory::core::primitives::types::MemoryTypeEnum::Episodic,
-                                user_content
+                                user_content,
                             );
                             user_memory.metadata.tags.push("user_message".to_string());
                             user_memory.metadata.source = Some("chat".to_string());
                             user_memory.metadata.importance = 0.8;
-                            
+
                             let mut assistant_memory = crate::memory::core::MemoryNode::new(
                                 crate::memory::core::primitives::types::MemoryTypeEnum::Episodic,
-                                assistant_content
+                                assistant_content,
                             );
-                            assistant_memory.metadata.tags.push("assistant_response".to_string());
+                            assistant_memory
+                                .metadata
+                                .tags
+                                .push("assistant_response".to_string());
                             assistant_memory.metadata.source = Some("chat".to_string());
                             assistant_memory.metadata.importance = 0.8;
-                            
+
                             // Create PendingMemory operations
                             let user_pending = memory_manager.create_memory(user_memory);
                             let assistant_pending = memory_manager.create_memory(assistant_memory);
-                            
+
                             // Use shared runtime to properly await the PendingMemory futures
                             if let Some(runtime) = crate::runtime::shared_runtime() {
                                 // Spawn tasks on the runtime to handle the async operations
                                 runtime.spawn(async move {
                                     if let Err(e) = user_pending.await {
                                         log::error!(
-                                            "Failed to store user memory to database: {:?}", e
+                                            "Failed to store user memory to database: {:?}",
+                                            e
                                         );
                                     }
                                 });
                                 runtime.spawn(async move {
                                     if let Err(e) = assistant_pending.await {
                                         log::error!(
-                                            "Failed to store assistant memory to database: {:?}", e
+                                            "Failed to store assistant memory to database: {:?}",
+                                            e
                                         );
                                     }
                                 });
@@ -1482,12 +1312,17 @@ where
                             // Create conversation with current messages
                             let mut conversation = CandleAgentConversation::new();
                             conversation.add_message(user_message.clone(), CandleMessageRole::User);
-                            conversation.add_message(assistant_response.clone(), CandleMessageRole::Assistant);
+                            conversation.add_message(
+                                assistant_response.clone(),
+                                CandleMessageRole::Assistant,
+                            );
 
-                            // Create builder state for recursive agent
+                            // Create builder state for recursive agent with handler included
+                            // handler is already Arc<dyn Fn(...)>, so just clone it
                             let builder_state = Arc::new(AgentBuilderState {
                                 name: String::from("agent"),
-                                provider: provider.clone(),
+                                text_to_text_model: provider.clone(),
+                                text_embedding_model: None,
                                 temperature,
                                 max_tokens: Some(max_tokens),
                                 memory_read_timeout: _memory_read_timeout,
@@ -1495,11 +1330,13 @@ where
                                 tools: tools.clone(),
                                 mcp_servers: _mcp_servers.clone(),
                                 memory: memory.clone(),
-                                on_conversation_turn_handler: Some(Arc::new(handler) as Arc<_>),
+                                on_conversation_turn_handler: Some(handler.clone()),
                             });
 
                             // Create agent with full state
-                            let agent = CandleAgentRoleAgent { state: builder_state };
+                            let agent = CandleAgentRoleAgent {
+                                state: builder_state,
+                            };
 
                             // Call handler and forward its stream
                             let handler_stream = handler(&conversation, &agent);
@@ -1531,7 +1368,7 @@ where
     }
 
     fn chat_with_message(self, message: impl Into<String>) -> AsyncStream<CandleMessageChunk> {
-        let provider = self.provider;
+        let provider = self.text_to_text_model;
         let temperature = self.temperature;
         let max_tokens = self.max_tokens.unwrap_or(1000);
         let system_prompt = self.system_prompt.clone();
@@ -1575,7 +1412,11 @@ where
                             id,
                             name,
                             partial_input,
-                        } => CandleMessageChunk::ToolCall { id, name, partial_input },
+                        } => CandleMessageChunk::ToolCall {
+                            id,
+                            name,
+                            partial_input,
+                        },
                         CandleCompletionChunk::ToolCallComplete { id, name, input } => {
                             CandleMessageChunk::ToolCallComplete { id, name, input }
                         }

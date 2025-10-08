@@ -23,7 +23,7 @@ log = { workspace = true }
 tokio = { version = "1", features = ["full"] }
 directories = "6.0.0"
 crossbeam-channel = "0.5.15"
-parking_lot = "0.12.4"
+parking_lot = "0.12.5"
 dashmap = "6.1"
 
 # Plugin system

@@ -5,7 +5,6 @@
 
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
-use crate::domain::model::factory::ModelFactory;
 
 /// Available chat commands
 pub const CHAT_COMMANDS: &[&str] = &[
@@ -27,7 +26,7 @@ pub const CHAT_COMMANDS: &[&str] = &[
 /// Model completer with fuzzy matching
 #[derive(Clone)]
 pub struct ModelCompleter {
-    matcher: SkimMatcherV2,
+    matcher: std::sync::Arc<SkimMatcherV2>,
     models: Vec<String>,
     aliases: Vec<String>,
 }
@@ -35,10 +34,11 @@ pub struct ModelCompleter {
 impl ModelCompleter {
     /// Create new model completer
     pub fn new() -> Self {
-        let models = ModelFactory::list_available_models()
-            .into_iter()
-            .map(|s| s.to_string())
-            .collect();
+        let models = vec![
+            "unsloth/Phi-4-reasoning-GGUF".to_string(),
+            "unsloth/Kimi-K2-Instruct-GGUF".to_string(),
+            "Qwen/Qwen2.5-Coder-32B-Instruct-GGUF".to_string(),
+        ];
 
         let aliases = vec![
             "phi4".to_string(),
@@ -52,7 +52,7 @@ impl ModelCompleter {
         ];
 
         Self {
-            matcher: SkimMatcherV2::default(),
+            matcher: std::sync::Arc::new(SkimMatcherV2::default()),
             models,
             aliases,
         }
@@ -102,14 +102,14 @@ impl Default for ModelCompleter {
 /// Command completer for chat commands
 #[derive(Clone)]
 pub struct CommandCompleter {
-    matcher: SkimMatcherV2,
+    matcher: std::sync::Arc<SkimMatcherV2>,
 }
 
 impl CommandCompleter {
     /// Create new command completer
     pub fn new() -> Self {
         Self {
-            matcher: SkimMatcherV2::default(),
+            matcher: std::sync::Arc::new(SkimMatcherV2::default()),
         }
     }
 

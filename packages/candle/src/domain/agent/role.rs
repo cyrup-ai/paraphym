@@ -10,8 +10,9 @@ use serde_json::Value;
 
 use crate::domain::agent::core::AgentError;
 use crate::domain::chat::CandleMessageRole;
-use crate::domain::completion::traits::CandleCompletionModel;
-use crate::capability::text_to_text::{CandleKimiK2Provider, CandleQwen3CoderProvider, CandlePhi4ReasoningProvider};
+use crate::capability::traits::TextToTextCapable;
+use crate::domain::model::traits::CandleModel;
+use crate::capability::text_to_text::{CandleKimiK2Model, CandleQwen3CoderModel, CandlePhi4ReasoningModel};
 use crate::domain::context::document::CandleDocument;
 use crate::domain::context::chunk::CandleJsonChunk;
 use crate::domain::tool::{SweetMcpRouter, RouterError};
@@ -94,31 +95,6 @@ impl McpServerConfig {
     }
 }
 
-/// Completion provider types that can be used with the agent
-#[derive(Debug)]
-pub enum CandleCompletionProviderType {
-    /// Phi-4-Reasoning local model provider (DEFAULT)
-    Phi4Reasoning(CandlePhi4ReasoningProvider),
-    /// Kimi K2 local model provider
-    KimiK2(CandleKimiK2Provider),
-    /// Qwen3 Coder local model provider
-    Qwen3Coder(CandleQwen3CoderProvider),
-}
-
-impl CandleCompletionModel for CandleCompletionProviderType {
-    fn prompt(
-        &self,
-        prompt: crate::domain::prompt::CandlePrompt,
-        params: &crate::domain::completion::types::CandleCompletionParams,
-    ) -> ystream::AsyncStream<crate::domain::completion::CandleCompletionChunk> {
-        match self {
-            CandleCompletionProviderType::Phi4Reasoning(provider) => provider.prompt(prompt, params),
-            CandleCompletionProviderType::KimiK2(provider) => provider.prompt(prompt, params),
-            CandleCompletionProviderType::Qwen3Coder(provider) => provider.prompt(prompt, params),
-        }
-    }
-}
-
 /// Core agent role trait defining all operations and properties
 pub trait CandleAgentRole: Send + Sync + fmt::Debug + Clone {
     /// Get the name of the agent role
@@ -138,379 +114,6 @@ pub trait CandleAgentRole: Send + Sync + fmt::Debug + Clone {
 
     /// Create a new agent role with the given name
     fn new(name: impl Into<String>) -> Self;
-}
-
-/// Type alias for conversation turn handler callback
-type ConversationTurnHandler = Box<dyn Fn(&CandleAgentConversation, &CandleAgentRoleAgent) + Send + Sync>;
-
-/// Default implementation of the `CandleAgentRole` trait
-pub struct CandleAgentRoleImpl {
-    name: String,
-    /// Completion provider integration (`KimiK2`, `Qwen3Coder`, etc.) - Local models only
-    completion_provider: Option<Arc<CandleCompletionProviderType>>,
-    temperature: f64,
-    max_tokens: Option<u64>,
-    memory_read_timeout: Option<u64>,
-    system_prompt: Option<String>,
-    /// Document context loading and management
-    contexts: Option<ZeroOneOrMany<CandleDocument>>,
-    /// Tool router for WASM plugins and Cylo backends
-    tool_router: Option<Arc<SweetMcpRouter>>,
-    /// MCP server configuration and management
-    mcp_servers: Option<ZeroOneOrMany<McpServerConfig>>,
-    /// Provider-specific parameters (model paths, quantization options)
-    additional_params: Option<HashMap<String, Value>>,
-    /// Persistent memory and conversation storage
-    memory: Option<Arc<dyn MemoryManager>>,
-    /// Agent metadata and custom attributes
-    metadata: Option<HashMap<String, Value>>,
-    /// Tool result processing and callback handling
-    on_tool_result_handler: Option<Box<dyn Fn(ZeroOneOrMany<Value>) + Send + Sync>>,
-    /// Conversation turn event handling and logging
-    on_conversation_turn_handler: Option<ConversationTurnHandler>,
-}
-
-impl std::fmt::Debug for CandleAgentRoleImpl {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CandleAgentRoleImpl")
-            .field("name", &self.name)
-            .field("temperature", &self.temperature)
-            .field("max_tokens", &self.max_tokens)
-            .field("system_prompt", &self.system_prompt)
-            .field("completion_provider", &self.completion_provider.is_some())
-            .finish_non_exhaustive()
-    }
-}
-
-impl Clone for CandleAgentRoleImpl {
-    fn clone(&self) -> Self {
-        Self {
-            name: self.name.clone(),
-            completion_provider: self.completion_provider.clone(),
-            temperature: self.temperature,
-            max_tokens: self.max_tokens,
-            memory_read_timeout: self.memory_read_timeout,
-            system_prompt: self.system_prompt.clone(),
-            contexts: self.contexts.clone(),
-            tool_router: self.tool_router.clone(), // Arc<SweetMcpRouter> can be cloned
-            mcp_servers: self.mcp_servers.clone(),
-            additional_params: self.additional_params.clone(),
-            memory: self.memory.clone(), // Arc<dyn MemoryManager> can be cloned
-            metadata: self.metadata.clone(),
-            on_tool_result_handler: None, // Cannot clone function pointer
-            on_conversation_turn_handler: None, // Cannot clone function pointer
-        }
-    }
-}
-
-impl CandleAgentRole for CandleAgentRoleImpl {
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn temperature(&self) -> f64 {
-        self.temperature
-    }
-
-    fn max_tokens(&self) -> Option<u64> {
-        self.max_tokens
-    }
-
-    fn memory_read_timeout(&self) -> Option<u64> {
-        self.memory_read_timeout
-    }
-
-    fn system_prompt(&self) -> Option<&str> {
-        self.system_prompt.as_deref()
-    }
-
-    fn new(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            completion_provider: None,
-            temperature: 0.0,  // Default temperature to 0
-            max_tokens: None,
-            memory_read_timeout: None,
-            system_prompt: None,
-            contexts: None,
-            tool_router: None,
-            mcp_servers: None,
-            additional_params: None,
-            memory: None,
-            metadata: None,
-            on_tool_result_handler: None,
-            on_conversation_turn_handler: None,
-        }
-    }
-}
-
-impl CandleAgentRoleImpl {
-    /// Set completion provider for agent role
-    ///
-    /// # Arguments
-    /// * `provider` - Completion provider to use
-    ///
-    /// # Returns
-    /// Updated agent role instance
-    #[inline]
-    #[must_use]
-    pub fn with_completion_provider(mut self, provider: CandleCompletionProviderType) -> Self {
-        self.completion_provider = Some(Arc::new(provider));
-        self
-    }
-
-    /// Get completion provider with explicit error handling
-    ///
-    /// # Returns
-    /// Result containing reference to completion provider, or `ProviderNotInitialized` error
-    ///
-    /// # Errors
-    /// Returns `AgentError::ProviderNotInitialized` if:
-    /// - Builder was bypassed (direct struct construction)
-    /// - Deserialization created invalid state
-    /// - Provider initialization failed silently
-    ///
-    /// # Example
-    /// ```ignore
-    /// let provider = agent.get_completion_provider()
-    ///     .map_err(|e| ChatError::System(e.to_string()))?;
-    /// ```
-    #[inline]
-    pub fn get_completion_provider(&self) -> Result<&CandleCompletionProviderType, AgentError> {
-        Ok(self.completion_provider
-            .as_ref()
-            .ok_or(AgentError::ProviderNotInitialized)?
-            .as_ref())
-    }
-
-    /// Add context from file path
-    ///
-    /// # Arguments
-    /// * `file_path` - Path to the file to load as context
-    ///
-    /// # Returns
-    /// Updated agent role instance
-    #[inline]
-    #[must_use]
-    pub fn add_context_from_file(mut self, file_path: impl AsRef<Path>) -> Self {
-        use crate::domain::context::document::CandleDocument;
-        
-        let document = CandleDocument::from_file(file_path.as_ref()).load();
-        
-        self.contexts = match self.contexts {
-            None | Some(ZeroOneOrMany::None) => Some(ZeroOneOrMany::One(document)),
-            Some(ZeroOneOrMany::One(existing)) => Some(ZeroOneOrMany::Many(vec![existing, document])),
-            Some(ZeroOneOrMany::Many(mut existing)) => {
-                existing.push(document);
-                Some(ZeroOneOrMany::Many(existing))
-            }
-        };
-        
-        self
-    }
-
-    /// Add context from directory path
-    ///
-    /// # Arguments
-    /// * `dir_path` - Path to the directory to load as context
-    ///
-    /// # Returns
-    /// Updated agent role instance
-    #[inline]
-    #[must_use]
-    pub fn add_context_from_directory(mut self, dir_path: impl AsRef<Path>) -> Self {
-        use crate::domain::context::document::CandleDocument;
-        use std::fs;
-        
-        let dir_path = dir_path.as_ref();
-        
-        // Read directory entries and create documents for each file
-        if let Ok(entries) = fs::read_dir(dir_path) {
-            for entry in entries.filter_map(Result::ok) {
-                let path = entry.path();
-                if path.is_file() {
-                    let document = CandleDocument::from_file(&path).load();
-                    
-                    self.contexts = match self.contexts {
-                        None | Some(ZeroOneOrMany::None) => Some(ZeroOneOrMany::One(document)),
-                        Some(ZeroOneOrMany::One(existing)) => Some(ZeroOneOrMany::Many(vec![existing, document])),
-                        Some(ZeroOneOrMany::Many(mut existing)) => {
-                            existing.push(document);
-                            Some(ZeroOneOrMany::Many(existing))
-                        }
-                    };
-                }
-            }
-        }
-        
-        self
-    }
-
-    /// Enable code execution with the tool router
-    ///
-    /// # Arguments
-    /// * `enabled` - Whether to enable code execution via cylo
-    ///
-    /// # Returns
-    /// Updated agent role instance
-    #[inline]
-    #[must_use]
-    pub fn with_code_execution(mut self, _enabled: bool) -> Self {
-        // Create or update the tool router
-        let router = SweetMcpRouter::new();
-        self.tool_router = Some(Arc::new(router));
-        self
-    }
-
-    /// Initialize tool execution system
-    ///
-    /// This method sets up the tool router with WASM plugins and Cylo backends
-    /// Called automatically during agent initialization
-    ///
-    /// # Errors
-    /// Returns `RouterError` if tool router initialization fails, including:
-    /// - Plugin discovery errors
-    /// - Backend initialization issues
-    pub async fn initialize_tools(&mut self) -> Result<(), RouterError> {
-        if let Some(_router) = self.tool_router.as_ref() {
-            // Need to get mutable access to router for initialization
-            // Since we have Arc<SweetMcpRouter>, we need to create a new one and reinitialize
-            let mut new_router = SweetMcpRouter::new();
-            new_router.initialize().await?;
-            self.tool_router = Some(Arc::new(new_router));
-        }
-        Ok(())
-    }
-
-    /// Execute a tool by name with given arguments (OpenAI-style function calling)
-    ///
-    /// # Arguments
-    /// * `tool_name` - Name of the tool to execute
-    /// * `args` - Arguments to pass to the tool as `serde_json::Value`
-    ///
-    /// # Returns
-    /// `AsyncStream` of tool execution results for `ystream` compatibility
-    #[must_use]
-    pub fn execute_tool(&self, tool_name: &str, args: Value) -> ystream::AsyncStream<CandleJsonChunk> {
-        if let Some(ref router) = self.tool_router {
-            // Convert serde_json::Value to sweet_mcp_type::JsonValue
-            let sweet_args = convert_serde_to_sweet_json(args);
-            router.call_tool_stream(tool_name, sweet_args)
-        } else {
-            // Return error stream if no tool router
-            AsyncStream::with_channel(move |sender| {
-                let error_value = Value::Object([
-                    ("error".to_string(), Value::String("No tool router configured".to_string()))
-                ].into_iter().collect::<serde_json::Map<_, _>>());
-                ystream::emit!(sender, CandleJsonChunk(error_value));
-            })
-        }
-    }
-
-    /// Get all available tools for LLM function calling
-    ///
-    /// # Returns
-    /// Vector of `ToolInfo` structs describing available tools
-    pub async fn get_available_tools(&self) -> Vec<ToolInfo> {
-        if let Some(ref router) = self.tool_router {
-            router.get_available_tools().await
-        } else {
-            Vec::new()
-        }
-    }
-
-    /// Add MCP server configuration
-    ///
-    /// # Arguments
-    /// * `config` - MCP server configuration
-    ///
-    /// # Returns
-    /// Updated agent role instance
-    #[inline]
-    #[must_use]
-    pub fn add_mcp_server(mut self, config: McpServerConfig) -> Self {
-        self.mcp_servers = match self.mcp_servers {
-            None | Some(ZeroOneOrMany::None) => Some(ZeroOneOrMany::One(config)),
-            Some(ZeroOneOrMany::One(existing)) => Some(ZeroOneOrMany::Many(vec![existing, config])),
-            Some(ZeroOneOrMany::Many(mut vec)) => {
-                vec.push(config);
-                Some(ZeroOneOrMany::Many(vec))
-            }
-        };
-        self
-    }
-
-    /// Get MCP server configurations
-    ///
-    /// # Returns
-    /// Optional reference to MCP server configurations
-    #[inline]
-    #[must_use]
-    pub fn get_mcp_servers(&self) -> Option<&ZeroOneOrMany<McpServerConfig>> {
-        self.mcp_servers.as_ref()
-    }
-
-    /// Set memory manager for agent role
-    ///
-    /// # Arguments
-    /// * `memory_manager` - Memory manager instance
-    ///
-    /// # Returns
-    /// Updated agent role instance
-    #[inline]
-    #[must_use]
-    pub fn with_memory_manager(mut self, memory_manager: Arc<dyn MemoryManager>) -> Self {
-        self.memory = Some(memory_manager);
-        self
-    }
-
-    /// Get memory manager reference if available
-    ///
-    /// # Returns
-    /// Optional reference to memory manager
-    #[inline]
-    #[must_use]
-    pub fn get_memory_manager(&self) -> Option<&Arc<dyn MemoryManager>> {
-        self.memory.as_ref()
-    }
-
-    /// Set tool result handler
-    ///
-    /// # Arguments
-    /// * `handler` - Function to handle tool results
-    ///
-    /// # Returns
-    /// Updated agent role instance
-    #[inline]
-    #[must_use]
-    pub fn on_tool_result<F>(mut self, handler: F) -> Self
-    where
-        F: Fn(ZeroOneOrMany<Value>) + Send + Sync + 'static,
-    {
-        self.on_tool_result_handler = Some(Box::new(handler));
-        self
-    }
-
-    /// Set conversation turn handler
-    ///
-    /// # Arguments
-    /// * `handler` - Function to handle conversation turns
-    ///
-    /// # Returns
-    /// Updated agent role instance
-    #[inline]
-    #[must_use]
-    pub fn on_conversation_turn<F>(mut self, handler: F) -> Self
-    where
-        F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) + Send + Sync + 'static,
-    {
-        self.on_conversation_turn_handler = Some(Box::new(handler));
-        self
-    }
-
-
-
-
 }
 
 /// Agent helper type provided to `on_conversation_turn` callbacks.
@@ -538,7 +141,41 @@ pub struct CandleAgentConversation {
     pub messages: Option<ZeroOneOrMany<(CandleMessageRole, String)>>,
 }
 
+impl Default for CandleAgentConversation {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CandleAgentConversation {
+    /// Create a new empty conversation
+    #[inline]
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            messages: None,
+        }
+    }
+
+    /// Create a conversation with an initial user message
+    #[inline]
+    #[must_use]
+    pub fn with_user_input(message: impl Into<String>) -> Self {
+        let mut conv = Self::new();
+        conv.add_message(message, CandleMessageRole::User);
+        conv
+    }
+
+    /// Add a message to the conversation
+    #[inline]
+    pub fn add_message(&mut self, content: impl Into<String>, role: CandleMessageRole) {
+        let message = (role, content.into());
+        self.messages = Some(match self.messages.take() {
+            None => ZeroOneOrMany::One(message),
+            Some(existing) => existing.with_pushed(message),
+        });
+    }
+
     /// Get the last message from the conversation
     #[inline]
     #[must_use]

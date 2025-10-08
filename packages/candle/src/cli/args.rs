@@ -113,26 +113,23 @@ impl CliArgs {
                 }
                 "-t" | "--temperature" => {
                     i += 1;
-                    if i < args.len() {
-                        if let Ok(temp) = args[i].parse::<f64>() {
-                            cli_args.temperature = temp;
-                        }
+                    if i < args.len()
+                        && let Ok(temp) = args[i].parse::<f64>() {
+                        cli_args.temperature = temp;
                     }
                 }
                 "--max-tokens" => {
                     i += 1;
-                    if i < args.len() {
-                        if let Ok(tokens) = args[i].parse::<u64>() {
-                            cli_args.max_tokens = Some(tokens);
-                        }
+                    if i < args.len()
+                        && let Ok(tokens) = args[i].parse::<u64>() {
+                        cli_args.max_tokens = Some(tokens);
                     }
                 }
                 "--memory-read-timeout" => {
                     i += 1;
-                    if i < args.len() {
-                        if let Ok(timeout) = args[i].parse::<u64>() {
-                            cli_args.memory_read_timeout = timeout;
-                        }
+                    if i < args.len()
+                        && let Ok(timeout) = args[i].parse::<u64>() {
+                        cli_args.memory_read_timeout = timeout;
                     }
                 }
                 "--tool" => {
@@ -185,10 +182,9 @@ impl CliArgs {
             return Err(format!("Temperature must be between 0.0 and 2.0, got {}", self.temperature));
         }
 
-        if let Some(tokens) = self.max_tokens {
-            if tokens == 0 {
-                return Err("Max tokens must be greater than 0".to_string());
-            }
+        if let Some(tokens) = self.max_tokens
+            && tokens == 0 {
+            return Err("Max tokens must be greater than 0".to_string());
         }
 
         if self.memory_read_timeout == 0 {

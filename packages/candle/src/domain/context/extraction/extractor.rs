@@ -8,11 +8,12 @@ use cyrup_sugars::prelude::MessageChunk;
 
 use super::error::{ExtractionError, _ExtractionResult as ExtractionResult};
 use crate::builders::completion::CompletionRequestBuilder;
+use crate::capability::traits::TextToTextCapable;
+use crate::domain::model::traits::CandleModel;
 use crate::domain::{
     chat::message::types::CandleMessageRole as MessageRole,
     completion::{
         types::CandleCompletionParams as CompletionParams,
-        CandleCompletionModel as CompletionModel,
     },
     context::chunk::{CandleCompletionChunk, FinishReason},
     prompt::CandlePrompt as Prompt,
@@ -37,7 +38,7 @@ where
 /// Implementation of the Extractor trait
 #[derive(Clone)]
 pub struct ExtractorImpl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + 'static> {
-    provider: Arc<dyn CompletionModel>,
+    provider: Arc<dyn TextToTextCapable + Send + Sync>,
     system_prompt: Option<String>,
     _marker: PhantomData<T>,
 }
@@ -45,7 +46,7 @@ pub struct ExtractorImpl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone 
 impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + 'static> fmt::Debug for ExtractorImpl<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ExtractorImpl")
-            .field("provider", &"<dyn CompletionModel>")
+            .field("provider", &"<dyn TextToTextCapable>")
             .field("system_prompt", &self.system_prompt)
             .finish()
     }
@@ -150,7 +151,7 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static 
 
 impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static + MessageChunk> ExtractorImpl<T> {
     /// Create new extractor with provider
-    pub fn new_with_provider(provider: Arc<dyn CompletionModel>) -> Self {
+    pub fn new_with_provider(provider: Arc<dyn TextToTextCapable + Send + Sync>) -> Self {
         Self {
             provider,
             system_prompt: None,
@@ -160,7 +161,7 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static 
 
     /// Get the provider reference
     #[must_use]
-    pub fn provider(&self) -> &Arc<dyn CompletionModel> {
+    pub fn provider(&self) -> &Arc<dyn TextToTextCapable + Send + Sync> {
         &self.provider
     }
 

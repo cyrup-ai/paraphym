@@ -3,7 +3,7 @@
 //! All memory system configuration and builder patterns.
 
 use crate::domain::memory::{
-    CompatibilityMode, DatabaseConfig, LLMConfig, MemorySystemConfig, VectorStoreConfig,
+    CompatibilityMode, DatabaseConfig, MemorySystemConfig, VectorStoreConfig,
 };
 
 /// Memory system builder for ergonomic configuration
@@ -11,7 +11,6 @@ use crate::domain::memory::{
 pub struct MemorySystemBuilder {
     database_config: Option<DatabaseConfig>,
     vector_config: Option<VectorStoreConfig>,
-    llm_config: Option<LLMConfig>,
     enable_cognitive: bool,
     compatibility_mode: CompatibilityMode,
 }
@@ -37,13 +36,6 @@ impl MemorySystemBuilder {
         self
     }
 
-    /// Set LLM configuration
-    #[inline]
-    pub fn with_llm_config(mut self, config: LLMConfig) -> Self {
-        self.llm_config = Some(config);
-        self
-    }
-
     /// Enable cognitive features
     #[inline]
     pub fn with_cognitive(mut self, enabled: bool) -> Self {
@@ -63,7 +55,6 @@ impl MemorySystemBuilder {
         let config = MemorySystemConfig {
             database: self.database_config.unwrap_or_default(),
             vector_store: self.vector_config.unwrap_or_default(),
-            llm: self.llm_config.unwrap_or_default(),
             enable_cognitive: self.enable_cognitive,
             compatibility_mode: self.compatibility_mode,
         };

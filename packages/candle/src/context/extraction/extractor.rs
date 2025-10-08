@@ -16,7 +16,6 @@ use crate::domain::{
     chat::message::types::CandleMessageRole as MessageRole,
     completion::{
         types::CandleCompletionParams as CompletionParams,
-        CandleCompletionModel as CompletionModel,
     },
     context::chunk::{CandleCompletionChunk, FinishReason},
     prompt::CandlePrompt as Prompt,
@@ -44,7 +43,7 @@ where
 /// Document extractor for file-based extraction
 #[derive(Clone)]
 pub struct DocumentExtractor<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + 'static> {
-    provider: Arc<dyn CompletionModel>,
+    provider: Arc<dyn crate::capability::traits::TextToTextCapable + Send + Sync>,
     system_prompt: Option<String>,
     _marker: PhantomData<T>,
 }
@@ -157,7 +156,7 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static>
 
 impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static> DocumentExtractor<T> {
     /// Create new extractor with provider
-    pub fn new_with_provider(provider: Arc<dyn CompletionModel>) -> Self {
+    pub fn new_with_provider(provider: Arc<dyn crate::capability::traits::TextToTextCapable + Send + Sync>) -> Self {
         Self {
             provider,
             system_prompt: None,
@@ -166,7 +165,7 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static>
     }
 
     /// Get the provider reference
-    pub fn provider(&self) -> &Arc<dyn CompletionModel> {
+    pub fn provider(&self) -> &Arc<dyn crate::capability::traits::TextToTextCapable + Send + Sync> {
         &self.provider
     }
 
@@ -201,7 +200,7 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static>
 /// Context extractor implementation
 #[derive(Clone)]
 pub struct ExtractorImpl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + 'static> {
-    provider: Arc<dyn CompletionModel>,
+    provider: Arc<dyn crate::capability::traits::TextToTextCapable + Send + Sync>,
     system_prompt: Option<String>,
     _marker: PhantomData<T>,
 }
@@ -310,7 +309,7 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static>
 
 impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static> ExtractorImpl<T> {
     /// Create new extractor with provider
-    pub fn new_with_provider(provider: Arc<dyn CompletionModel>) -> Self {
+    pub fn new_with_provider(provider: Arc<dyn crate::capability::traits::TextToTextCapable + Send + Sync>) -> Self {
         Self {
             provider,
             system_prompt: None,
@@ -319,7 +318,7 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static>
     }
 
     /// Get the provider reference
-    pub fn provider(&self) -> &Arc<dyn CompletionModel> {
+    pub fn provider(&self) -> &Arc<dyn crate::capability::traits::TextToTextCapable + Send + Sync> {
         &self.provider
     }
 }
@@ -340,7 +339,7 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + 'static> fmt::Debu
 
 impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static> BatchExtractor<T> {
     /// Create a new batch extractor with provider
-    pub fn new_with_provider(provider: Arc<dyn CompletionModel>) -> Self {
+    pub fn new_with_provider(provider: Arc<dyn crate::capability::traits::TextToTextCapable + Send + Sync>) -> Self {
         Self {
             extractor: ExtractorImpl::new_with_provider(provider),
         }
