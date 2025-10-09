@@ -49,6 +49,8 @@ pub mod extensions;
 pub mod image;
 /// Memory system with cognitive features and vector storage
 pub mod memory;
+/// Worker pool infrastructure for keeping models loaded in memory
+pub mod pool;
 /// Prompt processing utilities
 pub mod prompt;
 /// Shared Tokio runtime for avoiding multiple runtime creation

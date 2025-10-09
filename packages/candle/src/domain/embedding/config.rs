@@ -55,7 +55,7 @@ fn default_truncate() -> bool {
 impl Default for EmbeddingConfig {
     fn default() -> Self {
         Self {
-            model: Some("stella".to_string()),
+            model: Some("dunzhang/stella_en_1.5B_v5".to_string()),
             dimensions: Some(1024),
             normalize: default_normalize(),
             batch_size: default_batch_size(),
@@ -108,8 +108,8 @@ impl EmbeddingConfig {
     /// use crate::domain::embedding::config::EmbeddingConfig;
     ///
     /// let config = EmbeddingConfig::new()
-    ///     .with_model("stella")
-    ///     .with_validated_dimension(1024, "stella")?; // Valid: Stella supports 1024D
+    ///     .with_model("dunzhang/stella_en_1.5B_v5")
+    ///     .with_validated_dimension(1024, "dunzhang/stella_en_1.5B_v5")?; // Valid: Stella supports 1024D
     ///
     /// let invalid_config = EmbeddingConfig::new()
     ///     .with_model("bert")

@@ -138,9 +138,17 @@ You are a master at refactoring code, remembering to check for code that ALREADY
                 .context("Failed to initialize database namespace")?;
 
             // Get model from registry - THE ONLY SOURCE OF TRUTH
+            // Use embedding model from CLI args, or default from EmbeddingConfig
+            use crate::domain::embedding::config::EmbeddingConfig;
+            let default_model = EmbeddingConfig::default().model;
+            let embedding_model_key = self.args.embedding_model
+                .as_deref()
+                .or(default_model.as_deref())
+                .unwrap_or("dunzhang/stella_en_1.5B_v5");
+
             // Use generic get<T>() to return concrete TextEmbeddingModel type
-            let embedding_model: crate::capability::registry::TextEmbeddingModel = registry::get(&self.args.embedding_model)
-                .ok_or_else(|| anyhow::anyhow!("Embedding model '{}' not found in registry", self.args.embedding_model))?;
+            let embedding_model: crate::capability::registry::TextEmbeddingModel = registry::get(embedding_model_key)
+                .ok_or_else(|| anyhow::anyhow!("Embedding model '{}' not found in registry", embedding_model_key))?;
 
             // Create memory manager with registry model
             let manager = SurrealDBMemoryManager::with_embedding_model(db, embedding_model)

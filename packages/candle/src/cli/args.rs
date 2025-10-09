@@ -31,9 +31,9 @@ pub struct CliArgs {
     /// Tool/plugin WASM paths to load (repeatable)
     pub tools: Vec<String>,
 
-    /// Embedding model for memory system (defaults to "stella 1024")
-    /// Supported: stella, bert, gte-qwen, jina-bert, nvembed, clip-vision
-    pub embedding_model: String,
+    /// Embedding model for memory system (optional - uses builder's default if not provided)
+    /// Supported registry keys: dunzhang/stella_en_1.5B_v5, bert, gte-qwen, jina-bert, nvembed, clip-vision
+    pub embedding_model: Option<String>,
 
     /// Interactive mode (default: true)
     pub interactive: bool,
@@ -59,7 +59,7 @@ impl Default for CliArgs {
             max_tokens: None, // Let model decide based on TextToTextCapability
             memory_read_timeout: 5000, // 5 seconds
             tools: Vec::new(),
-            embedding_model: "stella".to_string(), // Default to stella with 1024D
+            embedding_model: None, // Uses EmbeddingConfig::default() if not provided
             interactive: true,
             message: None,
             config: None,
@@ -141,7 +141,7 @@ impl CliArgs {
                 "--embedding-model" => {
                     i += 1;
                     if i < args.len() {
-                        cli_args.embedding_model = args[i].clone();
+                        cli_args.embedding_model = Some(args[i].clone());
                     }
                 }
                 "--message" => {
