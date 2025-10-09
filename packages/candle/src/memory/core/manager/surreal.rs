@@ -522,7 +522,7 @@ impl SurrealDBMemoryManager {
     /// Memory manager with default Stella embedding model from registry
     pub async fn with_embeddings(db: Surreal<Any>) -> Result<Self> {
         use crate::capability::registry;
-        let default_model: TextEmbeddingModel = registry::get("dunzhang/stella_en_1.5B_v5")
+        let default_model: TextEmbeddingModel = registry::get("dunzhang/stella_en_400M_v5")
             .ok_or_else(|| Error::Config("Default Stella embedding model not found in registry".into()))?;
         Self::with_embedding_model(db, default_model).await
     }

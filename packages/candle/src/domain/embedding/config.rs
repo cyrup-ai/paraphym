@@ -55,7 +55,7 @@ fn default_truncate() -> bool {
 impl Default for EmbeddingConfig {
     fn default() -> Self {
         Self {
-            model: Some("dunzhang/stella_en_1.5B_v5".to_string()),
+            model: None,
             dimensions: Some(1024),
             normalize: default_normalize(),
             batch_size: default_batch_size(),

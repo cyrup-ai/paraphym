@@ -6,7 +6,7 @@ use std::sync::Arc;
 use super::types::{PoolConfig, PoolMetrics, WorkerHandle};
 
 /// Generic worker pool for capability trait T
-pub struct Pool<T> {
+pub struct Pool<T: ?Sized> {
     /// Map of registry_key -> Vec<WorkerHandle>
     workers: DashMap<String, Vec<WorkerHandle>>,
 
@@ -29,7 +29,7 @@ pub struct Pool<T> {
     _phantom: PhantomData<T>,
 }
 
-impl<T> Pool<T> {
+impl<T: ?Sized> Pool<T> {
     /// Create new pool with config
     pub fn new(config: PoolConfig) -> Self {
         Self {

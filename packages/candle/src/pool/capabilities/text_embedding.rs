@@ -38,7 +38,7 @@ pub struct TextEmbeddingWorkerHandle {
 ///
 /// Worker owns model exclusively, processes requests until shutdown.
 pub fn text_embedding_worker<T: TextEmbeddingCapable>(
-    mut model: T,
+    model: T,
     embed_rx: Receiver<EmbedRequest>,
     batch_embed_rx: Receiver<BatchEmbedRequest>,
     shutdown_rx: Receiver<()>,
@@ -71,16 +71,16 @@ pub fn text_embedding_worker<T: TextEmbeddingCapable>(
 static TEXT_EMBEDDING_WORKERS: Lazy<DashMap<String, Vec<TextEmbeddingWorkerHandle>>> = Lazy::new(DashMap::new);
 
 /// Global TextEmbedding pool instance  
-static TEXT_EMBEDDING_POOL: Lazy<Pool<()>> = Lazy::new(|| {
+static TEXT_EMBEDDING_POOL: Lazy<Pool<dyn TextEmbeddingCapable>> = Lazy::new(|| {
     Pool::new(PoolConfig::default())
 });
 
 /// Access global TextEmbedding pool
-pub fn text_embedding_pool() -> &'static Pool<()> {
+pub fn text_embedding_pool() -> &'static Pool<dyn TextEmbeddingCapable> {
     &TEXT_EMBEDDING_POOL
 }
 
-impl Pool<()> {
+impl Pool<dyn TextEmbeddingCapable> {
     /// Spawn worker for TextEmbedding model
     pub fn spawn_text_embedding_worker<T, F>(
         &self,
@@ -127,11 +127,35 @@ impl Pool<()> {
         });
 
         // Register worker handles
-        let core_handle = WorkerHandle::new(worker_id);
-        self.register_worker(registry_key.to_string(), core_handle.clone());
+        // Create shared Arc values for worker handle
+        use std::sync::Arc;
+        use std::sync::atomic::AtomicUsize;
+        use std::sync::atomic::AtomicU64;
+        use std::time::{SystemTime, UNIX_EPOCH};
+        
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        
+        let pending_requests = Arc::new(AtomicUsize::new(0));
+        let last_used = Arc::new(AtomicU64::new(now));
+        
+        // Create handle for pool registration
+        let pool_handle = WorkerHandle {
+            pending_requests: Arc::clone(&pending_requests),
+            last_used: Arc::clone(&last_used),
+            worker_id,
+        };
+        self.register_worker(registry_key.to_string(), pool_handle);
 
+        // Create full handle with channels
         let full_handle = TextEmbeddingWorkerHandle {
-            core: core_handle,
+            core: WorkerHandle {
+                pending_requests,
+                last_used,
+                worker_id,
+            },
             embed_tx,
             batch_embed_tx,
             shutdown_tx,

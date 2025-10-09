@@ -135,19 +135,13 @@ impl CandleAgentRoleAgent {
                     None
                 };
 
-                // Build prompt
-                let full_prompt = match (memory_context, &state.system_prompt) {
-                    (Some(mem_ctx), Some(sys_prompt)) => {
-                        format!("{}\n\n{}\n\nUser: {}", sys_prompt, mem_ctx, user_message)
+                // Build prompt - system_prompt always exists
+                let full_prompt = match memory_context {
+                    Some(mem_ctx) => {
+                        format!("{}\n\n{}\n\nUser: {}", &state.system_prompt, mem_ctx, user_message)
                     }
-                    (Some(mem_ctx), None) => {
-                        format!("{}\n\nUser: {}", mem_ctx, user_message)
-                    }
-                    (None, Some(sys_prompt)) => {
-                        format!("{}\n\nUser: {}", sys_prompt, user_message)
-                    }
-                    (None, None) => {
-                        format!("User: {}", user_message)
+                    None => {
+                        format!("{}\n\nUser: {}", &state.system_prompt, user_message)
                     }
                 };
 
@@ -155,7 +149,7 @@ impl CandleAgentRoleAgent {
                 let prompt = CandlePrompt::new(full_prompt);
                 let mut params = crate::domain::completion::CandleCompletionParams {
                     temperature: state.temperature,
-                    max_tokens: std::num::NonZeroU64::new(state.max_tokens.unwrap_or(1000)),
+                    max_tokens: std::num::NonZeroU64::new(state.max_tokens),
                     ..Default::default()
                 };
 
@@ -343,14 +337,20 @@ impl CandleAgentRoleAgent {
 struct AgentBuilderState {
     name: String,
     text_to_text_model: TextToTextModel,
-    text_embedding_model: Option<TextEmbeddingModel>,
+    text_embedding_model: TextEmbeddingModel,
     temperature: f64,
-    max_tokens: Option<u64>,
-    memory_read_timeout: Option<u64>,
-    system_prompt: Option<String>,
+    max_tokens: u64,
+    memory_read_timeout: u64,
+    system_prompt: String,
     tools: ZeroOneOrMany<ToolInfo>,
-    mcp_servers: Vec<McpServerConfig>,
-    memory: Option<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>>,
+    context_file: Option<CandleContext<CandleFile>>,
+    context_files: Option<CandleContext<CandleFiles>>,
+    context_directory: Option<CandleContext<CandleDirectory>>,
+    context_github: Option<CandleContext<CandleGithub>>,
+    additional_params: std::collections::HashMap<String, String>,
+    metadata: std::collections::HashMap<String, String>,
+    on_chunk_handler: Option<Arc<dyn Fn(CandleMessageChunk) -> CandleMessageChunk + Send + Sync>>,
+    on_tool_result_handler: Option<Arc<dyn Fn(&[String]) + Send + Sync>>,
     on_conversation_turn_handler: Option<
         Arc<
             dyn Fn(
@@ -395,12 +395,6 @@ pub trait CandleAgentRoleBuilder: Sized + Send {
     /// Set additional params - EXACT syntax: .additional_params([("key", "value")])
     #[must_use]
     fn additional_params<P>(self, params: P) -> impl CandleAgentRoleBuilder;
-
-    /// Set memory - EXACT syntax: .memory(CandleLibrary::named("name"))
-    #[must_use]
-    fn memory<M>(self, memory: M) -> impl CandleAgentRoleBuilder
-    where
-        M: Into<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>>;
 
     /// Set metadata - EXACT syntax: .metadata([("key", "value")])
     #[must_use]
@@ -511,12 +505,6 @@ pub trait CandleAgentBuilder: Sized + Send + Sync {
     #[must_use]
     fn additional_params<P2>(self, params: P2) -> Self;
 
-    /// Set memory manager - EXACT syntax: .memory(manager)
-    #[must_use]
-    fn memory<M>(self, memory: M) -> Self
-    where
-        M: Into<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>>;
-
     /// Set metadata - EXACT syntax: .metadata(meta)
     #[must_use]
     fn metadata<Meta>(self, metadata: Meta) -> Self;
@@ -617,13 +605,31 @@ pub struct McpServerConfig {
 /// First builder - no provider yet
 struct CandleAgentRoleBuilderImpl {
     name: String,
+    text_to_text_model: Option<TextToTextModel>,
+    text_embedding_model: Option<TextEmbeddingModel>,
     temperature: f64,
     max_tokens: Option<u64>,
-    memory_read_timeout: Option<u64>,
-    system_prompt: Option<String>,
+    memory_read_timeout: u64,
+    system_prompt: String,
     tools: ZeroOneOrMany<ToolInfo>,
-    mcp_servers: Vec<McpServerConfig>,
-    memory: Option<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>>,
+    context_file: Option<CandleContext<CandleFile>>,
+    context_files: Option<CandleContext<CandleFiles>>,
+    context_directory: Option<CandleContext<CandleDirectory>>,
+    context_github: Option<CandleContext<CandleGithub>>,
+    additional_params: std::collections::HashMap<String, String>,
+    metadata: std::collections::HashMap<String, String>,
+    on_chunk_handler: Option<Arc<dyn Fn(CandleMessageChunk) -> CandleMessageChunk + Send + Sync>>,
+    on_tool_result_handler: Option<Arc<dyn Fn(&[String]) + Send + Sync>>,
+    on_conversation_turn_handler: Option<
+        Arc<
+            dyn Fn(
+                    &CandleAgentConversation,
+                    &CandleAgentRoleAgent,
+                ) -> AsyncStream<CandleMessageChunk>
+                + Send
+                + Sync,
+        >,
+    >,
 }
 
 impl std::fmt::Debug for CandleAgentRoleBuilderImpl {
@@ -633,10 +639,8 @@ impl std::fmt::Debug for CandleAgentRoleBuilderImpl {
             .field("temperature", &self.temperature)
             .field("max_tokens", &self.max_tokens)
             .field("memory_read_timeout", &self.memory_read_timeout)
-            .field("system_prompt", &self.system_prompt)
+            .field("system_prompt", &format!("{}...", &self.system_prompt[..self.system_prompt.len().min(50)]))
             .field("tools", &self.tools)
-            .field("mcp_servers", &self.mcp_servers)
-            .field("memory", &self.memory.as_ref().map(|_| "<MemoryManager>"))
             .finish()
     }
 }
@@ -644,15 +648,80 @@ impl std::fmt::Debug for CandleAgentRoleBuilderImpl {
 impl CandleAgentRoleBuilderImpl {
     /// Create a new agent role builder
     pub fn new(name: impl Into<String>) -> Self {
+        // Create default tools: thinking and reasoning plugins
+        let thinking_tool = ToolInfo {
+            name: "thinking".to_string(),
+            description: "Use this tool for all thinking and reasoning tasks. The tool accepts a list of user and previous assistant messages relevant to the conversation. Always call this tool before answering the user and include the latest user message in the list. The tool will generate a chain of thought reasoning which can be used to answer the user's question.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "messages": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "role": {
+                                    "type": "string",
+                                    "enum": ["user", "assistant"]
+                                },
+                                "content": {
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["role", "content"]
+                        }
+                    }
+                },
+                "required": ["messages"]
+            }),
+        };
+        
+        let reasoner_tool = ToolInfo {
+            name: "mcp-reasoner".to_string(),
+            description: "Advanced reasoning tool with Beam Search and MCTS strategies for complex problem solving".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "thought": {"type": "string", "description": "Current reasoning step"},
+                    "thoughtNumber": {"type": "integer", "description": "Current step number", "minimum": 1},
+                    "totalThoughts": {"type": "integer", "description": "Total expected steps", "minimum": 1},
+                    "nextThoughtNeeded": {"type": "boolean", "description": "Whether another step is needed"},
+                    "parentId": {"type": ["string", "null"], "description": "Optional parent thought ID for branching"},
+                    "strategyType": {"type": ["string", "null"], "enum": ["beam_search", "mcts", "mcts_002_alpha", "mcts_002alt_alpha", null], "description": "Reasoning strategy to use"},
+                    "beamWidth": {"type": ["integer", "null"], "description": "Number of top paths to maintain", "minimum": 1, "maximum": 10},
+                    "numSimulations": {"type": ["integer", "null"], "description": "Number of MCTS simulations", "minimum": 1, "maximum": 150}
+                },
+                "required": ["thought", "thoughtNumber", "totalThoughts", "nextThoughtNeeded"]
+            }),
+        };
+        
         Self {
             name: name.into(),
-            temperature: 0.7, // Default temperature to 0.7
+            text_to_text_model: None,
+            text_embedding_model: None,
+            temperature: 0.0,
             max_tokens: None,
-            memory_read_timeout: None,
-            system_prompt: None,
-            tools: ZeroOneOrMany::none(),
-            mcp_servers: Vec::new(),
-            memory: None,
+            memory_read_timeout: 5000,
+            system_prompt: r#"# Well-Informed Software Architect
+
+You think out loud as you work through problems, sharing your process in addition to the solutions.
+You track every task you do or needs doing in `TODO.md` , updating it religiously before and after a meaningful change to code.
+You maintain `ARCHITECTURE.md`  and carefully curate the vision for the modules we create.
+You prototype exploratory code ideas, quickly putting together a prototype, so we talk about the "heart of the matter" and get on the same page.
+If you don't know the answer, you ALWAYS RESEARCH on the web and talk it through with me. You know that planned work takes less time in the end that hastily forged code. You never pretend to have answers unless you are highly confident.
+You produce clean, maintainable, *production quality* code all the time.
+You are a master at debugging and fixing bugs.
+You are a master at refactoring code, remembering to check for code that ALREADY EXISTS before writing new code that might duplicate existing functionality."#.to_string(),
+            tools: ZeroOneOrMany::from(vec![thinking_tool, reasoner_tool]),
+            context_file: None,
+            context_files: None,
+            context_directory: None,
+            context_github: None,
+            additional_params: std::collections::HashMap::new(),
+            metadata: std::collections::HashMap::new(),
+            on_chunk_handler: None,
+            on_tool_result_handler: None,
+            on_conversation_turn_handler: None,
         }
     }
 }
@@ -664,18 +733,36 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
     }
 
     fn model(self, model: TextToTextModel) -> impl CandleAgentRoleBuilder {
+        use crate::capability::registry;
+        use crate::capability::traits::ModelInfoProvider;
+        
+        // Get max_tokens from model's ModelInfo
+        let model_max_tokens = model.info().max_output_tokens
+            .and_then(|t| t.get().try_into().ok())
+            .unwrap_or(2000);
+        
+        // Get default embedding model from registry
+        let default_embedding_model = registry::get::<TextEmbeddingModel>("dunzhang/stella_en_400M_v5")
+            .expect("Default embedding model not found in registry");
+        
         CandleAgentBuilderImpl {
             name: self.name,
+            text_to_text_model: model,
+            text_embedding_model: self.text_embedding_model.unwrap_or(default_embedding_model),
             temperature: self.temperature,
-            max_tokens: self.max_tokens,
+            max_tokens: self.max_tokens.unwrap_or(model_max_tokens),
             memory_read_timeout: self.memory_read_timeout,
             system_prompt: self.system_prompt,
-            text_to_text_model: model,
-            text_embedding_model: None,
             tools: self.tools,
-            mcp_servers: self.mcp_servers,
-            memory: self.memory,
-            on_conversation_turn_handler: None,
+            context_file: self.context_file,
+            context_files: self.context_files,
+            context_directory: self.context_directory,
+            context_github: self.context_github,
+            additional_params: self.additional_params,
+            metadata: self.metadata,
+            on_chunk_handler: self.on_chunk_handler,
+            on_tool_result_handler: self.on_tool_result_handler,
+            on_conversation_turn_handler: self.on_conversation_turn_handler,
         }
     }
 
@@ -699,43 +786,46 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
 
     /// Set memory read timeout in milliseconds - EXACT syntax: .memory_read_timeout(5000)
     fn memory_read_timeout(mut self, timeout_ms: u64) -> impl CandleAgentRoleBuilder {
-        self.memory_read_timeout = Some(timeout_ms);
+        self.memory_read_timeout = timeout_ms;
         self
     }
 
     /// Set system prompt - EXACT syntax: .system_prompt("...")
     fn system_prompt(mut self, prompt: impl Into<String>) -> impl CandleAgentRoleBuilder {
-        self.system_prompt = Some(prompt.into());
+        self.system_prompt = prompt.into();
         self
     }
 
     /// Set additional params - EXACT syntax: .additional_params([("key", "value")])
-    fn additional_params<P>(self, _params: P) -> impl CandleAgentRoleBuilder {
-        self
-    }
-
-    /// Set memory - EXACT syntax: .memory(CandleLibrary::named("name"))
-    fn memory<M>(mut self, memory: M) -> impl CandleAgentRoleBuilder
+    fn additional_params<P>(mut self, params: P) -> impl CandleAgentRoleBuilder
     where
-        M: Into<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>>,
+        P: IntoIterator<Item = (&'static str, &'static str)>,
     {
-        self.memory = Some(memory.into());
+        self.additional_params.extend(params.into_iter().map(|(k, v)| (k.to_string(), v.to_string())));
         self
     }
 
     /// Set metadata - EXACT syntax: .metadata([("key", "value")])
-    fn metadata<Meta>(self, _metadata: Meta) -> impl CandleAgentRoleBuilder {
+    fn metadata<Meta>(mut self, metadata: Meta) -> impl CandleAgentRoleBuilder 
+    where
+        Meta: IntoIterator<Item = (&'static str, &'static str)>,
+    {
+        self.metadata.extend(metadata.into_iter().map(|(k, v)| (k.to_string(), v.to_string())));
         self
     }
 
     /// Set contexts - EXACT syntax: .context(CandleContext::<CandleFile>::of("/path"), ...)
     fn context(
-        self,
-        _context1: CandleContext<CandleFile>,
-        _context2: CandleContext<CandleFiles>,
-        _context3: CandleContext<CandleDirectory>,
-        _context4: CandleContext<CandleGithub>,
+        mut self,
+        context1: CandleContext<CandleFile>,
+        context2: CandleContext<CandleFiles>,
+        context3: CandleContext<CandleDirectory>,
+        context4: CandleContext<CandleGithub>,
     ) -> impl CandleAgentRoleBuilder {
+        self.context_file = Some(context1);
+        self.context_files = Some(context2);
+        self.context_directory = Some(context3);
+        self.context_github = Some(context4);
         self
     }
 
@@ -760,24 +850,26 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
     }
 
     /// Add MCP server config - internal method for MCP server builder
-    fn add_mcp_server_config(mut self, config: McpServerConfig) -> impl CandleAgentRoleBuilder {
-        self.mcp_servers.push(config);
+    fn add_mcp_server_config(self, _config: McpServerConfig) -> impl CandleAgentRoleBuilder {
+        // MCP servers are handled through tools
         self
     }
 
     /// Set chunk handler - EXACT syntax: .on_chunk(|chunk| chunk)
-    fn on_chunk<F>(self, _handler: F) -> impl CandleAgentRoleBuilder
+    fn on_chunk<F>(mut self, handler: F) -> impl CandleAgentRoleBuilder
     where
         F: Fn(CandleMessageChunk) -> CandleMessageChunk + Send + Sync + 'static,
     {
+        self.on_chunk_handler = Some(Arc::new(handler));
         self
     }
 
     /// Set tool result handler - EXACT syntax: .on_tool_result(|results| { ... })
-    fn on_tool_result<F>(self, _handler: F) -> impl CandleAgentRoleBuilder
+    fn on_tool_result<F>(mut self, handler: F) -> impl CandleAgentRoleBuilder
     where
         F: Fn(&[String]) + Send + Sync + 'static,
     {
+        self.on_tool_result_handler = Some(Arc::new(handler));
         self
     }
 
@@ -821,24 +913,45 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
 
     /// Convert to agent - EXACT syntax: .into_agent()
     fn into_agent(self) -> impl CandleAgentBuilder {
-        // Get default model from registry - use Phi4 as default
+        use crate::capability::registry;
         use crate::capability::text_to_text::CandlePhi4ReasoningModel;
+        use crate::capability::traits::ModelInfoProvider;
         use std::sync::Arc;
         
-        let default_model = TextToTextModel::Phi4Reasoning(Arc::new(CandlePhi4ReasoningModel::default()));
+        // Get default text-to-text model if not set
+        let text_model = self.text_to_text_model.unwrap_or_else(|| {
+            TextToTextModel::Phi4Reasoning(Arc::new(CandlePhi4ReasoningModel::default()))
+        });
+        
+        // Get max_tokens from model's ModelInfo
+        let model_max_tokens = text_model.info().max_output_tokens
+            .and_then(|t| t.get().try_into().ok())
+            .unwrap_or(2000);
+        
+        // Get default embedding model from registry
+        let embedding_model = self.text_embedding_model.unwrap_or_else(|| {
+            registry::get::<TextEmbeddingModel>("dunzhang/stella_en_400M_v5")
+                .expect("Default embedding model not found in registry")
+        });
 
         CandleAgentBuilderImpl {
             name: self.name,
-            text_to_text_model: default_model,
-            text_embedding_model: None,
+            text_to_text_model: text_model,
+            text_embedding_model: embedding_model,
             temperature: self.temperature,
-            max_tokens: self.max_tokens,
+            max_tokens: self.max_tokens.unwrap_or(model_max_tokens),
             memory_read_timeout: self.memory_read_timeout,
             system_prompt: self.system_prompt,
             tools: self.tools,
-            mcp_servers: self.mcp_servers,
-            memory: self.memory,
-            on_conversation_turn_handler: None,
+            context_file: self.context_file,
+            context_files: self.context_files,
+            context_directory: self.context_directory,
+            context_github: self.context_github,
+            additional_params: self.additional_params,
+            metadata: self.metadata,
+            on_chunk_handler: self.on_chunk_handler,
+            on_tool_result_handler: self.on_tool_result_handler,
+            on_conversation_turn_handler: self.on_conversation_turn_handler,
         }
     }
 }
@@ -855,15 +968,21 @@ pub struct AgentDebugInfo {
 /// Agent builder implementation
 pub struct CandleAgentBuilderImpl {
     name: String,
-    temperature: f64,
-    max_tokens: Option<u64>,
-    memory_read_timeout: Option<u64>,
-    system_prompt: Option<String>,
     text_to_text_model: TextToTextModel,
-    text_embedding_model: Option<TextEmbeddingModel>,
+    text_embedding_model: TextEmbeddingModel,
+    temperature: f64,
+    max_tokens: u64,
+    memory_read_timeout: u64,
+    system_prompt: String,
     tools: ZeroOneOrMany<ToolInfo>,
-    mcp_servers: Vec<McpServerConfig>,
-    memory: Option<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>>,
+    context_file: Option<CandleContext<CandleFile>>,
+    context_files: Option<CandleContext<CandleFiles>>,
+    context_directory: Option<CandleContext<CandleDirectory>>,
+    context_github: Option<CandleContext<CandleGithub>>,
+    additional_params: std::collections::HashMap<String, String>,
+    metadata: std::collections::HashMap<String, String>,
+    on_chunk_handler: Option<Arc<dyn Fn(CandleMessageChunk) -> CandleMessageChunk + Send + Sync>>,
+    on_tool_result_handler: Option<Arc<dyn Fn(&[String]) + Send + Sync>>,
     on_conversation_turn_handler: Option<
         Arc<
             dyn Fn(
@@ -880,15 +999,15 @@ impl std::fmt::Debug for CandleAgentBuilderImpl {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CandleAgentBuilderImpl")
             .field("name", &self.name)
+            .field("text_to_text_model", &self.text_to_text_model)
+            .field("text_embedding_model", &self.text_embedding_model)
             .field("temperature", &self.temperature)
             .field("max_tokens", &self.max_tokens)
             .field("memory_read_timeout", &self.memory_read_timeout)
-            .field("system_prompt", &self.system_prompt)
-            .field("text_to_text_model", &self.text_to_text_model)
-            .field("text_embedding_model", &self.text_embedding_model)
+            .field("system_prompt", &format!("{}...", &self.system_prompt[..self.system_prompt.len().min(50)]))
             .field("tools", &self.tools)
-            .field("mcp_servers", &self.mcp_servers)
-            .field("memory", &self.memory.as_ref().map(|_| "<MemoryManager>"))
+            .field("additional_params", &self.additional_params)
+            .field("metadata", &self.metadata)
             .finish()
     }
 }
@@ -920,38 +1039,42 @@ impl CandleAgentRoleBuilder for CandleAgentBuilderImpl {
     }
 
     fn memory_read_timeout(mut self, timeout_ms: u64) -> impl CandleAgentRoleBuilder {
-        self.memory_read_timeout = Some(timeout_ms);
+        self.memory_read_timeout = timeout_ms;
         self
     }
 
     fn system_prompt(mut self, prompt: impl Into<String>) -> impl CandleAgentRoleBuilder {
-        self.system_prompt = Some(prompt.into());
+        self.system_prompt = prompt.into();
         self
     }
 
-    fn additional_params<P2>(self, _params: P2) -> impl CandleAgentRoleBuilder {
-        self
-    }
-
-    fn memory<M>(mut self, memory: M) -> impl CandleAgentRoleBuilder
+    fn additional_params<P2>(mut self, params: P2) -> impl CandleAgentRoleBuilder
     where
-        M: Into<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>>,
+        P2: IntoIterator<Item = (&'static str, &'static str)>,
     {
-        self.memory = Some(memory.into());
+        self.additional_params.extend(params.into_iter().map(|(k, v)| (k.to_string(), v.to_string())));
         self
     }
 
-    fn metadata<Meta>(self, _metadata: Meta) -> impl CandleAgentRoleBuilder {
+    fn metadata<Meta>(mut self, metadata: Meta) -> impl CandleAgentRoleBuilder 
+    where
+        Meta: IntoIterator<Item = (&'static str, &'static str)>,
+    {
+        self.metadata.extend(metadata.into_iter().map(|(k, v)| (k.to_string(), v.to_string())));
         self
     }
 
     fn context(
-        self,
-        _context1: CandleContext<CandleFile>,
-        _context2: CandleContext<CandleFiles>,
-        _context3: CandleContext<CandleDirectory>,
-        _context4: CandleContext<CandleGithub>,
+        mut self,
+        context1: CandleContext<CandleFile>,
+        context2: CandleContext<CandleFiles>,
+        context3: CandleContext<CandleDirectory>,
+        context4: CandleContext<CandleGithub>,
     ) -> impl CandleAgentRoleBuilder {
+        self.context_file = Some(context1);
+        self.context_files = Some(context2);
+        self.context_directory = Some(context3);
+        self.context_github = Some(context4);
         self
     }
 
@@ -974,22 +1097,24 @@ impl CandleAgentRoleBuilder for CandleAgentBuilderImpl {
     }
 
     /// Add MCP server config - internal method for MCP server builder
-    fn add_mcp_server_config(mut self, config: McpServerConfig) -> impl CandleAgentRoleBuilder {
-        self.mcp_servers.push(config);
+    fn add_mcp_server_config(self, _config: McpServerConfig) -> impl CandleAgentRoleBuilder {
+        // MCP servers are handled through tools
         self
     }
 
-    fn on_chunk<F>(self, _handler: F) -> impl CandleAgentRoleBuilder
+    fn on_chunk<F>(mut self, handler: F) -> impl CandleAgentRoleBuilder
     where
         F: Fn(CandleMessageChunk) -> CandleMessageChunk + Send + Sync + 'static,
     {
+        self.on_chunk_handler = Some(Arc::new(handler));
         self
     }
 
-    fn on_tool_result<F>(self, _handler: F) -> impl CandleAgentRoleBuilder
+    fn on_tool_result<F>(mut self, handler: F) -> impl CandleAgentRoleBuilder
     where
         F: Fn(&[String]) + Send + Sync + 'static,
     {
+        self.on_tool_result_handler = Some(Arc::new(handler));
         self
     }
 
@@ -1094,38 +1219,42 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
     }
 
     fn memory_read_timeout(mut self, timeout_ms: u64) -> Self {
-        self.memory_read_timeout = Some(timeout_ms);
+        self.memory_read_timeout = timeout_ms;
         self
     }
 
     fn system_prompt(mut self, prompt: impl Into<String>) -> Self {
-        self.system_prompt = Some(prompt.into());
+        self.system_prompt = prompt.into();
         self
     }
 
-    fn additional_params<P2>(self, _params: P2) -> Self {
-        self
-    }
-
-    fn memory<M>(mut self, memory: M) -> Self
+    fn additional_params<P2>(mut self, params: P2) -> Self
     where
-        M: Into<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>>,
+        P2: IntoIterator<Item = (&'static str, &'static str)>,
     {
-        self.memory = Some(memory.into());
+        self.additional_params.extend(params.into_iter().map(|(k, v)| (k.to_string(), v.to_string())));
         self
     }
 
-    fn metadata<Meta>(self, _metadata: Meta) -> Self {
+    fn metadata<Meta>(mut self, metadata: Meta) -> Self 
+    where
+        Meta: IntoIterator<Item = (&'static str, &'static str)>,
+    {
+        self.metadata.extend(metadata.into_iter().map(|(k, v)| (k.to_string(), v.to_string())));
         self
     }
 
     fn context(
-        self,
-        _context1: CandleContext<CandleFile>,
-        _context2: CandleContext<CandleFiles>,
-        _context3: CandleContext<CandleDirectory>,
-        _context4: CandleContext<CandleGithub>,
+        mut self,
+        context1: CandleContext<CandleFile>,
+        context2: CandleContext<CandleFiles>,
+        context3: CandleContext<CandleDirectory>,
+        context4: CandleContext<CandleGithub>,
     ) -> Self {
+        self.context_file = Some(context1);
+        self.context_files = Some(context2);
+        self.context_directory = Some(context3);
+        self.context_github = Some(context4);
         self
     }
 
@@ -1147,22 +1276,24 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
         }
     }
 
-    fn add_mcp_server_config(mut self, config: McpServerConfig) -> Self {
-        self.mcp_servers.push(config);
+    fn add_mcp_server_config(self, _config: McpServerConfig) -> Self {
+        // MCP servers are handled through tools
         self
     }
 
-    fn on_chunk<F>(self, _handler: F) -> Self
+    fn on_chunk<F>(mut self, handler: F) -> Self
     where
         F: Fn(CandleMessageChunk) -> CandleMessageChunk + Send + Sync + 'static,
     {
+        self.on_chunk_handler = Some(Arc::new(handler));
         self
     }
 
-    fn on_tool_result<F>(self, _handler: F) -> Self
+    fn on_tool_result<F>(mut self, handler: F) -> Self
     where
         F: Fn(&[String]) + Send + Sync + 'static,
     {
+        self.on_tool_result_handler = Some(Arc::new(handler));
         self
     }
 
@@ -1187,14 +1318,53 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
         F: FnOnce(&CandleAgentConversation) -> CandleChatLoop + Send + 'static,
     {
         let provider = self.text_to_text_model;
+        let embedding_model = self.text_embedding_model;
         let temperature = self.temperature;
-        let max_tokens = self.max_tokens.unwrap_or(1000);
+        let max_tokens = self.max_tokens;
         let _memory_read_timeout = self.memory_read_timeout;
         let system_prompt = self.system_prompt.clone();
         let tools = self.tools;
-        let _mcp_servers = self.mcp_servers;
-        let memory = self.memory;
         let on_conversation_turn_handler = self.on_conversation_turn_handler;
+        
+        // Create memory manager from embedding model
+        let memory: Option<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>> = {
+            let Some(runtime) = crate::runtime::shared_runtime() else {
+                return Err(AgentError::Runtime("Failed to access shared runtime for memory creation".into()));
+            };
+            
+            use surrealdb::engine::any::connect;
+            use crate::memory::core::manager::surreal::SurrealDBMemoryManager;
+            
+            let db_path = dirs::cache_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                .join("paraphym")
+                .join("agent.db");
+            
+            if let Some(parent) = db_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            
+            let db_url = format!("surrealkv://{}", db_path.display());
+            let db = runtime.block_on(async {
+                let db = connect(&db_url).await.map_err(|e| 
+                    AgentError::Runtime(format!("Failed to connect to database: {}", e))
+                )?;
+                db.use_ns("candle").use_db("agent").await.map_err(|e|
+                    AgentError::Runtime(format!("Failed to initialize database namespace: {}", e))
+                )?;
+                Ok::<_, AgentError>(db)
+            })?;
+            
+            let manager = runtime.block_on(async {
+                let mgr = SurrealDBMemoryManager::with_embedding_model(db, embedding_model).await
+                    .map_err(|e| AgentError::Runtime(format!("Failed to create memory manager: {}", e)))?;
+                mgr.initialize().await
+                    .map_err(|e| AgentError::Runtime(format!("Failed to initialize memory tables: {}", e)))?;
+                Ok::<_, AgentError>(mgr)
+            })?;
+            
+            Some(Arc::new(manager) as Arc<dyn crate::memory::core::manager::surreal::MemoryManager>)
+        };
 
         Ok(AsyncStream::with_channel(move |sender| {
             // Create initial empty conversation for handler to inspect
@@ -1335,19 +1505,13 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                             None
                         };
 
-                        // Create prompt with memory context and system prompt if provided
-                        let full_prompt = match (memory_context, &system_prompt) {
-                            (Some(mem_ctx), Some(sys_prompt)) => {
-                                format!("{}\n\n{}\n\nUser: {}", sys_prompt, mem_ctx, user_message)
+                        // Create prompt with memory context and system prompt (always present)
+                        let full_prompt = match memory_context {
+                            Some(mem_ctx) => {
+                                format!("{}\n\n{}\n\nUser: {}", &system_prompt, mem_ctx, user_message)
                             }
-                            (Some(mem_ctx), None) => {
-                                format!("{}\n\nUser: {}", mem_ctx, user_message)
-                            }
-                            (None, Some(sys_prompt)) => {
-                                format!("{}\n\nUser: {}", sys_prompt, user_message)
-                            }
-                            (None, None) => {
-                                format!("User: {}", user_message)
+                            None => {
+                                format!("{}\n\nUser: {}", &system_prompt, user_message)
                             }
                         };
 
@@ -1564,14 +1728,20 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                             let builder_state = Arc::new(AgentBuilderState {
                                 name: String::from("agent"),
                                 text_to_text_model: provider.clone(),
-                                text_embedding_model: None,
+                                text_embedding_model: embedding_model.clone(),
                                 temperature,
-                                max_tokens: Some(max_tokens),
+                                max_tokens,
                                 memory_read_timeout: _memory_read_timeout,
                                 system_prompt: system_prompt.clone(),
                                 tools: tools.clone(),
-                                mcp_servers: _mcp_servers.clone(),
-                                memory: memory.clone(),
+                                context_file: None,
+                                context_files: None,
+                                context_directory: None,
+                                context_github: None,
+                                additional_params: std::collections::HashMap::new(),
+                                metadata: std::collections::HashMap::new(),
+                                on_chunk_handler: None,
+                                on_tool_result_handler: None,
                                 on_conversation_turn_handler: Some(handler.clone()),
                             });
 
@@ -1596,16 +1766,12 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
     fn chat_with_message(self, message: impl Into<String>) -> AsyncStream<CandleMessageChunk> {
         let provider = self.text_to_text_model;
         let temperature = self.temperature;
-        let max_tokens = self.max_tokens.unwrap_or(1000);
+        let max_tokens = self.max_tokens;
         let system_prompt = self.system_prompt.clone();
         let user_message = message.into();
 
         AsyncStream::with_channel(move |_sender| {
-            let full_prompt = if let Some(sys_prompt) = system_prompt {
-                format!("{}\n\nUser: {}", sys_prompt, user_message)
-            } else {
-                format!("User: {}", user_message)
-            };
+            let full_prompt = format!("{}\n\nUser: {}", system_prompt, user_message);
 
             let prompt = CandlePrompt::new(full_prompt);
             let params = CandleCompletionParams {

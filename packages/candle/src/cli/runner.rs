@@ -137,14 +137,10 @@ You are a master at refactoring code, remembering to check for code that ALREADY
                 .await
                 .context("Failed to initialize database namespace")?;
 
-            // Get model from registry - THE ONLY SOURCE OF TRUTH
-            // Use embedding model from CLI args, or default from EmbeddingConfig
-            use crate::domain::embedding::config::EmbeddingConfig;
-            let default_model = EmbeddingConfig::default().model;
+            // Get model from registry - use CLI arg or default
             let embedding_model_key = self.args.embedding_model
                 .as_deref()
-                .or(default_model.as_deref())
-                .unwrap_or("dunzhang/stella_en_1.5B_v5");
+                .unwrap_or("dunzhang/stella_en_400M_v5");
 
             // Use generic get<T>() to return concrete TextEmbeddingModel type
             let embedding_model: crate::capability::registry::TextEmbeddingModel = registry::get(embedding_model_key)
@@ -224,7 +220,7 @@ You are a master at refactoring code, remembering to check for code that ALREADY
                 );
 
                 // Ingest into memory
-                match memory_manager.create_memory(memory).await {
+                match mem_mgr.create_memory(memory).await {
                     Ok(_) => {
                         stdout.set_color(ColorSpec::new().set_fg(Some(Color::Green)))?;
                         writeln!(&mut stdout, "✓ Loaded: {:?}", doc_path)?;
