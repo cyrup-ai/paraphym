@@ -222,6 +222,10 @@ pub struct CandleModelInfo {
     
     /// Time shift parameter for diffusion
     pub time_shift: Option<f64>,
+
+    /// Estimated memory allocation per worker in MB
+    /// Used by pool for dynamic worker limit calculations (80% memory constraint)
+    pub est_memory_allocation_mb: usize,
 }
 
 impl CandleModelInfo {

@@ -151,6 +151,9 @@ pub mod types {
                 text: text.into(),
                 finish_reason,
                 usage,
+                token_count: None,
+                elapsed_secs: None,
+                tokens_per_sec: None,
             }
         }
 
@@ -256,6 +259,7 @@ pub mod types {
                     text,
                     finish_reason,
                     usage,
+                    ..
                 } => {
                     let mut output = text.clone();
                     if let Some(reason) = finish_reason {

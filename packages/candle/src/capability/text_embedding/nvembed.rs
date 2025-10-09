@@ -304,6 +304,7 @@ static NVEMBED_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     default_steps: None,
     default_guidance_scale: None,
     time_shift: None,
+    est_memory_allocation_mb: 0,
 };
 
 impl CandleModel for CandleNvEmbedEmbeddingModel {

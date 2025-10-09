@@ -5,7 +5,6 @@
 
 pub mod traits;
 pub mod registry;
-pub mod pool;
 
 pub mod text_to_text;
 pub mod text_to_image;

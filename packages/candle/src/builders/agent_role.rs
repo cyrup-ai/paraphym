@@ -46,6 +46,9 @@ impl CandleAgentRoleAgent {
                     text: String::new(),
                     finish_reason: Some("break".to_string()),
                     usage: None,
+                    token_count: None,
+                    elapsed_secs: None,
+                    tokens_per_sec: None,
                 };
                 let _ = sender.send(final_chunk);
             }),
@@ -463,9 +466,6 @@ pub trait CandleAgentRoleBuilder: Sized + Send {
     where
         F: FnOnce(&CandleAgentConversation) -> CandleChatLoop + Send + 'static;
 
-    /// Chat with direct input - EXACT syntax: .chat_direct(ChatLoop)
-    fn chat_direct(self, input: CandleChatLoop) -> AsyncStream<CandleMessageChunk>;
-
     /// Chat with message - EXACT syntax: .chat_with_message("message")
     fn chat_with_message(self, message: impl Into<String>) -> AsyncStream<CandleMessageChunk>;
 }
@@ -577,9 +577,6 @@ pub trait CandleAgentBuilder: Sized + Send + Sync {
     fn chat<F>(self, handler: F) -> Result<AsyncStream<CandleMessageChunk>, AgentError>
     where
         F: FnOnce(&CandleAgentConversation) -> CandleChatLoop + Send + 'static;
-
-    /// Chat with direct input - EXACT syntax: .chat_direct(ChatLoop)
-    fn chat_direct(self, input: CandleChatLoop) -> AsyncStream<CandleMessageChunk>;
 
     /// Chat with message - EXACT syntax: .chat_with_message("message")
     fn chat_with_message(self, message: impl Into<String>) -> AsyncStream<CandleMessageChunk>;
@@ -812,25 +809,6 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
         }))
     }
 
-    fn chat_direct(self, input: CandleChatLoop) -> AsyncStream<CandleMessageChunk> {
-        AsyncStream::with_channel(move |sender| match input {
-            CandleChatLoop::Break => {
-                let final_chunk = CandleMessageChunk::Complete {
-                    text: String::new(),
-                    finish_reason: Some("break".to_string()),
-                    usage: None,
-                };
-                let _ = sender.send(final_chunk);
-            }
-            CandleChatLoop::UserPrompt(message) | CandleChatLoop::Reprompt(message) => {
-                let _ = sender.send(CandleMessageChunk::Error(format!(
-                    "No provider configured for message: {}",
-                    message
-                )));
-            }
-        })
-    }
-
     fn chat_with_message(self, message: impl Into<String>) -> AsyncStream<CandleMessageChunk> {
         let msg = message.into();
         AsyncStream::with_channel(move |sender| {
@@ -1041,26 +1019,6 @@ impl CandleAgentRoleBuilder for CandleAgentBuilderImpl {
         }))
     }
 
-    fn chat_direct(self, input: CandleChatLoop) -> AsyncStream<CandleMessageChunk> {
-        match input {
-            CandleChatLoop::Break => AsyncStream::with_channel(move |sender| {
-                let final_chunk = CandleMessageChunk::Complete {
-                    text: String::new(),
-                    finish_reason: Some("break".to_string()),
-                    usage: None,
-                };
-                let _ = sender.send(final_chunk);
-            }),
-            CandleChatLoop::UserPrompt(message) | CandleChatLoop::Reprompt(message) => {
-                // Use CandleAgentRoleBuilder::chat explicitly to avoid ambiguity
-                CandleAgentRoleBuilder::chat(self, move |_| CandleChatLoop::UserPrompt(message))
-                    .unwrap_or_else(|_| AsyncStream::with_channel(|sender| {
-                        let _ = sender.send(CandleMessageChunk::Error("Chat failed".to_string()));
-                    }))
-            }
-        }
-    }
-
     fn chat_with_message(self, message: impl Into<String>) -> AsyncStream<CandleMessageChunk> {
         let msg = message.into();
         // Use CandleAgentRoleBuilder::chat explicitly to avoid ambiguity
@@ -1253,6 +1211,9 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                         text: String::new(),
                         finish_reason: Some("break".to_string()),
                         usage: None,
+                        token_count: None,
+                        elapsed_secs: None,
+                        tokens_per_sec: None,
                     };
                     let _ = sender.send(final_chunk);
                 }
@@ -1630,22 +1591,6 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                 }
             }
         }))
-    }
-
-    fn chat_direct(self, input: CandleChatLoop) -> AsyncStream<CandleMessageChunk> {
-        AsyncStream::with_channel(move |sender| match input {
-            CandleChatLoop::Break => {
-                let final_chunk = CandleMessageChunk::Complete {
-                    text: String::new(),
-                    finish_reason: Some("break".to_string()),
-                    usage: None,
-                };
-                let _ = sender.send(final_chunk);
-            }
-            CandleChatLoop::UserPrompt(message) | CandleChatLoop::Reprompt(message) => {
-                let _ = sender.send(CandleMessageChunk::Text(message));
-            }
-        })
     }
 
     fn chat_with_message(self, message: impl Into<String>) -> AsyncStream<CandleMessageChunk> {

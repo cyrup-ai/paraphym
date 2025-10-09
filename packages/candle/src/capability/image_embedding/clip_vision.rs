@@ -337,6 +337,7 @@ static CLIP_VISION_BASE_INFO: CandleModelInfo = CandleModelInfo {
     default_steps: None,
     default_guidance_scale: None,
     time_shift: None,
+    est_memory_allocation_mb: 0,
 };
 
 // Static model info for CLIP Vision Large (768D)
@@ -375,6 +376,7 @@ static CLIP_VISION_LARGE_INFO: CandleModelInfo = CandleModelInfo {
     default_steps: None,
     default_guidance_scale: None,
     time_shift: None,
+    est_memory_allocation_mb: 0,
 };
 
 impl CandleModel for ClipVisionModel {

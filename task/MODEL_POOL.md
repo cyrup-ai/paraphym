@@ -1,8 +1,187 @@
 # Model Pool Implementation Plan
 
+## CRITICAL DESIGN PRINCIPLE
+
+**pool.rs CONTAINS ZERO MODEL-SPECIFIC LOGIC**
+
+This cannot be emphasized enough:
+
+- ❌ **NO** GteQwen-specific code in pool.rs
+- ❌ **NO** JinaBert-specific code in pool.rs  
+- ❌ **NO** NvEmbed-specific code in pool.rs
+- ❌ **NO** Phi4-specific code in pool.rs
+- ❌ **NO** KimiK2-specific code in pool.rs
+- ❌ **NO** Qwen3Coder-specific code in pool.rs
+- ❌ **NO** ClipVision-specific code in pool.rs
+- ❌ **NO** LLaVA-specific code in pool.rs
+- ❌ **NO** FLUX-specific code in pool.rs
+- ❌ **NO** StableDiffusion-specific code in pool.rs
+- ❌ **NO** knowledge of any specific model's existence
+
+**pool.rs is 100% GENERIC over capability traits:**
+
+- ✅ Generic over `T: TextEmbeddingCapable`
+- ✅ Generic over `T: TextToTextCapable`
+- ✅ Generic over `T: ImageEmbeddingCapable`
+- ✅ Generic over `T: VisionCapable`
+- ✅ Generic over `T: TextToImageCapable`
+
+**ALL model-specific logic lives in:**
+- `capability/{type}/{model_name}.rs` - Individual model implementations
+- `capability/registry.rs` - Enum dispatch and model loading closures
+
+**pool.rs only knows about:**
+- Capability trait methods (embed, batch_embed, prompt, describe_image, generate_image)
+- Request/Response structs (EmbedRequest, PromptRequest, etc.)
+- Worker lifecycle (spawn, route, evict)
+- Memory management (track usage, enforce limits)
+- Channel communication (send requests, receive responses)
+
+**Zero knowledge of:**
+- Tokenizer specifics
+- Model architectures
+- Weight file formats (safetensors, GGUF, etc.)
+- HuggingFace repos
+- Specific model configurations
+
+This is a **hard requirement**. Any PR that adds model-specific logic to pool.rs will be rejected.
+
 ## SCOPE
 
 This pool supports ALL capability traits in the system, not just text embedding. The architecture is fully generic across capability types.
+
+### Pool Architecture
+
+**5 Global Pool Instances**: One pool per capability trait, each a global singleton.
+
+**Multi-Capability Design**:
+- Pool implementation is **generic** over capability trait: `Pool<T>`
+- Written once in `pool/core/pool.rs`
+- Instantiated 5 times as global singletons
+- Each pool manages multiple models of that capability type
+
+**Lifecycle**:
+- **Initialization**: Lazy initialization on first use
+- **Ownership**: Global statics, live for application lifetime
+- **Shared**: All agents, conversations, and requests use same pool instances
+- **Thread-safe**: DashMap and atomic counters for concurrent access
+
+**Implementation Pattern**:
+```rust
+use once_cell::sync::Lazy;
+use std::marker::PhantomData;
+
+// Generic pool struct (written once)
+pub struct Pool<T> {
+    workers: DashMap<String, Vec<WorkerHandle>>,
+    config: PoolConfig,
+    next_worker_id: AtomicUsize,
+    metrics: PoolMetrics,
+    _phantom: PhantomData<T>,
+}
+
+// 5 global pool instances (one per capability trait)
+static TEXT_EMBEDDING_POOL: Lazy<Pool<dyn TextEmbeddingCapable>> = Lazy::new(|| {
+    Pool::new(PoolConfig::default())
+});
+
+static TEXT_TO_TEXT_POOL: Lazy<Pool<dyn TextToTextCapable>> = Lazy::new(|| {
+    Pool::new(PoolConfig::default())
+});
+
+static IMAGE_EMBEDDING_POOL: Lazy<Pool<dyn ImageEmbeddingCapable>> = Lazy::new(|| {
+    Pool::new(PoolConfig::default())
+});
+
+static VISION_POOL: Lazy<Pool<dyn VisionCapable>> = Lazy::new(|| {
+    Pool::new(PoolConfig::default())
+});
+
+static TEXT_TO_IMAGE_POOL: Lazy<Pool<dyn TextToImageCapable>> = Lazy::new(|| {
+    Pool::new(PoolConfig::default())
+});
+
+// Accessor functions
+pub fn text_embedding_pool() -> &'static Pool<dyn TextEmbeddingCapable> {
+    &TEXT_EMBEDDING_POOL
+}
+
+pub fn text_to_text_pool() -> &'static Pool<dyn TextToTextCapable> {
+    &TEXT_TO_TEXT_POOL
+}
+
+// ... etc for other pools
+```
+
+**Per-Pool Storage**:
+Each pool's DashMap stores workers for multiple models of that capability:
+- `TEXT_EMBEDDING_POOL`: Contains workers for all embedding models (registry_key -> workers)
+- `TEXT_TO_TEXT_POOL`: Contains workers for all text generation models (registry_key -> workers)
+- `IMAGE_EMBEDDING_POOL`: Contains workers for all image embedding models (registry_key -> workers)
+- `VISION_POOL`: Contains workers for all vision models (registry_key -> workers)
+- `TEXT_TO_IMAGE_POOL`: Contains workers for all image generation models (registry_key -> workers)
+
+**Example**: TEXT_EMBEDDING_POOL DashMap contents after use:
+```
+"dunzhang/stella_en_1.5B_v5" -> [WorkerHandle, WorkerHandle]  // 2 Stella workers
+"Alibaba-NLP/gte-Qwen2-1.5B-instruct" -> [WorkerHandle, WorkerHandle, WorkerHandle]  // 3 GTE-Qwen workers
+"nvidia/NV-Embed-v2" -> [WorkerHandle]  // 1 NvEmbed worker
+```
+
+**Rationale**:
+- One generic implementation, multiple instantiations (DRY principle)
+- Each pool coordinates memory for its capability type
+- Simplifies integration (capability-specific accessors)
+- Workers persist across agent/conversation boundaries
+- Natural fit for long-running CLI/server processes
+
+### Module Structure
+
+**Submodule Organization**:
+```
+pool/
+  mod.rs                      - Module exports
+  core/
+    mod.rs                    - Core module exports
+    pool.rs                   - Generic Pool<T> implementation
+    worker.rs                 - Generic worker spawn/loop functions  
+    types.rs                  - WorkerHandle, PoolConfig, PoolMetrics
+    error.rs                  - PoolError enum
+  capabilities/
+    mod.rs                    - Capability module exports
+    text_embedding.rs         - TextEmbedding Request/Response + global pool
+    text_to_text.rs           - TextToText Request/Response + global pool
+    image_embedding.rs        - ImageEmbedding Request/Response + global pool
+    vision.rs                 - Vision Request/Response + global pool
+    text_to_image.rs          - TextToImage Request/Response + global pool
+  maintenance.rs              - Maintenance thread (eviction, memory monitoring)
+```
+
+**File Responsibilities**:
+
+**core/pool.rs**: Generic `Pool<T>` struct and methods (spawn_worker, send_request, etc.)
+
+**core/worker.rs**: Generic worker loop functions per capability trait
+
+**core/types.rs**: Shared types (WorkerHandle, PoolConfig, PoolMetrics)
+
+**core/error.rs**: PoolError enum
+
+**capabilities/text_embedding.rs**:
+- `EmbedRequest` / `BatchEmbedRequest` structs
+- `TEXT_EMBEDDING_POOL` global instance
+- `text_embedding_pool()` accessor function
+- `text_embedding_worker()` specialized worker loop
+
+**capabilities/text_to_text.rs**:
+- `PromptRequest` struct
+- `TEXT_TO_TEXT_POOL` global instance
+- `text_to_text_pool()` accessor function
+- `text_to_text_worker()` specialized worker loop
+
+**capabilities/{others}.rs**: Same pattern for ImageEmbedding, Vision, TextToImage
+
+**maintenance.rs**: Background thread for eviction and memory monitoring across all pools
 
 ### Supported Capability Traits
 
@@ -577,12 +756,533 @@ impl TextEmbeddingCapable for LoadedGteQwenModel {
 
 **Implementation Notes:**
 - Use `recv_timeout()` for blocking with timeout on response receiver
-- Each worker has capability-specific request channels:
-  - TextEmbedding worker: embed_rx, batch_embed_rx
-  - TextToText worker: prompt_rx
-  - ImageEmbedding worker: embed_image_rx, embed_image_url_rx, embed_image_base64_rx, batch_embed_images_rx
-  - Vision worker: describe_image_rx, describe_url_rx
-  - TextToImage worker: generate_image_rx
+- **ONE shared channel per model** - all workers for that model pull from same channel
+- Workers **self-schedule** by pulling from shared queue (first available worker gets next request)
+- No dispatch logic needed - crossbeam channel handles worker selection automatically
+- Each capability type has specific request channels:
+  - TextEmbedding: embed_rx, batch_embed_rx
+  - TextToText: prompt_rx
+  - ImageEmbedding: embed_image_rx, embed_image_url_rx, embed_image_base64_rx, batch_embed_images_rx
+  - Vision: describe_image_rx, describe_url_rx
+  - TextToImage: generate_image_rx
 - All channels are **unbounded** (crossbeam::channel::unbounded)
-- Load balancer sends to worker with min queue depth
-- Queue depth = pending_requests counter (atomic, incremented on send, decremented on response)
+
+**Example**: GteQwen model with 3 workers
+```
+Client → [embed_request] → SharedQueue → Worker #1 (busy, not listening)
+                                       → Worker #2 (calls recv(), gets request!)
+                                       → Worker #3 (busy, not listening)
+```
+Workers self-schedule - no load balancing dispatch needed.
+
+### Scenario 4: Memory Footprint Calculation
+
+**Context**: Dynamic worker limits (Scenario 1) require knowing per-model memory usage to calculate `max_workers = (available_memory * 0.80) / per_model_memory`.
+
+**Decision**: Add `est_memory_allocation_mb: usize` field to CandleModelInfo (required, non-optional)
+
+**Implementation**:
+1. Add field to CandleModelInfo struct in `domain/model/info.rs`
+2. Download HuggingFace model cards for all 12 models
+3. Convert to markdown, store in `docs/models/{capability}/{MODEL_NAME}.md`
+4. Extract memory allocation specs from model cards
+5. Populate `est_memory_allocation_mb` in each model's static MODEL_INFO (REQUIRED for all models)
+6. Pool reads via `model.info().est_memory_allocation_mb`
+
+**Models Requiring Documentation** (see task/MODEL_CARDS.md):
+- TextEmbedding (5): Stella, BERT, GteQwen, JinaBert, NvEmbed
+- TextToText (3): KimiK2, Qwen3Coder, Phi4Reasoning (✓ already done)
+- ImageEmbedding (1): ClipVision
+- Vision (1): LLaVA
+- TextToImage (2): FluxSchnell, StableDiffusion35Turbo
+
+**Memory Specs Source**: HuggingFace model cards (official specifications from model authors)
+
+**Memory Accounting Formula**:
+```rust
+// Simple formula - use est_memory_allocation_mb directly
+let per_worker_memory_mb = model.info().est_memory_allocation_mb;
+
+// Memory check before spawning worker
+let current_usage_mb = pool.total_memory_used.load(Ordering::Acquire);
+let total_system_memory_mb = query_system_memory();
+let memory_limit_mb = (total_system_memory_mb as f64 * 0.80) as usize;
+
+if current_usage_mb + per_worker_memory_mb <= memory_limit_mb {
+    // Safe to spawn worker
+    spawn_worker();
+    pool.total_memory_used.fetch_add(per_worker_memory_mb, Ordering::Release);
+} else {
+    // At memory limit, queue request instead
+}
+```
+
+**No Overhead Multiplier**:
+- Estimates are already padded/rounded up during documentation phase (task/MODEL_CARDS.md)
+- Pool uses `est_memory_allocation_mb` as-is without additional multipliers
+- Conservative estimates built into documented values
+
+**Rationale**:
+- Required field = compile-time guarantee all models have memory specs
+- Static field = zero runtime overhead
+- Manual calculation = most accurate (from official model cards)
+- Documented in markdown = auditable, maintainable
+- No fallbacks or defaults = explicit memory management
+- Padding in estimates = no runtime overhead multiplication needed
+
+### Scenario 5: Worker Lifecycle - Warmup and Cooldown
+
+**Context**: Workers consume memory. Need policies for scaling up (warmup) and scaling down (cooldown) based on load.
+
+**Decision**: Gradual scale-up and scale-down with 1-minute intervals
+
+**Warmup (Scale-Up) Policy**:
+
+1. **Lazy Activation** (app starts with 0 workers for ALL models):
+   - No workers spawned at startup
+   - Registry has 500+ models registered as metadata only
+   - Zero memory usage until first request
+
+2. **Cold Start** (first request for Model X arrives, Model X has 0 workers):
+   - **Spawn 2 workers for Model X specifically** (asymmetric with cooldown)
+   - Memory check: `current_memory_usage + (2 * model_X_memory) <= 0.80 * total_memory`
+   - If memory sufficient:
+     - Spawn worker #1 to handle request (blocking for this request)
+     - Spawn worker #2 as "warm" worker (background)
+     - Result: Model X now has 2 workers
+   - If memory insufficient for 2 workers:
+     - Spawn only worker #1, skip warm worker
+     - Result: Model X has 1 worker (degraded cold start)
+   - **Other models still have 0 workers**
+
+2. **Warm Expansion** (all workers busy, new request arrives):
+   - **Gradual spawn: +1 worker** (symmetric with cooldown)
+   - Memory check: `current_memory_usage + model_memory <= 0.80 * total_memory`
+   - If memory sufficient:
+     - Spawn +1 worker in background
+     - Request routes to new worker when ready
+   - If memory insufficient:
+     - Request queues in unbounded channel
+     - No new worker spawned
+
+**Cooldown (Scale-Down) Policy**:
+
+1. **Maintenance Thread** checks every 1 minute
+2. For each model's worker pool:
+   - If **all workers** idle for 1+ minute: Evict LRU worker
+   - If **any worker** received request: Reset cooldown timer
+3. Evict 1 worker per model per minute until reaching 0
+4. "Idle" = `pending_requests.load() == 0` for worker
+5. LRU = worker with oldest `last_used` timestamp (AtomicU64)
+
+**Example Timeline** (for one specific model, e.g., GteQwen):
+```
+t=0:00  App starts. GteQwen: 0 workers. All 500 models: 0 workers.
+t=0:05  FIRST GteQwen request arrives → lazy activation triggers
+        Spawn worker #1 (blocking) + worker #2 (warm) = 2 workers for GteQwen only
+        All other models still: 0 workers
+t=0:10  Both GteQwen workers busy, new request → spawn worker #3 = 3 workers
+t=0:15  All 3 GteQwen workers busy, new request → spawn worker #4 = 4 workers
+t=5:00  Last GteQwen request completes, all 4 workers idle
+t=6:00  All idle 1 min → evict 1 worker (3 remain)
+t=7:00  All idle 1 min → evict 1 worker (2 remain)
+t=7:30  NEW GTEQWEN REQUEST → cooldown resets, 2 workers stay
+t=8:30  Request done, 2 workers idle
+t=9:30  All idle 1 min → evict 1 worker (1 remains)
+t=10:30 All idle 1 min → evict last worker (0 remain, back to cold state)
+
+Note: If Stella model is never used, it stays at 0 workers forever.
+```
+
+**Key Insights**:
+- **Asymmetry at 0 only**: Cold start spawns 2 workers immediately (0→2)
+- **Symmetric after cold start**: +1 worker per busy request, -1 worker per idle minute (2→3→4 / 4→3→2)
+- **Memory bounded**: All scaling checks `current + new <= 0.80 * total`
+- **80% memory limit**: 20% headroom for OS, buffers, safety margin
+- **Lazy activation**: Only spawn workers for models actually used
+- **Gradual cooldown**: 1 worker per minute prevents thrashing
+- **Complete unload**: Scales back to 0 for unused models (frees all memory)
+
+**Rationale**:
+- Warm worker reduces latency for subsequent requests (no cold start)
+- Gradual cooldown prevents premature eviction (1 min = reasonable idle time)
+- Scales to 0 frees memory completely for unused models
+- LRU eviction keeps most active workers alive
+
+---
+
+## Scenario 6: Error Handling
+
+**Context**: Various failures can occur during model loading and inference. Need clear error handling strategy for each type.
+
+### 6.1: Network Errors (During Model Download)
+
+**Scenario**: Worker attempts to load model via `huggingface_file("model.safetensors")` but HuggingFace API is unreachable or times out.
+
+**Decision**: Retry logic in `huggingface_file()`, pool waits on Future
+
+**Behavior**:
+- Download retry/timeout handled deep in `huggingface_file(registry_key)` implementation
+- Worker thread blocks on Future while download attempts continue
+- Pool request timeout (default 30s, configurable) applies to entire operation
+- If timeout expires: Return error to end user with clear message
+
+**Error Message Format**:
+```
+"Timed out acquiring pool worker for model 'microsoft/phi-4' after 30s. 
+Cause: Network connectivity issues downloading model files from HuggingFace."
+```
+
+**Rationale**:
+- Network errors are transient and retriable
+- Pool layer doesn't need network-specific logic (abstracted by Future)
+- Clear error messages help users diagnose connectivity issues
+- Timeout prevents indefinite hangs
+
+### 6.2: Out of Memory (OOM) Errors
+
+**Scenario**: System runs out of memory despite 80% memory limit checks.
+
+**Decision**: Should NEVER happen (prevention-based design), fatal if it does
+
+**Behavior**:
+- **Prevention**: All worker spawns check `current + new <= 0.80 * total_memory`
+- **20% headroom**: Accounts for OS overhead, buffers, measurement errors
+- **If OOM occurs anyway**: Fatal error, app crashes with diagnostic message
+
+**Fatal Error Message**:
+```
+"FATAL: Out of memory error occurred despite pool memory checks. 
+This indicates a critical bug in memory accounting. 
+Current tracked usage: X MB, System total: Y MB, Limit: Z MB (80%)
+Please report this bug with system details."
+```
+
+**Rationale**:
+- OOM should be impossible if memory accounting is correct
+- If it happens, it's a critical bug that needs immediate attention
+- Crashing is safer than continuing with corrupted state
+- Cannot gracefully recover from OOM (models may be partially loaded)
+- Fatal crash with diagnostic info helps identify accounting bugs
+
+### 6.3: Corrupted Safetensor Files
+
+**Scenario**: Downloaded model files are corrupted (checksum mismatch, truncated, invalid format).
+
+**Decision**: Automatic corruption detection and cleanup in `huggingface_file()`
+
+**Behavior**:
+- **Checksum validation**: `huggingface_file()` verifies SHA256 checksums from HuggingFace manifest
+- **Auto-cleanup on corruption**: Delete corrupted files, re-download clean copies
+- **Pool perspective**: Worker waits on Future like network errors
+- **Timeout applies**: Default 30s includes validation and re-download time
+- **If cleanup fails**: Return clear error message
+
+**Error Message Format** (if re-download fails):
+```
+"Failed to load model 'nvidia/NV-Embed-v2' after detecting file corruption. 
+Attempted auto-cleanup and re-download but operation failed.
+Please check disk space and file permissions in cache directory."
+```
+
+**Rationale**:
+- End users should never manually fix corrupted files
+- Automatic recovery provides best UX
+- Checksums detect corruption reliably
+- Re-download is safest fix (ensures clean state)
+- Pool stays generic (corruption handling in model loading layer)
+
+### 6.4: Missing Required Files
+
+**Scenario**: Required model files are missing from cache directory (tokenizer.json, config.json, safetensor files).
+
+**Decision**: Treat as download error - retry logic in `huggingface_file()`, pool waits on Future
+
+**Behavior**:
+- `huggingface_file("tokenizer.json")` checks cache, downloads if missing
+- `huggingface_file("config.json")` checks cache, downloads if missing
+- Missing files trigger automatic download from HuggingFace
+- Worker thread waits on Future during download
+- Pool request timeout (default 30s) applies to entire operation
+- If timeout expires: Return error to end user
+
+**Error Message Format**:
+```
+"Timed out acquiring pool worker for model 'Alibaba-NLP/gte-Qwen2-1.5B-instruct' after 30s.
+Cause: Missing required files triggered automatic download which did not complete in time."
+```
+
+**Rationale**:
+- Missing files are recoverable via automatic download
+- Same handling as network errors (abstracted by Future)
+- Pool layer doesn't distinguish missing vs corrupted vs network errors
+- All handled transparently in model loading layer
+
+### 6.5: Disk I/O Errors
+
+**Scenario**: Disk I/O errors during model loading (read errors, permission denied, disk full, filesystem corruption).
+
+**Decision**: Fatal panic with diagnostic message, app crashes
+
+**Fatal Error Message**:
+```
+"FATAL: Disk I/O error during model loading.
+Model: nvidia/NV-Embed-v2
+Operation: Memory-mapping safetensor files
+Error: Permission denied: /Users/user/.cache/huggingface/hub/model.safetensors
+This indicates a system-level issue with disk access or permissions.
+Please check disk health, available space, and file permissions."
+```
+
+**Rationale**:
+- Disk I/O errors indicate serious system problems (hardware failure, permissions, full disk)
+- Cannot recover gracefully from filesystem corruption
+- Crashing is safer than attempting to continue with partial/corrupted state
+- Diagnostic message helps users identify system-level issues
+- These are rare errors that require human intervention
+
+### 6.6: Inference Errors
+
+**Scenario**: Errors during model inference execution (tensor shape mismatch, NaN values, dimension errors, worker panic).
+
+**Decision**: Fatal panic with diagnostic message, app crashes
+
+**Fatal Error Message**:
+```
+"FATAL: Inference error in model 'microsoft/phi-4'.
+This indicates a critical bug in model configuration or untested model implementation.
+Error: Tensor shape mismatch - expected [1, 512, 4096], got [1, 512, 2048]
+ModelInfo configuration may be incorrect or model was never tested with examples.
+Please report this bug with full error details."
+```
+
+**Rationale**:
+- Inference errors indicate fundamental bugs in ModelInfo configuration
+- All models MUST be tested with examples before deployment
+- If inference fails, it means developers never validated the model
+- Crashing prevents silent data corruption or incorrect results
+- Fatal crash forces immediate bug fix rather than masking issues
+- Cannot trust model state after inference failure (may be corrupted)
+
+---
+
+## Scenario 7: Graceful Shutdown
+
+**Context**: Application exits (Ctrl+C, normal shutdown). Need to handle in-flight requests and queued work.
+
+**Decision**: Timeout-based drain (wait up to N seconds, then force exit)
+
+**Behavior**:
+
+1. **Shutdown Signal Received** (SIGINT, SIGTERM):
+   - Set global shutdown flag (AtomicBool)
+   - Stop accepting new requests to all 5 pools
+   - Start drain timer (default: 5 seconds, configurable)
+
+2. **Drain Period** (0 to N seconds):
+   - **In-flight requests**: Workers finish processing current requests
+   - **Queued requests**: Workers continue pulling from channels and processing
+   - **New requests**: Immediately return `PoolError::ShuttingDown`
+   - **Maintenance thread**: Stops spawning new workers, continues monitoring
+
+3. **Timeout Reached** (after N seconds):
+   - **Force exit**: Drop all remaining queued requests
+   - **Worker threads**: Send shutdown signal via dedicated channel
+   - **In-flight requests**: Workers interrupted, may return partial results or errors
+   - **Main thread**: Exits with status code 0
+
+4. **Clean Exit Before Timeout**:
+   - If all queues empty and all workers idle before timeout: exit immediately
+   - Log: "Graceful shutdown complete (X.Xs, Y requests drained)"
+
+**Configuration**:
+```rust
+// In PoolConfig
+pub struct PoolConfig {
+    pub shutdown_timeout_secs: u64,  // Default: 5
+    // ... other fields
+}
+```
+
+**Error Response During Shutdown**:
+```rust
+PoolError::ShuttingDown {
+    message: "Pool is shutting down, cannot accept new requests"
+}
+```
+
+**Shutdown Hook Integration**:
+```rust
+// In main() or runner
+use tokio::signal;
+
+tokio::spawn(async {
+    signal::ctrl_c().await.ok();
+    eprintln!("Shutdown signal received, draining pools...");
+    pool::begin_shutdown();
+});
+```
+
+**Rationale**:
+- Timeout prevents indefinite hangs on shutdown
+- Draining in-flight work provides better UX (complete visible operations)
+- Dropping queued work after timeout is acceptable (user already signaled exit)
+- Configurable timeout allows different use cases (CLI vs server)
+- Clean logging helps users understand what was completed vs dropped
+
+---
+
+## Integration Points
+
+### Registry Integration Point
+
+**Where pool integration happens**: `capability/registry.rs`
+
+When users access models via:
+- `registry::get<TextEmbeddingModel>("registry_key")` 
+- Type-specific accessors from registry
+
+The **registry enum dispatch** is where pool integration slides in:
+
+```rust
+// registry.rs - TextEmbeddingModel enum
+impl TextEmbeddingCapable for TextEmbeddingModel {
+    fn embed(&self, text: &str, task: Option<String>) -> Result<Vec<f32>, BoxError> {
+        match self {
+            Self::GteQwen(m) => {
+                let registry_key = m.info().registry_key;
+                
+                // POOL INTEGRATION POINT - call pool instead of model directly
+                let pool = pool::text_embedding_pool();
+                
+                // Lazy worker spawn if needed
+                if !pool.has_workers(registry_key) {
+                    let m_clone = m.clone();
+                    pool.spawn_worker(registry_key, move || {
+                        // Load model once for worker
+                        create_loaded_model(&m_clone)
+                    })?;
+                }
+                
+                // Route through pool
+                pool.embed_text(registry_key, text, task)
+            }
+            Self::JinaBert(m) => { /* same pattern */ }
+            Self::NvEmbed(m) => { /* same pattern */ }
+            Self::Stella(m) => { /* same pattern */ }
+            Self::Bert(m) => { /* same pattern */ }
+        }
+    }
+}
+```
+
+**User's perspective**: Nothing changes
+```rust
+// User code (unchanged)
+let model = registry::get<TextEmbeddingModel>("dunzhang/stella_en_1.5B_v5")?;
+let embedding = model.embed("hello world", None)?;  // Transparently uses pool
+```
+
+**Key insight**: Pool integration is **invisible** to users. Registry enum dispatch intercepts trait method calls and routes through pool.
+
+### Model Modification Requirements
+
+**Current broken pattern** (TextEmbedding models):
+
+```rust
+// gte_qwen.rs, jina_bert.rs, nvembed.rs, stella.rs, bert.rs
+impl TextEmbeddingCapable for CandleGteQwenEmbeddingModel {
+    fn embed(&self, text: &str, task: Option<String>) -> Result<Vec<f32>, BoxError> {
+        // Load EVERYTHING from disk
+        let tokenizer = Tokenizer::from_file(&tokenizer_path)?;  // I/O
+        let config = serde_json::from_str(&config_str)?;         // I/O
+        let vb = VarBuilder::from_mmaped_safetensors(...)?;      // I/O
+        let model = Model::new(&config, vb)?;                    // GPU memory
+        
+        // Do inference ONCE
+        let embeddings = forward_pass(&tokenizer, &model, ...)?;
+        
+        // DISCARD EVERYTHING (goes out of scope)
+        Ok(embeddings)
+    }
+}
+```
+
+**New required pattern** (LoadedModel wrapper):
+
+```rust
+// NEW: gte_qwen.rs adds LoadedGteQwenModel struct
+struct LoadedGteQwenModel {
+    tokenizer: Tokenizer,      // STAYS IN MEMORY
+    model: Model,              // STAYS IN MEMORY
+    device: Device,            // STAYS IN MEMORY
+    config: Config,            // STAYS IN MEMORY
+}
+
+impl TextEmbeddingCapable for LoadedGteQwenModel {
+    fn embed(&self, text: &str, task: Option<String>) -> Result<Vec<f32>, BoxError> {
+        // NO I/O - everything already loaded in self
+        let embeddings = forward_pass_with_task(
+            &self.tokenizer,  // Use loaded tokenizer
+            &mut self.model,  // Use loaded model
+            &self.device,
+            &[text],
+            task.as_deref(),
+        )?;
+        
+        Ok(embeddings.into_iter().next().unwrap())
+    }
+}
+
+// NEW: Factory function to create loaded model
+fn create_loaded_gte_qwen_model(base_model: &CandleGteQwenEmbeddingModel) 
+    -> Result<LoadedGteQwenModel, BoxError> 
+{
+    // Extract loading logic from current embed() method (lines 178-249)
+    let tokenizer = Tokenizer::from_file(&tokenizer_path)?;
+    let config = serde_json::from_str(&config_str)?;
+    let vb = VarBuilder::from_mmaped_safetensors(...)?;
+    let model = Model::new(&config, vb)?;
+    let device = detect_best_device()?;
+    
+    Ok(LoadedGteQwenModel {
+        tokenizer,
+        model,
+        device,
+        config,
+    })
+}
+```
+
+**Worker uses LoadedModel**:
+
+```rust
+// Worker thread (lives forever, processes many requests)
+fn text_embedding_worker<T: TextEmbeddingCapable>(
+    model: T,  // This is LoadedGteQwenModel, owns all state
+    embed_rx: Receiver<EmbedRequest>,
+) {
+    loop {
+        if let Ok(req) = embed_rx.recv() {
+            // Model already loaded, just do inference
+            let result = model.embed(&req.text, req.task);
+            let _ = req.response.send(result);
+        }
+    }
+}
+```
+
+**Models requiring modification**:
+1. `capability/text_embedding/gte_qwen.rs` - Extract loading logic, create LoadedGteQwenModel
+2. `capability/text_embedding/jina_bert.rs` - Extract loading logic, create LoadedJinaBertModel
+3. `capability/text_embedding/nvembed.rs` - Extract loading logic, create LoadedNvEmbedModel
+4. `capability/text_embedding/stella.rs` - Extract loading logic, create LoadedStellaModel
+5. `capability/text_embedding/bert.rs` - Extract loading logic, create LoadedBertModel
+
+**Models NOT requiring modification**:
+- `text_to_text/kimi_k2.rs` - Already stores state (model_path, engine, etc.)
+- `text_to_text/qwen3_coder.rs` - Already stores state
+- `text_to_text/phi4_reasoning.rs` - Already stores state
+- All other capabilities - Don't have the "load-per-call" problem
+
+**Critical requirement**: LoadedModel must implement `TextEmbeddingCapable` trait so workers can call trait methods generically.

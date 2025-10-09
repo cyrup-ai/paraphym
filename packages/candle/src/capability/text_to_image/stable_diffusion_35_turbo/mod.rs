@@ -659,6 +659,7 @@ static SD35_TURBO_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     default_steps: Some(4),
     default_guidance_scale: Some(3.5),
     time_shift: Some(3.0),
+    est_memory_allocation_mb: 0,
 };
 
 impl CandleModel for StableDiffusion35Turbo {

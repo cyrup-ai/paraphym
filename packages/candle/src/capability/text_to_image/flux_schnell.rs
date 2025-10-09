@@ -528,6 +528,7 @@ static FLUX_SCHNELL_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     default_steps: Some(4),
     default_guidance_scale: Some(0.0),
     time_shift: None,
+    est_memory_allocation_mb: 0,
 };
 
 impl CandleModel for FluxSchnell {
