@@ -2,6 +2,82 @@
 //!
 //! This module contains all global static variables, initialization counters,
 //! and shared state that needs to be accessed across the domain.
+//!
+//! ## Production Configuration Factory
+//!
+//! The `create_default_config()` function provides a **production-quality configuration
+//! factory** with comprehensive environment-based configuration support. This is the
+//! active production implementation used throughout the memory subsystem.
+//!
+//! ### Configuration Priority System
+//!
+//! The configuration system uses a three-tier priority hierarchy:
+//!
+//! 1. **Profile Preset (Base)** - Selected via `PARAPHYM_MEMORY_PROFILE`
+//!    - `development` or `dev`: Development-optimized settings
+//!    - `production` or `prod`: Production-optimized settings
+//!    - `default`: Balanced default settings
+//!
+//! 2. **TOML Config File (Overrides Preset)** - Loaded via `PARAPHYM_CONFIG_PATH`
+//!    - Supports full configuration file specification
+//!    - Overrides preset values when present
+//!    - Optional - system works without config file
+//!
+//! 3. **Environment Variables (Highest Priority)** - Individual setting overrides
+//!    - All variables use `PARAPHYM_*` prefix
+//!    - Override both preset and file configuration
+//!    - Allow runtime configuration without file changes
+//!
+//! ### Supported Environment Variables
+//!
+//! #### Performance Configuration
+//! - `PARAPHYM_MEMORY_MAX_OPERATIONS` - Max concurrent operations (default: varies by profile)
+//! - `PARAPHYM_MEMORY_TIMEOUT_MS` - Operation timeout in milliseconds (default: 30000)
+//! - `PARAPHYM_MEMORY_CACHE_SIZE` - Memory cache size (default: varies by profile)
+//! - `PARAPHYM_MEMORY_BATCH_SIZE` - Batch processing size (default: 100)
+//!
+//! #### Retention Configuration
+//! - `PARAPHYM_MEMORY_RETENTION_SECONDS` - Default retention period (default: 2592000 = 30 days)
+//! - `PARAPHYM_MEMORY_MAX_AGE_SECONDS` - Maximum age before cleanup (default: 31536000 = 1 year)
+//! - `PARAPHYM_MEMORY_MAX_ACTIVE` - Maximum active memories (default: 1000000)
+//!
+//! #### Security Configuration
+//! - `PARAPHYM_MEMORY_ENABLE_ENCRYPTION` - Enable encryption (default: false)
+//! - `PARAPHYM_MEMORY_MAX_FAILED_ATTEMPTS` - Security lockout threshold (default: 5)
+//!
+//! #### Monitoring Configuration
+//! - `PARAPHYM_MEMORY_METRICS_INTERVAL_SECONDS` - Metrics collection interval (default: 30)
+//!
+//! ### Configuration Loading Example
+//!
+//! ```bash
+//! # Use production profile with custom cache size
+//! export PARAPHYM_MEMORY_PROFILE=production
+//! export PARAPHYM_MEMORY_CACHE_SIZE=100000
+//!
+//! # Or load from TOML config file
+//! export PARAPHYM_CONFIG_PATH=/etc/paraphym/config.toml
+//!
+//! # Or combine all three (env vars have highest priority)
+//! export PARAPHYM_MEMORY_PROFILE=production
+//! export PARAPHYM_CONFIG_PATH=/etc/paraphym/config.toml
+//! export PARAPHYM_MEMORY_TIMEOUT_MS=60000  # Override file/preset timeout
+//! ```
+//!
+//! ### Validation and Safety
+//!
+//! - All configurations are validated before use
+//! - Invalid configurations trigger automatic fallback to safe defaults
+//! - All configuration loading includes production logging for debugging
+//! - Environment variable parsing failures are gracefully handled
+//!
+//! ### Database Backend
+//!
+//! The configuration system manages **SurrealDB with SurrealKV** storage:
+//! - Connection string: `surrealkv://./data/memory.db` (default)
+//! - Namespace: `paraphym`
+//! - Database: `memory`
+//! - Connection pooling with configurable pool size
 
 use std::sync::{atomic::AtomicUsize, Arc, LazyLock};
 

@@ -39,7 +39,7 @@ quick-xml = { version = "0.36", features = ["serialize"] }
 plist = "1.8"
 
 # SurrealDB and its features
-surrealdb = { path = "../../forks/surrealdb/crates/sdk", features = ["http", "protocol-http", "kv-surrealkv", "kv-mem"] }
+surrealdb = { path = "../../forks/surrealdb/crates/sdk", features = ["http", "protocol-http", "kv-surrealkv"] }
 
 # Async runtime (from memory package)
 futures = { version = "0.3.31" }

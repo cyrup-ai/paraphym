@@ -57,12 +57,7 @@ impl CliRunner {
 
     /// Run the CLI application using fluent API
     pub async fn run(&mut self) -> Result<()> {
-        // Step 1: Model selection (prompt if not provided)
-        let model = self.select_model()?;
         let mut stdout = StandardStream::stdout(ColorChoice::Always);
-        stdout.set_color(ColorSpec::new().set_fg(Some(Color::Green)))?;
-        writeln!(&mut stdout, "Using model: {}", model)?;
-        stdout.reset()?;
 
         // Log warning if tools are specified (WASM loading not yet implemented)
         if !self.args.tools.is_empty() {
@@ -124,10 +119,23 @@ You are a master at refactoring code, remembering to check for code that ALREADY
             use std::sync::Arc;
             use surrealdb::engine::any::connect;
 
-            // Connect to SurrealDB (in-memory for CLI)
-            let db = connect("memory://")
+            // Determine database path - use cache directory for CLI
+            let db_path = dirs::cache_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                .join("paraphym")
+                .join("cli.db");
+            
+            // Ensure parent directory exists
+            if let Some(parent) = db_path.parent() {
+                std::fs::create_dir_all(parent)
+                    .context("Failed to create database directory")?;
+            }
+
+            // Connect to SurrealDB using SurrealKV backend
+            let db_url = format!("surrealkv://{}", db_path.display());
+            let db = connect(&db_url)
                 .await
-                .context("Failed to connect to memory database")?;
+                .context("Failed to connect to SurrealKV database")?;
 
             db.use_ns("candle")
                 .use_db("cli")
@@ -245,118 +253,122 @@ You are a master at refactoring code, remembering to check for code that ALREADY
             writeln!(&mut stdout)?;
         }
 
-        // Load model from registry - use concrete TextToTextModel enum
-        use crate::capability::registry::TextToTextModel;
-        use std::sync::Arc;
-        
-        let text_model: TextToTextModel = match model.to_lowercase().as_str() {
-            "phi4" | "phi-4" | "phi4-reasoning" => {
-                TextToTextModel::Phi4Reasoning(Arc::new(
-                    CandlePhi4ReasoningModel::default_for_builder()
-                        .map_err(|e| anyhow::anyhow!("Failed to load Phi-4-Reasoning model: {}", e))?,
-                ))
-            }
-            "kimi" | "kimi-k2" => {
-                TextToTextModel::KimiK2(Arc::new(
-                    CandleKimiK2Model::default_for_builder()
-                        .map_err(|e| anyhow::anyhow!("Failed to load Kimi-K2 model: {}", e))?,
-                ))
-            }
-            "qwen" | "qwen3" | "qwen3-coder" => {
-                TextToTextModel::Qwen3Coder(Arc::new(
-                    CandleQwen3CoderModel::new()
-                        .await
-                        .map_err(|e| anyhow::anyhow!("Failed to load Qwen3-Coder model: {}", e))?,
-                ))
-            }
-            _ => {
-                return Err(anyhow::anyhow!(
-                    "Unknown model alias: {}. Supported: phi4, kimi, qwen3",
-                    model
-                ));
-            }
-        };
-
         // Clone for use in closure - wrap in Arc<Mutex<>> for interior mutability
         use std::sync::Mutex;
+        use std::sync::Arc;
         let handler = Arc::new(Mutex::new(self.handler.clone()));
         let prompt_builder = self.prompt_builder.clone();
 
-        // Build agent with on_conversation_turn for recursive loop
-        // Note: on_conversation_turn must be called immediately after .model()
-        // before other trait methods that return opaque types
-        let agent_with_provider =
-            CandleFluentAi::agent_role(&self.args.agent_role).model(text_model);
+        // Build agent - use agent_role defaults, set properties, optionally override model
+        let agent_builder = CandleFluentAi::agent_role(&self.args.agent_role).into_agent();
+        
+        let agent = if let Some(model_name) = &self.args.model {
+            use crate::capability::registry::TextToTextModel;
+            
+            let text_model: TextToTextModel = match model_name.to_lowercase().as_str() {
+                "phi4" | "phi-4" | "phi4-reasoning" => {
+                    TextToTextModel::Phi4Reasoning(Arc::new(
+                        CandlePhi4ReasoningModel::new()
+                    ))
+                }
+                "kimi" | "kimi-k2" => {
+                    TextToTextModel::KimiK2(Arc::new(
+                        CandleKimiK2Model::new()
+                            .map_err(|e| anyhow::anyhow!("Failed to load Kimi-K2 model: {}", e))?
+                    ))
+                }
+                "qwen" | "qwen3" | "qwen3-coder" => {
+                    TextToTextModel::Qwen3Coder(Arc::new(
+                        CandleQwen3CoderModel::new()
+                            .await
+                            .map_err(|e| anyhow::anyhow!("Failed to load Qwen3-Coder model: {}", e))?,
+                    ))
+                }
+                _ => {
+                    return Err(anyhow::anyhow!(
+                        "Unknown model alias: {}. Supported: phi4, kimi, qwen3",
+                        model_name
+                    ));
+                }
+            };
+            
+            agent_builder
+                .model(text_model)
+                .temperature(self.args.temperature)
+                .system_prompt(system_prompt.clone())
+                .memory(memory_manager.clone())
+                .memory_read_timeout(self.args.memory_read_timeout)
+                .max_tokens(self.args.max_tokens.unwrap_or(2000))
+        } else {
+            agent_builder
+                .temperature(self.args.temperature)
+                .system_prompt(system_prompt.clone())
+                .memory(memory_manager.clone())
+                .memory_read_timeout(self.args.memory_read_timeout)
+                .max_tokens(self.args.max_tokens.unwrap_or(2000))
+        };
 
-        let agent = agent_with_provider
-            .on_conversation_turn(
-                move |_conversation: &crate::domain::agent::role::CandleAgentConversation,
-                      agent| {
-                    let input = match prompt_builder.get_user_input("You: ") {
-                        Ok(i) => i,
-                        Err(e) => {
-                            let mut stderr = StandardStream::stderr(ColorChoice::Always);
-                            let _ = stderr.set_color(ColorSpec::new().set_fg(Some(Color::Red)));
-                            let _ = writeln!(&mut stderr, "Input error: {}", e);
-                            let _ = stderr.reset();
-                            return agent.chat(CandleChatLoop::Break);
-                        }
-                    };
-
-                    let handler_result = match handler.lock() {
-                        Ok(mut guard) => guard.handle(&input),
-                        Err(poisoned) => {
-                            // Mutex poisoned - recover data and continue
-                            let mut stderr = StandardStream::stderr(ColorChoice::Always);
-                            let _ = stderr.set_color(ColorSpec::new().set_fg(Some(Color::Yellow)));
-                            let _ =
-                                writeln!(&mut stderr, "⚠️  Handler mutex poisoned, recovering...");
-                            let _ = stderr.reset();
-                            poisoned.into_inner().handle(&input)
-                        }
-                    };
-
-                    match handler_result {
-                        InputHandlerResult::Exit => {
-                            let mut stdout = StandardStream::stdout(ColorChoice::Always);
-                            let _ = stdout.set_color(ColorSpec::new().set_fg(Some(Color::Cyan)));
-                            let _ = writeln!(&mut stdout, "Goodbye!");
-                            let _ = stdout.reset();
-                            agent.chat(CandleChatLoop::Break)
-                        }
-                        InputHandlerResult::Command(cmd_result) => {
-                            let output = CliRunner::format_command_result(&cmd_result);
-                            let mut stdout = StandardStream::stdout(ColorChoice::Always);
-                            let _ = stdout.set_color(ColorSpec::new().set_fg(Some(Color::White)));
-                            let _ = writeln!(&mut stdout, "{}", output);
-                            let _ = stdout.reset();
-                            agent.chat(CandleChatLoop::UserPrompt("".to_string()))
-                        }
-                        InputHandlerResult::None => {
-                            agent.chat(CandleChatLoop::UserPrompt("".to_string()))
-                        }
-                        InputHandlerResult::Chat(message) => {
-                            // Resolve with smart input detection
-                            let resolved = tokio::task::block_in_place(|| {
-                                tokio::runtime::Handle::current().block_on(async {
-                                    resolve_smart_input(&message).await.unwrap_or(message)
-                                })
-                            });
-                            agent.chat(CandleChatLoop::UserPrompt(resolved))
-                        }
+        let agent = agent.on_conversation_turn(
+            move |_conversation: &crate::domain::agent::role::CandleAgentConversation,
+                  agent| {
+                let input = match prompt_builder.get_user_input("You: ") {
+                    Ok(i) => i,
+                    Err(e) => {
+                        let mut stderr = StandardStream::stderr(ColorChoice::Always);
+                        let _ = stderr.set_color(ColorSpec::new().set_fg(Some(Color::Red)));
+                        let _ = writeln!(&mut stderr, "Input error: {}", e);
+                        let _ = stderr.reset();
+                        return agent.chat(CandleChatLoop::Break);
                     }
-                },
-            )
-            .temperature(self.args.temperature)
-            .system_prompt(system_prompt.clone())
-            .memory(memory_manager.clone())
-            .memory_read_timeout(self.args.memory_read_timeout)
-            .max_tokens(self.args.max_tokens.unwrap_or(2000));
+                };
+
+                let handler_result = match handler.lock() {
+                    Ok(mut guard) => guard.handle(&input),
+                    Err(poisoned) => {
+                        // Mutex poisoned - recover data and continue
+                        let mut stderr = StandardStream::stderr(ColorChoice::Always);
+                        let _ = stderr.set_color(ColorSpec::new().set_fg(Some(Color::Yellow)));
+                        let _ =
+                            writeln!(&mut stderr, "⚠️  Handler mutex poisoned, recovering...");
+                        let _ = stderr.reset();
+                        poisoned.into_inner().handle(&input)
+                    }
+                };
+
+                match handler_result {
+                    InputHandlerResult::Exit => {
+                        let mut stdout = StandardStream::stdout(ColorChoice::Always);
+                        let _ = stdout.set_color(ColorSpec::new().set_fg(Some(Color::Cyan)));
+                        let _ = writeln!(&mut stdout, "Goodbye!");
+                        let _ = stdout.reset();
+                        agent.chat(CandleChatLoop::Break)
+                    }
+                    InputHandlerResult::Command(cmd_result) => {
+                        let output = CliRunner::format_command_result(&cmd_result);
+                        let mut stdout = StandardStream::stdout(ColorChoice::Always);
+                        let _ = stdout.set_color(ColorSpec::new().set_fg(Some(Color::White)));
+                        let _ = writeln!(&mut stdout, "{}", output);
+                        let _ = stdout.reset();
+                        agent.chat(CandleChatLoop::UserPrompt("".to_string()))
+                    }
+                    InputHandlerResult::None => {
+                        agent.chat(CandleChatLoop::UserPrompt("".to_string()))
+                    }
+                    InputHandlerResult::Chat(message) => {
+                        // Resolve with smart input detection
+                        let resolved = tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(async {
+                                resolve_smart_input(&message).await.unwrap_or(message)
+                            })
+                        });
+                        agent.chat(CandleChatLoop::UserPrompt(resolved))
+                    }
+                }
+            },
+        );
 
         // Start conversation
-        let stream = agent
-            .into_agent()
-            .chat(|_| CandleChatLoop::UserPrompt("Ready to chat!".to_string()))?;
+        let stream = agent.chat(|_| CandleChatLoop::UserPrompt("Ready to chat!".to_string()))?;
 
         // Consume stream - loop happens via on_conversation_turn recursion
         print!("Assistant: ");
@@ -402,35 +414,6 @@ You are a master at refactoring code, remembering to check for code that ALREADY
         Ok(())
     }
 
-    /// Select model from CLI args, config, or interactive prompt
-    fn select_model(&mut self) -> Result<String> {
-        // Use arg if provided
-        if let Some(model) = &self.args.model {
-            self.config.set_last_model(model.clone());
-            return Ok(model.clone());
-        }
-
-        // Use last model from config
-        if let Some(last_model) = self.config.get_last_model() {
-            let use_last = self
-                .prompt_builder
-                .confirm(&format!("Use last model '{}'?", last_model))
-                .unwrap_or(true);
-
-            if use_last {
-                return Ok(last_model.to_string());
-            }
-        }
-
-        // Prompt for selection
-        let model = self
-            .prompt_builder
-            .select_model(None)
-            .map_err(|e| anyhow::anyhow!("Model selection failed: {}", e))?;
-        self.config.set_last_model(model.clone());
-
-        Ok(model)
-    }
 
     /// Format command result for display
     fn format_command_result(result: &CommandResult) -> String {

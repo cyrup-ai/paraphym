@@ -5,9 +5,6 @@
 
 use std::sync::Arc;
 
-use candle_core::Device;
-
-use crate::core::device_util::detect_best_device;
 use crate::memory::utils::error::{Error as MemoryError, Result};
 use super::ClipVisionModel;
 use crate::domain::model::traits::CandleModel;
@@ -50,32 +47,21 @@ impl ClipVisionEmbeddingModel {
     ///
     /// # Arguments
     /// * `dimension` - 512 for ViT-Base-Patch32 or 768 for ViT-Large-Patch14
+    /// 
+    /// Note: ClipVisionModel now uses lazy loading, so no explicit download needed.
+    /// Model files are downloaded on-demand via huggingface_file().
     pub async fn with_dimension(dimension: usize) -> Result<Self> {
-        // Determine model path based on dimension
-        let model_path = match dimension {
-            512 => "openai/clip-vit-base-patch32",  // ViT-Base: 512D
-            768 => "openai/clip-vit-large-patch14-336",  // ViT-Large: 768D
-            _ => {
-                return Err(MemoryError::Config(format!(
-                    "CLIP only supports 512D (ViT-Base) or 768D (ViT-Large). Requested: {}",
-                    dimension
-                )));
-            }
-        };
-
-        // Create ClipVisionModel
-        let device = detect_best_device()
-            .unwrap_or_else(|e| {
-                log::warn!("Device detection failed: {}. Using CPU.", e);
-                Device::Cpu
-            });
-        let provider = if dimension == 512 {
-            ClipVisionModel::from_pretrained(model_path, device)
-                .map_err(|e| MemoryError::ModelError(format!("Failed to create CLIP model: {}", e)))?
-        } else {
-            ClipVisionModel::from_pretrained_large(model_path, device)
-                .map_err(|e| MemoryError::ModelError(format!("Failed to create CLIP Large model: {}", e)))?
-        };
+        // Validate dimension (CLIP supports 512D for ViT-Base)
+        if dimension != 512 {
+            return Err(MemoryError::Config(format!(
+                "CLIP Vision currently configured for 512D (ViT-Base-Patch32). Requested: {}",
+                dimension
+            )));
+        }
+        
+        // Create provider with lazy loading - no model path or device needed
+        // Model will be downloaded and loaded on-demand via huggingface_file()
+        let provider = ClipVisionModel::new();
 
         Ok(Self {
             provider: Arc::new(provider),
@@ -205,6 +191,20 @@ static CLIP_VISION_EMBEDDING_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     model_id: "clip-vision-embedding",
     quantization: "none",
     patch: None,
+    embedding_dimension: Some(512),
+    vocab_size: None,
+    image_size: Some(224),
+    image_mean: Some([0.48145466, 0.4578275, 0.40821073]),
+    image_std: Some([0.26862954, 0.26130258, 0.27577711]),
+    default_temperature: None,
+    default_top_k: None,
+    default_top_p: None,
+    supports_kv_cache: false,
+    supports_flash_attention: false,
+    use_bf16: false,
+    default_steps: None,
+    default_guidance_scale: None,
+    time_shift: None,
 };
 
 impl CandleModel for ClipVisionEmbeddingModel {

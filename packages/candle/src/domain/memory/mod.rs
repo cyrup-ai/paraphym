@@ -70,8 +70,10 @@ pub use config::{DatabaseConfig, MemoryConfig, VectorStoreConfig};
 // Re-export memory primitives from packages/memory for backward compatibility
 pub use crate::memory::core::primitives::MemoryNode;
 pub use ops::{
-    CpuArchitecture, CpuFeatures, EMBEDDING_DIMENSION, Op, SIMD_WIDTH, SMALL_EMBEDDING_DIMENSION,
+    EMBEDDING_DIMENSION, Op, SIMD_WIDTH, SMALL_EMBEDDING_DIMENSION,
 };
+// Re-export CPU features from paraphym_simd
+pub use paraphym_simd::{CpuFeatures, CpuInfo, get_cpu_features, get_cpu_info};
 pub use primitives::*;
 // Re-export commonly used primitives types
 pub use primitives::{MemoryContent, MemoryTypeEnum};

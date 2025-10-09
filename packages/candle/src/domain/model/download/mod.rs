@@ -14,6 +14,40 @@ pub struct ModelDownloadResult {
     pub cache_dir: PathBuf,
 }
 
+/// Find a specific file by name in download results
+/// 
+/// Searches the downloaded file paths for a file with the exact filename match.
+/// 
+/// # Arguments
+/// * `result` - ModelDownloadResult containing downloaded file paths
+/// * `filename` - Exact filename to search for (e.g., "tokenizer.json")
+/// 
+/// # Returns
+/// Reference to the PathBuf if found
+/// 
+/// # Errors
+/// Returns error if file not found in results
+pub fn find_file_by_name<'a>(
+    result: &'a ModelDownloadResult,
+    filename: &str,
+) -> Result<&'a PathBuf, Box<dyn std::error::Error + Send + Sync>> {
+    result.files.iter()
+        .find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n == filename)
+        })
+        .ok_or_else(|| {
+            format!(
+                "File '{}' not found in downloaded files. Available: {:?}",
+                filename,
+                result.files.iter()
+                    .filter_map(|p| p.file_name().and_then(|n| n.to_str()))
+                    .collect::<Vec<_>>()
+            ).into()
+        })
+}
+
 /// Common trait for model download providers
 pub trait ModelDownloadProvider: Send + Sync + 'static {
     /// Download a model with optional quantization filter

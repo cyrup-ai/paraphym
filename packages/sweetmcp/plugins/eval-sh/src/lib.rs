@@ -1,54 +1,29 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
-
 use extism_pdk::*;
-use log::{debug, error, trace};
-use rustpython_vm::{self as vm, Settings, scope::Scope};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sweetmcp_plugin_builder::prelude::*;
 use sweetmcp_plugin_builder::{CallToolResult, Ready};
 
-struct StoredVirtualMachine {
-    interp: vm::Interpreter,
-    scope: Scope,
+#[derive(Debug, Serialize)]
+struct ShellExecuteRequest {
+    command: String,
 }
 
-impl StoredVirtualMachine {
-    fn new() -> Self {
-        let mut scope = None;
-        let mut settings = Settings::default();
-        settings.allow_external_library = false;
-
-        let interp = vm::Interpreter::with_init(settings, |vm| {
-            scope = Some(vm.new_scope_with_builtins());
-        });
-
-        StoredVirtualMachine {
-            interp,
-            // APPROVED BY DAVID MAPLE 09/30/2025: Panic is appropriate for initialization failure
-            scope: scope.expect("Scope should be initialized in Interpreter::with_init"),
-        }
-    }
+#[derive(Debug, Deserialize)]
+struct ShellExecuteResponse {
+    stdout: String,
+    stderr: String,
+    exit_code: Option<i32>,
+    is_error: bool,
 }
 
-thread_local! {
-    static STORED_VMS: RefCell<HashMap<String, Rc<StoredVirtualMachine>>> = RefCell::default();
+// Declare host function import
+#[host_fn]
+extern "ExtismHost" {
+    fn shell_execute(input: String) -> String;
 }
 
-fn get_or_create_vm(id: &str) -> Rc<StoredVirtualMachine> {
-    STORED_VMS.with(|cell| {
-        let mut vms = cell.borrow_mut();
-        if !vms.contains_key(id) {
-            let stored_vm = StoredVirtualMachine::new();
-            vms.insert(id.to_string(), Rc::new(stored_vm));
-        }
-        vms.get(id)
-            // APPROVED BY DAVID MAPLE 09/30/2025: Panic is appropriate for logic invariant violation
-            .expect("VM should exist after insertion")
-            .clone()
-    })
-}
-
-/// Shell evaluation tool (currently using Python as placeholder)
+/// Shell execution tool using host function
 struct ShellTool;
 
 impl McpTool for ShellTool {
@@ -56,81 +31,65 @@ impl McpTool for ShellTool {
 
     fn description(builder: DescriptionBuilder) -> DescriptionBuilder {
         builder
-            .does("Execute shell commands in a sandboxed environment")
+            .does("Execute shell commands in a sandboxed environment with security validation")
             .when("you need to run system commands for file operations or process management")
             .when("you need to execute shell scripts for automation tasks")
             .when("you need to perform system administration operations")
             .when("you need to chain commands with pipes and redirections")
             .when("you need to access environment variables and system information")
             .perfect_for("system automation, DevOps tasks, and command-line operations")
-            .requires("Security warning - currently implemented incorrectly with Python. Requires proper shell sandbox implementation")
+            .requires("Commands are validated against security policies (blocked: rm -rf /, fork bombs, etc.)")
     }
 
     fn schema(builder: SchemaBuilder) -> Value {
         builder
-            .required_string("code", "The shell command to execute")
+            .required_string("command", "The shell command to execute (e.g., 'ls -la', 'echo test | grep test')")
             .build()
     }
 
     fn execute(args: Value) -> Result<CallToolResult, Error> {
-        eval_python_as_shell(args)
-    }
-}
+        let command = args
+            .get("command")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| Error::msg("Missing 'command' parameter"))?;
 
-fn eval_python_as_shell(args: Value) -> Result<CallToolResult, Error> {
-    if let Some(Value::String(code)) = args.get("code") {
-        debug!("Executing shell command: {} bytes", code.len());
-        let stored_vm = get_or_create_vm("eval_python");
+        // Prepare request for host function
+        let request = ShellExecuteRequest {
+            command: command.to_string(),
+        };
+        let request_json = serde_json::to_string(&request)
+            .map_err(|e| Error::msg(format!("Request serialization failed: {}", e)))?;
 
-        let result = stored_vm.interp.enter(|vm| {
-            match vm
-                .compile(code, vm::compiler::Mode::Single, "<eval>".to_owned())
-                .map_err(|err| vm.new_syntax_error(&err, Some(code)))
-                .and_then(|code_obj| vm.run_code_obj(code_obj, stored_vm.scope.clone()))
-            {
-                Ok(output) => {
-                    if !vm.is_none(&output) {
-                        stored_vm
-                            .scope
-                            .globals
-                            .set_item("last", output.clone(), vm)?;
+        // Call host function
+        let response_json = unsafe { shell_execute(request_json)? };
+        
+        // Parse response
+        let response: ShellExecuteResponse = serde_json::from_str(&response_json)
+            .map_err(|e| Error::msg(format!("Response parsing failed: {}", e)))?;
 
-                        match output.str(vm) {
-                            Ok(s) => Ok(s.to_string()),
-                            Err(e) => Err(e),
-                        }
-                    } else {
-                        Ok("None".to_string())
-                    }
-                }
-                Err(exc) => Err(exc),
+        // Build MCP response
+        if response.is_error {
+            Ok(ContentBuilder::error(format!(
+                "Command failed (exit code: {})\nstderr: {}\nstdout: {}",
+                response.exit_code.unwrap_or(-1),
+                response.stderr,
+                response.stdout
+            )))
+        } else {
+            let mut output = response.stdout;
+            if !response.stderr.is_empty() {
+                output.push_str("\n[stderr]:\n");
+                output.push_str(&response.stderr);
             }
-        });
-
-        match result {
-            Ok(output) => {
-                debug!("Shell execution successful");
-                trace!("Shell output: {}", output);
-                Ok(ContentBuilder::text(output))
-            }
-            Err(exc) => {
-                let mut error_msg = String::new();
-                stored_vm.interp.enter(|vm| {
-                    vm.write_exception(&mut error_msg, &exc).unwrap_or_default();
-                });
-                error!("Shell execution failed: {}", error_msg);
-                Ok(ContentBuilder::error(error_msg))
-            }
+            Ok(ContentBuilder::text(output))
         }
-    } else {
-        Err(Error::msg("Please provide shell code to evaluate"))
     }
 }
 
 /// Create the plugin instance
 fn plugin() -> McpPlugin<Ready> {
     mcp_plugin("eval_shell")
-        .description("Shell command execution in sandboxed environment (currently using Python)")
+        .description("Shell command execution in sandboxed environment with security validation")
         .tool::<ShellTool>()
         .serve()
 }

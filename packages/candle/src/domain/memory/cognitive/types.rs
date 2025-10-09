@@ -24,7 +24,11 @@ use crate::domain::util::unix_timestamp_nanos;
 /// - Quantum signature tracking for quantum-enhanced routing and entanglement
 #[derive(Debug, Clone)]
 pub struct CognitiveState {
-    /// SIMD-aligned activation pattern for parallel processing
+    /// SIMD-aligned activation pattern for parallel neural processing
+    ///
+    /// Updated via `update_activation()` when processing stimuli.
+    /// Energy calculations drive attention weight updates.
+    /// Remains `#[allow(dead_code)]` until cognitive system fully activated.
     #[allow(dead_code)] // TODO: Implement in cognitive state system
     activation_pattern: AlignedActivationPattern,
 
@@ -37,7 +41,11 @@ pub struct CognitiveState {
     /// Long-term memory skip-list for O(log n) access
     long_term_memory: Arc<SkipMap<Uuid, CognitiveMemoryEntry>>,
 
-    /// Temporal context with optimized time operations
+    /// Temporal context for time-aware memory operations
+    ///
+    /// Provides temporal window management, causal dependency tracking,
+    /// and memory consolidation timing. Updated via `update_temporal_window()`.
+    /// Remains `#[allow(dead_code)]` until cognitive system fully activated.
     #[allow(dead_code)] // TODO: Implement in cognitive state system
     temporal_context: Arc<CachePadded<TemporalContext>>,
 
@@ -208,6 +216,21 @@ impl AtomicAttentionWeights {
             self.set_meta(self.meta() / total);
         }
     }
+
+    /// Update primary attention weight from normalized activation energy
+    ///
+    /// Maps activation energy [0, 1] to primary attention weight.
+    /// Other weights are adjusted proportionally to maintain normalization.
+    pub fn update_from_energy(&self, energy: f32) {
+        let clamped = energy.clamp(0.0, 1.0);
+        self.set_primary(clamped);
+        
+        // Reduce other weights proportionally
+        let remaining = 1.0 - clamped;
+        self.set_secondary(remaining * 0.5);
+        self.set_background(remaining * 0.3);
+        self.set_meta(remaining * 0.2);
+    }
 }
 
 impl Default for AtomicAttentionWeights {
@@ -230,6 +253,10 @@ pub struct WorkingMemoryItem {
     pub created_at: SystemTime,
     /// Time-to-live for automatic cleanup
     pub ttl: Duration,
+    /// Access frequency counter for consolidation logic
+    pub access_count: usize,
+    /// Mark ephemeral memories that should not consolidate
+    pub is_transient: bool,
 }
 
 impl WorkingMemoryItem {
@@ -242,6 +269,8 @@ impl WorkingMemoryItem {
             activation: activation.clamp(0.0, 1.0),
             created_at: SystemTime::now(),
             ttl,
+            access_count: 0,
+            is_transient: false,
         }
     }
 
@@ -1281,6 +1310,114 @@ impl CognitiveState {
             stats: default_cognitive_stats(),
         }
     }
+
+    /// Update activation pattern from external stimulus
+    ///
+    /// Uses existing AlignedActivationPattern infrastructure to:
+    /// 1. Validate stimulus dimensions
+    /// 2. Update activation data
+    /// 3. Apply sigmoid activation function  
+    /// 4. Calculate energy and update attention weights
+    ///
+    /// # Errors
+    /// Returns `CognitiveError::DimensionMismatch` if stimulus dimension doesn't match
+    pub fn update_activation(&mut self, stimulus: &[f32]) -> Result<(), CognitiveError> {
+        // Validate dimension
+        if stimulus.len() != self.activation_pattern.dimension {
+            return Err(CognitiveError::DimensionMismatch {
+                expected: self.activation_pattern.dimension,
+                got: stimulus.len(),
+            });
+        }
+        
+        // Update using existing infrastructure
+        self.activation_pattern.update(stimulus.to_vec());
+        
+        // Apply sigmoid activation: 1 / (1 + exp(-x))
+        self.activation_pattern.apply_activation(|x| {
+            1.0 / (1.0 + (-x).exp())
+        });
+        
+        // Calculate energy and update attention
+        let energy = self.activation_pattern.energy();
+        let normalized_energy = (energy / self.activation_pattern.dimension as f32)
+            .clamp(0.0, 1.0);
+        
+        self.attention_weights.update_from_energy(normalized_energy);
+        
+        Ok(())
+    }
+
+    /// Check if working memory item should consolidate to long-term memory
+    ///
+    /// Consolidation criteria based on cognitive science principles:
+    /// - Age: 5+ minutes (300 seconds) in working memory
+    /// - Frequency: 3+ accesses (indicates importance)
+    /// - Permanence: Not marked as transient/ephemeral
+    ///
+    /// Uses TemporalContext.window_start for age calculation.
+    pub fn should_consolidate_to_longterm(&self, memory: &WorkingMemoryItem) -> bool {
+        // Get temporal context (locked briefly for read)
+        let _temporal_ctx = &*self.temporal_context;
+        
+        // Calculate age since temporal window started
+        let age = memory.created_at
+            .duration_since(_temporal_ctx.window_start)
+            .unwrap_or(Duration::ZERO);
+        
+        // Consolidation criteria
+        let age_threshold = Duration::from_secs(300);  // 5 minutes
+        let access_threshold = 3;
+        
+        age >= age_threshold 
+            && memory.access_count >= access_threshold
+            && !memory.is_transient
+    }
+
+    /// Update temporal window using existing slide_window infrastructure
+    ///
+    /// Calls TemporalContext.slide_window() to advance time window
+    /// and apply temporal decay to history embeddings.
+    pub fn update_temporal_window(&mut self) {
+        // Get mutable access to temporal context
+        let temporal_ctx = Arc::make_mut(&mut self.temporal_context);
+        let ctx_mut = &mut **temporal_ctx;
+        ctx_mut.slide_window();
+    }
+
+    /// Add causal link between memories with temporal awareness
+    ///
+    /// Creates CausalLink with temporal distance calculation.
+    /// Uses existing TemporalContext.add_causal_dependency() infrastructure.
+    ///
+    /// # Arguments
+    /// * `source_id` - Source memory ID
+    /// * `target_id` - Target memory ID  
+    /// * `strength` - Causal strength [0.0, 1.0]
+    pub fn add_temporal_causal_link(
+        &mut self,
+        source_id: Uuid,
+        target_id: Uuid,
+        strength: f32,
+    ) {
+        // Calculate temporal distance (milliseconds)
+        // For now, use sequence-based distance as proxy
+        let _temporal_ctx = &*self.temporal_context;
+        let temporal_distance = 0i64; // Placeholder - would need memory timestamp lookup
+        
+        // Create causal link
+        let link = CausalLink::new(
+            source_id,
+            target_id,
+            strength.clamp(0.0, 1.0),
+            temporal_distance,
+        );
+        
+        // Add using existing infrastructure
+        let temporal_ctx_mut = Arc::make_mut(&mut self.temporal_context);
+        let ctx_mut = &mut **temporal_ctx_mut;
+        ctx_mut.add_causal_dependency(link);
+    }
 }
 
 impl Default for CognitiveState {
@@ -1305,6 +1442,8 @@ pub enum CognitiveError {
     AttentionOverflow(String),
     #[error("Lock poisoned: {0}")]
     LockPoisoned(String),
+    #[error("Dimension mismatch: expected {expected}, got {got}")]
+    DimensionMismatch { expected: usize, got: usize },
 }
 
 /// Result type for cognitive operations

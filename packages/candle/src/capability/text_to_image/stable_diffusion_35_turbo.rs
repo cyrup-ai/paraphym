@@ -26,35 +26,9 @@ use crate::domain::model::traits::CandleModel;
 use crate::domain::model::CandleModelInfo;
 
 /// Stable Diffusion 3.5 Large Turbo provider
-/// Stores model paths, loads models on-demand in generate()
+/// Uses lazy loading via huggingface_file() - no stored paths
 #[derive(Clone, Debug)]
-pub struct StableDiffusion35Turbo {
-    clip_g_file: PathBuf,
-    clip_l_file: PathBuf,
-    t5xxl_file: PathBuf,
-    model_file: PathBuf,
-    config: SD35TurboConfig,
-}
-
-/// Provider configuration
-#[derive(Debug, Clone)]
-pub struct SD35TurboConfig {
-    pub steps: usize,
-    pub guidance_scale: f64,
-    pub time_shift: f64,
-    pub use_flash_attn: bool,
-}
-
-impl Default for SD35TurboConfig {
-    fn default() -> Self {
-        Self {
-            steps: 4,
-            guidance_scale: 3.5,
-            time_shift: 3.0,
-            use_flash_attn: false,
-        }
-    }
-}
+pub struct StableDiffusion35Turbo { }
 
 /// Triple CLIP encoder wrapper
 struct TripleClipEncoder {
@@ -79,39 +53,15 @@ struct T5WithTokenizer {
     max_tokens: usize,
 }
 
-impl Default for StableDiffusion35Turbo {
-    fn default() -> Self {
-        Self::from_pretrained()
-            .unwrap_or_else(|e| panic!("Failed to initialize StableDiffusion35Turbo: {}", e))
+impl StableDiffusion35Turbo {
+    pub fn new() -> Self {
+        Self { }
     }
 }
 
-impl StableDiffusion35Turbo {
-    /// Load SD3.5 Turbo model paths from HuggingFace Hub
-    pub fn from_pretrained() -> Result<Self, String> {
-        let api = hf_hub::api::sync::Api::new()
-            .map_err(|e| format!("HF API init failed: {}", e))?;
-        
-        let repo = api.repo(hf_hub::Repo::model(
-            "stabilityai/stable-diffusion-3.5-large-turbo".to_string()
-        ));
-        
-        let clip_g_file = repo.get("text_encoders/clip_g.safetensors")
-            .map_err(|e| format!("CLIP-G download failed: {}", e))?;
-        let clip_l_file = repo.get("text_encoders/clip_l.safetensors")
-            .map_err(|e| format!("CLIP-L download failed: {}", e))?;
-        let t5xxl_file = repo.get("text_encoders/t5xxl_fp16.safetensors")
-            .map_err(|e| format!("T5-XXL download failed: {}", e))?;
-        let model_file = repo.get("sd3.5_large_turbo.safetensors")
-            .map_err(|e| format!("MMDiT download failed: {}", e))?;
-        
-        Ok(Self {
-            clip_g_file,
-            clip_l_file,
-            t5xxl_file,
-            model_file,
-            config: SD35TurboConfig::default(),
-        })
+impl Default for StableDiffusion35Turbo {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -125,13 +75,122 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
         let prompt = prompt.to_string();
         let config = config.clone();
         let device = device.clone();
-        let clip_g_file = self.clip_g_file.clone();
-        let clip_l_file = self.clip_l_file.clone();
-        let t5xxl_file = self.t5xxl_file.clone();
-        let model_file = self.model_file.clone();
-        let provider_config = self.config.clone();
+        let model_self = self.clone();
         
         AsyncStream::with_channel(move |sender| {
+            // Get model-specific config from ModelInfo
+            let time_shift = match model_self.info().time_shift {
+                Some(ts) => ts,
+                None => {
+                    let _ = sender.send(ImageGenerationChunk::Error(
+                        "time_shift not configured in ModelInfo".to_string()
+                    ));
+                    return;
+                }
+            };
+            let use_flash_attn = model_self.info().supports_flash_attention;
+            
+            // Lazy load model files
+            let clip_g_path = match model_self.huggingface_file("text_encoders/clip_g.safetensors") {
+                Ok(p) => p,
+                Err(e) => {
+                    let _ = sender.send(ImageGenerationChunk::Error(
+                        format!("CLIP-G download failed: {}", e)
+                    ));
+                    return;
+                }
+            };
+            
+            let clip_l_path = match model_self.huggingface_file("text_encoders/clip_l.safetensors") {
+                Ok(p) => p,
+                Err(e) => {
+                    let _ = sender.send(ImageGenerationChunk::Error(
+                        format!("CLIP-L download failed: {}", e)
+                    ));
+                    return;
+                }
+            };
+            
+            let t5xxl_path = match model_self.huggingface_file("text_encoders/t5xxl_fp16.safetensors") {
+                Ok(p) => p,
+                Err(e) => {
+                    let _ = sender.send(ImageGenerationChunk::Error(
+                        format!("T5-XXL download failed: {}", e)
+                    ));
+                    return;
+                }
+            };
+            
+            let mmdit_path = match model_self.huggingface_file("sd3.5_large_turbo.safetensors") {
+                Ok(p) => p,
+                Err(e) => {
+                    let _ = sender.send(ImageGenerationChunk::Error(
+                        format!("MMDiT download failed: {}", e)
+                    ));
+                    return;
+                }
+            };
+            
+            // Download tokenizers and configs using HF Hub API
+            use hf_hub::api::sync::Api;
+            
+            let api = match Api::new() {
+                Ok(api) => api,
+                Err(e) => {
+                    let _ = sender.send(ImageGenerationChunk::Error(
+                        format!("Failed to initialize HF API: {}", e)
+                    ));
+                    return;
+                }
+            };
+            
+            // CLIP-L tokenizer
+            let clip_l_repo = api.model("openai/clip-vit-large-patch14".to_string());
+            let clip_l_tokenizer_path = match clip_l_repo.get("tokenizer.json") {
+                Ok(p) => p,
+                Err(e) => {
+                    let _ = sender.send(ImageGenerationChunk::Error(
+                        format!("Failed to download CLIP-L tokenizer: {}", e)
+                    ));
+                    return;
+                }
+            };
+            
+            // CLIP-G tokenizer
+            let clip_g_repo = api.model("laion/CLIP-ViT-bigG-14-laion2B-39B-b160k".to_string());
+            let clip_g_tokenizer_path = match clip_g_repo.get("tokenizer.json") {
+                Ok(p) => p,
+                Err(e) => {
+                    let _ = sender.send(ImageGenerationChunk::Error(
+                        format!("Failed to download CLIP-G tokenizer: {}", e)
+                    ));
+                    return;
+                }
+            };
+            
+            // T5 config and tokenizer
+            let t5_repo = api.model("google/t5-v1_1-xxl".to_string());
+            let t5_config_path = match t5_repo.get("config.json") {
+                Ok(p) => p,
+                Err(e) => {
+                    let _ = sender.send(ImageGenerationChunk::Error(
+                        format!("Failed to download T5 config: {}", e)
+                    ));
+                    return;
+                }
+            };
+            
+            let t5_tok_repo = api.model("lmz/mt5-tokenizers".to_string());
+            let t5_tokenizer_path = match t5_tok_repo.get("t5-v1_1-xxl.tokenizer.json") {
+                Ok(p) => p,
+                Err(e) => {
+                    let _ = sender.send(ImageGenerationChunk::Error(
+                        format!("Failed to download T5 tokenizer: {}", e)
+                    ));
+                    return;
+                }
+            };
+            
             // Set random seed
             if let Some(seed) = config.seed
                 && let Err(e) = device.set_seed(seed)
@@ -144,9 +203,13 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
             
             // Load triple CLIP encoders
             let mut triple_clip = match TripleClipEncoder::load(
-                &clip_g_file,
-                &clip_l_file,
-                &t5xxl_file,
+                &clip_g_path,
+                &clip_l_path,
+                &t5xxl_path,
+                &clip_l_tokenizer_path,
+                &clip_g_tokenizer_path,
+                &t5_config_path,
+                &t5_tokenizer_path,
                 &device,
             ) {
                 Ok(encoder) => encoder,
@@ -210,7 +273,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
             
             // Load MMDiT model
             let vb = match unsafe {
-                VarBuilder::from_mmaped_safetensors(std::slice::from_ref(&model_file), DType::F16, &device)
+                VarBuilder::from_mmaped_safetensors(&[&mmdit_path], DType::F16, &device)
             } {
                 Ok(vb) => vb,
                 Err(e) => {
@@ -223,7 +286,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
             
             let mmdit = match MMDiT::new(
                 &MMDiTConfig::sd3_5_large(),
-                provider_config.use_flash_attn,
+                use_flash_attn,
                 vb.pp("model.diffusion_model"),
             ) {
                 Ok(model) => model,
@@ -261,7 +324,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
                 &y,
                 &context,
                 &config,
-                &provider_config,
+                time_shift,
                 &device,
                 &sender,
             ) {
@@ -304,7 +367,7 @@ fn euler_sample(
     y: &Tensor,
     context: &Tensor,
     config: &ImageGenerationConfig,
-    provider_config: &SD35TurboConfig,
+    time_shift: f64,
     device: &Device,
     sender: &ystream::AsyncStreamSender<ImageGenerationChunk>,
 ) -> Result<Tensor, String> {
@@ -316,7 +379,7 @@ fn euler_sample(
     let sigmas: Vec<f64> = (0..=config.steps)
         .map(|i| i as f64 / config.steps as f64)
         .rev()
-        .map(|t| time_snr_shift(provider_config.time_shift, t))
+        .map(|t| time_snr_shift(time_shift, t))
         .collect();
     
     for (step, window) in sigmas.windows(2).enumerate() {
@@ -388,6 +451,10 @@ impl TripleClipEncoder {
         clip_g_file: &PathBuf,
         clip_l_file: &PathBuf,
         t5xxl_file: &PathBuf,
+        clip_l_tokenizer_path: &PathBuf,
+        clip_g_tokenizer_path: &PathBuf,
+        t5_config_path: &PathBuf,
+        t5_tokenizer_path: &PathBuf,
         device: &Device,
     ) -> Result<Self, String> {
         let vb_clip_l = unsafe {
@@ -397,7 +464,7 @@ impl TripleClipEncoder {
         let clip_l = ClipWithTokenizer::new(
             vb_clip_l,
             ClipConfig::sdxl(),
-            "openai/clip-vit-large-patch14",
+            clip_l_tokenizer_path,
             77,
         )?;
         
@@ -408,7 +475,7 @@ impl TripleClipEncoder {
         let clip_g = ClipWithTokenizer::new(
             vb_clip_g.clone(),
             ClipConfig::sdxl2(),
-            "laion/CLIP-ViT-bigG-14-laion2B-39B-b160k",
+            clip_g_tokenizer_path,
             77,
         )?;
         
@@ -422,7 +489,7 @@ impl TripleClipEncoder {
             VarBuilder::from_mmaped_safetensors(&[t5xxl_file], DType::F16, device)
                 .map_err(|e| format!("T5 VarBuilder failed: {}", e))?
         };
-        let t5 = T5WithTokenizer::new(vb_t5, 77)?;
+        let t5 = T5WithTokenizer::new(vb_t5, t5_config_path, t5_tokenizer_path, 77)?;
         
         Ok(Self {
             clip_l,
@@ -472,19 +539,13 @@ impl ClipWithTokenizer {
     fn new(
         vb: VarBuilder,
         config: ClipConfig,
-        tokenizer_model: &str,
+        tokenizer_path: &PathBuf,
         max_tokens: usize,
     ) -> Result<Self, String> {
         let clip = ClipTextTransformer::new(vb, &config)
             .map_err(|e| format!("CLIP creation failed: {}", e))?;
         
-        let api = hf_hub::api::sync::Api::new()
-            .map_err(|e| format!("HF API failed: {}", e))?;
-        let tokenizer_file = api.model(tokenizer_model.to_string())
-            .get("tokenizer.json")
-            .map_err(|e| format!("Tokenizer download failed: {}", e))?;
-        
-        let tokenizer = Tokenizer::from_file(tokenizer_file)
+        let tokenizer = Tokenizer::from_file(tokenizer_path)
             .map_err(|e| format!("Tokenizer load failed: {}", e))?;
         
         Ok(Self { clip, tokenizer, max_tokens, config })
@@ -531,18 +592,13 @@ impl ClipWithTokenizer {
 }
 
 impl T5WithTokenizer {
-    fn new(vb: VarBuilder, max_tokens: usize) -> Result<Self, String> {
-        let api = hf_hub::api::sync::Api::new()
-            .map_err(|e| format!("HF API failed: {}", e))?;
-        let repo = api.repo(hf_hub::Repo::with_revision(
-            "google/t5-v1_1-xxl".to_string(),
-            hf_hub::RepoType::Model,
-            "refs/pr/2".to_string(),
-        ));
-        
-        let config_file = repo.get("config.json")
-            .map_err(|e| format!("T5 config download failed: {}", e))?;
-        let config_str = std::fs::read_to_string(config_file)
+    fn new(
+        vb: VarBuilder,
+        config_path: &PathBuf,
+        tokenizer_path: &PathBuf,
+        max_tokens: usize,
+    ) -> Result<Self, String> {
+        let config_str = std::fs::read_to_string(config_path)
             .map_err(|e| format!("T5 config read failed: {}", e))?;
         let config: T5Config = serde_json::from_str(&config_str)
             .map_err(|e| format!("T5 config parse failed: {}", e))?;
@@ -550,10 +606,7 @@ impl T5WithTokenizer {
         let t5 = T5EncoderModel::load(vb, &config)
             .map_err(|e| format!("T5 model load failed: {}", e))?;
         
-        let tokenizer_file = api.model("lmz/mt5-tokenizers".to_string())
-            .get("t5-v1_1-xxl.tokenizer.json")
-            .map_err(|e| format!("T5 tokenizer download failed: {}", e))?;
-        let tokenizer = Tokenizer::from_file(tokenizer_file)
+        let tokenizer = Tokenizer::from_file(tokenizer_path)
             .map_err(|e| format!("T5 tokenizer load failed: {}", e))?;
         
         Ok(Self { t5, tokenizer, max_tokens })
@@ -600,6 +653,20 @@ static SD35_TURBO_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     model_id: "sd35-turbo",
     quantization: "fp16",
     patch: None,
+    embedding_dimension: None,
+    vocab_size: None,
+    image_size: None,
+    image_mean: None,
+    image_std: None,
+    default_temperature: None,
+    default_top_k: None,
+    default_top_p: None,
+    supports_kv_cache: false,
+    supports_flash_attention: true,
+    use_bf16: false,
+    default_steps: Some(4),
+    default_guidance_scale: Some(3.5),
+    time_shift: Some(3.0),
 };
 
 impl CandleModel for StableDiffusion35Turbo {

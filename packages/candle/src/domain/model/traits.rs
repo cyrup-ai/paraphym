@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::domain::model::{CandleModelInfo, CandleUsage};
+use crate::domain::model::download::ModelDownloadProvider;
 
 /// Core trait for all Candle AI models
 ///
@@ -77,6 +78,30 @@ pub trait CandleModel: Send + Sync + std::fmt::Debug + 'static {
     #[inline]
     fn quantization(&self) -> &'static str {
         self.info().quantization()
+    }
+
+    /// Get path to a file in this model's HuggingFace repo
+    /// 
+    /// Downloads the file if not cached, returns cached path if available.
+    /// Uses self.info().registry_key to determine the repo.
+    /// 
+    /// # Arguments
+    /// * `filename` - Just the filename (e.g., "config.json", "tokenizer.json")
+    /// 
+    /// # Errors
+    /// Returns error if file download or access fails
+    fn huggingface_file(&self, filename: &str) -> Result<std::path::PathBuf, Box<dyn std::error::Error + Send + Sync>>
+    where
+        Self: Sized
+    {
+        use crate::domain::model::download::DownloadProviderFactory;
+        use hf_hub::{api::sync::Api, Cache};
+        
+        let api = Api::new()?;
+        let repo = api.model(self.info().registry_key.to_string());
+        let path = repo.get(filename)?;
+        
+        Ok(path)
     }
 }
 

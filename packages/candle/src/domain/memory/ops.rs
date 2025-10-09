@@ -1,13 +1,14 @@
-//! SIMD-Optimized Vector Operations for Ultra-High Performance Memory System
+//! Memory Operations for Ultra-High Performance Memory System
 //!
-//! This module provides blazing-fast vector operations using SIMD instructions,
-//! memory-mapped file operations for large embeddings, and zero-allocation patterns.
+//! This module provides memory operation types, constants, and cache tracking
+//! utilities for the memory system. SIMD operations are provided by paraphym_simd.
 //!
-//! Performance targets: 2-8x improvement via SIMD, 10-50x for large embeddings via memory mapping.
+//! CPU feature detection and vectorized operations are delegated to the
+//! production-grade paraphym_simd crate which provides comprehensive
+//! AVX512/AVX2/SSE4.1/NEON support with runtime dispatch.
 
 // Removed unused imports: GlobalAlloc, Layout
-#[cfg(target_arch = "x86_64")]
-use std::arch::x86_64::*;
+// Removed unused import: std::arch::x86_64::* (SIMD intrinsics provided by paraphym_simd)
 
 // Removed unused imports: align_of, size_of
 // Removed unused import: std::ptr::NonNull
@@ -30,6 +31,9 @@ use std::sync::LazyLock;
 // Removed unused imports: MemoryError, MemoryNode, MemoryRelationship, MemoryType
 // Removed unused import: crate::ZeroOneOrMany
 
+// REMOVED: paraphym_simd imports not needed - ops.rs is pure memory operations
+// CPU feature detection is available in domain::memory::mod which imports directly from paraphym_simd
+
 /// Standard embedding dimension for text embeddings (optimized for SIMD)
 pub const EMBEDDING_DIMENSION: usize = 768;
 
@@ -48,227 +52,9 @@ pub const VECTOR_POOL_SIZE: usize = 1024;
 
 /// Performance statistics with atomic counters
 #[allow(dead_code)]
-static SIMD_OPERATIONS_COUNT: LazyLock<RelaxedCounter> = LazyLock::new(|| RelaxedCounter::new(0));
-#[allow(dead_code)]
 static CACHE_HITS: LazyLock<RelaxedCounter> = LazyLock::new(|| RelaxedCounter::new(0));
 #[allow(dead_code)]
 static CACHE_MISSES: LazyLock<RelaxedCounter> = LazyLock::new(|| RelaxedCounter::new(0));
-
-bitflags::bitflags! {
-    /// CPU feature detection for runtime SIMD selection
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub struct CpuFeatureFlags: u32 {
-        const AVX2 = 1 << 0;
-        const AVX512F = 1 << 1;
-        const AVX512BW = 1 << 2;
-        const AVX512VL = 1 << 3;
-        const FMA = 1 << 4;
-        const SSE42 = 1 << 5;
-        const NEON = 1 << 6;
-    }
-}
-
-/// CPU features with architecture information
-#[derive(Debug, Clone, Copy)]
-pub struct CpuFeatures {
-    pub features: CpuFeatureFlags,
-    pub architecture: CpuArchitecture,
-}
-
-/// CPU architecture detection
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CpuArchitecture {
-    X86_64,
-    AArch64,
-    Other,
-}
-
-impl CpuFeatures {
-    #[inline]
-    #[must_use]
-    pub fn detect() -> Self {
-        let mut features = CpuFeatureFlags::empty();
-        
-        if Self::detect_avx2() {
-            features |= CpuFeatureFlags::AVX2;
-        }
-        if Self::detect_avx512f() {
-            features |= CpuFeatureFlags::AVX512F;
-        }
-        if Self::detect_avx512bw() {
-            features |= CpuFeatureFlags::AVX512BW;
-        }
-        if Self::detect_avx512vl() {
-            features |= CpuFeatureFlags::AVX512VL;
-        }
-        if Self::detect_fma() {
-            features |= CpuFeatureFlags::FMA;
-        }
-        if Self::detect_sse42() {
-            features |= CpuFeatureFlags::SSE42;
-        }
-        if Self::detect_neon() {
-            features |= CpuFeatureFlags::NEON;
-        }
-        
-        Self {
-            features,
-            architecture: Self::detect_architecture(),
-        }
-    }
-    
-    /// Check if a specific feature is available
-    #[inline]
-    #[must_use]
-    pub const fn has(&self, feature: CpuFeatureFlags) -> bool {
-        self.features.contains(feature)
-    }
-    
-    /// Check if AVX2 is available
-    #[inline]
-    #[must_use]
-    pub const fn has_avx2(&self) -> bool {
-        self.features.contains(CpuFeatureFlags::AVX2)
-    }
-    
-    /// Check if AVX512F is available
-    #[inline]
-    #[must_use]
-    pub const fn has_avx512f(&self) -> bool {
-        self.features.contains(CpuFeatureFlags::AVX512F)
-    }
-    
-    /// Check if AVX512BW is available
-    #[inline]
-    #[must_use]
-    pub const fn has_avx512bw(&self) -> bool {
-        self.features.contains(CpuFeatureFlags::AVX512BW)
-    }
-    
-    /// Check if AVX512VL is available
-    #[inline]
-    #[must_use]
-    pub const fn has_avx512vl(&self) -> bool {
-        self.features.contains(CpuFeatureFlags::AVX512VL)
-    }
-    
-    /// Check if FMA is available
-    #[inline]
-    #[must_use]
-    pub const fn has_fma(&self) -> bool {
-        self.features.contains(CpuFeatureFlags::FMA)
-    }
-    
-    /// Check if SSE4.2 is available
-    #[inline]
-    #[must_use]
-    pub const fn has_sse42(&self) -> bool {
-        self.features.contains(CpuFeatureFlags::SSE42)
-    }
-    
-    /// Check if NEON is available
-    #[inline]
-    #[must_use]
-    pub const fn has_neon(&self) -> bool {
-        self.features.contains(CpuFeatureFlags::NEON)
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    #[inline]
-    fn detect_avx2() -> bool {
-        is_x86_feature_detected!("avx2")
-    }
-
-    #[cfg(not(target_arch = "x86_64"))]
-    #[inline]
-    fn detect_avx2() -> bool {
-        false
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    #[inline]
-    fn detect_avx512f() -> bool {
-        is_x86_feature_detected!("avx512f")
-    }
-
-    #[cfg(not(target_arch = "x86_64"))]
-    #[inline]
-    fn detect_avx512f() -> bool {
-        false
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    #[inline]
-    fn detect_avx512bw() -> bool {
-        is_x86_feature_detected!("avx512bw")
-    }
-
-    #[cfg(not(target_arch = "x86_64"))]
-    #[inline]
-    fn detect_avx512bw() -> bool {
-        false
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    #[inline]
-    fn detect_avx512vl() -> bool {
-        is_x86_feature_detected!("avx512vl")
-    }
-
-    #[cfg(not(target_arch = "x86_64"))]
-    #[inline]
-    fn detect_avx512vl() -> bool {
-        false
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    #[inline]
-    fn detect_fma() -> bool {
-        is_x86_feature_detected!("fma")
-    }
-
-    #[cfg(not(target_arch = "x86_64"))]
-    #[inline]
-    fn detect_fma() -> bool {
-        false
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    #[inline]
-    fn detect_sse42() -> bool {
-        is_x86_feature_detected!("sse4.2")
-    }
-
-    #[cfg(not(target_arch = "x86_64"))]
-    #[inline]
-    fn detect_sse42() -> bool {
-        false
-    }
-
-    #[cfg(target_arch = "aarch64")]
-    #[inline]
-    fn detect_neon() -> bool {
-        true // NEON is standard on AArch64
-    }
-
-    #[cfg(not(target_arch = "aarch64"))]
-    #[inline]
-    fn detect_neon() -> bool {
-        false
-    }
-
-    #[inline]
-    fn detect_architecture() -> CpuArchitecture {
-        #[cfg(target_arch = "x86_64")]
-        return CpuArchitecture::X86_64;
-
-        #[cfg(target_arch = "aarch64")]
-        return CpuArchitecture::AArch64;
-
-        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-        return CpuArchitecture::Other;
-    }
-}
 
 /// Memory operation type for workflow system
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -287,38 +73,35 @@ pub enum Op {
     Index,
 }
 
-/// Get memory operation performance statistics
+/// Check if embedding should use stack allocation based on size
+///
+/// Simple heuristic: embeddings <= 512 elements (2KB for f32) use stack,
+/// larger embeddings use heap to avoid stack overflow.
+///
+/// # Arguments
+/// * `embedding_size` - Number of f32 elements in embedding
+///
+/// # Returns
+/// `true` if safe to allocate on stack, `false` if heap required
 #[inline]
-#[allow(dead_code)] // TODO: Implement SIMD operations performance monitoring
-#[must_use]
-pub fn get_memory_ops_stats() -> (u64, u64, u64) {
-    let simd_ops = (*SIMD_OPERATIONS_COUNT).get() as u64;
-    let cache_hits = (*CACHE_HITS).get() as u64;
-    let cache_misses = (*CACHE_MISSES).get() as u64;
-    (simd_ops, cache_hits, cache_misses)
-}
-
-/// Check if embedding should use stack allocation
-#[inline]
-#[allow(dead_code)] // TODO: Implement stack vs heap allocation optimization
+#[allow(dead_code)]
 #[must_use]
 pub fn should_use_stack_allocation(embedding_size: usize) -> bool {
     embedding_size <= MAX_STACK_EMBEDDING_SIZE
 }
 
-/// Get optimal vector pool allocation size
+/// Get vector pool allocation size
+///
+/// Returns the compile-time constant for vector pool sizing.
+/// This is memory management configuration, not SIMD operations.
+///
+/// # Returns
+/// Pool size (number of vectors to pre-allocate)
 #[inline]
-#[allow(dead_code)] // TODO: Implement vector pool size configuration
+#[allow(dead_code)]
 #[must_use]
 pub fn get_vector_pool_size() -> usize {
     VECTOR_POOL_SIZE
-}
-
-/// Record SIMD operation for performance tracking
-#[inline]
-#[allow(dead_code)] // TODO: Implement SIMD operation performance tracking
-pub fn record_simd_operation() {
-    (*SIMD_OPERATIONS_COUNT).inc();
 }
 
 /// Record cache hit for performance tracking

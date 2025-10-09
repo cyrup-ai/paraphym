@@ -15,6 +15,7 @@ use tokenizers::Tokenizer;
 use ystream::AsyncStream;
 
 use crate::domain::model::{info::CandleModelInfo, traits::CandleModel};
+use crate::domain::model::download::ModelDownloadProvider;
 use crate::domain::{
     completion::CandleCompletionParams,
     context::chunk::CandleCompletionChunk,
@@ -80,6 +81,8 @@ pub struct Phi4ReasoningModel {
     logits_processor: LogitsProcessor,
     repeat_penalty: f32,
     repeat_last_n: usize,
+    temperature: f64,
+    top_p: Option<f64>,
 }
 
 impl Phi4ReasoningModel {
@@ -117,6 +120,8 @@ impl Phi4ReasoningModel {
             logits_processor,
             repeat_penalty: 1.0,
             repeat_last_n: 64,
+            temperature: 0.0,
+            top_p: Some(1.0),
         })
     }
 
@@ -246,6 +251,20 @@ impl Phi4ReasoningModel {
         self
     }
 
+    /// Set sampling temperature for LogitsProcessor
+    pub fn with_temperature(mut self, temperature: f64) -> Self {
+        self.temperature = temperature;
+        self.logits_processor = LogitsProcessor::new(299792458, Some(temperature), self.top_p);
+        self
+    }
+
+    /// Set top-p (nucleus sampling) for LogitsProcessor
+    pub fn with_top_p(mut self, top_p: Option<f64>) -> Self {
+        self.top_p = top_p;
+        self.logits_processor = LogitsProcessor::new(299792458, Some(self.temperature), top_p);
+        self
+    }
+
     /// Clear KV cache (if needed for stateful generation)
     pub fn clear_kv_cache(&mut self) {
         self.model.clear_kv_cache();
@@ -254,147 +273,20 @@ impl Phi4ReasoningModel {
 
 /// CandlePhi4ReasoningModel for local Phi-4-reasoning model inference
 #[derive(Debug, Clone)]
-pub struct CandlePhi4ReasoningModel {
-    /// Model cache directory path
-    model_path: String,
-    /// Tokenizer path
-    tokenizer_path: String,
-    /// Provider configuration
-    config: CandlePhi4ReasoningConfig,
-}
+pub struct CandlePhi4ReasoningModel {}
 
 impl Default for CandlePhi4ReasoningModel {
     fn default() -> Self {
-        crate::runtime::shared_runtime()
-            .unwrap_or_else(|| panic!("Shared runtime unavailable"))
-            .block_on(Self::new())
-            .unwrap_or_else(|e| panic!("Failed to initialize CandlePhi4ReasoningModel: {}", e))
+        Self::new()
     }
 }
 
-/// Configuration for Phi-4-Reasoning model inference
-#[derive(Debug, Clone)]
-pub struct CandlePhi4ReasoningConfig {
-    /// Maximum context length for inference
-    max_context: u32,
-    /// Default temperature for sampling (0.0 for deterministic reasoning)
-    temperature: f64,
-    /// Top-p nucleus sampling parameter
-    pub top_p: Option<f64>,
-    /// Repeat penalty
-    pub repeat_penalty: f32,
-}
 
-impl Default for CandlePhi4ReasoningConfig {
-    fn default() -> Self {
-        Self {
-            max_context: 32768,
-            temperature: 0.0,  // Deterministic for consistent reasoning
-            top_p: Some(1.0),
-            repeat_penalty: 1.0,
-        }
-    }
-}
-
-impl CandlePhi4ReasoningConfig {
-    /// Get the temperature setting
-    pub fn temperature(&self) -> f64 {
-        self.temperature
-    }
-
-    /// Set temperature for sampling
-    pub fn with_temperature(mut self, temperature: f64) -> Self {
-        self.temperature = temperature;
-        self
-    }
-
-    /// Set maximum context length
-    pub fn with_max_context(mut self, max_context: u32) -> Self {
-        self.max_context = max_context;
-        self
-    }
-}
 
 impl CandlePhi4ReasoningModel {
-    /// Create new Phi-4-Reasoning provider with automatic model download
-    pub async fn new() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let config = CandlePhi4ReasoningConfig::default();
-        Self::with_config_async(config).await
-    }
-
-    /// Create provider with async model download
-    pub async fn with_config_async(
-        config: CandlePhi4ReasoningConfig,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        use crate::domain::model::download::DownloadProviderFactory;
-
-        // Use factory to get download provider
-        let downloader = DownloadProviderFactory::create_default()?;
-
-        // Download model files
-        let result = downloader.download_model(
-            "unsloth/Phi-4-reasoning-GGUF",
-            vec!["phi-4-reasoning-Q4_K_M.gguf".to_string(), "tokenizer.json".to_string()],
-            Some("Q4_K_M".to_string()),
-        ).collect()
-            .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(format!("Download task failed: {}", e)))??;
-
-        // Find GGUF and tokenizer files
-        let gguf_file = result.files.iter()
-            .find(|f| f.extension().and_then(|s| s.to_str()) == Some("gguf"))
-            .ok_or_else(|| Box::<dyn std::error::Error + Send + Sync>::from("GGUF file not found in download"))?;
-
-        let tokenizer_file = result.files.iter()
-            .find(|f| f.file_name().and_then(|s| s.to_str()) == Some("tokenizer.json"))
-            .ok_or_else(|| Box::<dyn std::error::Error + Send + Sync>::from("Tokenizer file not found in download"))?;
-
-        Self::with_config_sync_paths(
-            gguf_file.to_str()
-                .ok_or_else(|| Box::<dyn std::error::Error + Send + Sync>::from("Invalid GGUF file path"))?
-                .to_string(),
-            tokenizer_file.to_str()
-                .ok_or_else(|| Box::<dyn std::error::Error + Send + Sync>::from("Invalid tokenizer path"))?
-                .to_string(),
-            config,
-        )
-    }
-
-    /// Create default provider instance for builder pattern
-    pub fn default_for_builder() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let config = CandlePhi4ReasoningConfig::default();
-        let runtime = crate::runtime::shared_runtime()
-            .ok_or("Runtime unavailable for provider initialization")?;
-        runtime.block_on(Self::with_config_async(config))
-    }
-
-    /// Create provider with custom configuration and existing model path
-    pub fn with_config_sync(
-        model_path: String,
-        config: CandlePhi4ReasoningConfig,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        // Construct tokenizer path (assumed to be in same directory)
-        let tokenizer_path = format!("{}/tokenizer.json", model_path);
-        
-        Self::with_config_sync_paths(model_path, tokenizer_path, config)
-    }
-
-    /// Create provider with explicit paths
-    pub fn with_config_sync_paths(
-        model_path: String,
-        tokenizer_path: String,
-        config: CandlePhi4ReasoningConfig,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        log::info!(
-            "Phi4Reasoning Provider initialized with model: {}, tokenizer: {}",
-            model_path,
-            tokenizer_path
-        );
-
-        Ok(Self {
-            model_path,
-            tokenizer_path,
-            config,
-        })
+    /// Create new Phi-4-Reasoning provider
+    pub fn new() -> Self {
+        Self {}
     }
 }
 
@@ -402,11 +294,47 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
     fn prompt(
         &self,
         prompt: CandlePrompt,
-        _params: &CandleCompletionParams,
+        params: &CandleCompletionParams,
     ) -> AsyncStream<CandleCompletionChunk> {
-        let model_path = self.model_path.clone();
-        let tokenizer_path = self.tokenizer_path.clone();
-        let config = self.config.clone();
+        // Get file paths BEFORE the closure (self is available here)
+        let gguf_path = match self.huggingface_file("phi-4-reasoning-Q4_K_M.gguf") {
+            Ok(path) => path,
+            Err(e) => {
+                return AsyncStream::with_channel(move |sender| {
+                    let _ = sender.send(CandleCompletionChunk::Error(
+                        format!("Failed to get GGUF file: {}", e)
+                    ));
+                });
+            }
+        };
+        
+        let tokenizer_path = match self.huggingface_file("tokenizer.json") {
+            Ok(path) => path,
+            Err(e) => {
+                return AsyncStream::with_channel(move |sender| {
+                    let _ = sender.send(CandleCompletionChunk::Error(
+                        format!("Failed to get tokenizer file: {}", e)
+                    ));
+                });
+            }
+        };
+        
+        // Get config values from ModelInfo and CompletionParams
+        let max_context = self.info().max_input_tokens
+            .map(|t| t.get())
+            .unwrap_or(32768);
+        
+        // Use params temperature if not default, otherwise ModelInfo default, otherwise 0.0
+        let temperature = if params.temperature != 1.0 {
+            params.temperature
+        } else {
+            self.info().default_temperature.unwrap_or(0.0)
+        };
+        
+        // These aren't in CandleCompletionParams, use ModelInfo defaults
+        let top_p = self.info().default_top_p;
+        let repeat_penalty = 1.0f32;
+        
         let prompt_text = prompt.to_string();
 
         AsyncStream::with_channel(move |sender| {
@@ -414,13 +342,15 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
             let device = Device::cuda_if_available(0).unwrap_or(Device::Cpu);
             
             let model_result = Phi4ReasoningModel::load_from_gguf(
-                &model_path,
+                &gguf_path,
                 &tokenizer_path,
                 &device,
             );
 
             let mut model = match model_result {
-                Ok(m) => m,
+                Ok(m) => m.with_repeat_penalty(repeat_penalty)
+                           .with_temperature(temperature)
+                           .with_top_p(top_p),
                 Err(e) => {
                     let error_chunk = CandleCompletionChunk::Error(
                         format!("Failed to load Phi-4-reasoning model: {}", e)
@@ -444,7 +374,7 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
             };
 
             // Generate response
-            let max_tokens = config.max_context as usize;
+            let max_tokens = max_context as usize;
             let response = match model.generate(&formatted_prompt, max_tokens) {
                 Ok(r) => r,
                 Err(e) => {
@@ -503,6 +433,20 @@ static PHI4_REASONING_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     model_id: "phi-4-reasoning",
     quantization: "Q4_K_M",
     patch: None,
+    embedding_dimension: None,
+    vocab_size: None,
+    image_size: None,
+    image_mean: None,
+    image_std: None,
+    default_temperature: Some(0.0),
+    default_top_k: None,
+    default_top_p: None,
+    supports_kv_cache: true,
+    supports_flash_attention: false,
+    use_bf16: false,
+    default_steps: None,
+    default_guidance_scale: None,
+    time_shift: None,
 };
 
 impl CandleModel for CandlePhi4ReasoningModel {

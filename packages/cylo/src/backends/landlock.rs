@@ -11,6 +11,7 @@
 // - Zero-overhead sandboxing
 // ============================================================================
 
+use std::collections::HashMap;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -399,6 +400,69 @@ impl LandLockBackend {
                 details: format!("Failed to spawn sandboxed process: {}", e),
             })?;
 
+            // Start background resource monitoring task
+            let pid = child.id();
+            let (tx, mut rx) = tokio::sync::oneshot::channel();
+            
+            #[cfg(target_os = "linux")]
+            let monitor_handle = tokio::spawn(async move {
+                let mut peak_memory = 0u64;
+                let mut final_cpu_time = 0u64;
+                let mut final_process_count = 1usize;
+                let mut final_disk_written = 0u64;
+                let mut final_disk_read = 0u64;
+                
+                loop {
+                    // Poll every 100ms
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_millis(100)) => {
+                            // Track peak memory
+                            if let Ok(mem) = get_memory_usage(pid) {
+                                peak_memory = peak_memory.max(mem);
+                            }
+                            
+                            // Track latest CPU time (cumulative)
+                            if let Ok(cpu) = get_process_cpu_time(pid) {
+                                final_cpu_time = cpu;
+                            }
+                            
+                            // Track process count
+                            if let Ok(count) = count_process_tree(pid) {
+                                final_process_count = count;
+                            }
+                            
+                            // Track disk I/O
+                            if let Ok(written) = get_disk_io_stats(pid) {
+                                final_disk_written = written;
+                            }
+                            if let Ok(read) = get_disk_read_stats(pid) {
+                                final_disk_read = read;
+                            }
+                        }
+                        _ = &mut rx => {
+                            // Stop signal received
+                            break;
+                        }
+                    }
+                }
+                
+                ResourceUsage {
+                    peak_memory,
+                    cpu_time_ms: final_cpu_time,
+                    process_count: final_process_count as u32,
+                    disk_bytes_written: final_disk_written,
+                    disk_bytes_read: final_disk_read,
+                    network_bytes_sent: 0,
+                    network_bytes_received: 0,
+                }
+            });
+
+            #[cfg(not(target_os = "linux"))]
+            let monitor_handle = tokio::spawn(async move {
+                let _ = rx.await;
+                ResourceUsage::default()
+            });
+
             // Write input if provided
             if let Some(input) = &request.input {
                 if let Some(stdin) = child.stdin.take() {
@@ -435,19 +499,26 @@ impl LandLockBackend {
 
             let duration = start_time.elapsed();
 
+            // Stop monitoring and collect final resource statistics
+            let _ = tx.send(());
+            let resource_usage = match monitor_handle.await {
+                Ok(usage) => usage,
+                Err(_) => {
+                    // Monitoring task failed, return defaults
+                    ResourceUsage {
+                        peak_memory: 0,
+                        cpu_time_ms: 0,
+                        process_count: 1,
+                        disk_bytes_written: 0,
+                        disk_bytes_read: 0,
+                        network_bytes_sent: 0,
+                        network_bytes_received: 0,
+                    }
+                }
+            };
+
             // Clean up execution directory
             let _ = fs::remove_dir_all(&exec_dir);
-
-            // Get resource usage (basic implementation)
-            let resource_usage = ResourceUsage {
-                peak_memory: 0, // Would need to track via cgroups
-                cpu_time_ms: duration.as_millis() as u64,
-                process_count: 1,
-                disk_bytes_written: 0,
-                disk_bytes_read: 0,
-                network_bytes_sent: 0,
-                network_bytes_received: 0,
-            };
 
             Ok(ExecutionResult {
                 exit_code: output.status.code().unwrap_or(-1),
@@ -516,6 +587,189 @@ impl LandLockBackend {
             .map(|status| status.success())
             .unwrap_or(false)
     }
+}
+
+/// Get CPU time consumed by a process from /proc/[pid]/stat
+///
+/// # Arguments
+/// * `pid` - Process ID to query
+///
+/// # Returns
+/// Total CPU time in milliseconds (user + kernel mode) or error
+#[cfg(target_os = "linux")]
+fn get_process_cpu_time(pid: u32) -> Result<u64, std::io::Error> {
+    let stat_path = format!("/proc/{}/stat", pid);
+    let stat_content = std::fs::read_to_string(&stat_path)?;
+    
+    // Parse stat file (space-separated fields)
+    let fields: Vec<&str> = stat_content.split_whitespace().collect();
+    if fields.len() < 15 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Invalid stat format"
+        ));
+    }
+    
+    // Field 13 = utime (user mode jiffies)
+    // Field 14 = stime (kernel mode jiffies)
+    let utime: u64 = fields[13].parse()
+        .map_err(|_| std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Invalid utime"
+        ))?;
+    let stime: u64 = fields[14].parse()
+        .map_err(|_| std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Invalid stime"
+        ))?;
+    
+    // Convert clock ticks to milliseconds
+    let clock_ticks_per_sec = unsafe { libc::sysconf(libc::_SC_CLK_TCK) } as u64;
+    let total_ticks = utime + stime;
+    let cpu_time_ms = (total_ticks * 1000) / clock_ticks_per_sec;
+    
+    Ok(cpu_time_ms)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn get_process_cpu_time(_pid: u32) -> Result<u64, std::io::Error> {
+    Ok(0)
+}
+
+/// Count process tree including threads and child processes
+///
+/// # Arguments
+/// * `pid` - Root process ID
+///
+/// # Returns
+/// Total count of processes and threads or error
+#[cfg(target_os = "linux")]
+fn count_process_tree(pid: u32) -> Result<usize, std::io::Error> {
+    // Count the main process
+    let mut count = 1;
+    
+    // Count threads via /proc/[pid]/task directory
+    let task_dir = format!("/proc/{}/task", pid);
+    if let Ok(entries) = std::fs::read_dir(&task_dir) {
+        let thread_count = entries.count();
+        if thread_count > 0 {
+            count += thread_count - 1; // Don't double-count main thread
+        }
+    }
+    
+    // Find child processes from /proc/[pid]/task/[tid]/children
+    let children_path = format!("/proc/{}/task/{}/children", pid, pid);
+    if let Ok(children_content) = std::fs::read_to_string(&children_path) {
+        for child_pid_str in children_content.split_whitespace() {
+            if let Ok(child_pid) = child_pid_str.parse::<u32>() {
+                // Recursively count child's subtree
+                if let Ok(child_count) = count_process_tree(child_pid) {
+                    count += child_count;
+                }
+            }
+        }
+    }
+    
+    Ok(count)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn count_process_tree(_pid: u32) -> Result<usize, std::io::Error> {
+    Ok(1)
+}
+
+/// Get disk write statistics from /proc/[pid]/io
+///
+/// # Arguments
+/// * `pid` - Process ID to query
+///
+/// # Returns
+/// Total bytes written to disk or error
+#[cfg(target_os = "linux")]
+fn get_disk_io_stats(pid: u32) -> Result<u64, std::io::Error> {
+    let io_path = format!("/proc/{}/io", pid);
+    let io_content = std::fs::read_to_string(&io_path)?;
+    
+    // Parse for write_bytes line
+    for line in io_content.lines() {
+        if line.starts_with("write_bytes:") {
+            if let Some(bytes_str) = line.split_whitespace().nth(1) {
+                if let Ok(bytes) = bytes_str.parse::<u64>() {
+                    return Ok(bytes);
+                }
+            }
+        }
+    }
+    
+    Ok(0)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn get_disk_io_stats(_pid: u32) -> Result<u64, std::io::Error> {
+    Ok(0)
+}
+
+/// Get disk read statistics from /proc/[pid]/io
+///
+/// # Arguments
+/// * `pid` - Process ID to query
+///
+/// # Returns
+/// Total bytes read from disk or error
+#[cfg(target_os = "linux")]
+fn get_disk_read_stats(pid: u32) -> Result<u64, std::io::Error> {
+    let io_path = format!("/proc/{}/io", pid);
+    let io_content = std::fs::read_to_string(&io_path)?;
+    
+    // Parse for read_bytes line
+    for line in io_content.lines() {
+        if line.starts_with("read_bytes:") {
+            if let Some(bytes_str) = line.split_whitespace().nth(1) {
+                if let Ok(bytes) = bytes_str.parse::<u64>() {
+                    return Ok(bytes);
+                }
+            }
+        }
+    }
+    
+    Ok(0)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn get_disk_read_stats(_pid: u32) -> Result<u64, std::io::Error> {
+    Ok(0)
+}
+
+/// Get memory usage from /proc/[pid]/status
+///
+/// # Arguments
+/// * `pid` - Process ID to query
+///
+/// # Returns
+/// Resident Set Size (RSS) in bytes or error
+#[cfg(target_os = "linux")]
+fn get_memory_usage(pid: u32) -> Result<u64, std::io::Error> {
+    let status_path = format!("/proc/{}/status", pid);
+    let status_content = std::fs::read_to_string(&status_path)?;
+    
+    // Parse for VmRSS (Resident Set Size)
+    for line in status_content.lines() {
+        if line.starts_with("VmRSS:") {
+            if let Some(kb_str) = line.split_whitespace().nth(1) {
+                if let Ok(rss_kb) = kb_str.parse::<u64>() {
+                    // Convert kilobytes to bytes
+                    return Ok(rss_kb * 1024);
+                }
+            }
+        }
+    }
+    
+    Ok(0)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn get_memory_usage(_pid: u32) -> Result<u64, std::io::Error> {
+    Ok(0)
 }
 
 impl ExecutionBackend for LandLockBackend {

@@ -71,12 +71,12 @@ pub mod prelude {
     };
     // Core engine types for model-agnostic inference
     pub use crate::capability::{
-        text_to_image::{FluxConfig, FluxSchnell, SD35TurboConfig, StableDiffusion35Turbo},
+        text_to_image::{FluxSchnell, StableDiffusion35Turbo},
         text_to_text::{
-            CandleKimiK2Config, CandleKimiK2Model, CandlePhi4ReasoningConfig,
-            CandlePhi4ReasoningModel, CandleQwen3CoderConfig, CandleQwen3CoderModel,
+            CandleKimiK2Model,
+            CandlePhi4ReasoningModel, CandleQwen3CoderModel,
         },
-        vision::{LLaVAConfig, LLaVAModel},
+        vision::LLaVAModel,
     };
     pub use crate::core::{
         Engine, EngineConfig, EngineError, EngineResult, ModelArchitecture, ModelConfig,

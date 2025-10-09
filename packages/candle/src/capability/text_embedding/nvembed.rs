@@ -3,7 +3,6 @@
 //! This provider uses nvidia/NV-Embed-v2 model for generating
 //! 4096-dimensional embeddings with Mistral decoder and latent attention.
 
-use std::sync::Mutex;
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::nvembed_v2::model::Model as NvEmbedModel;
@@ -13,65 +12,26 @@ use crate::domain::model::traits::CandleModel;
 use crate::domain::model::CandleModelInfo;
 use std::num::NonZeroU32;
 
-/// Configuration for NVEmbed v2 embedding model
-#[derive(Debug, Clone)]
-pub struct CandleNvEmbedConfig {
-    pub embed_dim: u32,
-    pub max_length: usize,
-    pub dtype: DType,
-    pub device: Device,
-}
-
-impl Default for CandleNvEmbedConfig {
-    fn default() -> Self {
-        Self {
-            embed_dim: 4096,
-            max_length: 32768, // NVEmbed v2 supports very long contexts
-            dtype: DType::F32,
-            device: Device::Cpu,
-        }
-    }
-}
-
 /// NVEmbed v2 embedding provider using Candle ML framework
-pub struct CandleNvEmbedEmbeddingModel {
-    #[allow(dead_code)] // Used in path construction and config_info - false positive warning
-    model_path: String,
-    config: CandleNvEmbedConfig,
-    model: Mutex<NvEmbedModel>,
-    tokenizer: Tokenizer,
-    device: Device,
-}
-
-impl std::fmt::Debug for CandleNvEmbedEmbeddingModel {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CandleNvEmbedEmbeddingModel")
-            .field("model_path", &self.model_path)
-            .field("config", &self.config)
-            .field("model", &"<NvEmbedModel>")
-            .field("tokenizer", &"<Tokenizer>")
-            .field("device", &self.device)
-            .finish()
-    }
-}
+#[derive(Debug, Clone)]
+pub struct CandleNvEmbedEmbeddingModel {}
 
 impl Default for CandleNvEmbedEmbeddingModel {
     fn default() -> Self {
-        crate::runtime::shared_runtime()
-            .unwrap_or_else(|| panic!("Shared runtime unavailable"))
-            .block_on(Self::new())
-            .unwrap_or_else(|e| panic!("Failed to initialize CandleNvEmbedEmbeddingModel: {}", e))
+        Self::new()
     }
 }
 
 impl CandleNvEmbedEmbeddingModel {
-    pub async fn new() -> Result<Self> {
-        let config = CandleNvEmbedConfig::default();
-        Self::with_config(config).await
+    /// Create new NVEmbed v2 embedding provider
+    #[inline]
+    pub fn new() -> Self {
+        Self {}
     }
 
     /// Format text with task-specific instruction prefix for NVEmbed v2
-    fn format_with_instruction(&self, text: &str, task: Option<&str>) -> String {
+    #[inline]
+    fn format_with_instruction(text: &str, task: Option<&str>) -> String {
         match task {
             Some("search_query") => format!("Instruct: Given a web search query, retrieve relevant passages that answer the query.\nQuery: {}", text),
             Some("search_document") => format!("Instruct: Given a web search query, retrieve relevant passages that answer the query.\nPassage: {}", text),
@@ -84,7 +44,14 @@ impl CandleNvEmbedEmbeddingModel {
 
     /// Create instruction mask that excludes instruction tokens from pooling
     /// Returns a mask where 1.0 indicates content tokens and 0.0 indicates instruction tokens
-    fn create_instruction_mask(&self, token_ids: &Tensor, formatted_texts: &[String], original_texts: &[&str]) -> Result<Tensor> {
+    #[inline]
+    fn create_instruction_mask(
+        tokenizer: &Tokenizer,
+        token_ids: &Tensor,
+        formatted_texts: &[String],
+        original_texts: &[&str],
+        device: &Device,
+    ) -> Result<Tensor> {
         let (batch_size, seq_len) = token_ids.dims2()
             .map_err(|e| MemoryError::ModelError(format!("Invalid token_ids shape: {}", e)))?;
 
@@ -96,12 +63,12 @@ impl CandleNvEmbedEmbeddingModel {
                 // Find the last occurrence of original text to correctly identify instruction boundary
                 if let Some(content_start_pos) = formatted_text.rfind(original_text) {
                     // Tokenize both full text and content-only to find instruction token boundary
-                    let full_tokens = self.tokenizer
+                    let full_tokens = tokenizer
                         .encode(formatted_text.as_str(), false)
                         .map_err(|e| MemoryError::ModelError(format!("Failed to tokenize full text: {}", e)))?;
 
                     let content_only = &formatted_text[content_start_pos..];
-                    let content_tokens = self.tokenizer
+                    let content_tokens = tokenizer
                         .encode(content_only, false)
                         .map_err(|e| MemoryError::ModelError(format!("Failed to tokenize content: {}", e)))?;
 
@@ -127,144 +94,37 @@ impl CandleNvEmbedEmbeddingModel {
 
         // Convert to tensor
         let flat_data: Vec<f32> = instruction_mask_data.into_iter().flatten().collect();
-        Tensor::from_vec(flat_data, (batch_size, seq_len), &self.device)
+        Tensor::from_vec(flat_data, (batch_size, seq_len), device)
             .map_err(|e| MemoryError::ModelError(format!("Failed to create instruction mask tensor: {}", e)))
     }
 
-    pub async fn with_config(config: CandleNvEmbedConfig) -> Result<Self> {
-        use crate::domain::model::download::DownloadProviderFactory;
-        
-        // Use factory to get download provider (works with both backends)
-        let downloader = DownloadProviderFactory::create_default()
-            .map_err(|e| MemoryError::ModelError(format!("Failed to create download provider: {}", e)))?;
-        
-        // Download model files
-        let result = downloader.download_model(
-            "nvidia/NV-Embed-v2",
-            vec!["*.safetensors".to_string(), "tokenizer.json".to_string(), "config.json".to_string()],
-            None,
-        ).collect()
-        .map_err(|e| MemoryError::ModelError(format!("Download task failed: {}", e)))?
-        .map_err(|e| MemoryError::ModelError(format!("Model download failed: {}", e)))?;
-        
-        // Use result.cache_dir for model path
-        Self::with_config_and_path(
-            config,
-            result.cache_dir.to_str()
-                .ok_or_else(|| MemoryError::ModelError("Invalid cache directory".to_string()))?
-                .to_string()
-        ).await
-    }
-
-    pub async fn with_config_and_path(config: CandleNvEmbedConfig, model_path: String) -> Result<Self> {
-        // Load tokenizer
-        let tokenizer_path = format!("{}/tokenizer.json", model_path);
-        let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
-            .map_err(|e| MemoryError::ModelError(format!("Failed to load tokenizer: {}", e)))?;
-
-        // Configure tokenizer for right padding with </s> token
-        let eos_pad_id = 2; // </s> token ID for NVEmbed
-        
-        // Validate that the tokenizer actually has this token ID
-        if tokenizer.token_to_id("</s>") != Some(eos_pad_id) {
-            return Err(MemoryError::ModelError(format!(
-                "Tokenizer EOS token mismatch: expected {}, got {:?}", 
-                eos_pad_id, 
-                tokenizer.token_to_id("</s>")
-            )));
-        }
-        
-        let padding_params = PaddingParams {
-            strategy: tokenizers::PaddingStrategy::BatchLongest,
-            direction: tokenizers::PaddingDirection::Right, // Right padding for NVEmbed
-            pad_id: eos_pad_id,
-            pad_token: "</s>".to_string(),
-            ..Default::default()
-        };
-        tokenizer.with_padding(Some(padding_params));
-
-        // Set truncation
-        let truncation_params = TruncationParams {
-            max_length: config.max_length,
-            ..Default::default()
-        };
-        tokenizer.with_truncation(Some(truncation_params)).map_err(|e| {
-            MemoryError::ModelError(format!("Failed to set truncation: {}", e))
-        })?;
-
-        // Load model weights using multiple safetensors files like other large models
-        let index_path = format!("{}/model.safetensors.index.json", model_path);
-        let index_content = std::fs::read_to_string(&index_path)
-            .map_err(|e| MemoryError::ModelError(format!("Failed to read index: {}", e)))?;
-        
-        let index: serde_json::Value = serde_json::from_str(&index_content)
-            .map_err(|e| MemoryError::ModelError(format!("Failed to parse index: {}", e)))?;
-
-        // Collect all weight files
-        let weight_map = index["weight_map"].as_object()
-            .ok_or_else(|| MemoryError::ModelError("Missing weight_map in index".to_string()))?;
-        
-        let mut unique_files: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for filename in weight_map.values() {
-            if let Some(filename_str) = filename.as_str() {
-                unique_files.insert(filename_str.to_string());
-            }
-        }
-
-        let weight_files: Vec<String> = unique_files
-            .into_iter()
-            .map(|f| format!("{}/{}", model_path, f))
-            .collect();
-
-        let vb = unsafe {
-            VarBuilder::from_mmaped_safetensors(&weight_files, config.dtype, &config.device)
-                .map_err(|e| MemoryError::ModelError(format!("Failed to load weights: {}", e)))?
-        };
-
-        // Create real NVEmbed model
-        let model = NvEmbedModel::new(vb)
-            .map_err(|e| MemoryError::ModelError(format!("Failed to create model: {}", e)))?;
-        
-        // Validate that our config embedding dimension matches NVEmbed v2's expected 4096
-        if config.embed_dim != 4096 {
-            return Err(MemoryError::ModelError(format!(
-                "NVEmbed v2 embedding dimension mismatch: expected 4096, got {}", 
-                config.embed_dim
-            )));
-        }
-
-        let device = config.device.clone();
-        Ok(Self {
-            model_path,
-            config,
-            model: Mutex::new(model),
-            tokenizer,
-            device,
-        })
-    }
-
-
-
-    fn forward_pass_with_instruction(&self, texts: &[&str], task: Option<&str>) -> Result<Vec<Vec<f32>>> {
+    #[inline]
+    fn forward_pass_with_instruction(
+        tokenizer: &Tokenizer,
+        model: &mut NvEmbedModel,
+        device: &Device,
+        texts: &[&str],
+        task: Option<&str>,
+    ) -> Result<Vec<Vec<f32>>> {
         // Format texts with task-specific instructions
         let formatted_texts: Vec<String> = texts.iter()
-            .map(|text| self.format_with_instruction(text, task))
+            .map(|text| Self::format_with_instruction(text, task))
             .collect();
 
         // Tokenize formatted texts
-        let tokens = self.tokenizer
+        let tokens = tokenizer
             .encode_batch(formatted_texts.clone(), true)
             .map_err(|e| MemoryError::ModelError(format!("Tokenization failed: {}", e)))?;
 
         let token_ids = tokens.iter().map(|tokens| {
             let tokens = tokens.get_ids().to_vec();
-            Tensor::new(tokens.as_slice(), &self.device)
+            Tensor::new(tokens.as_slice(), device)
                 .map_err(|e| MemoryError::ModelError(format!("Tensor creation failed: {}", e)))
         }).collect::<Result<Vec<_>>>()?;
 
         let attention_mask = tokens.iter().map(|tokens| {
             let tokens = tokens.get_attention_mask().to_vec();
-            Tensor::new(tokens.as_slice(), &self.device)
+            Tensor::new(tokens.as_slice(), device)
                 .map_err(|e| MemoryError::ModelError(format!("Tensor creation failed: {}", e)))
         }).collect::<Result<Vec<_>>>()?;
 
@@ -274,13 +134,11 @@ impl CandleNvEmbedEmbeddingModel {
             .map_err(|e| MemoryError::ModelError(format!("Attention mask tensor stack failed: {}", e)))?;
 
         // Create instruction-aware pool_mask that excludes instruction tokens
-        let instruction_mask = self.create_instruction_mask(&token_ids, &formatted_texts, texts)?;
+        let instruction_mask = Self::create_instruction_mask(tokenizer, &token_ids, &formatted_texts, texts, device)?;
         let pool_mask = (&attention_mask * &instruction_mask)
             .map_err(|e| MemoryError::ModelError(format!("Failed to apply instruction mask: {}", e)))?;
 
         // Forward pass using real NVEmbed API
-        let mut model = self.model.lock()
-            .map_err(|e| MemoryError::ModelError(format!("Failed to acquire model lock: {}", e)))?;
         let embeddings = model.forward(&token_ids, &attention_mask, &pool_mask)
             .map_err(|e| MemoryError::ModelError(format!("Forward pass failed: {}", e)))?;
 
@@ -288,6 +146,124 @@ impl CandleNvEmbedEmbeddingModel {
             .map_err(|e| MemoryError::ModelError(format!("Failed to convert embeddings: {}", e)))?;
 
         Ok(embeddings_data)
+    }
+
+    /// Load model and tokenizer from disk
+    ///
+    /// # Model Loading Pattern
+    ///
+    /// This method loads the model and tokenizer from disk on EVERY call. This is intentional
+    /// given the current architecture where the `TextEmbeddingCapable` trait uses `&self`
+    /// (immutable reference), which prevents caching the loaded model in the struct.
+    ///
+    /// ## Why Reload Per Call?
+    /// - Trait signature `fn embed(&self, ...)` prevents mutable state
+    /// - Empty struct `CandleNvEmbedEmbeddingModel {}` has no fields to cache
+    /// - Configuration comes from static `NVEMBED_MODEL_INFO` (zero-cost abstraction)
+    ///
+    /// ## Performance Trade-offs
+    /// Each call performs:
+    /// - Disk I/O: tokenizer.json, model.safetensors.index.json
+    /// - JSON parsing: index file
+    /// - Memory-mapping: safetensor weight files
+    /// - Model construction: NvEmbedModel::new()
+    ///
+    /// ## Alternative Caching Approaches (Not Implemented)
+    /// To implement model caching, would require one of:
+    /// 1. **Trait redesign**: Change `&self` to `&mut self` (breaking API change)
+    /// 2. **LazyStatic/OnceLock**: Requires `'static` lifetime, complex with device selection
+    /// 3. **Arc<Mutex<Model>>**: Thread-safe shared ownership, adds runtime overhead
+    /// 4. **Per-thread caching**: thread_local! storage, memory overhead per thread
+    ///
+    /// ## Consistency Note
+    /// This reload-per-call pattern is consistent across ALL embedding models:
+    /// - bert.rs
+    /// - gte_qwen.rs
+    /// - jina_bert.rs
+    /// - stella.rs
+    /// - nvembed.rs (this file)
+    ///
+    /// If caching is implemented, it should be done at the architecture level across
+    /// all models, not in individual implementations.
+    fn load_model_and_tokenizer(&self) 
+        -> std::result::Result<(Tokenizer, NvEmbedModel, Device), Box<dyn std::error::Error + Send + Sync>>
+    {
+        // Get configuration from ModelInfo - single source of truth
+        let max_length = self.info().max_input_tokens
+            .ok_or("max_input_tokens missing in ModelInfo")?
+            .get() as usize;
+        
+        // Auto-detect device (not in ModelInfo - runtime detection)
+        let device = crate::core::device_util::detect_best_device()
+            .unwrap_or_else(|e| {
+                log::warn!("Device detection failed: {}. Using CPU.", e);
+                Device::Cpu
+            });
+        
+        // Auto-detect dtype based on device (not in ModelInfo)
+        let dtype = if device.is_cuda() { DType::F16 } else { DType::F32 };
+        
+        // Get file paths via huggingface_file
+        let tokenizer_path = self.huggingface_file("tokenizer.json")?;
+        let index_path = self.huggingface_file("model.safetensors.index.json")?;
+        
+        // Load tokenizer
+        let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
+            .map_err(|e| format!("Failed to load tokenizer: {}", e))?;
+        
+        // Configure tokenizer
+        // EOS token ID for NV-Embed-v2 tokenizer (Mistral-based vocabulary)
+        let eos_pad_id = 2;
+        let padding_params = PaddingParams {
+            strategy: tokenizers::PaddingStrategy::BatchLongest,
+            direction: tokenizers::PaddingDirection::Right,
+            pad_id: eos_pad_id,
+            pad_token: "</s>".to_string(),
+            ..Default::default()
+        };
+        tokenizer.with_padding(Some(padding_params));
+        
+        let truncation_params = TruncationParams {
+            max_length,
+            ..Default::default()
+        };
+        tokenizer.with_truncation(Some(truncation_params))
+            .map_err(|e| format!("Failed to set truncation: {}", e))?;
+        
+        // Load model weights
+        let model_dir = index_path.parent()
+            .ok_or("Failed to get model directory")?;
+        
+        let index_content = std::fs::read_to_string(&index_path)
+            .map_err(|e| format!("Failed to read index: {}", e))?;
+        let index: serde_json::Value = serde_json::from_str(&index_content)
+            .map_err(|e| format!("Failed to parse index: {}", e))?;
+        
+        let weight_map = index["weight_map"].as_object()
+            .ok_or("Missing weight_map in index")?;
+        
+        let mut unique_files: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for filename in weight_map.values() {
+            if let Some(filename_str) = filename.as_str() {
+                unique_files.insert(filename_str.to_string());
+            }
+        }
+        
+        let weight_files: Vec<std::path::PathBuf> = unique_files
+            .into_iter()
+            .map(|f| model_dir.join(f))
+            .collect();
+        
+        let vb = unsafe {
+            VarBuilder::from_mmaped_safetensors(&weight_files, dtype, &device)
+                .map_err(|e| format!("Failed to load weights: {}", e))?
+        };
+        
+        // Create model
+        let model = NvEmbedModel::new(vb)
+            .map_err(|e| format!("Failed to create model: {}", e))?;
+        
+        Ok((tokenizer, model, device))
     }
 }
 
@@ -314,6 +290,20 @@ static NVEMBED_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     model_id: "nvembed-v2",
     quantization: "none",
     patch: None,
+    embedding_dimension: Some(4096),
+    vocab_size: None,
+    image_size: None,
+    image_mean: None,
+    image_std: None,
+    default_temperature: None,
+    default_top_k: None,
+    default_top_p: None,
+    supports_kv_cache: false,
+    supports_flash_attention: false,
+    use_bf16: false,
+    default_steps: None,
+    default_guidance_scale: None,
+    time_shift: None,
 };
 
 impl CandleModel for CandleNvEmbedEmbeddingModel {
@@ -327,9 +317,15 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleNvEmbedEmbeddingM
         -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> 
     {
         self.validate_input(text)?;
+        
+        // Load model and tokenizer from disk
+        let (tokenizer, mut model, device) = self.load_model_and_tokenizer()?;
+        
+        // Run inference with instruction masking
         let task_ref = task.as_deref();
-        let embeddings = self.forward_pass_with_instruction(&[text], task_ref)
+        let embeddings = Self::forward_pass_with_instruction(&tokenizer, &mut model, &device, &[text], task_ref)
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+        
         embeddings.into_iter().next()
             .ok_or_else(|| "No embeddings generated".into())
     }
@@ -338,14 +334,19 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleNvEmbedEmbeddingM
         -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> 
     {
         self.validate_batch(texts)?;
+        
+        // Load model and tokenizer from disk
+        let (tokenizer, mut model, device) = self.load_model_and_tokenizer()?;
+        
+        // Run inference with instruction masking
         let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
         let task_ref = task.as_deref();
-        self.forward_pass_with_instruction(&text_refs, task_ref)
+        Self::forward_pass_with_instruction(&tokenizer, &mut model, &device, &text_refs, task_ref)
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
     
     fn embedding_dimension(&self) -> usize {
-        self.config.embed_dim as usize
+        self.info().embedding_dimension.unwrap_or(4096) as usize
     }
     
     fn supported_dimensions(&self) -> Vec<usize> {

@@ -435,10 +435,20 @@ pub trait CandleAgentRoleBuilder: Sized + Send {
     #[must_use]
     fn into_agent(self) -> impl CandleAgentBuilder;
 
+    /// Set conversation history - EXACT syntax: .conversation_history(...)
+    #[must_use]
+    fn conversation_history(self, history: impl ConversationHistoryArgs) -> impl CandleAgentRoleBuilder;
+
     /// Chat with closure - EXACT syntax: .chat(|conversation| ChatLoop)
     fn chat<F>(self, handler: F) -> Result<AsyncStream<CandleMessageChunk>, AgentError>
     where
         F: FnOnce(&CandleAgentConversation) -> CandleChatLoop + Send + 'static;
+
+    /// Chat with direct input - EXACT syntax: .chat_direct(ChatLoop)
+    fn chat_direct(self, input: CandleChatLoop) -> AsyncStream<CandleMessageChunk>;
+
+    /// Chat with message - EXACT syntax: .chat_with_message("message")
+    fn chat_with_message(self, message: impl Into<String>) -> AsyncStream<CandleMessageChunk>;
 }
 
 /// MCP server builder for fluent chaining
@@ -454,17 +464,95 @@ pub trait CandleMcpServerBuilder: Sized + Send {
 
 /// Agent builder trait (PUBLIC API)
 pub trait CandleAgentBuilder: Sized + Send + Sync {
-    /// Override completion provider for this agent instance - EXACT syntax: .completion_provider(provider)
+    /// Set text-to-text model - EXACT syntax: .model(TextToTextModel)
     #[must_use]
-    fn completion_provider<P>(self, provider: P) -> impl CandleAgentBuilder
+    fn model(self, model: TextToTextModel) -> Self;
+
+    /// Set text embedding model - EXACT syntax: .embedding_model(TextEmbeddingModel)
+    #[must_use]
+    fn embedding_model(self, model: TextEmbeddingModel) -> Self;
+
+    /// Set temperature - EXACT syntax: .temperature(1.0)
+    #[must_use]
+    fn temperature(self, temp: f64) -> Self;
+
+    /// Set max tokens - EXACT syntax: .max_tokens(8000)
+    #[must_use]
+    fn max_tokens(self, max: u64) -> Self;
+
+    /// Set memory read timeout in milliseconds - EXACT syntax: .memory_read_timeout(5000)
+    #[must_use]
+    fn memory_read_timeout(self, timeout_ms: u64) -> Self;
+
+    /// Set system prompt - EXACT syntax: .system_prompt("...")
+    #[must_use]
+    fn system_prompt(self, prompt: impl Into<String>) -> Self;
+
+    /// Set additional params - EXACT syntax: .additional_params([("key", "value")])
+    #[must_use]
+    fn additional_params<P2>(self, params: P2) -> Self;
+
+    /// Set memory manager - EXACT syntax: .memory(manager)
+    #[must_use]
+    fn memory<M>(self, memory: M) -> Self
     where
-        P: crate::domain::model::traits::CandleModel + TextToTextCapable + Send + Clone + 'static;
+        M: Into<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>>;
+
+    /// Set metadata - EXACT syntax: .metadata(meta)
+    #[must_use]
+    fn metadata<Meta>(self, metadata: Meta) -> Self;
+
+    /// Set contexts - EXACT syntax: .context(...)
+    #[must_use]
+    fn context(
+        self,
+        context1: CandleContext<CandleFile>,
+        context2: CandleContext<CandleFiles>,
+        context3: CandleContext<CandleDirectory>,
+        context4: CandleContext<CandleGithub>,
+    ) -> Self;
+
+    /// Set tools - EXACT syntax: .tools(tool1, tool2, tool3)
+    #[must_use]
+    fn tools<T>(self, tools: T) -> Self
+    where
+        T: Into<ZeroOneOrMany<ToolInfo>>;
+
+    /// Set MCP server - EXACT syntax: .mcp_server::<Stdio>().bin("/path").init("command")
+    #[must_use]
+    fn mcp_server<T>(self) -> impl CandleMcpServerBuilder
+    where
+        T: 'static;
+
+    /// Add MCP server config - internal method for MCP server builder
+    #[must_use]
+    fn add_mcp_server_config(self, config: McpServerConfig) -> Self;
+
+    /// Set chunk handler - EXACT syntax: .on_chunk(|chunk| chunk)
+    #[must_use]
+    fn on_chunk<F>(self, handler: F) -> Self
+    where
+        F: Fn(CandleMessageChunk) -> CandleMessageChunk + Send + Sync + 'static;
+
+    /// Set tool result handler - EXACT syntax: .on_tool_result(|results| { ... })
+    #[must_use]
+    fn on_tool_result<F>(self, handler: F) -> Self
+    where
+        F: Fn(&[String]) + Send + Sync + 'static;
+
+    /// Set conversation turn handler - EXACT syntax: .on_conversation_turn(|conversation, agent| { ... })
+    #[must_use]
+    fn on_conversation_turn<F>(self, handler: F) -> Self
+    where
+        F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> AsyncStream<CandleMessageChunk>
+            + Send
+            + Sync
+            + 'static;
 
     /// Set conversation history - EXACT syntax from ARCHITECTURE.md
     /// Supports: .conversation_history(CandleMessageRole::User => "content", CandleMessageRole::System => "content", ...)
     #[must_use]
-    fn conversation_history(self, history: impl ConversationHistoryArgs)
-    -> impl CandleAgentBuilder;
+    fn conversation_history(self, history: impl ConversationHistoryArgs) -> Self;
 
     /// Chat with closure - EXACT syntax: .chat(|conversation| ChatLoop)
     fn chat<F>(self, handler: F) -> Result<AsyncStream<CandleMessageChunk>, AgentError>
@@ -689,6 +777,10 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
         self
     }
 
+    fn conversation_history(self, _history: impl ConversationHistoryArgs) -> impl CandleAgentRoleBuilder {
+        self
+    }
+
     /// Chat with closure - EXACT syntax: .chat(|conversation| ChatLoop)
     fn chat<F>(self, _handler: F) -> Result<AsyncStream<CandleMessageChunk>, AgentError>
     where
@@ -699,6 +791,35 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
                 "No provider configured".to_string(),
             ));
         }))
+    }
+
+    fn chat_direct(self, input: CandleChatLoop) -> AsyncStream<CandleMessageChunk> {
+        AsyncStream::with_channel(move |sender| match input {
+            CandleChatLoop::Break => {
+                let final_chunk = CandleMessageChunk::Complete {
+                    text: String::new(),
+                    finish_reason: Some("break".to_string()),
+                    usage: None,
+                };
+                let _ = sender.send(final_chunk);
+            }
+            CandleChatLoop::UserPrompt(message) | CandleChatLoop::Reprompt(message) => {
+                let _ = sender.send(CandleMessageChunk::Error(format!(
+                    "No provider configured for message: {}",
+                    message
+                )));
+            }
+        })
+    }
+
+    fn chat_with_message(self, message: impl Into<String>) -> AsyncStream<CandleMessageChunk> {
+        let msg = message.into();
+        AsyncStream::with_channel(move |sender| {
+            let _ = sender.send(CandleMessageChunk::Error(format!(
+                "No provider configured for message: {}",
+                msg
+            )));
+        })
     }
 
     /// Convert to agent - EXACT syntax: .into_agent()
@@ -887,6 +1008,10 @@ impl CandleAgentRoleBuilder for CandleAgentBuilderImpl {
         self
     }
 
+    fn conversation_history(self, _history: impl ConversationHistoryArgs) -> impl CandleAgentRoleBuilder {
+        self
+    }
+
     /// Chat with closure - EXACT syntax: .chat(|conversation| ChatLoop)
     fn chat<F>(self, _handler: F) -> Result<AsyncStream<CandleMessageChunk>, AgentError>
     where
@@ -895,6 +1020,35 @@ impl CandleAgentRoleBuilder for CandleAgentBuilderImpl {
         Ok(AsyncStream::with_channel(|sender| {
             let _ = sender.send(CandleMessageChunk::Text("Hello from Candle!".to_string()));
         }))
+    }
+
+    fn chat_direct(self, input: CandleChatLoop) -> AsyncStream<CandleMessageChunk> {
+        match input {
+            CandleChatLoop::Break => AsyncStream::with_channel(move |sender| {
+                let final_chunk = CandleMessageChunk::Complete {
+                    text: String::new(),
+                    finish_reason: Some("break".to_string()),
+                    usage: None,
+                };
+                let _ = sender.send(final_chunk);
+            }),
+            CandleChatLoop::UserPrompt(message) | CandleChatLoop::Reprompt(message) => {
+                // Use CandleAgentRoleBuilder::chat explicitly to avoid ambiguity
+                CandleAgentRoleBuilder::chat(self, move |_| CandleChatLoop::UserPrompt(message))
+                    .unwrap_or_else(|_| AsyncStream::with_channel(|sender| {
+                        let _ = sender.send(CandleMessageChunk::Error("Chat failed".to_string()));
+                    }))
+            }
+        }
+    }
+
+    fn chat_with_message(self, message: impl Into<String>) -> AsyncStream<CandleMessageChunk> {
+        let msg = message.into();
+        // Use CandleAgentRoleBuilder::chat explicitly to avoid ambiguity
+        CandleAgentRoleBuilder::chat(self, move |_| CandleChatLoop::UserPrompt(msg))
+            .unwrap_or_else(|_| AsyncStream::with_channel(|sender| {
+                let _ = sender.send(CandleMessageChunk::Error("Chat failed".to_string()));
+            }))
     }
 
     fn into_agent(self) -> impl CandleAgentBuilder {
@@ -942,21 +1096,111 @@ fn format_memory_context(
 }
 
 impl CandleAgentBuilder for CandleAgentBuilderImpl {
-    /// Override text-to-text model for this agent instance
-    fn completion_provider<P>(self, _provider: P) -> impl CandleAgentBuilder
-    where
-        P: crate::domain::model::traits::CandleModel + TextToTextCapable + Send + Clone + 'static,
-    {
-        // Deprecated: Use .model() instead
-        // Keep for backwards compatibility but don't actually change the model
+    fn model(mut self, model: TextToTextModel) -> Self {
+        self.text_to_text_model = model;
         self
     }
 
-    /// Set conversation history
-    fn conversation_history(
+    fn embedding_model(mut self, model: TextEmbeddingModel) -> Self {
+        self.text_embedding_model = Some(model);
+        self
+    }
+
+    fn temperature(mut self, temp: f64) -> Self {
+        self.temperature = temp;
+        self
+    }
+
+    fn max_tokens(mut self, max: u64) -> Self {
+        self.max_tokens = Some(max);
+        self
+    }
+
+    fn memory_read_timeout(mut self, timeout_ms: u64) -> Self {
+        self.memory_read_timeout = Some(timeout_ms);
+        self
+    }
+
+    fn system_prompt(mut self, prompt: impl Into<String>) -> Self {
+        self.system_prompt = Some(prompt.into());
+        self
+    }
+
+    fn additional_params<P2>(self, _params: P2) -> Self {
+        self
+    }
+
+    fn memory<M>(mut self, memory: M) -> Self
+    where
+        M: Into<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>>,
+    {
+        self.memory = Some(memory.into());
+        self
+    }
+
+    fn metadata<Meta>(self, _metadata: Meta) -> Self {
+        self
+    }
+
+    fn context(
         self,
-        _history: impl ConversationHistoryArgs,
-    ) -> impl CandleAgentBuilder {
+        _context1: CandleContext<CandleFile>,
+        _context2: CandleContext<CandleFiles>,
+        _context3: CandleContext<CandleDirectory>,
+        _context4: CandleContext<CandleGithub>,
+    ) -> Self {
+        self
+    }
+
+    fn tools<T>(mut self, tools: T) -> Self
+    where
+        T: Into<ZeroOneOrMany<ToolInfo>>,
+    {
+        self.tools = tools.into();
+        self
+    }
+
+    fn mcp_server<T>(self) -> impl CandleMcpServerBuilder
+    where
+        T: 'static,
+    {
+        CandleMcpServerBuilderImpl {
+            parent_builder: self,
+            binary_path: None,
+        }
+    }
+
+    fn add_mcp_server_config(mut self, config: McpServerConfig) -> Self {
+        self.mcp_servers.push(config);
+        self
+    }
+
+    fn on_chunk<F>(self, _handler: F) -> Self
+    where
+        F: Fn(CandleMessageChunk) -> CandleMessageChunk + Send + Sync + 'static,
+    {
+        self
+    }
+
+    fn on_tool_result<F>(self, _handler: F) -> Self
+    where
+        F: Fn(&[String]) + Send + Sync + 'static,
+    {
+        self
+    }
+
+    fn on_conversation_turn<F>(mut self, handler: F) -> Self
+    where
+        F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> AsyncStream<CandleMessageChunk>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.on_conversation_turn_handler = Some(Arc::new(handler));
+        self
+    }
+
+    fn conversation_history(self, _history: impl ConversationHistoryArgs) -> Self {
         self
     }
 

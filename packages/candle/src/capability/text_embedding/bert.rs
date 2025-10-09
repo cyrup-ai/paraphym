@@ -3,180 +3,35 @@
 //! This provider uses sentence-transformers/all-MiniLM-L6-v2 model for generating
 //! 384-dimensional embeddings with ProgressHub download and Candle inference.
 
-
-use std::sync::Mutex;
-
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
-use candle_transformers::models::bert::{BertModel, Config, DTYPE};
+use candle_transformers::models::bert::{BertModel, Config};
 use tokenizers::{Tokenizer, PaddingParams, TruncationParams};
 use crate::memory::utils::error::{Error as MemoryError, Result};
 use crate::domain::model::traits::CandleModel;
 use crate::domain::model::CandleModelInfo;
 use std::num::NonZeroU32;
 
-/// Configuration for BERT embedding model
-#[derive(Debug, Clone)]
-pub struct CandleBertConfig {
-    /// Maximum sequence length for tokenization
-    pub max_length: usize,
-    /// Model dimension (384 for all-MiniLM-L6-v2)
-    pub dimension: usize,
-    /// Data type for inference
-    pub dtype: DType,
-    /// Device for inference
-    pub device: Device,
-}
 
-impl Default for CandleBertConfig {
-    fn default() -> Self {
-        Self {
-            max_length: 512,
-            dimension: 384,
-            dtype: DType::F32,
-            device: Device::Cpu,
-        }
-    }
-}
 
 /// BERT embedding provider using Candle ML framework
 /// 
 /// Provides high-performance local embeddings using sentence-transformers/all-MiniLM-L6-v2
 /// with automatic model download via ProgressHub and zero-allocation inference patterns.
-pub struct CandleBertEmbeddingModel {
-    /// Model cache directory path
-    model_path: String,
-    /// Model configuration
-    config: CandleBertConfig,
-    /// Loaded BERT model (thread-safe)
-    model: Mutex<BertModel>,
-    /// Tokenizer for text processing
-    tokenizer: Tokenizer,
-    /// Device for inference
-    device: Device,
-}
-
-impl std::fmt::Debug for CandleBertEmbeddingModel {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CandleBertEmbeddingModel")
-            .field("model_path", &self.model_path)
-            .field("config", &self.config)
-            .field("model", &"BertModel { .. }")
-            .field("tokenizer", &"Tokenizer { .. }")
-            .field("device", &format!("{:?}", self.device))
-            .finish()
-    }
-}
+#[derive(Debug, Clone)]
+pub struct CandleBertEmbeddingModel {}
 
 impl Default for CandleBertEmbeddingModel {
     fn default() -> Self {
-        crate::runtime::shared_runtime()
-            .unwrap_or_else(|| panic!("Shared runtime unavailable"))
-            .block_on(Self::new())
-            .unwrap_or_else(|e| panic!("Failed to initialize CandleBertEmbeddingModel: {}", e))
+        Self::new()
     }
 }
 
 impl CandleBertEmbeddingModel {
-    /// Create new BERT embedding provider with automatic model download
-    /// 
-    /// Downloads sentence-transformers/all-MiniLM-L6-v2 via ProgressHub and loads
-    /// the model for local inference using Candle ML framework.
-    /// 
-    /// # Returns
-    /// Result containing initialized provider ready for embedding generation
-    /// 
-    /// # Errors
-    /// Returns error if model download fails or model loading fails
-    pub async fn new() -> Result<Self> {
-        let config = CandleBertConfig::default();
-        Self::with_config(config).await
-    }
-
-    /// Create provider with custom configuration
-    pub async fn with_config(config: CandleBertConfig) -> Result<Self> {
-        use crate::domain::model::download::DownloadProviderFactory;
-        
-        // Use factory to get download provider (works with both backends)
-        let downloader = DownloadProviderFactory::create_default()
-            .map_err(|e| MemoryError::ModelError(format!("Failed to create download provider: {}", e)))?;
-        
-        // Download model files
-        let result = downloader.download_model(
-            "sentence-transformers/all-MiniLM-L6-v2",
-            vec!["model.safetensors".to_string(), "tokenizer.json".to_string(), "config.json".to_string()],
-            None,
-        ).collect()
-        .map_err(|e| MemoryError::ModelError(format!("Download task failed: {}", e)))?
-        .map_err(|e| MemoryError::ModelError(format!("Model download failed: {}", e)))?;
-        
-        // Use result.cache_dir for model path
-        Self::with_config_and_path(
-            config,
-            result.cache_dir.to_str()
-                .ok_or_else(|| MemoryError::ModelError("Invalid cache directory".to_string()))?
-                .to_string()
-        ).await
-    }
-
-    /// Create provider with custom configuration and existing model path
-    pub async fn with_config_and_path(config: CandleBertConfig, model_path: String) -> Result<Self> {
-        // Load tokenizer from model directory
-        let tokenizer_path = format!("{}/tokenizer.json", model_path);
-        let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
-            .map_err(|e| MemoryError::ModelError(format!("Failed to load tokenizer: {}", e)))?;
-
-        // Configure tokenizer for padding and truncation
-        if let Some(pad_token) = tokenizer.get_vocab(true).get("[PAD]").copied() {
-            let padding_params = PaddingParams {
-                strategy: tokenizers::PaddingStrategy::BatchLongest,
-                direction: tokenizers::PaddingDirection::Right,
-                pad_to_multiple_of: None,
-                pad_id: pad_token,
-                pad_type_id: 0,
-                pad_token: "[PAD]".to_string(),
-            };
-            tokenizer.with_padding(Some(padding_params));
-        }
-
-        if tokenizer.get_truncation().is_none() {
-            let truncation_params = TruncationParams {
-                max_length: config.max_length,
-                strategy: tokenizers::TruncationStrategy::LongestFirst,
-                stride: 0,
-                direction: tokenizers::TruncationDirection::Right,
-            };
-            tokenizer.with_truncation(Some(truncation_params)).map_err(|e| 
-                MemoryError::ModelError(format!("Failed to set tokenizer truncation: {}", e)))?;
-        }
-
-        // Load BERT model configuration
-        let config_path = format!("{}/config.json", model_path);
-        let config_json = std::fs::read_to_string(&config_path)
-            .map_err(|e| MemoryError::ModelError(format!("Failed to read config.json: {}", e)))?;
-        
-        let bert_config: Config = serde_json::from_str(&config_json)
-            .map_err(|e| MemoryError::ModelError(format!("Failed to parse config.json: {}", e)))?;
-
-        // Load model weights using safetensors (following approved BERT example)
-        let weights_path = format!("{}/model.safetensors", model_path);
-        let vb = unsafe { 
-            VarBuilder::from_mmaped_safetensors(&[weights_path], DTYPE, &config.device)
-                .map_err(|e| MemoryError::ModelError(format!("Failed to load model weights: {}", e)))?
-        };
-
-        // Create BERT model (exact pattern from approved example)
-        let model = BertModel::load(vb, &bert_config)
-            .map_err(|e| MemoryError::ModelError(format!("Failed to create BERT model: {}", e)))?;
-
-        let device = config.device.clone();
-        Ok(Self {
-            model_path,
-            config,
-            model: Mutex::new(model),
-            tokenizer,
-            device,
-        })
+    /// Create new BERT embedding provider
+    #[inline]
+    pub fn new() -> Self {
+        Self {}
     }
 
     /// Normalize embeddings using L2 normalization (from BERT example)
@@ -187,7 +42,8 @@ impl CandleBertEmbeddingModel {
 
     /// Attention-mask-aware mean pooling (fixes critical correctness bug)
     /// This is the CORRECT way to pool BERT embeddings - excluding padding tokens
-    fn mean_pooling(&self, hidden_states: &Tensor, attention_mask: &Tensor) -> Result<Tensor> {
+    #[inline]
+    fn mean_pooling(hidden_states: &Tensor, attention_mask: &Tensor, device: &Device) -> Result<Tensor> {
         // Convert attention mask to float and expand dimensions to match hidden states
         let attention_mask_f32 = attention_mask.to_dtype(DType::F32)
             .map_err(|e| MemoryError::ModelError(format!("Failed to convert attention mask to F32: {}", e)))?;
@@ -210,7 +66,7 @@ impl CandleBertEmbeddingModel {
             .map_err(|e| MemoryError::ModelError(format!("Failed to sum attention mask: {}", e)))?;
 
         // Add small epsilon to avoid division by zero for sequences with all padding
-        let epsilon_val = Tensor::new(&[1e-9f32], &self.device)
+        let epsilon_val = Tensor::new(&[1e-9f32], device)
             .map_err(|e| MemoryError::ModelError(format!("Failed to create epsilon tensor: {}", e)))?;
         let ones = Tensor::ones_like(&sum_mask)
             .map_err(|e| MemoryError::ModelError(format!("Failed to create ones tensor: {}", e)))?;
@@ -227,10 +83,16 @@ impl CandleBertEmbeddingModel {
         Ok(mean_pooled)
     }
 
-    /// Process text through BERT model (exact pattern from approved example)
-    fn forward_pass(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
-        // Tokenize using exact pattern from approved BERT example (lines 156-176)
-        let tokens = self.tokenizer
+    /// Process text through BERT model
+    #[inline]
+    fn forward_pass(
+        tokenizer: &Tokenizer,
+        model: &BertModel,
+        device: &Device,
+        texts: &[&str],
+    ) -> Result<Vec<Vec<f32>>> {
+        // Tokenize
+        let tokens = tokenizer
             .encode_batch(texts.to_vec(), true)
             .map_err(|e| MemoryError::ModelError(format!("Tokenization failed: {}", e)))?;
             
@@ -238,7 +100,7 @@ impl CandleBertEmbeddingModel {
             .iter()
             .map(|tokens| {
                 let tokens = tokens.get_ids().to_vec();
-                Tensor::new(tokens.as_slice(), &self.device)
+                Tensor::new(tokens.as_slice(), device)
                     .map_err(|e| MemoryError::ModelError(format!("Tensor creation failed: {}", e)))
             })
             .collect::<Result<Vec<_>>>()?;
@@ -247,12 +109,12 @@ impl CandleBertEmbeddingModel {
             .iter()
             .map(|tokens| {
                 let tokens = tokens.get_attention_mask().to_vec();
-                Tensor::new(tokens.as_slice(), &self.device)
+                Tensor::new(tokens.as_slice(), device)
                     .map_err(|e| MemoryError::ModelError(format!("Tensor creation failed: {}", e)))
             })
             .collect::<Result<Vec<_>>>()?;
 
-        // Stack tensors (exact pattern from example line 174-176)
+        // Stack tensors
         let token_ids = Tensor::stack(&token_ids, 0)
             .map_err(|e| MemoryError::ModelError(format!("Tensor stack failed: {}", e)))?;
         let attention_mask = Tensor::stack(&attention_mask, 0)
@@ -260,17 +122,15 @@ impl CandleBertEmbeddingModel {
         let token_type_ids = token_ids.zeros_like()
             .map_err(|e| MemoryError::ModelError(format!("Tensor creation failed: {}", e)))?;
 
-        // Forward pass with thread-safe model access
-        let model = self.model.lock()
-            .map_err(|e| MemoryError::ModelError(format!("Failed to acquire model lock: {}", e)))?;
+        // Forward pass
         let embeddings = model
             .forward(&token_ids, &token_type_ids, Some(&attention_mask))
             .map_err(|e| MemoryError::ModelError(format!("BERT forward pass failed: {}", e)))?;
 
-        // Apply attention-mask-aware mean pooling (CRITICAL FIX - excludes padding tokens)
-        let pooled_embeddings = self.mean_pooling(&embeddings, &attention_mask)?;
+        // Apply attention-mask-aware mean pooling
+        let pooled_embeddings = Self::mean_pooling(&embeddings, &attention_mask, device)?;
 
-        // L2 normalization (exact pattern from example)
+        // L2 normalization
         let normalized = Self::normalize_l2(&pooled_embeddings)?;
 
         // Convert to Vec<Vec<f32>>
@@ -304,6 +164,20 @@ static BERT_EMBEDDING_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     model_id: "bert-minilm-l6-v2",
     quantization: "none",
     patch: None,
+    embedding_dimension: Some(384),
+    vocab_size: None,
+    image_size: None,
+    image_mean: None,
+    image_std: None,
+    default_temperature: None,
+    default_top_k: None,
+    default_top_p: None,
+    supports_kv_cache: false,
+    supports_flash_attention: false,
+    use_bf16: false,
+    default_steps: None,
+    default_guidance_scale: None,
+    time_shift: None,
 };
 
 impl CandleModel for CandleBertEmbeddingModel {
@@ -317,10 +191,76 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleBertEmbeddingMode
         -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> 
     {
         self.validate_input(text)?;
-        
         let _ = task; // BERT doesn't use task-specific instructions
-        let embeddings = self.forward_pass(&[text])
+        
+        // Get configuration from ModelInfo
+        let max_length = self.info().max_input_tokens
+            .ok_or("max_input_tokens missing in ModelInfo")?
+            .get() as usize;
+        
+        // Auto-detect device
+        let device = crate::core::device_util::detect_best_device()
+            .unwrap_or_else(|e| {
+                log::warn!("Device detection failed: {}. Using CPU.", e);
+                Device::Cpu
+            });
+        
+        // Auto-detect dtype based on device
+        let dtype = if device.is_cuda() { DType::F16 } else { DType::F32 };
+        
+        // Get file paths via huggingface_file
+        let model_weights_path = self.huggingface_file("model.safetensors")?;
+        let tokenizer_path = self.huggingface_file("tokenizer.json")?;
+        let config_path = self.huggingface_file("config.json")?;
+        
+        // Load tokenizer
+        let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
+            .map_err(|e| format!("Failed to load tokenizer: {}", e))?;
+        
+        // Configure tokenizer for padding and truncation
+        if let Some(pad_token) = tokenizer.get_vocab(true).get("[PAD]").copied() {
+            let padding_params = PaddingParams {
+                strategy: tokenizers::PaddingStrategy::BatchLongest,
+                direction: tokenizers::PaddingDirection::Right,
+                pad_to_multiple_of: None,
+                pad_id: pad_token,
+                pad_type_id: 0,
+                pad_token: "[PAD]".to_string(),
+            };
+            tokenizer.with_padding(Some(padding_params));
+        }
+        
+        if tokenizer.get_truncation().is_none() {
+            let truncation_params = TruncationParams {
+                max_length,
+                strategy: tokenizers::TruncationStrategy::LongestFirst,
+                stride: 0,
+                direction: tokenizers::TruncationDirection::Right,
+            };
+            tokenizer.with_truncation(Some(truncation_params))
+                .map_err(|e| format!("Failed to set tokenizer truncation: {}", e))?;
+        }
+        
+        // Load BERT model configuration
+        let config_json = std::fs::read_to_string(&config_path)
+            .map_err(|e| format!("Failed to read config.json: {}", e))?;
+        let bert_config: Config = serde_json::from_str(&config_json)
+            .map_err(|e| format!("Failed to parse config.json: {}", e))?;
+        
+        // Load model weights
+        let vb = unsafe {
+            VarBuilder::from_mmaped_safetensors(&[model_weights_path], dtype, &device)
+                .map_err(|e| format!("Failed to load model weights: {}", e))?
+        };
+        
+        // Create BERT model
+        let model = BertModel::load(vb, &bert_config)
+            .map_err(|e| format!("Failed to create BERT model: {}", e))?;
+        
+        // Run inference
+        let embeddings = Self::forward_pass(&tokenizer, &model, &device, &[text])
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+        
         embeddings.into_iter().next()
             .ok_or_else(|| "No embeddings generated".into())
     }
@@ -329,15 +269,80 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleBertEmbeddingMode
         -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> 
     {
         self.validate_batch(texts)?;
-        
         let _ = task; // BERT doesn't use task-specific instructions
+        
+        // Get configuration from ModelInfo
+        let max_length = self.info().max_input_tokens
+            .ok_or("max_input_tokens missing in ModelInfo")?
+            .get() as usize;
+        
+        // Auto-detect device
+        let device = crate::core::device_util::detect_best_device()
+            .unwrap_or_else(|e| {
+                log::warn!("Device detection failed: {}. Using CPU.", e);
+                Device::Cpu
+            });
+        
+        // Auto-detect dtype based on device
+        let dtype = if device.is_cuda() { DType::F16 } else { DType::F32 };
+        
+        // Get file paths via huggingface_file
+        let model_weights_path = self.huggingface_file("model.safetensors")?;
+        let tokenizer_path = self.huggingface_file("tokenizer.json")?;
+        let config_path = self.huggingface_file("config.json")?;
+        
+        // Load tokenizer
+        let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
+            .map_err(|e| format!("Failed to load tokenizer: {}", e))?;
+        
+        // Configure tokenizer for padding and truncation
+        if let Some(pad_token) = tokenizer.get_vocab(true).get("[PAD]").copied() {
+            let padding_params = PaddingParams {
+                strategy: tokenizers::PaddingStrategy::BatchLongest,
+                direction: tokenizers::PaddingDirection::Right,
+                pad_to_multiple_of: None,
+                pad_id: pad_token,
+                pad_type_id: 0,
+                pad_token: "[PAD]".to_string(),
+            };
+            tokenizer.with_padding(Some(padding_params));
+        }
+        
+        if tokenizer.get_truncation().is_none() {
+            let truncation_params = TruncationParams {
+                max_length,
+                strategy: tokenizers::TruncationStrategy::LongestFirst,
+                stride: 0,
+                direction: tokenizers::TruncationDirection::Right,
+            };
+            tokenizer.with_truncation(Some(truncation_params))
+                .map_err(|e| format!("Failed to set tokenizer truncation: {}", e))?;
+        }
+        
+        // Load BERT model configuration
+        let config_json = std::fs::read_to_string(&config_path)
+            .map_err(|e| format!("Failed to read config.json: {}", e))?;
+        let bert_config: Config = serde_json::from_str(&config_json)
+            .map_err(|e| format!("Failed to parse config.json: {}", e))?;
+        
+        // Load model weights
+        let vb = unsafe {
+            VarBuilder::from_mmaped_safetensors(&[model_weights_path], dtype, &device)
+                .map_err(|e| format!("Failed to load model weights: {}", e))?
+        };
+        
+        // Create BERT model
+        let model = BertModel::load(vb, &bert_config)
+            .map_err(|e| format!("Failed to create BERT model: {}", e))?;
+        
+        // Run inference
         let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
-        self.forward_pass(&text_refs)
+        Self::forward_pass(&tokenizer, &model, &device, &text_refs)
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
     
     fn embedding_dimension(&self) -> usize {
-        self.config.dimension
+        self.info().embedding_dimension.unwrap_or(384) as usize
     }
     
     fn supported_dimensions(&self) -> Vec<usize> {

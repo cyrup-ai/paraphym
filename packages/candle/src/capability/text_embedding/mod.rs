@@ -9,8 +9,8 @@ pub mod nvembed;
 pub mod stella;
 
 // Re-exports for convenience
-pub use bert::{CandleBertConfig, CandleBertEmbeddingModel};
-pub use gte_qwen::{CandleGteQwenConfig, CandleGteQwenEmbeddingModel};
-pub use jina_bert::{CandleJinaBertConfig, CandleJinaBertEmbeddingModel};
-pub use nvembed::{CandleNvEmbedConfig, CandleNvEmbedEmbeddingModel};
-pub use stella::{StellaConfig, StellaEmbeddingModel};
+pub use bert::CandleBertEmbeddingModel;
+pub use gte_qwen::CandleGteQwenEmbeddingModel;
+pub use jina_bert::CandleJinaBertEmbeddingModel;
+pub use nvembed::CandleNvEmbedEmbeddingModel;
+pub use stella::StellaEmbeddingModel;

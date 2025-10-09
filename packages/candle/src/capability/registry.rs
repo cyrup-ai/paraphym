@@ -23,6 +23,15 @@
 //! ## Thread Safety
 //!
 //! Uses `LazyLock` for one-time initialization of static HashMap registries.
+//! Runtime registries use `OnceLock<RwLock<HashMap>>` for thread-safe mutation.
+//!
+//! ## Runtime Registration
+//!
+//! Some models (ClipVision, FluxSchnell, StableDiffusion35Turbo) require explicit
+//! configuration or weight downloads and cannot be statically initialized. Use:
+//! - `register_image_embedding()` for ClipVision models
+//! - `register_text_to_image()` for Flux/StableDiffusion models
+//! - `get_image_embedding_runtime()` / `get_text_to_image_runtime()` to retrieve them
 
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, RwLock, OnceLock};
@@ -352,17 +361,17 @@ static TEXT_EMBEDDING_REGISTRY: LazyLock<HashMap<&'static str, TextEmbeddingMode
         map
     });
 
+// IMAGE_EMBEDDING_REGISTRY: Empty because ClipVision requires local model files, not HF downloads
+// Use runtime registration after downloading weights manually
 static IMAGE_EMBEDDING_REGISTRY: LazyLock<HashMap<&'static str, ImageEmbeddingModel>> = 
-    LazyLock::new(|| {
-        HashMap::new()
-    });
+    LazyLock::new(HashMap::new);
 
 static IMAGE_EMBEDDING_RUNTIME: OnceLock<RwLock<HashMap<String, ImageEmbeddingModel>>> = OnceLock::new();
 
+// TEXT_TO_IMAGE_REGISTRY: Empty because Flux/SD require local model files, not HF downloads  
+// Use runtime registration after downloading weights manually
 static TEXT_TO_IMAGE_REGISTRY: LazyLock<HashMap<&'static str, TextToImageModel>> = 
-    LazyLock::new(|| {
-        HashMap::new()
-    });
+    LazyLock::new(HashMap::new);
 
 static TEXT_TO_IMAGE_RUNTIME: OnceLock<RwLock<HashMap<String, TextToImageModel>>> = OnceLock::new();
 

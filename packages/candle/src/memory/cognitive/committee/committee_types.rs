@@ -48,7 +48,7 @@ pub struct Committee {
 
 impl Committee {
     pub async fn new(config: CommitteeConfig) -> Result<Self, CognitiveError> {
-        let kimi_model = Arc::new(CandleKimiK2Model::new().await
+        let kimi_model = Arc::new(CandleKimiK2Model::new()
             .map_err(|e| CognitiveError::InitializationError(e.to_string()))?);
         let qwen_model = Arc::new(CandleQwen3CoderModel::new().await
             .map_err(|e| CognitiveError::InitializationError(e.to_string()))?);

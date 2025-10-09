@@ -4,6 +4,7 @@ use extism::*;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use log::{info, warn, error};
+use crate::security::shell_executor::register_shell_host_functions;
 
 /// Configuration for OCI registry plugin loading
 #[derive(Debug, Clone)]
@@ -192,6 +193,10 @@ impl ToolConfiguratorHost {
         let manifest = Manifest::new([Wasm::data(wasm)]);
         let mut plugin = Plugin::new(&manifest, [], true)
             .with_context(|| format!("Failed to create plugin from: {:?}", path))?;
+        
+        // Register shell execution host function
+        register_shell_host_functions(&mut plugin)
+            .with_context(|| format!("Failed to register host functions for plugin: {:?}", path))?;
             
         // Get plugin metadata
         let metadata: serde_json::Value = plugin.call("get_metadata", "")
@@ -300,6 +305,10 @@ impl ToolConfiguratorHost {
         let manifest = extism::Manifest::new([extism::Wasm::data(wasm_bytes)]);
         let mut plugin = Plugin::new(&manifest, [], true)
             .with_context(|| format!("Failed to create plugin from: {}", reference_str))?;
+        
+        // Register shell execution host function
+        register_shell_host_functions(&mut plugin)
+            .with_context(|| format!("Failed to register host functions for plugin: {}", reference_str))?;
         
         // Get plugin metadata
         let metadata: serde_json::Value = plugin.call("get_metadata", "")

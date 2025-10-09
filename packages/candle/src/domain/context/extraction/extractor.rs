@@ -37,23 +37,33 @@ where
 
 /// Implementation of the Extractor trait
 #[derive(Clone)]
-pub struct ExtractorImpl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + 'static> {
-    provider: Arc<dyn TextToTextCapable + Send + Sync>,
+pub struct ExtractorImpl<T, P> 
+where
+    T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + 'static,
+    P: TextToTextCapable + Send + Sync + Clone,
+{
+    provider: P,
     system_prompt: Option<String>,
     _marker: PhantomData<T>,
 }
 
-impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + 'static> fmt::Debug for ExtractorImpl<T> {
+impl<T, P> fmt::Debug for ExtractorImpl<T, P> 
+where
+    T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + 'static,
+    P: TextToTextCapable + Send + Sync + Clone,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ExtractorImpl")
-            .field("provider", &"<dyn TextToTextCapable>")
+            .field("provider", &"<TextToTextCapable>")
             .field("system_prompt", &self.system_prompt)
             .finish()
     }
 }
 
-impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static + MessageChunk> Extractor<T>
-    for ExtractorImpl<T>
+impl<T, P> Extractor<T> for ExtractorImpl<T, P>
+where
+    T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static + MessageChunk,
+    P: TextToTextCapable + Send + Sync + Clone,
 {
     fn system_prompt(&self) -> Option<&str> {
         self.system_prompt.as_deref()
@@ -66,7 +76,7 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static 
 
     fn extract_from(&self, text: &str) -> AsyncStream<T> {
         let text = text.to_string();
-        let provider = Arc::clone(&self.provider);
+        let provider = self.provider.clone();
         let system_prompt = self.system_prompt.clone().unwrap_or_else(|| {
             format!("Extract structured data from the following text. Return ONLY valid JSON matching the expected schema. Text: {text}")
         });
@@ -84,7 +94,7 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static 
             };
 
             // Execute extraction synchronously using ystream pattern
-            let model = provider.as_ref();
+            let model = &provider;
             let prompt = Prompt {
                 content: completion_request.system_prompt,
                 role: MessageRole::System,
@@ -149,9 +159,13 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static 
     }
 }
 
-impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static + MessageChunk> ExtractorImpl<T> {
+impl<T, P> ExtractorImpl<T, P>
+where
+    T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static + MessageChunk,
+    P: TextToTextCapable + Send + Sync + Clone,
+{
     /// Create new extractor with provider
-    pub fn new_with_provider(provider: Arc<dyn TextToTextCapable + Send + Sync>) -> Self {
+    pub fn new_with_provider(provider: P) -> Self {
         Self {
             provider,
             system_prompt: None,
@@ -161,7 +175,7 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static 
 
     /// Get the provider reference
     #[must_use]
-    pub fn provider(&self) -> &Arc<dyn TextToTextCapable + Send + Sync> {
+    pub fn provider(&self) -> &P {
         &self.provider
     }
 

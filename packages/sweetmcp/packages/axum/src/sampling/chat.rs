@@ -1,5 +1,8 @@
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -243,21 +246,63 @@ fn translate_openai_to_mcp(request: &ChatRequest) -> McpSamplingParams {
     }
 }
 
-// Helper function to translate MCP response to OpenAI format
-#[allow(dead_code)] // Future feature for OpenAI API compatibility
-fn translate_mcp_to_openai(_mcp_response: &Value) -> Result<ChatResponse, anyhow::Error> {
-    // This is a placeholder implementation - would need proper mapping
-    // Generate a session token for conversation continuity
+/// Translates MCP CreateMessageResult to OpenAI ChatResponse format
+fn translate_mcp_to_openai(mcp_response: &Value) -> Result<ChatResponse, anyhow::Error> {
+    // 1. Deserialize MCP response to typed struct
+    let mcp_result: super::model::CreateMessageResult = serde_json::from_value(mcp_response.clone())
+        .context("Failed to deserialize MCP response")?;
+    
+    // 2. Extract text content from single content object
+    let text_content = mcp_result.content.text
+        .unwrap_or_else(|| String::from(""));
+    
+    if text_content.is_empty() {
+        return Err(anyhow::anyhow!("MCP response contains no text content"));
+    }
+    
+    // 3. Create ChatMessage for the choice
+    let message = ChatMessage {
+        role: Role::Assistant,
+        content: Some(text_content.clone()),
+        tool_calls: None,
+        tool_call_id: None,
+        name: None,
+    };
+    
+    // 4. Map MCP stop_reason to OpenAI finish_reason
+    let finish_reason = match mcp_result.stop_reason.as_deref() {
+        Some("endTurn") => "stop",
+        Some("maxTokens") => "length",
+        Some("stopSequence") => "stop",
+        _ => "stop",
+    }.to_string();
+    
+    // 5. Create ChatChoice
+    let choice = ChatChoice {
+        index: 0,
+        message,
+        finish_reason: Some(finish_reason),
+        logprobs: None,
+    };
+    
+    // 6. Generate deterministic ID using content hash
+    let mut hasher = DefaultHasher::new();
+    text_content.hash(&mut hasher);
+    let content_hash = format!("{:016x}", hasher.finish());
+    let chat_id = format!("chatcmpl-{}", content_hash);
+    
+    // 7. Generate session token for conversation continuity
     let session_token = format!("session-{}", uuid::Uuid::new_v4());
-
+    
+    // 8. Build final OpenAI-compatible response
     Ok(ChatResponse {
-        id: format!("chat-{}", uuid::Uuid::new_v4()),
+        id: chat_id,
         object: "chat.completion".to_string(),
         created: chrono::Utc::now().timestamp() as u64,
-        model: "gpt-3.5-turbo".to_string(),
-        choices: vec![],
-        usage: None,
-        system_fingerprint: None,
+        model: mcp_result.model,
+        choices: vec![choice],
+        usage: mcp_result.usage, // MCP usage is already in OpenAI-compatible format
+        system_fingerprint: Some(format!("mcp-{}", env!("CARGO_PKG_VERSION"))),
         session_token,
     })
 }

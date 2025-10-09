@@ -117,11 +117,9 @@ impl LocalEngine {
     ) {
         use ystream::spawn_task;
         
-        let provider_task = spawn_task(|| {
-            let config = crate::capability::text_to_text::kimi_k2::CandleKimiK2Config::default();
-            let model_path = std::env::var("KIMI_MODEL_PATH").unwrap_or_else(|_| "./models/kimi-k2".to_string());
-            CandleKimiK2Model::with_config_sync(model_path, config)
-                .map_err(|e| format!("Model initialization failed: {e}"))
+        let provider_task = spawn_task(|| -> Result<CandleKimiK2Model, String> {
+            CandleKimiK2Model::new()
+                .map_err(|e| format!("Kimi K2 model initialization failed: {e}"))
         });
         
         let provider_result = match provider_task.collect() {
@@ -174,10 +172,8 @@ impl LocalEngine {
     ) {
         use ystream::spawn_task;
         
-        let provider_task = spawn_task(|| {
-            let config = crate::capability::text_to_text::qwen3_coder::CandleQwen3CoderConfig::default();
-            let model_path = std::env::var("QWEN3_MODEL_PATH").unwrap_or_else(|_| "./models/qwen3-coder".to_string());
-            CandleQwen3CoderModel::with_config_sync(model_path, config)
+        let provider_task = spawn_task(|| async {
+            CandleQwen3CoderModel::new().await
                 .map_err(|e| format!("Qwen3Coder model initialization failed: {e}"))
         });
         

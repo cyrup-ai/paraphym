@@ -21,6 +21,7 @@ use crate::core::{Engine, EngineConfig};
 use crate::domain::completion::{CandleCompletionChunk, CandleCompletionParams};
 use crate::domain::context::CandleStringChunk;
 use crate::domain::model::{info::CandleModelInfo, traits::CandleModel};
+use crate::domain::model::download::ModelDownloadProvider;
 use crate::domain::prompt::CandlePrompt;
 
 /// Builder trait for Qwen3 Coder completion providers
@@ -38,8 +39,6 @@ pub struct CandleQwen3CoderModel {
     model_path: String,
     /// GGUF model file path
     gguf_file_path: String,
-    /// Provider configuration
-    config: CandleQwen3CoderConfig,
     /// Model configuration for inference
     model_config: LlamaConfig,
     /// Engine for orchestration and stream conversion
@@ -55,100 +54,7 @@ impl Default for CandleQwen3CoderModel {
     }
 }
 
-/// Configuration for Qwen3 Coder model inference
-#[derive(Debug, Clone)]
-pub struct CandleQwen3CoderConfig {
-    /// Maximum context length for inference
-    max_context: u32,
-    /// Default temperature for sampling
-    temperature: f64,
-    /// Vocabulary size for tokenization
-    vocab_size: u32,
-    /// Enable key-value caching for faster inference
-    use_kv_cache: bool,
-    /// Data type for model weights (F16, BF16, F32)
-    dtype: DType,
-    /// Top-k sampling parameter (None = disabled)
-    pub top_k: Option<usize>,
-    /// Top-p nucleus sampling parameter (None = disabled)
-    pub top_p: Option<f64>,
-}
 
-impl Default for CandleQwen3CoderConfig {
-    #[inline]
-    fn default() -> Self {
-        Self {
-            max_context: 32768, // 32K context for Qwen3-Coder
-            temperature: 0.1,   // Lower temperature for code generation
-            vocab_size: 152064, // Qwen3 vocabulary size
-            use_kv_cache: true,
-            dtype: DType::F16,
-            top_k: Some(50),
-            top_p: Some(0.9),
-        }
-    }
-}
-
-impl CandleQwen3CoderConfig {
-    /// Get the temperature setting
-    #[inline]
-    pub fn temperature(&self) -> f64 {
-        self.temperature
-    }
-
-    /// Set temperature for sampling
-    #[inline]
-    pub fn with_temperature(mut self, temperature: f64) -> Self {
-        self.temperature = temperature;
-        self
-    }
-
-    /// Get the maximum context length
-    #[inline]
-    pub fn max_context(&self) -> u32 {
-        self.max_context
-    }
-
-    /// Set maximum context length
-    #[inline]
-    pub fn with_max_context(mut self, max_context: u32) -> Self {
-        self.max_context = max_context;
-        self
-    }
-
-    /// Get vocabulary size
-    #[inline]
-    pub fn vocab_size(&self) -> u32 {
-        self.vocab_size
-    }
-
-    /// Check if KV cache is enabled
-    #[inline]
-    pub fn uses_kv_cache(&self) -> bool {
-        self.use_kv_cache
-    }
-
-    /// Enable or disable KV cache
-    #[inline]
-    pub fn with_kv_cache(mut self, use_cache: bool) -> Self {
-        self.use_kv_cache = use_cache;
-        self
-    }
-
-    /// Set top-k sampling parameter
-    #[inline]
-    pub fn with_top_k(mut self, top_k: Option<usize>) -> Self {
-        self.top_k = top_k;
-        self
-    }
-
-    /// Set top-p nucleus sampling parameter
-    #[inline]
-    pub fn with_top_p(mut self, top_p: Option<f64>) -> Self {
-        self.top_p = top_p;
-        self
-    }
-}
 
 impl CandleQwen3CoderModel {
     /// Create new Qwen3 Coder provider with automatic model download
@@ -164,119 +70,74 @@ impl CandleQwen3CoderModel {
     /// # Errors
     /// Returns error if model download fails or model loading fails
     pub async fn new() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let config = CandleQwen3CoderConfig::default();
-        Self::with_config_async(config).await
-    }
-
-    /// Create provider with custom configuration and automatic download
-    pub async fn with_config_async(
-        config: CandleQwen3CoderConfig,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        use crate::domain::model::download::DownloadProviderFactory;
-
-        // Use factory to get download provider (works with both backends)
-        let downloader = DownloadProviderFactory::create_default()?;
-
-        // Download model files with quantization
-        let result = downloader
-            .download_model(
-                "Qwen/Qwen2.5-Coder-32B-Instruct-GGUF",
-                vec!["*.gguf".to_string(), "tokenizer.json".to_string()],
-                Some("Q4_K_M".to_string()), // Default quantization for GGUF
-            )
-            .collect()
-            .map_err(|e| {
-                Box::<dyn std::error::Error + Send + Sync>::from(format!(
-                    "Download task failed: {}",
-                    e
-                ))
-            })??;
-
-        // Find GGUF file from results
-        let gguf_file = result
-            .files
+        use hf_hub::api::tokio::Api;
+        
+        // Create HuggingFace API instance
+        let api = Api::new()
+            .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(format!("Failed to create HF API: {}", e)))?;
+        
+        // Get the model repository
+        let repo = api.model(QWEN3_CODER_MODEL_INFO.registry_key.to_string());
+        
+        // List files in the repo to find GGUF file
+        let repo_info = repo.info().await
+            .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(format!("Failed to get repo info: {}", e)))?;
+        
+        // Find a GGUF file (prefer Q4_K_M quantization)
+        let gguf_filename = repo_info
+            .siblings
             .iter()
-            .find(|f| f.extension().and_then(|s| s.to_str()) == Some("gguf"))
+            .filter(|f| f.rfilename.ends_with(".gguf"))
+            .find(|f| f.rfilename.contains("Q4_K_M"))
+            .or_else(|| {
+                // Fallback to any .gguf file if Q4_K_M not found
+                repo_info.siblings.iter().find(|f| f.rfilename.ends_with(".gguf"))
+            })
             .ok_or_else(|| {
-                Box::<dyn std::error::Error + Send + Sync>::from("GGUF file not found in download")
-            })?;
-
-        Self::with_config_sync_gguf(
-            result
-                .cache_dir
-                .to_str()
-                .ok_or_else(|| {
-                    Box::<dyn std::error::Error + Send + Sync>::from("Invalid cache directory")
-                })?
-                .to_string(),
-            gguf_file
+                Box::<dyn std::error::Error + Send + Sync>::from("No GGUF file found in repository")
+            })?
+            .rfilename
+            .clone();
+        
+        // Download GGUF file
+        let gguf_path = repo.get(&gguf_filename).await
+            .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(format!("Failed to download GGUF file: {}", e)))?;
+        
+        // Download tokenizer
+        let _tokenizer_path = repo.get("tokenizer.json").await
+            .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(format!("Failed to download tokenizer: {}", e)))?;
+        
+        // Extract model directory from GGUF file path
+        let model_cache_dir = gguf_path.parent()
+            .ok_or_else(|| {
+                Box::<dyn std::error::Error + Send + Sync>::from("Could not determine model directory")
+            })?
+            .to_str()
+            .ok_or_else(|| {
+                Box::<dyn std::error::Error + Send + Sync>::from("Invalid model directory path")
+            })?
+            .to_string();
+        
+        Self::from_gguf(
+            model_cache_dir,
+            gguf_path
                 .to_str()
                 .ok_or_else(|| {
                     Box::<dyn std::error::Error + Send + Sync>::from("Invalid GGUF file path")
                 })?
                 .to_string(),
-            config,
         )
     }
 
-    /// Create provider with custom configuration and existing model path
-    pub fn with_config_sync(
-        model_path: String,
-        config: CandleQwen3CoderConfig,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        // Log SIMD capabilities for performance debugging
-        let cpu_info = get_cpu_features();
-        log::info!(
-            "Qwen3 Coder Provider initialized with SIMD support: {} (vector width: {} elements)",
-            cpu_info.has_simd(),
-            cpu_info.vector_width()
-        );
-
-        // Create model configuration for Qwen3 Coder (Qwen-based architecture)
-        let model_config = LlamaConfig {
-            vocab_size: config.vocab_size as usize,
-            hidden_size: 8192,            // Qwen3-Coder-30B hidden size
-            intermediate_size: 29568,     // FFN intermediate size
-            num_hidden_layers: 64,        // Number of layers
-            num_attention_heads: 64,      // Number of attention heads
-            num_key_value_heads: Some(8), // GQA configuration
-            max_position_embeddings: config.max_context as usize,
-            rms_norm_eps: 1e-6,
-            rope_theta: 1000000.0,      // Qwen3 RoPE theta
-            bos_token_id: Some(151643), // Qwen3 BOS token
-            eos_token_id: Some(candle_transformers::models::llama::LlamaEosToks::Single(
-                151645,
-            )), // Qwen3 EOS token
-            rope_scaling: None,
-            tie_word_embeddings: Some(false),
-        };
-
-        // Create engine configuration
-        let engine_config = EngineConfig::new("qwen3-coder", "candle-qwen")
-            .with_streaming()
-            .with_max_tokens(config.max_context)
-            .with_temperature(config.temperature as f32);
-
-        let engine = Arc::new(Engine::new(engine_config)?);
-
-        Ok(Self {
-            model_path: model_path.clone(),
-            gguf_file_path: model_path, // For sync method, assume model_path is the GGUF file
-            config,
-            model_config,
-            engine,
-        })
-    }
-
-    /// Create provider with custom configuration and GGUF metadata extraction for Qwen3-Coder
+    /// Create provider from GGUF file with metadata extraction for Qwen3-Coder
     ///
     /// This method reads the GGUF file metadata to extract real Qwen3-Coder model configuration
     /// instead of using hardcoded values, ensuring accurate model parameters for code generation.
+    /// All configuration values come from QWEN3_CODER_MODEL_INFO (self.info()).
     #[inline]
-    pub fn with_config_sync_gguf(
+    pub fn from_gguf(
         model_cache_dir: String,
         gguf_file_path: String,
-        config: CandleQwen3CoderConfig,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Log SIMD capabilities for performance debugging
         let cpu_info = get_cpu_features();
@@ -285,6 +146,13 @@ impl CandleQwen3CoderModel {
             cpu_info.has_simd(),
             cpu_info.vector_width()
         );
+
+        // Get configuration from ModelInfo
+        let max_context = QWEN3_CODER_MODEL_INFO.max_input_tokens
+            .map(|t| t.get())
+            .unwrap_or(32768);
+        let default_temperature = QWEN3_CODER_MODEL_INFO.default_temperature.unwrap_or(0.7);
+        let info_vocab_size = QWEN3_CODER_MODEL_INFO.vocab_size.unwrap_or(151936);
 
         // Read GGUF file metadata for real model configuration
         let mut file = std::fs::File::open(&gguf_file_path)?;
@@ -338,7 +206,7 @@ impl CandleQwen3CoderModel {
             .and_then(|v| v.to_f64().ok())
             .unwrap_or(1000000.0) as f32; // Qwen3 uses higher rope_theta than standard Llama
 
-        // Extract vocab_size from metadata or use config default
+        // Extract vocab_size from metadata or use ModelInfo default
         let vocab_size = content
             .metadata
             .get("tokenizer.ggml.token_count")
@@ -346,7 +214,7 @@ impl CandleQwen3CoderModel {
             .or_else(|| content.metadata.get("llama.vocab_size"))
             .and_then(|v| v.to_u64().ok())
             .map(|v| v as usize)
-            .unwrap_or(config.vocab_size as usize);
+            .unwrap_or(info_vocab_size as usize);
 
         // Extract Qwen3-specific token IDs with fallbacks
         let bos_token_id = content
@@ -371,7 +239,7 @@ impl CandleQwen3CoderModel {
             num_hidden_layers,
             num_attention_heads,
             num_key_value_heads,
-            max_position_embeddings: config.max_context as usize,
+            max_position_embeddings: max_context as usize,
             rms_norm_eps: 1e-6,
             rope_theta,
             bos_token_id: Some(bos_token_id),
@@ -392,18 +260,17 @@ impl CandleQwen3CoderModel {
             rope_theta
         );
 
-        // Create engine configuration
+        // Create engine configuration using ModelInfo values
         let engine_config = EngineConfig::new("qwen3-coder", "candle-qwen")
             .with_streaming()
-            .with_max_tokens(config.max_context)
-            .with_temperature(config.temperature as f32);
+            .with_max_tokens(max_context)
+            .with_temperature(default_temperature as f32);
 
         let engine = Arc::new(Engine::new(engine_config)?);
 
         Ok(Self {
             model_path: model_cache_dir,
             gguf_file_path,
-            config,
             model_config,
             engine,
         })
@@ -413,12 +280,6 @@ impl CandleQwen3CoderModel {
     #[inline]
     pub fn model_path(&self) -> &str {
         &self.model_path
-    }
-
-    /// Get the configuration
-    #[inline]
-    pub fn config(&self) -> &CandleQwen3CoderConfig {
-        &self.config
     }
 }
 
@@ -444,6 +305,20 @@ pub static QWEN3_CODER_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     model_id: "qwen-coder",
     quantization: "Q4_0",
     patch: None,
+    embedding_dimension: None,
+    vocab_size: Some(151936),
+    image_size: None,
+    image_mean: None,
+    image_std: None,
+    default_temperature: Some(0.7),
+    default_top_k: Some(50),
+    default_top_p: Some(0.9),
+    supports_kv_cache: true,
+    supports_flash_attention: false,
+    use_bf16: false,
+    default_steps: None,
+    default_guidance_scale: None,
+    time_shift: None,
 };
 
 impl crate::capability::traits::TextToTextCapable for CandleQwen3CoderModel {
@@ -456,26 +331,32 @@ impl crate::capability::traits::TextToTextCapable for CandleQwen3CoderModel {
         let engine = Arc::clone(&self.engine);
         let model_path = self.model_path.clone();
         let gguf_file_path = self.gguf_file_path.clone();
-        let config = self.config.clone();
         let model_config = self.model_config.clone();
 
+        // Get configuration from ModelInfo
+        let max_context = self.info().max_input_tokens
+            .map(|t| t.get())
+            .unwrap_or(32768);
+        let use_kv_cache = self.info().supports_kv_cache;
+        let vocab_size = self.info().vocab_size.unwrap_or(151936);
+
         // Create SIMD-optimized SamplingConfig from params
-        // Extract top_k and top_p with priority: params > config > None
-        // This allows runtime override via additional_params while respecting config defaults
+        // Extract top_k and top_p with priority: params > ModelInfo > None
+        // This allows runtime override via additional_params while respecting ModelInfo defaults
         let top_k = params
             .additional_params
             .as_ref()
             .and_then(|p| p.get("top_k"))
             .and_then(|v| v.as_u64())
             .map(|v| v as usize)
-            .or(config.top_k);
+            .or(self.info().default_top_k.map(|k| k as usize));
 
         let top_p = params
             .additional_params
             .as_ref()
             .and_then(|p| p.get("top_p"))
             .and_then(|v| v.as_f64())
-            .or(config.top_p);
+            .or(self.info().default_top_p);
 
         // Build sampling config with extracted parameters
         let mut sampling_config =
@@ -555,8 +436,8 @@ impl crate::capability::traits::TextToTextCapable for CandleQwen3CoderModel {
                     "qwen3-coder",
                 )
                 .with_vocab_size(model_config.vocab_size)
-                .with_context_length(config.max_context as usize)
-                .with_dtype(config.dtype),
+                .with_context_length(max_context as usize)
+                .with_dtype(DType::F16), // GGUF models use F16
             );
 
             // Load the real quantized model - return error stream on failure
