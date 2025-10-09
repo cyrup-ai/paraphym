@@ -49,6 +49,15 @@ pub enum CandleProvider {
     /// Unsloth (Quantized models)
     #[serde(rename = "unsloth")]
     Unsloth,
+    /// LAION (Large-scale AI Open Network)
+    #[serde(rename = "laion")]
+    LAION,
+    /// Google (T5, other models)
+    #[serde(rename = "google")]
+    Google,
+    /// Community contributors on HuggingFace
+    #[serde(rename = "community")]
+    Community,
 }
 
 impl CandleProvider {
@@ -67,6 +76,9 @@ impl CandleProvider {
             CandleProvider::Dunzhang => "dunzhang",
             CandleProvider::LLaVAHF => "llava-hf",
             CandleProvider::Unsloth => "unsloth",
+            CandleProvider::LAION => "laion",
+            CandleProvider::Google => "google",
+            CandleProvider::Community => "community",
         }
     }
 }

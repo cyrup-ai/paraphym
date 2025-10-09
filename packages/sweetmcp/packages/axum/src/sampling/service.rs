@@ -6,9 +6,10 @@ use rpc_router::HandlerResult;
 use tokio::sync::{mpsc, oneshot};
 
 // Candle inference imports
-use paraphym_candle::capability::text_to_text::CandleKimiK2Provider;
+use paraphym_candle::capability::text_to_text::CandleKimiK2Model;
+use paraphym_candle::capability::traits::TextToTextCapable;
 use paraphym_candle::domain::completion::{
-    CandleCompletionModel, CandleCompletionParams, CandleCompletionChunk,
+    CandleCompletionParams, CandleCompletionChunk,
 };
 use paraphym_candle::domain::prompt::CandlePrompt;
 use paraphym_candle::domain::model::CandleModel;
@@ -82,11 +83,11 @@ pub fn sampling_create_message_pending(request: CreateMessageRequest) -> AsyncSa
             return;
         }
 
-        // Initialize CandleKimiK2Provider for local inference
-        let provider = match CandleKimiK2Provider::default_for_builder() {
+        // Initialize CandleKimiK2Model for local inference
+        let provider = match CandleKimiK2Model::new() {
             Ok(p) => p,
             Err(e) => {
-                error!("Failed to initialize CandleKimiK2Provider: {}", e);
+                error!("Failed to initialize CandleKimiK2Model: {}", e);
                 let _ = tx_result.send(Err(rpc_router::HandlerError::new(
                     "Failed to initialize local model provider",
                 )));
@@ -197,11 +198,11 @@ pub fn sampling_create_message_stream(request: CreateMessageRequest) -> Sampling
     let (tx_stream, rx_stream) = mpsc::channel::<HandlerResult<CreateMessageResult>>(16);
 
     tokio::spawn(async move {
-        // Initialize CandleKimiK2Provider
-        let provider = match CandleKimiK2Provider::default_for_builder() {
+        // Initialize CandleKimiK2Model
+        let provider = match CandleKimiK2Model::new() {
             Ok(p) => p,
             Err(e) => {
-                error!("Failed to initialize CandleKimiK2Provider for streaming: {}", e);
+                error!("Failed to initialize CandleKimiK2Model for streaming: {}", e);
                 let _ = tx_stream.send(Err(rpc_router::HandlerError::new(
                     "Failed to initialize local model provider",
                 ))).await;

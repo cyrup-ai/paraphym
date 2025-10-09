@@ -2,27 +2,12 @@
 
 use std::fmt;
 use cyrup_sugars::ZeroOneOrMany;
-use hashbrown::HashMap;
-use crate::builders::document::DocumentBuilder;
 
 use serde_json::Value;
 
-
-use crate::domain::agent::core::AgentError;
 use crate::domain::chat::CandleMessageRole;
-use crate::capability::traits::TextToTextCapable;
-use crate::domain::model::traits::CandleModel;
-use crate::capability::text_to_text::{CandleKimiK2Model, CandleQwen3CoderModel, CandlePhi4ReasoningModel};
-use crate::domain::context::document::CandleDocument;
-use crate::domain::context::chunk::CandleJsonChunk;
-use crate::domain::tool::{SweetMcpRouter, RouterError};
-use sweet_mcp_type::ToolInfo;
 use sweet_mcp_type::JsonValue as SweetJsonValue;
 use simd_json::value::owned::Object as JsonObject;
-use ystream::AsyncStream;
-use crate::memory::core::manager::MemoryManager;
-use std::sync::Arc;
-use std::path::Path;
 
 
 

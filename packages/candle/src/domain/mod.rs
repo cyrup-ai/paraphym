@@ -19,7 +19,6 @@ pub mod concurrency;
 pub mod context;
 pub mod core;
 pub mod embedding;
-pub mod engine;
 pub mod error;
 /// Image processing and vision model support
 pub mod image;

@@ -1,6 +1,5 @@
 use std::fmt;
 use std::marker::PhantomData;
-use std::sync::Arc;
 
 use ystream::AsyncStream;
 use serde::de::DeserializeOwned;
@@ -9,7 +8,6 @@ use cyrup_sugars::prelude::MessageChunk;
 use super::error::{ExtractionError, _ExtractionResult as ExtractionResult};
 use crate::builders::completion::CompletionRequestBuilder;
 use crate::capability::traits::TextToTextCapable;
-use crate::domain::model::traits::CandleModel;
 use crate::domain::{
     chat::message::types::CandleMessageRole as MessageRole,
     completion::{

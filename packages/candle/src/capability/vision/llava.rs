@@ -33,6 +33,7 @@ enum LLaVARequest {
         question: String,
         response_tx: mpsc::Sender<Result<String, String>>,
     },
+    #[allow(dead_code)] // Reserved for graceful shutdown implementation
     Shutdown,
 }
 

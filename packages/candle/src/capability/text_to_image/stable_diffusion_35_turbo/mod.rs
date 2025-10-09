@@ -1,4 +1,5 @@
 //! Stable Diffusion 3.5 Large Turbo provider
+//! Stable Diffusion 3.5 Large Turbo provider
 //!
 //! Text-to-image generation using SD3.5's MMDiT diffusion model with triple CLIP encoding
 //! (CLIP-L + CLIP-G + T5-XXL) for 4-step turbo inference.
@@ -24,6 +25,16 @@ use crate::domain::image_generation::{
 };
 use crate::domain::model::traits::CandleModel;
 use crate::domain::model::CandleModelInfo;
+
+mod clip_l_tokenizer;
+mod clip_g_tokenizer;
+mod t5_config;
+mod t5_tokenizer;
+
+use clip_l_tokenizer::ClipLTokenizer;
+use clip_g_tokenizer::ClipGTokenizer;
+use t5_config::T5ConfigModel;
+use t5_tokenizer::T5TokenizerModel;
 
 /// Stable Diffusion 3.5 Large Turbo provider
 /// Uses lazy loading via huggingface_file() - no stored paths
@@ -131,61 +142,42 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
                 }
             };
             
-            // Download tokenizers and configs using HF Hub API
-            use hf_hub::api::sync::Api;
-            
-            let api = match Api::new() {
-                Ok(api) => api,
+            // Download tokenizers using CandleModel.huggingface_file()
+            let clip_l_tokenizer_path = match ClipLTokenizer.huggingface_file("tokenizer.json") {
+                Ok(p) => p,
                 Err(e) => {
                     let _ = sender.send(ImageGenerationChunk::Error(
-                        format!("Failed to initialize HF API: {}", e)
+                        format!("CLIP-L tokenizer download failed: {}", e)
                     ));
                     return;
                 }
             };
             
-            // CLIP-L tokenizer
-            let clip_l_repo = api.model("openai/clip-vit-large-patch14".to_string());
-            let clip_l_tokenizer_path = match clip_l_repo.get("tokenizer.json") {
+            let clip_g_tokenizer_path = match ClipGTokenizer.huggingface_file("tokenizer.json") {
                 Ok(p) => p,
                 Err(e) => {
                     let _ = sender.send(ImageGenerationChunk::Error(
-                        format!("Failed to download CLIP-L tokenizer: {}", e)
+                        format!("CLIP-G tokenizer download failed: {}", e)
                     ));
                     return;
                 }
             };
             
-            // CLIP-G tokenizer
-            let clip_g_repo = api.model("laion/CLIP-ViT-bigG-14-laion2B-39B-b160k".to_string());
-            let clip_g_tokenizer_path = match clip_g_repo.get("tokenizer.json") {
+            let t5_config_path = match T5ConfigModel.huggingface_file("config.json") {
                 Ok(p) => p,
                 Err(e) => {
                     let _ = sender.send(ImageGenerationChunk::Error(
-                        format!("Failed to download CLIP-G tokenizer: {}", e)
+                        format!("T5 config download failed: {}", e)
                     ));
                     return;
                 }
             };
             
-            // T5 config and tokenizer
-            let t5_repo = api.model("google/t5-v1_1-xxl".to_string());
-            let t5_config_path = match t5_repo.get("config.json") {
+            let t5_tokenizer_path = match T5TokenizerModel.huggingface_file("t5-v1_1-xxl.tokenizer.json") {
                 Ok(p) => p,
                 Err(e) => {
                     let _ = sender.send(ImageGenerationChunk::Error(
-                        format!("Failed to download T5 config: {}", e)
-                    ));
-                    return;
-                }
-            };
-            
-            let t5_tok_repo = api.model("lmz/mt5-tokenizers".to_string());
-            let t5_tokenizer_path = match t5_tok_repo.get("t5-v1_1-xxl.tokenizer.json") {
-                Ok(p) => p,
-                Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(
-                        format!("Failed to download T5 tokenizer: {}", e)
+                        format!("T5 tokenizer download failed: {}", e)
                     ));
                     return;
                 }
@@ -352,7 +344,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
         })
     }
     
-    fn model_name(&self) -> &str {
+    fn registry_key(&self) -> &str {
         "stable-diffusion-3.5-large-turbo"
     }
     
@@ -686,8 +678,8 @@ impl crate::capability::traits::TextToImageCapable for StableDiffusion35Turbo {
         <Self as ImageGenerationModel>::generate(self, prompt, config, device)
     }
     
-    fn model_name(&self) -> &str {
-        <Self as ImageGenerationModel>::model_name(self)
+    fn registry_key(&self) -> &str {
+        <Self as ImageGenerationModel>::registry_key(self)
     }
     
     fn default_steps(&self) -> usize {

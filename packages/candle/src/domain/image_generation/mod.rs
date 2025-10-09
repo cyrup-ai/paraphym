@@ -118,7 +118,7 @@ pub trait ImageGenerationModel: Send + Sync + 'static {
     ) -> ystream::AsyncStream<ImageGenerationChunk>;
 
     /// Model identifier (e.g., "stable-diffusion-3.5-medium", "flux-schnell")
-    fn model_name(&self) -> &str;
+    fn registry_key(&self) -> &str;
 
     /// Recommended default steps for this model
     /// - SD3.5 Turbo: 4 steps

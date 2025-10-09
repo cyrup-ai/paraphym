@@ -13,11 +13,6 @@ use super::handler::{CommandResult, InputHandler, InputHandlerResult};
 use super::prompt::PromptBuilder;
 
 use crate::builders::agent_role::{CandleAgentBuilder, CandleAgentRoleBuilder, CandleFluentAi};
-use crate::capability::text_to_text::{
-    CandleKimiK2Model, CandlePhi4ReasoningModel, CandleQwen3CoderModel,
-};
-use crate::capability::traits::TextToTextCapable;
-use crate::domain::model::traits::CandleModel;
 use crate::domain::chat::CandleChatLoop;
 use crate::util::input_resolver::resolve_smart_input;
 
@@ -142,24 +137,10 @@ You are a master at refactoring code, remembering to check for code that ALREADY
                 .await
                 .context("Failed to initialize database namespace")?;
 
-            // Map CLI arg to registry key
-            let registry_key = match self.args.embedding_model.to_lowercase().as_str() {
-                "bert" => "bert-base-uncased",
-                "stella" => "dunzhang/stella_en_1.5B_v5",
-                "gte-qwen" => "Alibaba-NLP/gte-Qwen2-1.5B-instruct",
-                "jina-bert" => "jinaai/jina-embeddings-v2-base-en",
-                "nvembed" => "nvidia/NV-Embed-v2",
-                _ => {
-                    // Default to Stella if unrecognized
-                    log::warn!("Unknown embedding model '{}', using Stella as default", self.args.embedding_model);
-                    "dunzhang/stella_en_1.5B_v5"
-                }
-            };
-
             // Get model from registry - THE ONLY SOURCE OF TRUTH
             // Use generic get<T>() to return concrete TextEmbeddingModel type
-            let embedding_model: crate::capability::registry::TextEmbeddingModel = registry::get(registry_key)
-                .ok_or_else(|| anyhow::anyhow!("Embedding model '{}' not found in registry", registry_key))?;
+            let embedding_model: crate::capability::registry::TextEmbeddingModel = registry::get(&self.args.embedding_model)
+                .ok_or_else(|| anyhow::anyhow!("Embedding model '{}' not found in registry", self.args.embedding_model))?;
 
             // Create memory manager with registry model
             let manager = SurrealDBMemoryManager::with_embedding_model(db, embedding_model)
@@ -262,35 +243,11 @@ You are a master at refactoring code, remembering to check for code that ALREADY
         // Build agent - use agent_role defaults, set properties, optionally override model
         let agent_builder = CandleFluentAi::agent_role(&self.args.agent_role).into_agent();
         
-        let agent = if let Some(model_name) = &self.args.model {
-            use crate::capability::registry::TextToTextModel;
+        let agent = if let Some(registry_key) = &self.args.model {
+            use crate::capability::registry::{self, TextToTextModel};
             
-            let text_model: TextToTextModel = match model_name.to_lowercase().as_str() {
-                "phi4" | "phi-4" | "phi4-reasoning" => {
-                    TextToTextModel::Phi4Reasoning(Arc::new(
-                        CandlePhi4ReasoningModel::new()
-                    ))
-                }
-                "kimi" | "kimi-k2" => {
-                    TextToTextModel::KimiK2(Arc::new(
-                        CandleKimiK2Model::new()
-                            .map_err(|e| anyhow::anyhow!("Failed to load Kimi-K2 model: {}", e))?
-                    ))
-                }
-                "qwen" | "qwen3" | "qwen3-coder" => {
-                    TextToTextModel::Qwen3Coder(Arc::new(
-                        CandleQwen3CoderModel::new()
-                            .await
-                            .map_err(|e| anyhow::anyhow!("Failed to load Qwen3-Coder model: {}", e))?,
-                    ))
-                }
-                _ => {
-                    return Err(anyhow::anyhow!(
-                        "Unknown model alias: {}. Supported: phi4, kimi, qwen3",
-                        model_name
-                    ));
-                }
-            };
+            let text_model = registry::get::<TextToTextModel>(registry_key)
+                .ok_or_else(|| anyhow::anyhow!("Model not found in registry: {}", registry_key))?;
             
             agent_builder
                 .model(text_model)
@@ -379,12 +336,32 @@ You are a master at refactoring code, remembering to check for code that ALREADY
                     print!("{}", text);
                     std::io::Write::flush(&mut std::io::stdout()).ok();
                 }
-                CandleMessageChunk::Complete { text, .. } => {
+                CandleMessageChunk::Complete {
+                    text,
+                    token_count,
+                    elapsed_secs,
+                    tokens_per_sec,
+                    ..
+                } => {
                     if !text.is_empty() {
                         print!("{}", text);
                     }
+
                     let mut stdout = StandardStream::stdout(ColorChoice::Always);
                     let _ = writeln!(&mut stdout);
+
+                    // Display metrics from library if available
+                    if let (Some(tc), Some(es), Some(tps)) =
+                        (token_count, elapsed_secs, tokens_per_sec)
+                    {
+                        let _ = stdout.set_color(ColorSpec::new().set_fg(Some(Color::Green)));
+                        let _ = writeln!(
+                            &mut stdout,
+                            "✓ {} tokens in {:.2}s ({:.1} tokens/sec)",
+                            tc, es, tps
+                        );
+                        let _ = stdout.reset();
+                    }
                 }
                 CandleMessageChunk::Error(err) => {
                     let mut stderr = StandardStream::stderr(ColorChoice::Always);

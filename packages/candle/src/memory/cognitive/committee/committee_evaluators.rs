@@ -5,7 +5,6 @@
 use std::sync::Arc;
 use crate::memory::cognitive::types::CognitiveError;
 use crate::capability::traits::TextToTextCapable;
-use crate::domain::model::traits::CandleModel;
 use crate::memory::cognitive::committee::committee_types::{
     Committee, CommitteeConfig
 };

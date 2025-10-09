@@ -19,7 +19,7 @@ use crate::{spawn_task, AsyncStream, AsyncTask};
 #[derive(Debug, Clone)]
 pub struct CompletionParams {
     pub request_id: u64,
-    pub model_name: String,
+    pub registry_key: String,
     pub provider: String,
     pub api_key: Option<String>,
     pub timeout: u64,
@@ -99,7 +99,7 @@ pub type EngineResult<T> = Result<T, EngineError>;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EngineConfig {
     /// Model name for the completion request
-    pub model_name: String,
+    pub registry_key: String,
     /// Provider identifier (e.g., "openai", "anthropic", "gemini")
     pub provider: String,
     /// API key for authentication
@@ -120,7 +120,7 @@ impl Default for EngineConfig {
     #[inline]
     fn default() -> Self {
         Self {
-            model_name: String::from("gpt-4o-mini"),
+            registry_key: String::from("gpt-4o-mini"),
             provider: String::from("openai"),
             api_key: None,
             timeout_seconds: 30,
@@ -135,9 +135,9 @@ impl Default for EngineConfig {
 impl EngineConfig {
     /// Create a new engine configuration
     #[inline]
-    pub fn new(model_name: impl Into<String>, provider: impl Into<String>) -> Self {
+    pub fn new(registry_key: impl Into<String>, provider: impl Into<String>) -> Self {
         Self {
-            model_name: model_name.into(),
+            registry_key: registry_key.into(),
             provider: provider.into(),
             ..Default::default()
         }
@@ -194,7 +194,7 @@ impl EngineConfig {
     /// Validate configuration
     #[inline]
     pub fn validate(&self) -> EngineResult<()> {
-        if self.model_name.is_empty() {
+        if self.registry_key.is_empty() {
             return Err(EngineError::ConfigurationError(
                 "Model name cannot be empty".to_string(),
             ));
@@ -289,7 +289,7 @@ impl<'a> CompletionRequest<'a> {
 }
 
 /// Core engine implementation with lock-free atomic operations
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Engine {
     config: EngineConfig,
     request_count: Arc<AtomicU64>,
@@ -373,7 +373,7 @@ impl Engine {
         self.active_requests.fetch_add(1, Ordering::Relaxed);
 
         // Clone necessary data for async processing
-        let model_name = self.config.model_name.clone();
+        let registry_key = self.config.registry_key.clone();
         let provider = self.config.provider.clone();
         let api_key = self.config.api_key.clone();
         let timeout = self.config.timeout_seconds;
@@ -399,7 +399,7 @@ impl Engine {
             // Create streaming completion and collect first result for backward compatibility
             let _params = CompletionParams {
                 request_id,
-                model_name,
+                registry_key,
                 provider,
                 api_key,
                 timeout,
@@ -444,41 +444,96 @@ impl Engine {
         self.manage_streaming_response(text_stream)
     }
 
-    /// Convert TextGenerator output to completion chunks with metrics tracking
-    fn manage_streaming_response(&self, text_stream: AsyncStream<CandleStringChunk>) 
-        -> AsyncStream<CandleCompletionChunk> {
-        
+    /// Coordinate generation for providers that emit CandleCompletionChunk directly
+    ///
+    /// Use this for providers that support:
+    /// - Tool/function calling with ToolCallStart, ToolCall, ToolCallComplete variants
+    /// - Custom completion logic requiring direct control over chunk types
+    ///
+    /// This bypasses the text-to-completion conversion and provides metrics tracking only.
+    pub fn coordinate_completion<F>(&self, generation_fn: F)
+        -> AsyncStream<CandleCompletionChunk>
+    where
+        F: FnOnce() -> AsyncStream<CandleCompletionChunk> + Send + 'static
+    {
+        // Update metrics atomically
+        self.request_count.fetch_add(1, Ordering::Relaxed);
+        self.active_requests.fetch_add(1, Ordering::Relaxed);
+
         let active_requests = Arc::clone(&self.active_requests);
         let successful_requests = Arc::clone(&self.successful_requests);
         let failed_requests = Arc::clone(&self.failed_requests);
-        
+
+        // Execute provider's generation function
+        let completion_stream = generation_fn();
+
+        // Pass through with metrics tracking only
         AsyncStream::with_channel(move |sender| {
-            let start_time = std::time::Instant::now();
+            let mut has_error = false;
+
+            for chunk in completion_stream {
+                // Check for error chunks
+                if matches!(chunk, CandleCompletionChunk::Error(_)) {
+                    has_error = true;
+                }
+
+                if sender.send(chunk).is_err() {
+                    // Client disconnected
+                    has_error = true;
+                    break;
+                }
+            }
+
+            // Update completion metrics
+            active_requests.fetch_sub(1, Ordering::Relaxed);
+            if has_error {
+                failed_requests.fetch_add(1, Ordering::Relaxed);
+            } else {
+                successful_requests.fetch_add(1, Ordering::Relaxed);
+            }
+        })
+    }
+
+    /// Convert TextGenerator output to completion chunks with metrics tracking
+    fn manage_streaming_response(&self, text_stream: AsyncStream<CandleStringChunk>)
+        -> AsyncStream<CandleCompletionChunk> {
+
+        let active_requests = Arc::clone(&self.active_requests);
+        let successful_requests = Arc::clone(&self.successful_requests);
+        let failed_requests = Arc::clone(&self.failed_requests);
+
+        AsyncStream::with_channel(move |sender| {
             let mut token_count = 0u32;
             let mut has_error = false;
-            
-            // Process each text chunk from TextGenerator
+
+            // Process each chunk from TextGenerator
             for string_chunk in text_stream {
-                token_count += 1;
-                
-                // Convert CandleStringChunk to CandleCompletionChunk::Text
-                let completion_chunk = CandleCompletionChunk::Text(string_chunk.0);
-                
+                // Convert CandleStringChunk to CandleCompletionChunk
+                let completion_chunk = match &string_chunk {
+                    CandleStringChunk(text) if text.starts_with("ERROR:") => {
+                        has_error = true;
+                        CandleCompletionChunk::Error(text.clone())
+                    }
+                    CandleStringChunk(text) => {
+                        token_count += 1;
+                        CandleCompletionChunk::Text(text.clone())
+                    }
+                };
+
                 if sender.send(completion_chunk).is_err() {
                     // Client disconnected
                     has_error = true;
                     break;
                 }
             }
-            
-            // Send completion marker with performance metrics
-            let _elapsed = start_time.elapsed();
+
+            // Send completion marker with usage
             let final_chunk = CandleCompletionChunk::Complete {
                 text: String::new(),
-                finish_reason: if has_error { 
-                    Some(crate::domain::context::chunk::FinishReason::Error) 
-                } else { 
-                    Some(crate::domain::context::chunk::FinishReason::Stop) 
+                finish_reason: if has_error {
+                    Some(crate::domain::context::chunk::FinishReason::Error)
+                } else {
+                    Some(crate::domain::context::chunk::FinishReason::Stop)
                 },
                 usage: Some(CandleUsage {
                     input_tokens: 0, // Provider can set this if needed
@@ -487,7 +542,7 @@ impl Engine {
                 }),
             };
             let _ = sender.send(final_chunk);
-            
+
             // Update metrics atomically on completion
             active_requests.fetch_sub(1, Ordering::Relaxed);
             if has_error {
@@ -516,7 +571,7 @@ impl Engine {
         self.active_requests.fetch_add(1, Ordering::Relaxed);
 
         // Clone necessary data for async processing
-        let model_name = self.config.model_name.clone();
+        let registry_key = self.config.registry_key.clone();
         let provider = self.config.provider.clone();
         let api_key = self.config.api_key.clone();
         let timeout = self.config.timeout_seconds;
@@ -539,7 +594,7 @@ impl Engine {
         AsyncStream::with_channel(move |sender| {
             let params = CompletionParams {
                 request_id,
-                model_name,
+                registry_key,
                 provider,
                 api_key,
                 timeout,
@@ -556,7 +611,7 @@ impl Engine {
             // Legacy API deprecated - return error directing users to new orchestration pattern
             let error_response = CompletionResponse {
                 text: "Direct engine completion processing deprecated. Use provider.prompt() with coordinate_generation() instead.".into(),
-                model: params.model_name.into(),
+                model: params.registry_key.into(),
                 provider: Some(params.provider.into()),
                 usage: None,
                 finish_reason: Some("error".into()),

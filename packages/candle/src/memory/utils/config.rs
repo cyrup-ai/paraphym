@@ -79,7 +79,7 @@ pub enum VectorStoreType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingModelConfig {
     /// Model name
-    pub model_name: String,
+    pub registry_key: String,
     /// API key (optional)
     pub api_key: Option<String>,
     /// API base URL (optional)
@@ -203,7 +203,7 @@ impl Default for VectorStoreConfig {
 impl Default for EmbeddingModelConfig {
     fn default() -> Self {
         Self {
-            model_name: "text-embedding-3-small".to_string(),
+            registry_key: "text-embedding-3-small".to_string(),
             api_key: None,
             api_base: None,
             options: None,

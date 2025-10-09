@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 use candle_core::DType;
 use candle_transformers::models::llama::Config as LlamaConfig;
+use candle_transformers::models::quantized_mixformer::Config as MixFormerConfig;
 #[cfg(test)]
 use candle_transformers::models::llama::LlamaEosToks;
 use serde::{Deserialize, Serialize};
@@ -30,7 +31,7 @@ pub struct ModelConfig {
     /// Data type for model weights
     pub dtype: DType,
     /// Human-readable model name
-    pub model_name: String,
+    pub registry_key: String,
     /// Model provider identifier
     pub provider_name: String,
 }
@@ -41,7 +42,7 @@ impl ModelConfig {
         model_path: impl Into<PathBuf>,
         tokenizer_path: impl Into<PathBuf>,
         architecture: ModelArchitecture,
-        model_name: impl Into<String>,
+        registry_key: impl Into<String>,
         provider_name: impl Into<String>,
     ) -> Self {
         let arch_defaults = architecture.get_defaults();
@@ -54,7 +55,7 @@ impl ModelConfig {
             context_length: arch_defaults.context_length,
             special_tokens: arch_defaults.special_tokens,
             dtype: DType::F16, // Default to F16 for efficiency
-            model_name: model_name.into(),
+            registry_key: registry_key.into(),
             provider_name: provider_name.into(),
         }
     }
@@ -85,7 +86,7 @@ impl ModelConfig {
 
     /// Validate the model configuration
     pub fn validate(&self) -> Result<(), ModelConfigError> {
-        if self.model_name.is_empty() {
+        if self.registry_key.is_empty() {
             return Err(ModelConfigError::InvalidModelName(
                 "Model name cannot be empty".into(),
             ));
@@ -134,10 +135,10 @@ pub enum ModelArchitecture {
     Llama(LlamaConfig),
     /// Mistral family models
     Mistral(MistralConfig),
-    /// Gemma family models  
+    /// Gemma family models
     Gemma(GemmaConfig),
-    /// Phi family models
-    Phi(PhiConfig),
+    /// Phi family models (MixFormer architecture)
+    Phi(MixFormerConfig),
     /// Future architectures will be added here
     Custom {
         name: String,
@@ -179,9 +180,9 @@ impl ModelArchitecture {
                     unk_token_id: Some(3),
                 },
             },
-            ModelArchitecture::Phi(_) => ArchitectureDefaults {
-                vocab_size: 100352,
-                context_length: 32768,
+            ModelArchitecture::Phi(_config) => ArchitectureDefaults {
+                vocab_size: 51200, // Phi-4 vocab size (config.vocab_size is private)
+                context_length: 16384, // Phi-4 context length
                 special_tokens: SpecialTokenIds {
                     bos_token_id: None,
                     eos_token_id: Some(2),
@@ -229,17 +230,6 @@ pub struct GemmaConfig {
     pub num_attention_heads: usize,
     pub num_key_value_heads: usize,
     pub head_dim: usize,
-}
-
-/// Configuration for Phi models
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PhiConfig {
-    pub hidden_size: usize,
-    pub intermediate_size: usize,
-    pub num_hidden_layers: usize,
-    pub num_attention_heads: usize,
-    pub partial_rotary_factor: f32,
-    pub max_position_embeddings: usize,
 }
 
 /// Special token IDs for model-specific tokens
@@ -375,7 +365,7 @@ mod tests {
             "test-provider",
         );
 
-        assert_eq!(config.model_name, "test-llama");
+        assert_eq!(config.registry_key, "test-llama");
         assert_eq!(config.provider_name, "test-provider");
         assert_eq!(config.vocab_size, 32000);
 

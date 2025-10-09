@@ -6,13 +6,9 @@
 pub mod capabilities;
 pub mod error;
 pub mod info;
-pub mod resolver;
 pub mod traits;
 pub mod usage;
 pub mod validation;
-
-// Download provider abstraction
-pub mod download;
 
 // ProgressHub model trait (for enforcing download patterns)
 #[cfg(feature = "download-progresshub")]
@@ -22,7 +18,6 @@ pub mod progresshub;
 pub use capabilities::*;
 pub use error::{CandleModelError, CandleResult};
 pub use info::{CandleModelInfo, CandleProvider};
-pub use resolver::*;
 pub use traits::*;
 pub use usage::CandleUsage;
 pub use validation::*;

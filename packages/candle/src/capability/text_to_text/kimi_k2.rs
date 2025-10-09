@@ -9,18 +9,14 @@ use std::path::Path;
 use std::sync::Arc;
 
 use candle_core::DType;
-use candle_core::quantized::gguf_file;
 use candle_transformers::models::llama::LlamaConfig;
 use ystream::AsyncStream;
-// SIMD optimizations for high-performance inference
-use paraphym_simd::get_cpu_features;
 
 use serde::{Deserialize, Serialize};
 
 use crate::core::{Engine, EngineConfig};
 
 use crate::domain::model::{info::CandleModelInfo, traits::CandleModel};
-use crate::domain::model::download::ModelDownloadProvider;
 use crate::domain::{
     completion::CandleCompletionParams,
     context::{CandleStringChunk, chunk::CandleCompletionChunk},
@@ -135,8 +131,8 @@ impl crate::capability::traits::TextToTextCapable for CandleKimiK2Model {
         let max_context = self.info().max_input_tokens
             .map(|t| t.get())
             .unwrap_or(131072);
-        let use_kv_cache = self.info().supports_kv_cache;
-        let vocab_size = self.info().vocab_size.unwrap_or(32000);
+        let _use_kv_cache = self.info().supports_kv_cache;
+        let _vocab_size = self.info().vocab_size.unwrap_or(32000);
 
         // Extract top_k and top_p with priority: params > ModelInfo > None
         // This allows runtime override via additional_params while respecting ModelInfo defaults

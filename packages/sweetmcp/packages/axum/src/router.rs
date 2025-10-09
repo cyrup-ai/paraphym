@@ -24,6 +24,10 @@ use crate::{
     types::*,
     ui::ServeArgs,
 };
+use crate::sampling::{
+    openai_chat_completions,
+    chat::ChatRequest,
+};
 
 /// Build the JSON-RPC router with all registered handlers
 fn build_rpc_router(plugin_manager: PluginManager) -> RpcRouter {
@@ -276,63 +280,196 @@ pub async fn run_http_server(plugin_manager: PluginManager, bind_addr: &str) -> 
     }
 }
 
-/// Handle a single HTTP connection
+/// Handle a single HTTP connection with path-based routing
 async fn handle_http_connection(
     mut stream: tokio::net::TcpStream,
     rpc_router: Arc<RpcRouter>,
 ) -> Result<()> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::io::AsyncReadExt;
 
     let mut buffer = vec![0; 4096];
     let n = stream.read(&mut buffer).await?;
     let request_data = String::from_utf8_lossy(&buffer[..n]);
 
-    // Simple HTTP parsing to extract JSON body
-    if let Some(body_start) = request_data.find("\r\n\r\n") {
-        let body = &request_data[body_start + 4..];
+    // Extract HTTP request line (first line before \r\n)
+    // Example: "POST /v1/chat/completions HTTP/1.1"
+    let request_line = request_data
+        .lines()
+        .next()
+        .unwrap_or("");
 
-        if !body.trim().is_empty()
-            && let Ok(json_value) = serde_json::from_str::<Value>(body)
-            && let Ok(mut rpc_request) = Request::from_value(json_value) {
-                    // Ensure params exist for ping method
-                    if rpc_request.method == "ping" && rpc_request.params.is_none() {
-                        rpc_request.params = Some(json!({}));
+    // Parse HTTP method and path from request line
+    // split_whitespace() yields: ["POST", "/v1/chat/completions", "HTTP/1.1"]
+    // nth(1) extracts the path (2nd element, 0-indexed)
+    let path = request_line
+        .split_whitespace()
+        .nth(1)
+        .unwrap_or("/");
+
+    // Extract body after HTTP headers (after \r\n\r\n separator)
+    let body = if let Some(body_start) = request_data.find("\r\n\r\n") {
+        &request_data[body_start + 4..]
+    } else {
+        ""
+    };
+
+    // Route based on path prefix
+    // /v1/* → OpenAI REST API (OPENAI_2 handler)
+    // Other → JSON-RPC (existing MCP protocol)
+    if path.starts_with("/v1/") {
+        handle_openai_request(path, body, &mut stream).await
+    } else {
+        handle_jsonrpc_request(body, rpc_router, &mut stream).await
+    }
+}
+
+/// Handle OpenAI-compatible REST API requests
+///
+/// Routes:
+/// - POST /v1/chat/completions → openai_chat_completions()
+/// - Other /v1/* → 404 Not Found
+///
+/// HTTP Status Codes:
+/// - 200 OK: Successful completion
+/// - 400 Bad Request: Invalid JSON in request body
+/// - 404 Not Found: Unknown /v1/* endpoint
+/// - 500 Internal Server Error: Handler error (model failure, etc.)
+async fn handle_openai_request(
+    path: &str,
+    body: &str,
+    stream: &mut tokio::net::TcpStream,
+) -> Result<()> {
+    use tokio::io::AsyncWriteExt;
+
+    if path == "/v1/chat/completions" {
+        // Parse ChatRequest from body
+        match serde_json::from_str::<ChatRequest>(body) {
+            Ok(chat_request) => {
+                // Call OpenAI handler (OPENAI_2)
+                match openai_chat_completions(chat_request).await {
+                    Ok(chat_response) => {
+                        // Serialize successful response
+                        let response_json = serde_json::to_string(&chat_response)?;
+                        let response = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                            response_json.len(),
+                            response_json
+                        );
+                        stream.write_all(response.as_bytes()).await?;
+                        stream.flush().await?;
                     }
-
-                    let id = rpc_request.id.clone();
-
-                    let (status_code, response_body) = match rpc_router.call(rpc_request).await {
-                        Ok(call_response) => {
-                            let response = JsonRpcResponse::new(id, call_response.value);
-                            let response_json = serde_json::to_string(&response)?;
-                            ("200 OK", response_json)
-                        }
-                        Err(error) => {
-                            error!("RPC call failed: {:?}", error);
-                            let json_error = json!({
-                                "jsonrpc": JSONRPC_VERSION,
-                                "error": {
-                                    "code": -32603,
-                                    "message": "Internal server error"
-                                },
-                                "id": id
-                            });
-                            let response_json = serde_json::to_string(&json_error)?;
-                            ("502 Bad Gateway", response_json)
-                        }
-                    };
-
-                    let response = format!(
-                        "HTTP/1.1 {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
-                        status_code,
-                        response_body.len(),
-                        response_body
-                    );
-
-                    stream.write_all(response.as_bytes()).await?;
-                    stream.flush().await?;
-                    return Ok(());
+                    Err(e) => {
+                        // Handler error (model failure, MCP backend error, etc.)
+                        // Return 500 Internal Server Error with OpenAI error format
+                        let error_json = serde_json::json!({
+                            "error": {
+                                "message": e,
+                                "type": "internal_error"
+                            }
+                        }).to_string();
+                        let response = format!(
+                            "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                            error_json.len(),
+                            error_json
+                        );
+                        stream.write_all(response.as_bytes()).await?;
+                        stream.flush().await?;
+                    }
+                }
+            }
+            Err(e) => {
+                // Invalid JSON in request body
+                // Return 400 Bad Request with OpenAI error format
+                let error_json = serde_json::json!({
+                    "error": {
+                        "message": format!("Invalid request: {}", e),
+                        "type": "invalid_request_error"
+                    }
+                }).to_string();
+                let response = format!(
+                    "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                    error_json.len(),
+                    error_json
+                );
+                stream.write_all(response.as_bytes()).await?;
+                stream.flush().await?;
+            }
         }
+    } else {
+        // Unknown /v1/* endpoint (embeddings, images, etc. not implemented)
+        // Return 404 Not Found with OpenAI error format
+        let error_json = serde_json::json!({
+            "error": {
+                "message": format!("Unknown endpoint: {}", path),
+                "type": "invalid_request_error"
+            }
+        }).to_string();
+        let response = format!(
+            "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+            error_json.len(),
+            error_json
+        );
+        stream.write_all(response.as_bytes()).await?;
+        stream.flush().await?;
+    }
+
+    Ok(())
+}
+
+/// Handle JSON-RPC requests (existing MCP protocol)
+///
+/// This function contains the original logic from handle_http_connection()
+/// for processing JSON-RPC requests. Extracted for cleaner separation.
+async fn handle_jsonrpc_request(
+    body: &str,
+    rpc_router: Arc<RpcRouter>,
+    stream: &mut tokio::net::TcpStream,
+) -> Result<()> {
+    use tokio::io::AsyncWriteExt;
+
+    // Parse and handle JSON-RPC request
+    // This is the EXACT logic from original handle_http_connection() lines 295-337
+    if !body.trim().is_empty()
+        && let Ok(json_value) = serde_json::from_str::<Value>(body)
+        && let Ok(mut rpc_request) = Request::from_value(json_value) {
+                // Ensure params exist for ping method
+                if rpc_request.method == "ping" && rpc_request.params.is_none() {
+                    rpc_request.params = Some(json!({}));
+                }
+
+                let id = rpc_request.id.clone();
+
+                let (status_code, response_body) = match rpc_router.call(rpc_request).await {
+                    Ok(call_response) => {
+                        let response = JsonRpcResponse::new(id, call_response.value);
+                        let response_json = serde_json::to_string(&response)?;
+                        ("200 OK", response_json)
+                    }
+                    Err(error) => {
+                        error!("RPC call failed: {:?}", error);
+                        let json_error = json!({
+                            "jsonrpc": JSONRPC_VERSION,
+                            "error": {
+                                "code": -32603,
+                                "message": "Internal server error"
+                            },
+                            "id": id
+                        });
+                        let response_json = serde_json::to_string(&json_error)?;
+                        ("502 Bad Gateway", response_json)
+                    }
+                };
+
+                let response = format!(
+                    "HTTP/1.1 {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                    status_code,
+                    response_body.len(),
+                    response_body
+                );
+
+                stream.write_all(response.as_bytes()).await?;
+                stream.flush().await?;
+                return Ok(());
     }
 
     // Send 400 for invalid requests

@@ -7,10 +7,8 @@ use chrono;
 use moka::sync::Cache;
 use tokio::sync::RwLock;
 
-use crate::capability::text_embedding::CandleBertEmbeddingModel;
 use crate::capability::traits::TextEmbeddingCapable;
 use crate::capability::registry::TextEmbeddingModel;
-use crate::domain::model::traits::CandleModel;
 
 use crate::domain::memory::cognitive::types::{CognitiveState, EntanglementType};
 use crate::domain::memory::primitives::{node::MemoryNode, types::MemoryTypeEnum};

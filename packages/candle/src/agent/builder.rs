@@ -71,12 +71,12 @@ impl ModelAdapter {
     }
 
     pub fn stream_completion(&self, prompt: &str) -> AsyncStream<String> {
-        let model_name = self.model_variant.name();
+        let registry_key = self.model_variant.name();
         let prompt = prompt.to_string();
 
         AsyncStream::with_channel(move |sender| {
             // Create a simple streaming response
-            let response = format!("Response from {} for prompt: {}", model_name, prompt);
+            let response = format!("Response from {} for prompt: {}", registry_key, prompt);
             let chunks: Vec<&str> = response.split_whitespace().collect();
 
             for chunk in chunks {
@@ -89,11 +89,11 @@ impl ModelAdapter {
 
 impl TextToTextCapable for ModelAdapter {
     fn complete(&self, prompt: &str) -> AsyncStream<String> {
-        let model_name = self.model_variant.name();
+        let registry_key = self.model_variant.name();
         let prompt = prompt.to_string();
 
         AsyncStream::with_channel(move |sender| {
-            let response = format!("Completion from {} for: {}", model_name, prompt);
+            let response = format!("Completion from {} for: {}", registry_key, prompt);
             let _ = sender.send(response);
         })
     }
@@ -138,12 +138,12 @@ impl<M: Model> ModelSelector<M> {
     /// Select model and transition to AgentBuilder
     pub fn model(
         self,
-        model_name: &'static str,
+        registry_key: &'static str,
     ) -> Result<AgentBuilder<M, MissingSys, MissingCtx>, AgentBuilderError> {
         // Create model instance from provider Models enum
         use paraphym_provider::Models;
 
-        let model_variant = match model_name {
+        let model_variant = match registry_key {
             "o4-mini" | "gpt-4o-mini" => Models::Gpt4OMini,
             "gpt-4o" => Models::Gpt4O,
             "gpt-4" => Models::Gpt41,
@@ -151,9 +151,9 @@ impl<M: Model> ModelSelector<M> {
             "claude-3.7-sonnet" => Models::AnthropicClaude37Sonnet,
             "gemini-2.0-flash" => Models::Gemini20Flash,
             "gemini-2.5-flash" => Models::Gemini25Flash,
-            _ => return Err(AgentBuilderError::UnsupportedModel(model_name.to_string()))};
+            _ => return Err(AgentBuilderError::UnsupportedModel(registry_key.to_string()))};
 
-        Ok(AgentBuilder::new_with_model(model_name, model_variant))
+        Ok(AgentBuilder::new_with_model(registry_key, model_variant))
     }
 }
 
@@ -163,7 +163,7 @@ impl<M: Model> ModelSelector<M> {
 pub struct AgentBuilder<M: Model, S, C> {
     // Core model and configuration
     model: Option<M>,
-    model_name: Option<&'static str>,
+    registry_key: Option<&'static str>,
     system_prompt: Option<String>,
 
     // Context and tools - pre-allocated for zero-alloc hot-path
@@ -190,14 +190,14 @@ pub struct AgentBuilder<M: Model, S, C> {
 
 // ---- Initial state (MissingSys, MissingCtx) ----
 impl<M: Model> AgentBuilder<M, MissingSys, MissingCtx> {
-    fn new(model_name: &'static str) -> Self {
-        Self::new_with_model(model_name, paraphym_provider::Models::Gpt4OMini)
+    fn new(registry_key: &'static str) -> Self {
+        Self::new_with_model(registry_key, paraphym_provider::Models::Gpt4OMini)
     }
 
-    fn new_with_model(model_name: &'static str, model_variant: paraphym_provider::Models) -> Self {
+    fn new_with_model(registry_key: &'static str, model_variant: paraphym_provider::Models) -> Self {
         Self {
             model: Some(ModelAdapter::new(model_variant)),
-            model_name: Some(model_name),
+            registry_key: Some(registry_key),
             system_prompt: None,
             static_context: OneOrMany::None,
             tools: ZeroOneOrMany::None,
@@ -219,7 +219,7 @@ impl<M: Model> AgentBuilder<M, MissingSys, MissingCtx> {
         self.system_prompt = Some(prompt.into());
         AgentBuilder {
             model: self.model,
-            model_name: self.model_name,
+            registry_key: self.registry_key,
             system_prompt: self.system_prompt,
             static_context: self.static_context,
             tools: self.tools,
@@ -245,7 +245,7 @@ impl<M: Model> AgentBuilder<M, (), MissingCtx> {
             content: doc.into()});
         AgentBuilder {
             model: self.model,
-            model_name: self.model_name,
+            registry_key: self.registry_key,
             system_prompt: self.system_prompt,
             static_context: self.static_context,
             tools: self.tools,
@@ -271,7 +271,7 @@ impl<M: Model> AgentBuilder<M, (), MissingCtx> {
         self.dynamic_context = self.dynamic_context.with_pushed((sample, Box::new(store)));
         AgentBuilder {
             model: self.model,
-            model_name: self.model_name,
+            registry_key: self.registry_key,
             system_prompt: self.system_prompt,
             static_context: self.static_context,
             tools: self.tools,
@@ -451,12 +451,12 @@ impl<M: Model> ModelSelector<M> {
     /// Fixed model selector that creates proper AgentBuilder
     pub fn model(
         self,
-        model_name: &'static str,
+        registry_key: &'static str,
     ) -> Result<AgentBuilder<M, MissingSys, MissingCtx>, AgentBuilderError> {
         // Create model instance from provider Models enum
         use paraphym_provider::Models;
 
-        let model_variant = match model_name {
+        let model_variant = match registry_key {
             "o4-mini" | "gpt-4o-mini" => Models::Gpt4OMini,
             "gpt-4o" => Models::Gpt4O,
             "gpt-4" => Models::Gpt41,
@@ -464,8 +464,8 @@ impl<M: Model> ModelSelector<M> {
             "claude-3.7-sonnet" => Models::AnthropicClaude37Sonnet,
             "gemini-2.0-flash" => Models::Gemini20Flash,
             "gemini-2.5-flash" => Models::Gemini25Flash,
-            _ => return Err(AgentBuilderError::UnsupportedModel(model_name.to_string()))};
+            _ => return Err(AgentBuilderError::UnsupportedModel(registry_key.to_string()))};
 
-        Ok(AgentBuilder::new_with_model(model_name, model_variant))
+        Ok(AgentBuilder::new_with_model(registry_key, model_variant))
     }
 }

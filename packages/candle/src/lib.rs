@@ -69,15 +69,6 @@ pub mod prelude {
         CandleLlamaModel, CandleModel, GenerationStatistics, SamplingConfig, SimdMetrics,
         SpecialTokens, TextGenerator, TokenHistory,
     };
-    // Core engine types for model-agnostic inference
-    pub use crate::capability::{
-        text_to_image::{FluxSchnell, StableDiffusion35Turbo},
-        text_to_text::{
-            CandleKimiK2Model,
-            CandlePhi4ReasoningModel, CandleQwen3CoderModel,
-        },
-        vision::LLaVAModel,
-    };
     pub use crate::core::{
         Engine, EngineConfig, EngineError, EngineResult, ModelArchitecture, ModelConfig,
         ModelConfigError,

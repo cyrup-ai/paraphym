@@ -24,10 +24,8 @@ use crate::memory::utils::error::Error;
 use std::path::Path;
 
 // Vector search and embedding imports
-use crate::capability::text_embedding::CandleBertEmbeddingModel;
 use crate::capability::traits::TextEmbeddingCapable;
 use crate::capability::registry::TextEmbeddingModel;
-use crate::domain::model::traits::CandleModel;
 use log; // For logging in create_memory
 
 /// Content structure for creating/updating memory nodes (without ID)

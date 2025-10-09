@@ -60,7 +60,7 @@ pub use config::{
 };
 pub use generator::TextGenerator;
 pub use metrics::SimdMetrics;
-pub use models::{CandleLlamaModel, CandleModel};
+pub use models::{CandleLlamaModel, CandleModel, CandleQuantizedLlamaModel, CandleQuantizedMixFormerModel};
 pub use stats::GenerationStatistics;
 pub use tokens::{SpecialTokens, TokenHistory, TokenProb};
 pub use types::{CandleResult, LogitsBuffer, SAMPLING_CACHE_SIZE, SIMD_THRESHOLD};

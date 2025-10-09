@@ -326,7 +326,7 @@ impl ImageGenerationModel for FluxSchnell {
         })
     }
     
-    fn model_name(&self) -> &str {
+    fn registry_key(&self) -> &str {
         "flux.1-schnell"
     }
     
@@ -547,8 +547,8 @@ impl crate::capability::traits::TextToImageCapable for FluxSchnell {
         <Self as ImageGenerationModel>::generate(self, prompt, config, device)
     }
     
-    fn model_name(&self) -> &str {
-        <Self as ImageGenerationModel>::model_name(self)
+    fn registry_key(&self) -> &str {
+        <Self as ImageGenerationModel>::registry_key(self)
     }
     
     fn default_steps(&self) -> usize {

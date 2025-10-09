@@ -1,33 +1,12 @@
 //! Chat functionality for memory-enhanced agent conversations
 
-use std::sync::Arc;
-
 use arrayvec::ArrayVec;
 use cyrup_sugars::prelude::MessageChunk;
 
 use thiserror::Error;
-// StreamExt not currently used but may be needed for future async operations
 
-// Import real completion infrastructure
-// Removed unused import: use tokio_stream::StreamExt;
-use crate::domain::agent::role::CandleAgentRole;
-use crate::domain::completion::PromptFormatter;
-use crate::capability::traits::TextToTextCapable;
-use crate::domain::model::traits::CandleModel;
-use crate::domain::prompt::CandlePrompt;
-use crate::domain::completion::types::CandleCompletionParams;
-use crate::domain::context::chunk::CandleCompletionChunk;
-use std::num::{NonZeroU64, NonZeroU8};
-
-use crate::memory::core::primitives::types::{MemoryTypeEnum, MemoryContent};
 use crate::memory::core::{MemoryNode};
-use crate::memory::core::manager::surreal::MemoryManager;
-use crate::memory::core::ops::retrieval::RetrievalResult;
-use crate::domain::memory::{Error as MemoryError};
-use crate::domain::context::chunk::CandleCollectionChunk;
-use crate::domain::context::CandleDocument as Document;
-use crate::domain::memory::{MemoryTool, MemoryToolError};
-use cyrup_sugars::ZeroOneOrMany;
+use crate::domain::memory::{Error as MemoryError, MemoryToolError};
 
 /// Maximum number of relevant memories for context injection
 const MAX_RELEVANT_MEMORIES: usize = 10;

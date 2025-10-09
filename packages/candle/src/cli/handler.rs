@@ -191,7 +191,7 @@ Chat Commands:
     fn handle_model_command(&mut self, args: &[String]) -> InputHandlerResult {
         if args.is_empty() {
             return InputHandlerResult::Command(CommandResult::Error(
-                "Usage: /model <model_name>".to_string(),
+                "Usage: /model <registry_key>".to_string(),
             ));
         }
 

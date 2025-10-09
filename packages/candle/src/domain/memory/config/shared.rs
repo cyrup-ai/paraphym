@@ -193,7 +193,7 @@ impl RetryConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingConfig {
     /// Model name or identifier
-    pub model_name: String,
+    pub registry_key: String,
     /// Expected embedding dimension
     pub dimension: usize,
     /// Normalization strategy for embeddings
@@ -227,7 +227,7 @@ impl Default for EmbeddingConfig {
     #[inline]
     fn default() -> Self {
         Self {
-            model_name: "text-embedding-3-small".to_string(),
+            registry_key: "text-embedding-3-small".to_string(),
             dimension: 1536,
             normalization: NormalizationStrategy::L2,
             enable_caching: true,
@@ -244,7 +244,7 @@ impl EmbeddingConfig {
     #[must_use]
     pub fn high_performance() -> Self {
         Self {
-            model_name: "text-embedding-3-large".to_string(),
+            registry_key: "text-embedding-3-large".to_string(),
             dimension: 3072,
             normalization: NormalizationStrategy::L2,
             enable_caching: true,
@@ -259,7 +259,7 @@ impl EmbeddingConfig {
     #[must_use]
     pub fn compact() -> Self {
         Self {
-            model_name: "all-MiniLM-L6-v2".to_string(),
+            registry_key: "all-MiniLM-L6-v2".to_string(),
             dimension: 384,
             normalization: NormalizationStrategy::L2,
             enable_caching: true,
@@ -273,7 +273,7 @@ impl EmbeddingConfig {
     #[must_use]
     pub fn stella_1024() -> Self {
         Self {
-            model_name: "dunzhang/stella_en_1.5B_v5".to_string(),
+            registry_key: "dunzhang/stella_en_1.5B_v5".to_string(),
             dimension: 1024,
             normalization: NormalizationStrategy::L2,
             enable_caching: true,
@@ -287,7 +287,7 @@ impl EmbeddingConfig {
     #[must_use]
     pub fn gte_qwen() -> Self {
         Self {
-            model_name: "Alibaba-NLP/gte-Qwen2-1.5B-instruct".to_string(),
+            registry_key: "Alibaba-NLP/gte-Qwen2-1.5B-instruct".to_string(),
             dimension: 1536,
             normalization: NormalizationStrategy::L2,
             enable_caching: true,
@@ -301,7 +301,7 @@ impl EmbeddingConfig {
     #[must_use]
     pub fn nvembed_v2() -> Self {
         Self {
-            model_name: "nvidia/NV-Embed-v2".to_string(),
+            registry_key: "nvidia/NV-Embed-v2".to_string(),
             dimension: 4096,
             normalization: NormalizationStrategy::L2,
             enable_caching: true,
@@ -315,7 +315,7 @@ impl EmbeddingConfig {
     #[must_use]
     pub fn jina_bert() -> Self {
         Self {
-            model_name: "jinaai/jina-embeddings-v2-base-en".to_string(),
+            registry_key: "jinaai/jina-embeddings-v2-base-en".to_string(),
             dimension: 768,
             normalization: NormalizationStrategy::L2,
             enable_caching: true,
@@ -332,7 +332,7 @@ impl EmbeddingConfig {
     /// Returns error string if:
     /// - `dimension` is 0 or exceeds 10,000
     /// - `cache_size` is 0 when caching is enabled
-    /// - `model_name` is empty
+    /// - `registry_key` is empty
     pub fn validate(&self) -> Result<(), String> {
         if self.dimension == 0 {
             return Err("Embedding dimension must be greater than 0".to_string());
@@ -346,7 +346,7 @@ impl EmbeddingConfig {
             return Err("Cache size must be greater than 0 when caching is enabled".to_string());
         }
 
-        if self.model_name.is_empty() {
+        if self.registry_key.is_empty() {
             return Err("Model name cannot be empty".to_string());
         }
 

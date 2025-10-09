@@ -21,7 +21,6 @@ use crate::core::{Engine, EngineConfig};
 use crate::domain::completion::{CandleCompletionChunk, CandleCompletionParams};
 use crate::domain::context::CandleStringChunk;
 use crate::domain::model::{info::CandleModelInfo, traits::CandleModel};
-use crate::domain::model::download::ModelDownloadProvider;
 use crate::domain::prompt::CandlePrompt;
 
 /// Builder trait for Qwen3 Coder completion providers
@@ -337,8 +336,8 @@ impl crate::capability::traits::TextToTextCapable for CandleQwen3CoderModel {
         let max_context = self.info().max_input_tokens
             .map(|t| t.get())
             .unwrap_or(32768);
-        let use_kv_cache = self.info().supports_kv_cache;
-        let vocab_size = self.info().vocab_size.unwrap_or(151936);
+        let _use_kv_cache = self.info().supports_kv_cache;
+        let _vocab_size = self.info().vocab_size.unwrap_or(151936);
 
         // Create SIMD-optimized SamplingConfig from params
         // Extract top_k and top_p with priority: params > ModelInfo > None

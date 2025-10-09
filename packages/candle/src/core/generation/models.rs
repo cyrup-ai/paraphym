@@ -13,6 +13,7 @@ use candle_core::{Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::llama::{Cache, Llama};
 use candle_transformers::models::quantized_llama;
+use candle_transformers::models::quantized_mixformer;
 
 use super::types::CandleResult;
 use crate::core::ModelConfig as CandleConfig;
@@ -281,6 +282,138 @@ impl CandleModel for CandleQuantizedLlamaModel {
 
     fn config(&self) -> Option<&CandleConfig> {
         Some(&self.config)
+    }
+}
+
+/// Quantized MixFormer (Phi) model wrapper for GGUF models
+///
+/// This wrapper handles quantized MixFormer models (Phi architecture) loaded from GGUF files.
+/// MixFormer models manage KV cache internally, so the position parameter in forward() is ignored.
+#[derive(Debug)]
+pub struct CandleQuantizedMixFormerModel {
+    /// The underlying quantized MixFormer model
+    model_weights: quantized_mixformer::MixFormerSequentialForCausalLM,
+    /// Device the model is loaded on
+    device: Device,
+    /// Model vocabulary size from config
+    vocab_size: usize,
+}
+
+impl CandleQuantizedMixFormerModel {
+    /// Create new CandleQuantizedMixFormerModel
+    pub fn new(
+        model_weights: quantized_mixformer::MixFormerSequentialForCausalLM,
+        device: Device,
+        vocab_size: usize,
+    ) -> Self {
+        Self {
+            model_weights,
+            device,
+            vocab_size,
+        }
+    }
+
+    /// Load a quantized MixFormer model from a GGUF file
+    pub fn from_gguf_path<P: AsRef<std::path::Path>>(
+        model_path: P,
+        device: Device,
+    ) -> CandleResult<Self> {
+        use candle_core::quantized::gguf_file;
+        use candle_transformers::quantized_var_builder::VarBuilder as QuantizedVarBuilder;
+        use candle_transformers::models::mixformer::Config as MixFormerConfig;
+
+        // First, read GGUF file to extract metadata
+        let mut file = std::fs::File::open(model_path.as_ref()).map_err(|e| {
+            crate::domain::model::error::CandleModelError::InvalidConfiguration(
+                format!("Failed to open GGUF file: {}", e).into(),
+            )
+        })?;
+
+        let gguf_content = gguf_file::Content::read(&mut file).map_err(|e| {
+            crate::domain::model::error::CandleModelError::InvalidConfiguration(
+                format!("Failed to read GGUF content: {}", e).into(),
+            )
+        })?;
+
+        // Extract vocab size from GGUF metadata for return value
+        let vocab_size = gguf_content
+            .metadata
+            .get("tokenizer.ggml.tokens")
+            .and_then(|v| match v {
+                gguf_file::Value::Array(arr) => Some(arr.len()),
+                _ => None,
+            })
+            .unwrap_or(51200);
+
+        // Detect model variant from metadata to select appropriate config
+        // Check n_embd to determine which Phi variant this is
+        let n_embd = gguf_content
+            .metadata
+            .get("phi2.embedding_length")
+            .or_else(|| gguf_content.metadata.get("llama.embedding_length"))
+            .and_then(|v| v.to_u32().ok())
+            .map(|v| v as usize);
+
+        // Select config based on n_embd:
+        // Phi-1: 1024, Phi-1.5: 2048, Phi-2/Phi-4: 2560+
+        let config = match n_embd {
+            Some(1024) => MixFormerConfig::v1(),
+            Some(2048) => MixFormerConfig::v1_5(),
+            _ => MixFormerConfig::v2(), // Default to Phi-2 config for Phi-4 and unknown
+        };
+
+        // Load GGUF model using quantized VarBuilder
+        let vb = QuantizedVarBuilder::from_gguf(model_path.as_ref(), &device).map_err(|e| {
+            crate::domain::model::error::CandleModelError::InvalidConfiguration(
+                format!("Failed to load GGUF model: {}", e).into(),
+            )
+        })?;
+
+        // Detect tensor layout by checking which tensors exist
+        // new_v2 layout uses "transformer." prefix, old layout uses "layers."
+        let uses_transformer_prefix = gguf_content
+            .tensor_infos
+            .keys()
+            .any(|k| k.starts_with("transformer."));
+
+        // Create model using appropriate constructor based on tensor layout
+        let model = if uses_transformer_prefix {
+            quantized_mixformer::MixFormerSequentialForCausalLM::new_v2(&config, vb)
+        } else {
+            quantized_mixformer::MixFormerSequentialForCausalLM::new(&config, vb)
+        }
+        .map_err(|e| {
+            crate::domain::model::error::CandleModelError::InvalidConfiguration(
+                format!("Failed to create MixFormer model: {}", e).into(),
+            )
+        })?;
+
+        Ok(Self::new(model, device, vocab_size))
+    }
+
+    /// Get the underlying model weights
+    pub fn model_weights(&self) -> &quantized_mixformer::MixFormerSequentialForCausalLM {
+        &self.model_weights
+    }
+
+    /// Get the underlying model weights mutably
+    pub fn model_weights_mut(&mut self) -> &mut quantized_mixformer::MixFormerSequentialForCausalLM {
+        &mut self.model_weights
+    }
+}
+
+impl CandleModel for CandleQuantizedMixFormerModel {
+    fn forward(&mut self, input: &Tensor, _position: usize) -> CandleResult<Tensor> {
+        // MixFormer manages KV cache internally, position parameter is ignored
+        self.model_weights.forward(input).map_err(Into::into)
+    }
+
+    fn device(&self) -> &Device {
+        &self.device
+    }
+
+    fn vocab_size(&self) -> usize {
+        self.vocab_size
     }
 }
 

@@ -16,10 +16,8 @@ use crossbeam_channel::unbounded;
 use serde::{Deserialize, Serialize};
 use surrealdb::Value;
 
-use crate::capability::text_embedding::CandleBertEmbeddingModel;
 use crate::capability::traits::TextEmbeddingCapable;
 use crate::capability::registry::TextEmbeddingModel;
-use crate::domain::model::traits::CandleModel;
 use crate::memory::constants::SEARCH_TASK;
 use crate::memory::utils::error::Result;
 use crate::memory::vector::vector_store::VectorStore;

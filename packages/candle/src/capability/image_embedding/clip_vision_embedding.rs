@@ -46,22 +46,23 @@ impl ClipVisionEmbeddingModel {
     /// Create CLIP vision provider with specific dimension
     ///
     /// # Arguments
-    /// * `dimension` - 512 for ViT-Base-Patch32 or 768 for ViT-Large-Patch14
+    /// * `dimension` - 512 for ViT-Base-Patch32 or 768 for ViT-Large-Patch14-336
     /// 
     /// Note: ClipVisionModel now uses lazy loading, so no explicit download needed.
     /// Model files are downloaded on-demand via huggingface_file().
     pub async fn with_dimension(dimension: usize) -> Result<Self> {
-        // Validate dimension (CLIP supports 512D for ViT-Base)
-        if dimension != 512 {
+        // Validate dimension (CLIP supports 512D for Base, 768D for Large)
+        if dimension != 512 && dimension != 768 {
             return Err(MemoryError::Config(format!(
-                "CLIP Vision currently configured for 512D (ViT-Base-Patch32). Requested: {}",
+                "CLIP Vision supports 512D (Base) or 768D (Large). Requested: {}",
                 dimension
             )));
         }
         
-        // Create provider with lazy loading - no model path or device needed
+        // Create provider with specified dimension
         // Model will be downloaded and loaded on-demand via huggingface_file()
-        let provider = ClipVisionModel::new();
+        let provider = ClipVisionModel::new(dimension)
+            .map_err(|e| MemoryError::Config(e))?;
 
         Ok(Self {
             provider: Arc::new(provider),
@@ -170,6 +171,7 @@ impl ClipVisionEmbeddingModel {
 
 
 // Static model info for CLIP Vision Embedding
+#[allow(dead_code)] // Reserved for future vision embedding model registry
 static CLIP_VISION_EMBEDDING_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     provider: crate::domain::model::CandleProvider::OpenAI,
     name: "clip-vit-base-patch32",
@@ -209,7 +211,8 @@ static CLIP_VISION_EMBEDDING_MODEL_INFO: CandleModelInfo = CandleModelInfo {
 
 impl CandleModel for ClipVisionEmbeddingModel {
     fn info(&self) -> &'static CandleModelInfo {
-        &CLIP_VISION_EMBEDDING_MODEL_INFO
+        // Delegate to provider which has correct ModelInfo based on dimension
+        self.provider.info()
     }
 }
 

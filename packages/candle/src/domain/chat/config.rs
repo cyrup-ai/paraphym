@@ -67,7 +67,7 @@ pub struct CandleModelConfig {
     /// Model provider (e.g., "openai", "anthropic", "mistral", "gemini")
     pub provider: String,
     /// Model name/identifier
-    pub model_name: String,
+    pub registry_key: String,
     /// Model version or variant
     pub model_version: Option<String>,
     /// Temperature for response randomness (0.0 to 2.0)
@@ -140,7 +140,7 @@ impl Default for CandleModelConfig {
     fn default() -> Self {
         Self {
             provider: String::from("openai"),
-            model_name: String::from("gpt-4"),
+            registry_key: String::from("gpt-4"),
             model_version: None,
             temperature: 0.7,
             max_tokens: Some(2048),
@@ -189,32 +189,32 @@ impl Default for CandleModelPerformanceConfig {
 
 impl CandleModelConfig {
     /// Create a new Candle model configuration
-    pub fn new(provider: impl Into<String>, model_name: impl Into<String>) -> Self {
+    pub fn new(provider: impl Into<String>, registry_key: impl Into<String>) -> Self {
         Self {
             provider: provider.into(),
-            model_name: model_name.into(),
+            registry_key: registry_key.into(),
             ..Default::default()
         }
     }
 
     /// Create configuration for `OpenAI` models
-    pub fn openai(model_name: impl Into<String>) -> Self {
-        Self::new("openai", model_name)
+    pub fn openai(registry_key: impl Into<String>) -> Self {
+        Self::new("openai", registry_key)
     }
 
     /// Create configuration for Anthropic models
-    pub fn anthropic(model_name: impl Into<String>) -> Self {
-        Self::new("anthropic", model_name)
+    pub fn anthropic(registry_key: impl Into<String>) -> Self {
+        Self::new("anthropic", registry_key)
     }
 
     /// Create configuration for Mistral models
-    pub fn mistral(model_name: impl Into<String>) -> Self {
-        Self::new("mistral", model_name)
+    pub fn mistral(registry_key: impl Into<String>) -> Self {
+        Self::new("mistral", registry_key)
     }
 
     /// Create configuration for Gemini models
-    pub fn gemini(model_name: impl Into<String>) -> Self {
-        Self::new("gemini", model_name)
+    pub fn gemini(registry_key: impl Into<String>) -> Self {
+        Self::new("gemini", registry_key)
     }
 
     /// Set temperature
@@ -1335,7 +1335,7 @@ pub struct CandleModelConfigData {
     /// Model provider (e.g., "openai", "anthropic", "mistral", "gemini")
     pub provider: String,
     /// Model name/identifier
-    pub model_name: String,
+    pub registry_key: String,
     /// Model version or variant
     pub model_version: Option<String>,
     /// Temperature for response randomness (0.0 to 2.0)
@@ -1385,7 +1385,7 @@ impl From<CandleModelConfig> for CandleModelConfigData {
     fn from(config: CandleModelConfig) -> Self {
         Self {
             provider: config.provider.clone(),
-            model_name: config.model_name.clone(),
+            registry_key: config.registry_key.clone(),
             model_version: config.model_version.clone(),
             temperature: config.temperature,
             max_tokens: config.max_tokens,
@@ -1409,7 +1409,7 @@ impl Default for CandleModelConfigData {
     fn default() -> Self {
         Self {
             provider: String::new(),
-            model_name: String::new(),
+            registry_key: String::new(),
             model_version: None,
             temperature: 0.7,
             max_tokens: None,

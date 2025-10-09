@@ -201,22 +201,22 @@ impl TextToTextCapable for TextToTextModel {
 }
 
 impl TextEmbeddingCapable for TextEmbeddingModel {
-    fn embed(&self, text: &str, task: Option<String>) 
+    fn embed(&self, text: &str, task: Option<String>)
         -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
         match self {
-            Self::Stella(m) => m.embed(text, task),
             Self::Bert(m) => m.embed(text, task),
+            Self::Stella(m) => m.embed(text, task),
             Self::GteQwen(m) => m.embed(text, task),
             Self::JinaBert(m) => m.embed(text, task),
             Self::NvEmbed(m) => m.embed(text, task),
         }
     }
     
-    fn batch_embed(&self, texts: &[String], task: Option<String>) 
+    fn batch_embed(&self, texts: &[String], task: Option<String>)
         -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> {
         match self {
-            Self::Stella(m) => m.batch_embed(texts, task),
             Self::Bert(m) => m.batch_embed(texts, task),
+            Self::Stella(m) => m.batch_embed(texts, task),
             Self::GteQwen(m) => m.batch_embed(texts, task),
             Self::JinaBert(m) => m.batch_embed(texts, task),
             Self::NvEmbed(m) => m.batch_embed(texts, task),
@@ -303,10 +303,10 @@ impl TextToImageCapable for TextToImageModel {
         }
     }
     
-    fn model_name(&self) -> &str {
+    fn registry_key(&self) -> &str {
         match self {
-            Self::FluxSchnell(m) => m.model_name(),
-            Self::StableDiffusion35Turbo(m) => m.model_name(),
+            Self::FluxSchnell(m) => m.registry_key(),
+            Self::StableDiffusion35Turbo(m) => m.registry_key(),
         }
     }
 }

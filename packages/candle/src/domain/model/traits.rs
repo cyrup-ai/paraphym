@@ -3,7 +3,6 @@
 use serde::{Deserialize, Serialize};
 
 use crate::domain::model::{CandleModelInfo, CandleUsage};
-use crate::domain::model::download::ModelDownloadProvider;
 
 /// Core trait for all Candle AI models
 ///
@@ -94,8 +93,7 @@ pub trait CandleModel: Send + Sync + std::fmt::Debug + 'static {
     where
         Self: Sized
     {
-        use crate::domain::model::download::DownloadProviderFactory;
-        use hf_hub::{api::sync::Api, Cache};
+        use hf_hub::api::sync::Api;
         
         let api = Api::new()?;
         let repo = api.model(self.info().registry_key.to_string());

@@ -172,10 +172,15 @@ impl CandleAgentRoleAgent {
                 let completion_results = completion_stream.collect();
                 let mut assistant_response = String::new();
 
+                // Track metrics for performance visibility
+                let start_time = std::time::Instant::now();
+                let mut token_count = 0u32;
+
                 // Stream chunks
                 for completion_chunk in completion_results {
                     let message_chunk = match completion_chunk {
                         CandleCompletionChunk::Text(ref text) => {
+                            token_count += 1;
                             assistant_response.push_str(text);
                             CandleMessageChunk::Text(text.clone())
                         }
@@ -185,10 +190,23 @@ impl CandleAgentRoleAgent {
                             usage,
                         } => {
                             assistant_response.push_str(text);
+
+                            // Calculate performance metrics
+                            let elapsed = start_time.elapsed();
+                            let elapsed_secs = elapsed.as_secs_f64();
+                            let tokens_per_sec = if elapsed_secs > 0.0 {
+                                Some(token_count as f64 / elapsed_secs)
+                            } else {
+                                None
+                            };
+
                             CandleMessageChunk::Complete {
                                 text: text.clone(),
                                 finish_reason: finish_reason.map(|f| format!("{:?}", f)),
                                 usage: usage.map(|u| format!("{:?}", u)),
+                                token_count: Some(token_count),
+                                elapsed_secs: Some(elapsed_secs),
+                                tokens_per_sec,
                             }
                         }
                         CandleCompletionChunk::ToolCallStart { id, name } => {
@@ -318,6 +336,7 @@ impl CandleAgentRoleAgent {
 
 /// Shared builder state for recursive agent calls
 #[derive(Clone)]
+#[allow(dead_code)] // Fields are part of builder state but not directly read
 struct AgentBuilderState {
     name: String,
     text_to_text_model: TextToTextModel,
@@ -663,7 +682,7 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
         }
     }
 
-    fn embedding_model(self, model: TextEmbeddingModel) -> impl CandleAgentRoleBuilder {
+    fn embedding_model(self, _model: TextEmbeddingModel) -> impl CandleAgentRoleBuilder {
         // For CandleAgentRoleBuilderImpl (no model yet), we can't set embedding model without text model
         // Return self unchanged - user should call .model() first
         self
@@ -1404,9 +1423,14 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                         let completion_results = completion_stream.collect();
                         let mut assistant_response = String::new();
 
+                        // Track metrics for performance visibility
+                        let start_time = std::time::Instant::now();
+                        let mut token_count = 0u32;
+
                         for completion_chunk in completion_results {
                             let message_chunk = match completion_chunk {
                                 CandleCompletionChunk::Text(ref text) => {
+                                    token_count += 1;
                                     assistant_response.push_str(text);
                                     CandleMessageChunk::Text(text.clone())
                                 }
@@ -1416,10 +1440,23 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                                     usage,
                                 } => {
                                     assistant_response.push_str(text);
+
+                                    // Calculate performance metrics
+                                    let elapsed = start_time.elapsed();
+                                    let elapsed_secs = elapsed.as_secs_f64();
+                                    let tokens_per_sec = if elapsed_secs > 0.0 {
+                                        Some(token_count as f64 / elapsed_secs)
+                                    } else {
+                                        None
+                                    };
+
                                     CandleMessageChunk::Complete {
                                         text: text.clone(),
                                         finish_reason: finish_reason.map(|f| format!("{:?}", f)),
                                         usage: usage.map(|u| format!("{:?}", u)),
+                                        token_count: Some(token_count),
+                                        elapsed_secs: Some(elapsed_secs),
+                                        tokens_per_sec,
                                     }
                                 }
                                 CandleCompletionChunk::ToolCallStart { id, name } => {
@@ -1637,18 +1674,40 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
             // Use ystream spawn pattern instead of tokio::spawn for proper thread safety
             let _background_stream = ystream::spawn_stream(move |stream_sender| {
                 let completion_results = completion_stream.collect();
+
+                // Track metrics for performance visibility
+                let start_time = std::time::Instant::now();
+                let mut token_count = 0u32;
+
                 for completion_chunk in completion_results {
                     let message_chunk = match completion_chunk {
-                        CandleCompletionChunk::Text(text) => CandleMessageChunk::Text(text),
+                        CandleCompletionChunk::Text(text) => {
+                            token_count += 1;
+                            CandleMessageChunk::Text(text)
+                        }
                         CandleCompletionChunk::Complete {
                             text,
                             finish_reason,
                             usage,
-                        } => CandleMessageChunk::Complete {
-                            text,
-                            finish_reason: finish_reason.map(|f| format!("{:?}", f)),
-                            usage: usage.map(|u| format!("{:?}", u)),
-                        },
+                        } => {
+                            // Calculate performance metrics
+                            let elapsed = start_time.elapsed();
+                            let elapsed_secs = elapsed.as_secs_f64();
+                            let tokens_per_sec = if elapsed_secs > 0.0 {
+                                Some(token_count as f64 / elapsed_secs)
+                            } else {
+                                None
+                            };
+
+                            CandleMessageChunk::Complete {
+                                text,
+                                finish_reason: finish_reason.map(|f| format!("{:?}", f)),
+                                usage: usage.map(|u| format!("{:?}", u)),
+                                token_count: Some(token_count),
+                                elapsed_secs: Some(elapsed_secs),
+                                tokens_per_sec,
+                            }
+                        }
                         CandleCompletionChunk::ToolCallStart { id, name } => {
                             CandleMessageChunk::ToolCallStart { id, name }
                         }

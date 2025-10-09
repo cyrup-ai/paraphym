@@ -203,7 +203,7 @@ pub trait TextToImageCapable: CandleModel {
     ) -> AsyncStream<ImageGenerationChunk>;
     
     /// Get the model's name
-    fn model_name(&self) -> &str;
+    fn registry_key(&self) -> &str;
     
     /// Get the default number of generation steps
     fn default_steps(&self) -> usize {

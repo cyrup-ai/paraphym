@@ -196,8 +196,7 @@ pub struct McpSamplingParams {
 }
 
 // Helper function to translate OpenAI format to MCP format
-#[allow(dead_code)] // Future feature for OpenAI API compatibility
-fn translate_openai_to_mcp(request: &ChatRequest) -> McpSamplingParams {
+pub(super) fn translate_openai_to_mcp(request: &ChatRequest) -> McpSamplingParams {
     let messages = request
         .messages
         .iter()
@@ -247,7 +246,7 @@ fn translate_openai_to_mcp(request: &ChatRequest) -> McpSamplingParams {
 }
 
 /// Translates MCP CreateMessageResult to OpenAI ChatResponse format
-fn translate_mcp_to_openai(mcp_response: &Value) -> Result<ChatResponse, anyhow::Error> {
+pub(super) fn translate_mcp_to_openai(mcp_response: &Value) -> Result<ChatResponse, anyhow::Error> {
     // 1. Deserialize MCP response to typed struct
     let mcp_result: super::model::CreateMessageResult = serde_json::from_value(mcp_response.clone())
         .context("Failed to deserialize MCP response")?;

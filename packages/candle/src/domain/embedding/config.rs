@@ -95,7 +95,7 @@ impl EmbeddingConfig {
     ///
     /// # Arguments
     /// * `dimensions` - Requested embedding dimension size
-    /// * `model_name` - Model name to validate against
+    /// * `registry_key` - Model name to validate against
     ///
     /// # Returns
     /// Result containing the updated config or validation error
@@ -118,9 +118,9 @@ impl EmbeddingConfig {
     pub fn with_validated_dimension(
         mut self,
         dimensions: usize,
-        model_name: &str,
+        registry_key: &str,
     ) -> crate::memory::utils::error::Result<Self> {
-        Self::validate_dimension_for_model(dimensions, model_name)?;
+        Self::validate_dimension_for_model(dimensions, registry_key)?;
         self.dimensions = Some(dimensions);
         Ok(self)
     }
@@ -131,11 +131,11 @@ impl EmbeddingConfig {
     /// by the specified model using the same logic as the factory validation.
     fn validate_dimension_for_model(
         dimension: usize,
-        model_name: &str,
+        registry_key: &str,
     ) -> crate::memory::utils::error::Result<()> {
         use crate::memory::utils::error::Error as MemoryError;
 
-        let normalized_name = Self::normalize_model_name(model_name);
+        let normalized_name = Self::normalize_registry_key(registry_key);
 
         match normalized_name {
             "bert" | "sentence-transformers" => {
@@ -189,7 +189,7 @@ impl EmbeddingConfig {
             }
             _ => {
                 return Err(MemoryError::Config(format!(
-                    "Unknown model '{model_name}' for dimension validation. Supported models: bert, stella, gte-qwen, jina-bert, nvembed, clip-vision"
+                    "Unknown model '{registry_key}' for dimension validation. Supported models: bert, stella, gte-qwen, jina-bert, nvembed, clip-vision"
                 )));
             }
         }
@@ -198,8 +198,8 @@ impl EmbeddingConfig {
     }
 
     /// Normalize model name for consistent matching (internal)
-    fn normalize_model_name(model_name: &str) -> &'static str {
-        let lower = model_name.to_lowercase();
+    fn normalize_registry_key(registry_key: &str) -> &'static str {
+        let lower = registry_key.to_lowercase();
         match lower.as_str() {
             // BERT variants
             "bert" | "sentence-transformers" | "all-minilm-l6-v2" => "bert",
@@ -302,8 +302,8 @@ impl EmbeddingConfig {
     /// Returns error if dimensions are not supported by the configured model
     pub fn validate_dimensions(&self) -> Result<()> {
         if let Some(dims) = self.dimensions {
-            let model_name = self.model.as_deref().unwrap_or("stella");
-            Self::validate_dimension_for_model(dims, model_name)
+            let registry_key = self.model.as_deref().unwrap_or("stella");
+            Self::validate_dimension_for_model(dims, registry_key)
         } else {
             Ok(())
         }
@@ -312,15 +312,15 @@ impl EmbeddingConfig {
     /// Check if a specific dimension is supported by the configured model
     #[must_use]
     pub fn is_dimension_supported(&self, dimension: usize) -> bool {
-        let model_name = self.model.as_deref().unwrap_or("stella");
-        Self::validate_dimension_for_model(dimension, model_name).is_ok()
+        let registry_key = self.model.as_deref().unwrap_or("stella");
+        Self::validate_dimension_for_model(dimension, registry_key).is_ok()
     }
 
     /// Get all supported dimensions for the configured model
     #[must_use]
     pub fn get_supported_dimensions(&self) -> Vec<usize> {
-        let model_name = self.model.as_deref().unwrap_or("stella");
-        let normalized_name = Self::normalize_model_name(model_name);
+        let registry_key = self.model.as_deref().unwrap_or("stella");
+        let normalized_name = Self::normalize_registry_key(registry_key);
 
         match normalized_name {
             "bert" => vec![384],
