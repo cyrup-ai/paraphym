@@ -9,7 +9,7 @@ use ystream::{AsyncStream, spawn_stream};
 use candle_core::Device;
 
 use crate::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle, query_system_memory_mb};
-use crate::pool::core::types::{select_worker_power_of_two, HealthPing, HealthPong};
+use crate::pool::core::types::{HealthPing, HealthPong};
 use crate::capability::traits::TextToImageCapable;
 use crate::domain::image_generation::{ImageGenerationChunk, ImageGenerationConfig};
 
@@ -243,9 +243,12 @@ impl Pool<dyn TextToImageCapable> {
                 return;
             }
 
-            // Find alive worker with least load using Power of Two Choices (O(1))
-            let alive_workers: Vec<_> = workers.iter().filter(|w| w.is_alive()).collect();
-            let worker = match select_worker_power_of_two(&alive_workers, |w| &w.core) {
+            // Find alive worker with least load
+            let worker = match workers
+                .iter()
+                .filter(|w| w.core.is_alive())
+                .min_by_key(|w| w.core.pending_requests.load(Ordering::Acquire))
+            {
                 Some(w) => w,
                 None => {
                     ystream::emit!(sender, ImageGenerationChunk::Error(
