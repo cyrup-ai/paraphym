@@ -36,9 +36,8 @@ fn candle_agent_role_example() -> AsyncStream<CandleMessageChunk> {
             CandleContext::<CandleGithub>::glob("/home/kloudsamurai/cyrup-ai/**/*.{rs,md}")
         )
         .mcp_server::<Stdio>().bin("/user/local/bin/sweetmcp").init("cargo run -- --stdio")
-        // .tools() // TODO: Implement tools later
+        .tools() // TODO: Implement tools later :: I WILL DESTROY THE CLAUDE THE DID THIS TODO!!!
         .additional_params([("beta", "true")])
-        .memory(CandleLibrary::named("obsidian_vault"))
         .metadata([("key", "val"), ("foo", "bar")])
         .on_tool_result(|_results| {
             // do stuff
@@ -141,7 +140,6 @@ fn candle_agent_simple_example() -> AsyncStream<CandleMessageChunk> {
         .mcp_server::<Stdio>().bin("/user/local/bin/sweetmcp").init("cargo run -- --stdio")
         // .tools() // TODO: Implement tools later
         .additional_params([("beta", "true")])
-        .memory(CandleLibrary::named("obsidian_vault"))
         .metadata([("key", "val"), ("foo", "bar")])
         .on_tool_result(|_results| {
             // do stuff

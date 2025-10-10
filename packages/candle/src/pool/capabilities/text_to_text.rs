@@ -5,7 +5,7 @@ use dashmap::DashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use ystream::AsyncStream;
+use ystream::{AsyncStream, spawn_stream};
 
 use crate::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
 use crate::capability::traits::TextToTextCapable;
@@ -159,14 +159,12 @@ impl Pool<dyn TextToTextCapable> {
         prompt: CandlePrompt,
         params: CandleCompletionParams,
     ) -> AsyncStream<CandleCompletionChunk> {
-        use ystream::AsyncStream;
-        
         // Clone for move into closure
         let registry_key = registry_key.to_string();
         let is_shutting_down = self.is_shutting_down();
         let request_timeout_secs = self.config().request_timeout_secs;
 
-        AsyncStream::with_channel(move |sender| {
+        spawn_stream(move |sender| {
             // Check shutdown
             if is_shutting_down {
                 ystream::emit!(sender, CandleCompletionChunk::Error(

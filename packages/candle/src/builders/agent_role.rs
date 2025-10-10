@@ -112,38 +112,8 @@ impl CandleAgentRoleAgent {
                     }
                 };
 
-                // Memory search
-                let memory_context: Option<String> = if let Some(ref mem_manager) = state.memory {
-                    let memory_stream = mem_manager.search_by_content(&user_message);
-                    let results: Vec<MemoryResult<crate::memory::core::MemoryNode>> =
-                        tokio::task::block_in_place(|| {
-                            tokio::runtime::Handle::current().block_on(async {
-                                use futures_util::StreamExt;
-                                memory_stream.take(5).collect().await
-                            })
-                        });
-                    let memories: Vec<crate::memory::core::MemoryNode> =
-                        results.into_iter().filter_map(|r| r.ok()).collect();
-                    if !memories.is_empty() {
-                        Some(crate::builders::agent_role::format_memory_context(
-                            &memories, 1000,
-                        ))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-
-                // Build prompt - system_prompt always exists
-                let full_prompt = match memory_context {
-                    Some(mem_ctx) => {
-                        format!("{}\n\n{}\n\nUser: {}", &state.system_prompt, mem_ctx, user_message)
-                    }
-                    None => {
-                        format!("{}\n\nUser: {}", &state.system_prompt, user_message)
-                    }
-                };
+                // Build prompt - system_prompt always exists (no memory in recursive calls)
+                let full_prompt = format!("{}\n\nUser: {}", &state.system_prompt, user_message);
 
                 // Call provider
                 let prompt = CandlePrompt::new(full_prompt);
@@ -261,55 +231,6 @@ impl CandleAgentRoleAgent {
                     ystream::emit!(stream_sender, message_chunk);
                 }
 
-                // Store in memory
-                if let Some(ref memory_manager) = state.memory {
-                    if !assistant_response.is_empty() {
-                        let user_content =
-                            crate::memory::core::primitives::types::MemoryContent::new(
-                                &user_message,
-                            );
-                        let assistant_content =
-                            crate::memory::core::primitives::types::MemoryContent::new(
-                                &assistant_response,
-                            );
-
-                        let mut user_memory = crate::memory::core::MemoryNode::new(
-                            crate::memory::core::primitives::types::MemoryTypeEnum::Episodic,
-                            user_content,
-                        );
-                        user_memory.metadata.tags.push("user_message".to_string());
-                        user_memory.metadata.source = Some("chat".to_string());
-                        user_memory.metadata.importance = 0.8;
-
-                        let mut assistant_memory = crate::memory::core::MemoryNode::new(
-                            crate::memory::core::primitives::types::MemoryTypeEnum::Episodic,
-                            assistant_content,
-                        );
-                        assistant_memory
-                            .metadata
-                            .tags
-                            .push("assistant_response".to_string());
-                        assistant_memory.metadata.source = Some("chat".to_string());
-                        assistant_memory.metadata.importance = 0.8;
-
-                        let user_pending = memory_manager.create_memory(user_memory);
-                        let assistant_pending = memory_manager.create_memory(assistant_memory);
-
-                        if let Some(runtime) = crate::runtime::shared_runtime() {
-                            runtime.spawn(async move {
-                                if let Err(e) = user_pending.await {
-                                    log::error!("Failed to store user memory: {:?}", e);
-                                }
-                            });
-                            runtime.spawn(async move {
-                                if let Err(e) = assistant_pending.await {
-                                    log::error!("Failed to store assistant memory: {:?}", e);
-                                }
-                            });
-                        }
-                    }
-                }
-
                 // CRITICAL: Call handler for recursion
                 if let Some(ref handler) = state.on_conversation_turn_handler {
                     let mut conversation = CandleAgentConversation::new();
@@ -394,11 +315,15 @@ pub trait CandleAgentRoleBuilder: Sized + Send {
 
     /// Set additional params - EXACT syntax: .additional_params([("key", "value")])
     #[must_use]
-    fn additional_params<P>(self, params: P) -> impl CandleAgentRoleBuilder;
+    fn additional_params<P>(self, params: P) -> impl CandleAgentRoleBuilder
+    where
+        P: IntoIterator<Item = (&'static str, &'static str)>;
 
     /// Set metadata - EXACT syntax: .metadata([("key", "value")])
     #[must_use]
-    fn metadata<Meta>(self, metadata: Meta) -> impl CandleAgentRoleBuilder;
+    fn metadata<Meta>(self, metadata: Meta) -> impl CandleAgentRoleBuilder
+    where
+        Meta: IntoIterator<Item = (&'static str, &'static str)>;
 
     /// Set contexts - EXACT syntax: .context(CandleContext::<CandleFile>::of("/path"), CandleContext::<CandleFiles>::glob("*.rs"), ...)
     #[must_use]
@@ -503,11 +428,15 @@ pub trait CandleAgentBuilder: Sized + Send + Sync {
 
     /// Set additional params - EXACT syntax: .additional_params([("key", "value")])
     #[must_use]
-    fn additional_params<P2>(self, params: P2) -> Self;
+    fn additional_params<P2>(self, params: P2) -> Self
+    where
+        P2: IntoIterator<Item = (&'static str, &'static str)>;
 
     /// Set metadata - EXACT syntax: .metadata(meta)
     #[must_use]
-    fn metadata<Meta>(self, metadata: Meta) -> Self;
+    fn metadata<Meta>(self, metadata: Meta) -> Self
+    where
+        Meta: IntoIterator<Item = (&'static str, &'static str)>;
 
     /// Set contexts - EXACT syntax: .context(...)
     #[must_use]
@@ -651,8 +580,8 @@ impl CandleAgentRoleBuilderImpl {
         // Create default tools: thinking and reasoning plugins
         let thinking_tool = ToolInfo {
             name: "thinking".to_string(),
-            description: "Use this tool for all thinking and reasoning tasks. The tool accepts a list of user and previous assistant messages relevant to the conversation. Always call this tool before answering the user and include the latest user message in the list. The tool will generate a chain of thought reasoning which can be used to answer the user's question.".to_string(),
-            input_schema: serde_json::json!({
+            description: Some("Use this tool for all thinking and reasoning tasks. The tool accepts a list of user and previous assistant messages relevant to the conversation. Always call this tool before answering the user and include the latest user message in the list. The tool will generate a chain of thought reasoning which can be used to answer the user's question.".to_string()),
+            input_schema: crate::domain::agent::role::convert_serde_to_sweet_json(serde_json::json!({
                 "type": "object",
                 "properties": {
                     "messages": {
@@ -673,13 +602,13 @@ impl CandleAgentRoleBuilderImpl {
                     }
                 },
                 "required": ["messages"]
-            }),
+            })),
         };
         
         let reasoner_tool = ToolInfo {
             name: "mcp-reasoner".to_string(),
-            description: "Advanced reasoning tool with Beam Search and MCTS strategies for complex problem solving".to_string(),
-            input_schema: serde_json::json!({
+            description: Some("Advanced reasoning tool with Beam Search and MCTS strategies for complex problem solving".to_string()),
+            input_schema: crate::domain::agent::role::convert_serde_to_sweet_json(serde_json::json!({
                 "type": "object",
                 "properties": {
                     "thought": {"type": "string", "description": "Current reasoning step"},
@@ -692,7 +621,7 @@ impl CandleAgentRoleBuilderImpl {
                     "numSimulations": {"type": ["integer", "null"], "description": "Number of MCTS simulations", "minimum": 1, "maximum": 150}
                 },
                 "required": ["thought", "thoughtNumber", "totalThoughts", "nextThoughtNeeded"]
-            }),
+            })),
         };
         
         Self {
@@ -734,7 +663,7 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
 
     fn model(self, model: TextToTextModel) -> impl CandleAgentRoleBuilder {
         use crate::capability::registry;
-        use crate::capability::traits::ModelInfoProvider;
+        use crate::domain::model::traits::CandleModel;
         
         // Get max_tokens from model's ModelInfo
         let model_max_tokens = model.info().max_output_tokens
@@ -915,7 +844,7 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
     fn into_agent(self) -> impl CandleAgentBuilder {
         use crate::capability::registry;
         use crate::capability::text_to_text::CandlePhi4ReasoningModel;
-        use crate::capability::traits::ModelInfoProvider;
+        use crate::domain::model::traits::CandleModel;
         use std::sync::Arc;
         
         // Get default text-to-text model if not set
@@ -1024,7 +953,7 @@ impl CandleAgentRoleBuilder for CandleAgentBuilderImpl {
     }
 
     fn embedding_model(mut self, model: TextEmbeddingModel) -> impl CandleAgentRoleBuilder {
-        self.text_embedding_model = Some(model);
+        self.text_embedding_model = model;
         self
     }
 
@@ -1034,7 +963,7 @@ impl CandleAgentRoleBuilder for CandleAgentBuilderImpl {
     }
 
     fn max_tokens(mut self, max: u64) -> impl CandleAgentRoleBuilder {
-        self.max_tokens = Some(max);
+        self.max_tokens = max;
         self
     }
 
@@ -1204,7 +1133,7 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
     }
 
     fn embedding_model(mut self, model: TextEmbeddingModel) -> Self {
-        self.text_embedding_model = Some(model);
+        self.text_embedding_model = model;
         self
     }
 
@@ -1214,7 +1143,7 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
     }
 
     fn max_tokens(mut self, max: u64) -> Self {
-        self.max_tokens = Some(max);
+        self.max_tokens = max;
         self
     }
 
@@ -1325,46 +1254,156 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
         let system_prompt = self.system_prompt.clone();
         let tools = self.tools;
         let on_conversation_turn_handler = self.on_conversation_turn_handler;
+        let context_file = self.context_file;
+        let context_files = self.context_files;
+        let context_directory = self.context_directory;
+        let context_github = self.context_github;
         
-        // Create memory manager from embedding model
+        // ALWAYS create memory internally - WE GUARANTEE MEMORY
         let memory: Option<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>> = {
+                // Create memory manager from embedding model
+                let Some(runtime) = crate::runtime::shared_runtime() else {
+                    return Err(AgentError::MemoryInit("Failed to access shared runtime for memory creation".into()));
+                };
+                
+                use surrealdb::engine::any::connect;
+                use crate::memory::core::manager::surreal::SurrealDBMemoryManager;
+                
+                let db_path = dirs::cache_dir()
+                    .unwrap_or_else(|| std::path::PathBuf::from("."))
+                    .join("paraphym")
+                    .join("agent.db");
+                
+                if let Some(parent) = db_path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                
+                let db_url = format!("surrealkv://{}", db_path.display());
+                let db = runtime.block_on(async {
+                    let db = connect(&db_url).await.map_err(|e| 
+                        AgentError::MemoryInit(format!("Failed to connect to database: {}", e))
+                    )?;
+                    db.use_ns("candle").use_db("agent").await.map_err(|e|
+                        AgentError::MemoryInit(format!("Failed to initialize database namespace: {}", e))
+                    )?;
+                    Ok::<_, AgentError>(db)
+                })?;
+                
+                let manager = runtime.block_on(async {
+                    let mgr = SurrealDBMemoryManager::with_embedding_model(db, embedding_model.clone()).await
+                        .map_err(|e| AgentError::MemoryInit(format!("Failed to create memory manager: {}", e)))?;
+                    mgr.initialize().await
+                        .map_err(|e| AgentError::MemoryInit(format!("Failed to initialize memory tables: {}", e)))?;
+                    Ok::<_, AgentError>(mgr)
+                })?;
+                
+                Some(Arc::new(manager) as Arc<dyn crate::memory::core::manager::surreal::MemoryManager>)
+        };
+
+        // Ingest documents from context fields into memory
+        if let Some(ref mem_mgr) = memory {
+            use crate::memory::primitives::node::MemoryNode;
+            use crate::memory::primitives::types::{MemoryContent, MemoryTypeEnum};
+            use chrono::Utc;
+            
             let Some(runtime) = crate::runtime::shared_runtime() else {
-                return Err(AgentError::Runtime("Failed to access shared runtime for memory creation".into()));
+                return Err(AgentError::MemoryInit("Failed to access shared runtime for document ingestion".into()));
             };
             
-            use surrealdb::engine::any::connect;
-            use crate::memory::core::manager::surreal::SurrealDBMemoryManager;
-            
-            let db_path = dirs::cache_dir()
-                .unwrap_or_else(|| std::path::PathBuf::from("."))
-                .join("paraphym")
-                .join("agent.db");
-            
-            if let Some(parent) = db_path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            
-            let db_url = format!("surrealkv://{}", db_path.display());
-            let db = runtime.block_on(async {
-                let db = connect(&db_url).await.map_err(|e| 
-                    AgentError::Runtime(format!("Failed to connect to database: {}", e))
-                )?;
-                db.use_ns("candle").use_db("agent").await.map_err(|e|
-                    AgentError::Runtime(format!("Failed to initialize database namespace: {}", e))
-                )?;
-                Ok::<_, AgentError>(db)
-            })?;
-            
-            let manager = runtime.block_on(async {
-                let mgr = SurrealDBMemoryManager::with_embedding_model(db, embedding_model).await
-                    .map_err(|e| AgentError::Runtime(format!("Failed to create memory manager: {}", e)))?;
-                mgr.initialize().await
-                    .map_err(|e| AgentError::Runtime(format!("Failed to initialize memory tables: {}", e)))?;
-                Ok::<_, AgentError>(mgr)
-            })?;
-            
-            Some(Arc::new(manager) as Arc<dyn crate::memory::core::manager::surreal::MemoryManager>)
-        };
+            runtime.block_on(async {
+                // Load from context_file
+                if let Some(ctx) = context_file {
+                    let docs = ctx.load().collect();
+                    for doc in docs {
+                        let content_hash = crate::domain::memory::serialization::content_hash(&doc.data);
+                        let memory = MemoryNode {
+                            id: format!("doc_{}", content_hash),
+                            content: MemoryContent::new(&doc.data),
+                            content_hash,
+                            memory_type: MemoryTypeEnum::Semantic,
+                            created_at: Utc::now(),
+                            updated_at: Utc::now(),
+                            embedding: None,
+                            evaluation_status: crate::memory::monitoring::operations::OperationStatus::Pending,
+                            metadata: crate::memory::primitives::metadata::MemoryMetadata::new(),
+                            relevance_score: None,
+                        };
+                        if let Err(e) = mem_mgr.create_memory(memory).await {
+                            log::error!("Failed to ingest document: {:?}", e);
+                        }
+                    }
+                }
+                
+                // Load from context_files
+                if let Some(ctx) = context_files {
+                    let docs = ctx.load().collect();
+                    for doc in docs {
+                        let content_hash = crate::domain::memory::serialization::content_hash(&doc.data);
+                        let memory = MemoryNode {
+                            id: format!("doc_{}", content_hash),
+                            content: MemoryContent::new(&doc.data),
+                            content_hash,
+                            memory_type: MemoryTypeEnum::Semantic,
+                            created_at: Utc::now(),
+                            updated_at: Utc::now(),
+                            embedding: None,
+                            evaluation_status: crate::memory::monitoring::operations::OperationStatus::Pending,
+                            metadata: crate::memory::primitives::metadata::MemoryMetadata::new(),
+                            relevance_score: None,
+                        };
+                        if let Err(e) = mem_mgr.create_memory(memory).await {
+                            log::error!("Failed to ingest document: {:?}", e);
+                        }
+                    }
+                }
+                
+                // Load from context_directory
+                if let Some(ctx) = context_directory {
+                    let docs = ctx.load().collect();
+                    for doc in docs {
+                        let content_hash = crate::domain::memory::serialization::content_hash(&doc.data);
+                        let memory = MemoryNode {
+                            id: format!("doc_{}", content_hash),
+                            content: MemoryContent::new(&doc.data),
+                            content_hash,
+                            memory_type: MemoryTypeEnum::Semantic,
+                            created_at: Utc::now(),
+                            updated_at: Utc::now(),
+                            embedding: None,
+                            evaluation_status: crate::memory::monitoring::operations::OperationStatus::Pending,
+                            metadata: crate::memory::primitives::metadata::MemoryMetadata::new(),
+                            relevance_score: None,
+                        };
+                        if let Err(e) = mem_mgr.create_memory(memory).await {
+                            log::error!("Failed to ingest document: {:?}", e);
+                        }
+                    }
+                }
+                
+                // Load from context_github
+                if let Some(ctx) = context_github {
+                    let docs = ctx.load().collect();
+                    for doc in docs {
+                        let content_hash = crate::domain::memory::serialization::content_hash(&doc.data);
+                        let memory = MemoryNode {
+                            id: format!("doc_{}", content_hash),
+                            content: MemoryContent::new(&doc.data),
+                            content_hash,
+                            memory_type: MemoryTypeEnum::Semantic,
+                            created_at: Utc::now(),
+                            updated_at: Utc::now(),
+                            embedding: None,
+                            evaluation_status: crate::memory::monitoring::operations::OperationStatus::Pending,
+                            metadata: crate::memory::primitives::metadata::MemoryMetadata::new(),
+                            relevance_score: None,
+                        };
+                        if let Err(e) = mem_mgr.create_memory(memory).await {
+                            log::error!("Failed to ingest document: {:?}", e);
+                        }
+                    }
+                }
+            });
+        }
 
         Ok(AsyncStream::with_channel(move |sender| {
             // Create initial empty conversation for handler to inspect
