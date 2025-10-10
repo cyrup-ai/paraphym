@@ -1,0 +1,143 @@
+# `packages/sweetmcp/packages/sixel6vt/vendor/rio/rio-window/src/platform_impl/linux/x11/xdisplay.rs`
+
+- **Path**: /Volumes/samsung_t9/paraphym
+- **Project**: rio-window
+- **File Hash**: 822f0bf8  
+- **Timestamp**: 2025-10-10T02:15:58.705830+00:00  
+- **Lines of Code**: 287
+
+---## Tier 1 Infractions 
+
+
+- Line 23
+  - TODO
+  - 
+
+```rust
+    pub xlib: ffi::Xlib,
+
+    // TODO(notgull): I'd like to remove this, but apparently Xlib and Xinput2 are tied together
+    // for some reason.
+    pub xinput2: ffi::XInput2,
+```
+
+- is this actually a non-production indicator or a false positive? If false positive, remove it from the task file.
+- If IT IS a non-production fake, fabrication, incomplete, dangeours or lacking implementation: add detailed notes explaining the issue and plan out the necessary replacement work in sequential steps. 
+- Update this section of the task file with the notes and plan.
+
+
+- Line 175
+  - TODO
+  - 
+
+```rust
+
+        // Get PropertyNotify events from the XSETTINGS window.
+        // TODO: The XSETTINGS window here can change. In the future, listen for DestroyNotify on
+        // this window in order to accommodate for a changed window here.
+        let selector_window = xcb
+```
+
+- is this actually a non-production indicator or a false positive? If false positive, remove it from the task file.
+- If IT IS a non-production fake, fabrication, incomplete, dangeours or lacking implementation: add detailed notes explaining the issue and plan out the necessary replacement work in sequential steps. 
+- Update this section of the task file with the notes and plan.
+
+## Panic-Prone Code
+
+
+### Line 199: `.unwrap()`
+
+- **Pattern**: .unwrap()
+- **Issue**: Can panic in production code
+
+```rust
+    #[inline]
+    pub fn check_errors(&self) -> Result<(), XError> {
+        let error = self.latest_error.lock().unwrap().take();
+        if let Some(error) = error {
+            Err(error)
+```
+
+### Action Required
+
+- unwrap() should never be used in `./src/**/*.rs` or `./tests/**/*.rs` (period). The code should be updated with proper error handling and all match arms addressed.
+- unwrap_or_else() is a-ok. 
+- expect() should never be used in `./src/**/*.rs` but should ALWAYS BE USED in `./tests/**/*.rs` (rather than unwrap)
+- panic can be approved with my written consent for situations that should in practice never happen  
+  - ASK FOR WRITTEN PERMISSION
+  - If granted, annotate the code with a comment "APPROVED PANIC "
+
+
+### Line 120: `.expect()`
+
+- **Pattern**: .expect()
+- **Issue**: Can panic in production code
+
+```rust
+            .expect("failed to request XRandR version")
+            .reply()
+            .expect("failed to query XRandR version");
+
+        let xsettings_screen = Self::new_xsettings_screen(&xcb, default_screen);
+```
+
+### Action Required
+
+- unwrap() should never be used in `./src/**/*.rs` or `./tests/**/*.rs` (period). The code should be updated with proper error handling and all match arms addressed.
+- unwrap_or_else() is a-ok. 
+- expect() should never be used in `./src/**/*.rs` but should ALWAYS BE USED in `./tests/**/*.rs` (rather than unwrap)
+- panic can be approved with my written consent for situations that should in practice never happen  
+  - ASK FOR WRITTEN PERMISSION
+  - If granted, annotate the code with a comment "APPROVED PANIC "
+
+
+### Line 118: `.expect()`
+
+- **Pattern**: .expect()
+- **Issue**: Can panic in production code
+
+```rust
+        let randr_version = xcb
+            .randr_query_version(1, 3)
+            .expect("failed to request XRandR version")
+            .reply()
+            .expect("failed to query XRandR version");
+```
+
+### Action Required
+
+- unwrap() should never be used in `./src/**/*.rs` or `./tests/**/*.rs` (period). The code should be updated with proper error handling and all match arms addressed.
+- unwrap_or_else() is a-ok. 
+- expect() should never be used in `./src/**/*.rs` but should ALWAYS BE USED in `./tests/**/*.rs` (rather than unwrap)
+- panic can be approved with my written consent for situations that should in practice never happen  
+  - ASK FOR WRITTEN PERMISSION
+  - If granted, annotate the code with a comment "APPROVED PANIC "
+
+
+### Line 217: `.expect()`
+
+- **Pattern**: .expect()
+- **Issue**: Can panic in production code
+
+```rust
+        self.xcb
+            .as_ref()
+            .expect("xcb_connection somehow called after drop?")
+    }
+
+```
+
+### Action Required
+
+- unwrap() should never be used in `./src/**/*.rs` or `./tests/**/*.rs` (period). The code should be updated with proper error handling and all match arms addressed.
+- unwrap_or_else() is a-ok. 
+- expect() should never be used in `./src/**/*.rs` but should ALWAYS BE USED in `./tests/**/*.rs` (rather than unwrap)
+- panic can be approved with my written consent for situations that should in practice never happen  
+  - ASK FOR WRITTEN PERMISSION
+  - If granted, annotate the code with a comment "APPROVED PANIC "
+
+---
+
+*Generated by kargo-turd 0.1.0*
+
+/Volumes/samsung_t9/paraphym

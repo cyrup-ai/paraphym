@@ -1,0 +1,172 @@
+# `forks/surrealdb/crates/core/src/cf/mutations.rs`
+
+- **Path**: /Volumes/samsung_t9/paraphym
+- **Project**: core
+- **File Hash**: b47fc4b1  
+- **Timestamp**: 2025-10-10T02:16:00.686583+00:00  
+- **Lines of Code**: 269
+
+---## Panic-Prone Code
+
+
+### Line 234: `.unwrap()`
+
+- **Pattern**: .unwrap()
+- **Issue**: Can panic in production code
+
+```rust
+			)]),
+		);
+		let v = cs.into_value().into_json_value().unwrap();
+		let s = serde_json::to_string(&v).unwrap();
+		assert_eq!(
+```
+
+### Action Required
+
+- unwrap() should never be used in `./src/**/*.rs` or `./tests/**/*.rs` (period). The code should be updated with proper error handling and all match arms addressed.
+- unwrap_or_else() is a-ok. 
+- expect() should never be used in `./src/**/*.rs` but should ALWAYS BE USED in `./tests/**/*.rs` (rather than unwrap)
+- panic can be approved with my written consent for situations that should in practice never happen  
+  - ASK FOR WRITTEN PERMISSION
+  - If granted, annotate the code with a comment "APPROVED PANIC "
+
+
+### Line 235: `.unwrap()`
+
+- **Pattern**: .unwrap()
+- **Issue**: Can panic in production code
+
+```rust
+		);
+		let v = cs.into_value().into_json_value().unwrap();
+		let s = serde_json::to_string(&v).unwrap();
+		assert_eq!(
+			s,
+```
+
+### Action Required
+
+- unwrap() should never be used in `./src/**/*.rs` or `./tests/**/*.rs` (period). The code should be updated with proper error handling and all match arms addressed.
+- unwrap_or_else() is a-ok. 
+- expect() should never be used in `./src/**/*.rs` but should ALWAYS BE USED in `./tests/**/*.rs` (rather than unwrap)
+- panic can be approved with my written consent for situations that should in practice never happen  
+  - ASK FOR WRITTEN PERMISSION
+  - If granted, annotate the code with a comment "APPROVED PANIC "
+
+
+### Line 302: `.unwrap()`
+
+- **Pattern**: .unwrap()
+- **Issue**: Can panic in production code
+
+```rust
+			)]),
+		);
+		let v = cs.into_value().into_json_value().unwrap();
+		let s = serde_json::to_string(&v).unwrap();
+		assert_eq!(
+```
+
+### Action Required
+
+- unwrap() should never be used in `./src/**/*.rs` or `./tests/**/*.rs` (period). The code should be updated with proper error handling and all match arms addressed.
+- unwrap_or_else() is a-ok. 
+- expect() should never be used in `./src/**/*.rs` but should ALWAYS BE USED in `./tests/**/*.rs` (rather than unwrap)
+- panic can be approved with my written consent for situations that should in practice never happen  
+  - ASK FOR WRITTEN PERMISSION
+  - If granted, annotate the code with a comment "APPROVED PANIC "
+
+
+### Line 303: `.unwrap()`
+
+- **Pattern**: .unwrap()
+- **Issue**: Can panic in production code
+
+```rust
+		);
+		let v = cs.into_value().into_json_value().unwrap();
+		let s = serde_json::to_string(&v).unwrap();
+		assert_eq!(
+			s,
+```
+
+### Action Required
+
+- unwrap() should never be used in `./src/**/*.rs` or `./tests/**/*.rs` (period). The code should be updated with proper error handling and all match arms addressed.
+- unwrap_or_else() is a-ok. 
+- expect() should never be used in `./src/**/*.rs` but should ALWAYS BE USED in `./tests/**/*.rs` (rather than unwrap)
+- panic can be approved with my written consent for situations that should in practice never happen  
+  - ASK FOR WRITTEN PERMISSION
+  - If granted, annotate the code with a comment "APPROVED PANIC "
+
+## Tests in Source Directory
+
+
+### Line 195: `#[cfg]`
+
+- **Location**: `/Volumes/samsung_t9/paraphym/forks/surrealdb/crates/core/src/cf/mutations.rs` (line 195)
+- **Issue**: Tests must be in `./tests` directory, not in `./src`
+
+```rust
+
+#[cfg(test)]
+mod tests {
+	use std::collections::HashMap;
+
+```
+
+### Action Required
+
+- Extract tests into `./tests` directory
+  - `tests/` should mirror the file structure of the `src/` with file names prepended with `test_`
+  - Update this section with specific remediation instructions
+  
+
+
+### Line 202: `#[test]`
+
+- **Location**: `/Volumes/samsung_t9/paraphym/forks/surrealdb/crates/core/src/cf/mutations.rs` (line 202)
+- **Issue**: Tests must be in `./tests` directory, not in `./src`
+
+```rust
+
+	#[test]
+	fn serialization() {
+		let cs = ChangeSet(
+			VersionStamp::from_u64(1),
+```
+
+### Action Required
+
+- Extract tests into `./tests` directory
+  - `tests/` should mirror the file structure of the `src/` with file names prepended with `test_`
+  - Update this section with specific remediation instructions
+  
+
+
+### Line 243: `#[test]`
+
+- **Location**: `/Volumes/samsung_t9/paraphym/forks/surrealdb/crates/core/src/cf/mutations.rs` (line 243)
+- **Issue**: Tests must be in `./tests` directory, not in `./src`
+
+```rust
+
+	#[test]
+	fn serialization_rev2() {
+		let cs = ChangeSet(
+			VersionStamp::from_u64(1),
+```
+
+### Action Required
+
+- Extract tests into `./tests` directory
+  - `tests/` should mirror the file structure of the `src/` with file names prepended with `test_`
+  - Update this section with specific remediation instructions
+  
+
+---
+
+*Generated by kargo-turd 0.1.0*
+
+/Volumes/samsung_t9/paraphym

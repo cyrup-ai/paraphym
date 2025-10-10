@@ -1,0 +1,199 @@
+# `forks/surrealdb/crates/sdk/tests/live.rs`
+
+- **Path**: /Volumes/samsung_t9/paraphym
+- **Project**: sdk
+- **File Hash**: 2eabd340  
+- **Timestamp**: 2025-10-10T02:16:00.942841+00:00  
+- **Lines of Code**: 190
+
+---## Panic-Prone Code
+
+
+### Line 37: `.unwrap()`
+
+- **Pattern**: .unwrap()
+- **Issue**: Should use .expect() with descriptive message in tests
+
+```rust
+		]",
+	)
+	.unwrap();
+	assert_eq!(tmp, val);
+	//
+```
+
+### Action Required
+
+- unwrap() should never be used in `./src/**/*.rs` or `./tests/**/*.rs` (period). The code should be updated with proper error handling and all match arms addressed.
+- unwrap_or_else() is a-ok. 
+- expect() should never be used in `./src/**/*.rs` but should ALWAYS BE USED in `./tests/**/*.rs` (rather than unwrap)
+- panic can be approved with my written consent for situations that should in practice never happen  
+  - ASK FOR WRITTEN PERMISSION
+  - If granted, annotate the code with a comment "APPROVED PANIC "
+
+
+### Line 73: `.unwrap()`
+
+- **Pattern**: .unwrap()
+- **Issue**: Should use .expect() with descriptive message in tests
+
+```rust
+		]",
+	)
+	.unwrap();
+	assert_eq!(tmp, val);
+	//
+```
+
+### Action Required
+
+- unwrap() should never be used in `./src/**/*.rs` or `./tests/**/*.rs` (period). The code should be updated with proper error handling and all match arms addressed.
+- unwrap_or_else() is a-ok. 
+- expect() should never be used in `./src/**/*.rs` but should ALWAYS BE USED in `./tests/**/*.rs` (rather than unwrap)
+- panic can be approved with my written consent for situations that should in practice never happen  
+  - ASK FOR WRITTEN PERMISSION
+  - If granted, annotate the code with a comment "APPROVED PANIC "
+
+
+### Line 133: `.unwrap()`
+
+- **Pattern**: .unwrap()
+- **Issue**: Should use .expect() with descriptive message in tests
+
+```rust
+		]",
+	)
+	.unwrap();
+	assert_eq!(tmp, val);
+
+```
+
+### Action Required
+
+- unwrap() should never be used in `./src/**/*.rs` or `./tests/**/*.rs` (period). The code should be updated with proper error handling and all match arms addressed.
+- unwrap_or_else() is a-ok. 
+- expect() should never be used in `./src/**/*.rs` but should ALWAYS BE USED in `./tests/**/*.rs` (rather than unwrap)
+- panic can be approved with my written consent for situations that should in practice never happen  
+  - ASK FOR WRITTEN PERMISSION
+  - If granted, annotate the code with a comment "APPROVED PANIC "
+
+
+### Line 147: `.unwrap()`
+
+- **Pattern**: .unwrap()
+- **Issue**: Should use .expect() with descriptive message in tests
+
+```rust
+		}",
+	)
+	.unwrap();
+	assert_eq!(tmp.result, val);
+
+```
+
+### Action Required
+
+- unwrap() should never be used in `./src/**/*.rs` or `./tests/**/*.rs` (period). The code should be updated with proper error handling and all match arms addressed.
+- unwrap_or_else() is a-ok. 
+- expect() should never be used in `./src/**/*.rs` but should ALWAYS BE USED in `./tests/**/*.rs` (rather than unwrap)
+- panic can be approved with my written consent for situations that should in practice never happen  
+  - ASK FOR WRITTEN PERMISSION
+  - If granted, annotate the code with a comment "APPROVED PANIC "
+
+
+### Line 167: `.unwrap()`
+
+- **Pattern**: .unwrap()
+- **Issue**: Should use .expect() with descriptive message in tests
+
+```rust
+		]",
+	)
+	.unwrap();
+	assert_eq!(tmp, val);
+
+```
+
+### Action Required
+
+- unwrap() should never be used in `./src/**/*.rs` or `./tests/**/*.rs` (period). The code should be updated with proper error handling and all match arms addressed.
+- unwrap_or_else() is a-ok. 
+- expect() should never be used in `./src/**/*.rs` but should ALWAYS BE USED in `./tests/**/*.rs` (rather than unwrap)
+- panic can be approved with my written consent for situations that should in practice never happen  
+  - ASK FOR WRITTEN PERMISSION
+  - If granted, annotate the code with a comment "APPROVED PANIC "
+
+
+### Line 181: `.unwrap()`
+
+- **Pattern**: .unwrap()
+- **Issue**: Should use .expect() with descriptive message in tests
+
+```rust
+		}",
+	)
+	.unwrap();
+	assert_eq!(tmp.result, val);
+
+```
+
+### Action Required
+
+- unwrap() should never be used in `./src/**/*.rs` or `./tests/**/*.rs` (period). The code should be updated with proper error handling and all match arms addressed.
+- unwrap_or_else() is a-ok. 
+- expect() should never be used in `./src/**/*.rs` but should ALWAYS BE USED in `./tests/**/*.rs` (rather than unwrap)
+- panic can be approved with my written consent for situations that should in practice never happen  
+  - ASK FOR WRITTEN PERMISSION
+  - If granted, annotate the code with a comment "APPROVED PANIC "
+
+
+### Line 203: `.unwrap()`
+
+- **Pattern**: .unwrap()
+- **Issue**: Should use .expect() with descriptive message in tests
+
+```rust
+		}",
+	)
+	.unwrap();
+	assert_eq!(tmp.result, val);
+
+```
+
+### Action Required
+
+- unwrap() should never be used in `./src/**/*.rs` or `./tests/**/*.rs` (period). The code should be updated with proper error handling and all match arms addressed.
+- unwrap_or_else() is a-ok. 
+- expect() should never be used in `./src/**/*.rs` but should ALWAYS BE USED in `./tests/**/*.rs` (rather than unwrap)
+- panic can be approved with my written consent for situations that should in practice never happen  
+  - ASK FOR WRITTEN PERMISSION
+  - If granted, annotate the code with a comment "APPROVED PANIC "
+
+
+### Line 244: `.unwrap()`
+
+- **Pattern**: .unwrap()
+- **Issue**: Should use .expect() with descriptive message in tests
+
+```rust
+		]",
+	)
+	.unwrap();
+	assert_eq!(tmp, val);
+
+```
+
+### Action Required
+
+- unwrap() should never be used in `./src/**/*.rs` or `./tests/**/*.rs` (period). The code should be updated with proper error handling and all match arms addressed.
+- unwrap_or_else() is a-ok. 
+- expect() should never be used in `./src/**/*.rs` but should ALWAYS BE USED in `./tests/**/*.rs` (rather than unwrap)
+- panic can be approved with my written consent for situations that should in practice never happen  
+  - ASK FOR WRITTEN PERMISSION
+  - If granted, annotate the code with a comment "APPROVED PANIC "
+
+---
+
+*Generated by kargo-turd 0.1.0*
+
+/Volumes/samsung_t9/paraphym
