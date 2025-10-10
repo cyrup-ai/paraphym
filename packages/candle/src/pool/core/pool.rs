@@ -111,44 +111,57 @@ impl<T: ?Sized> Pool<T> {
     ///
     /// Returns the number of workers removed.
     pub fn validate_workers(&self, registry_key: &str) -> usize {
+        // Collect dead workers first to avoid TOCTOU race
+        let mut dead_workers = Vec::new();
+        
+        // First pass: identify dead workers without holding lock
+        if let Some(workers_guard) = self.workers.get(registry_key) {
+            for (idx, worker) in workers_guard.iter().enumerate() {
+                if !worker.is_alive() {
+                    dead_workers.push((idx, worker.worker_id, worker.per_worker_mb));
+                }
+            }
+        }
+        
+        // Early return if no dead workers
+        if dead_workers.is_empty() {
+            return 0;
+        }
+        
         let mut removed_count = 0;
         
-        // Get mutable access to workers
+        // Second pass: remove dead workers with proper locking
         if let Some(mut workers_guard) = self.workers.get_mut(registry_key) {
-            let initial_count = workers_guard.len();
-            
-            // Retain only alive workers
-            workers_guard.retain(|worker| {
-                if worker.is_alive() {
-                    true  // Keep alive workers
-                } else {
-                    // Worker is dead - remove it
-                    log::warn!(
-                        "Removing dead worker {} for {} (no health response)",
-                        worker.worker_id,
-                        registry_key
-                    );
-                    
-                    // Update memory tracking
-                    self.remove_memory(worker.per_worker_mb);
-                    
-                    // Send shutdown signal (may fail if worker already dead)
-                    let _ = worker.shutdown_tx.send(());
-                    
-                    removed_count += 1;
-                    false  // Remove from pool
+            // Remove in reverse order to maintain indices
+            for (idx, worker_id, per_worker_mb) in dead_workers.iter().rev() {
+                // Double-check index is still valid
+                if *idx < workers_guard.len() {
+                    // Verify it's the same worker (in case of concurrent modifications)
+                    if workers_guard[*idx].worker_id == *worker_id {
+                        let worker = workers_guard.remove(*idx);
+                        
+                        log::warn!(
+                            "Removing dead worker {} for {} (no health response)",
+                            worker_id,
+                            registry_key
+                        );
+                        
+                        // Update memory tracking
+                        self.remove_memory(*per_worker_mb);
+                        
+                        // Send shutdown signal (may fail if worker already dead)
+                        let _ = worker.shutdown_tx.send(());
+                        
+                        removed_count += 1;
+                    }
                 }
-            });
-            
-            let final_count = workers_guard.len();
+            }
             
             if removed_count > 0 {
                 log::warn!(
-                    "Removed {} dead workers for {} ({} -> {} workers)",
+                    "Removed {} dead workers for {}",
                     removed_count,
-                    registry_key,
-                    initial_count,
-                    final_count
+                    registry_key
                 );
                 
                 // Update metrics

@@ -26,6 +26,7 @@ pub struct TextToTextWorkerHandle {
     pub core: WorkerHandle,
     pub prompt_tx: Sender<PromptRequest>,
     pub shutdown_tx: Sender<()>,
+    pub registry_key: String,  // Added to enable cleanup on drop
 }
 
 impl std::ops::Deref for TextToTextWorkerHandle {
@@ -33,6 +34,21 @@ impl std::ops::Deref for TextToTextWorkerHandle {
     
     fn deref(&self) -> &Self::Target {
         &self.core
+    }
+}
+
+impl Drop for TextToTextWorkerHandle {
+    fn drop(&mut self) {
+        // Clean up from global storage when handle is dropped
+        // This prevents memory leak when workers are evicted
+        if let Some(mut workers) = TEXT_TO_TEXT_WORKERS.get_mut(&self.registry_key) {
+            workers.retain(|w| w.core.worker_id != self.core.worker_id);
+            log::debug!(
+                "Cleaned up TextToText worker {} for {} from global storage",
+                self.core.worker_id,
+                self.registry_key
+            );
+        }
     }
 }
 
@@ -188,6 +204,7 @@ impl Pool<dyn TextToTextCapable> {
             },
             prompt_tx,
             shutdown_tx,
+            registry_key: registry_key_clone.clone(),  // Store for cleanup on drop
         };
 
         TEXT_TO_TEXT_WORKERS

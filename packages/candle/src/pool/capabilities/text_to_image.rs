@@ -9,7 +9,7 @@ use ystream::{AsyncStream, spawn_stream};
 use candle_core::Device;
 
 use crate::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle, query_system_memory_mb};
-use crate::pool::core::types::{HealthPing, HealthPong};
+use crate::pool::core::types::{HealthPing, HealthPong, select_worker_power_of_two};
 use crate::capability::traits::TextToImageCapable;
 use crate::domain::image_generation::{ImageGenerationChunk, ImageGenerationConfig};
 
@@ -26,6 +26,7 @@ pub struct TextToImageWorkerHandle {
     pub core: WorkerHandle,
     pub generate_image_tx: Sender<GenerateImageRequest>,
     pub shutdown_tx: Sender<()>,
+    pub registry_key: String,  // Added to enable cleanup on drop
 }
 
 impl std::ops::Deref for TextToImageWorkerHandle {
@@ -33,6 +34,21 @@ impl std::ops::Deref for TextToImageWorkerHandle {
     
     fn deref(&self) -> &Self::Target {
         &self.core
+    }
+}
+
+impl Drop for TextToImageWorkerHandle {
+    fn drop(&mut self) {
+        // Clean up from global storage when handle is dropped
+        // This prevents memory leak when workers are evicted
+        if let Some(mut workers) = TEXT_TO_IMAGE_WORKERS.get_mut(&self.registry_key) {
+            workers.retain(|w| w.core.worker_id != self.core.worker_id);
+            log::debug!(
+                "Cleaned up TextToImage worker {} for {} from global storage",
+                self.core.worker_id,
+                self.registry_key
+            );
+        }
     }
 }
 
@@ -187,6 +203,7 @@ impl Pool<dyn TextToImageCapable> {
             },
             generate_image_tx,
             shutdown_tx,
+            registry_key: registry_key_clone.clone(),  // Store for cleanup on drop
         };
 
         TEXT_TO_IMAGE_WORKERS
@@ -243,12 +260,9 @@ impl Pool<dyn TextToImageCapable> {
                 return;
             }
 
-            // Find alive worker with least load
-            let worker = match workers
-                .iter()
-                .filter(|w| w.core.is_alive())
-                .min_by_key(|w| w.core.pending_requests.load(Ordering::Acquire))
-            {
+            // Find alive worker with least load using Power of Two Choices (O(1))
+            let alive_workers: Vec<_> = workers.iter().filter(|w| w.is_alive()).collect();
+            let worker = match select_worker_power_of_two(&alive_workers, |w| &w.core) {
                 Some(w) => w,
                 None => {
                     ystream::emit!(sender, ImageGenerationChunk::Error(

@@ -29,6 +29,7 @@ pub struct TextEmbeddingWorkerHandle {
     pub embed_tx: Sender<EmbedRequest>,
     pub batch_embed_tx: Sender<BatchEmbedRequest>,
     pub shutdown_tx: Sender<()>,
+    pub registry_key: String,  // Added to enable cleanup on drop
 }
 
 impl std::ops::Deref for TextEmbeddingWorkerHandle {
@@ -36,6 +37,21 @@ impl std::ops::Deref for TextEmbeddingWorkerHandle {
     
     fn deref(&self) -> &Self::Target {
         &self.core
+    }
+}
+
+impl Drop for TextEmbeddingWorkerHandle {
+    fn drop(&mut self) {
+        // Clean up from global storage when handle is dropped
+        // This prevents memory leak when workers are evicted
+        if let Some(mut workers) = TEXT_EMBEDDING_WORKERS.get_mut(&self.registry_key) {
+            workers.retain(|w| w.core.worker_id != self.core.worker_id);
+            log::debug!(
+                "Cleaned up TextEmbedding worker {} for {} from global storage",
+                self.core.worker_id,
+                self.registry_key
+            );
+        }
     }
 }
 
@@ -211,6 +227,7 @@ impl Pool<dyn TextEmbeddingCapable> {
             embed_tx,
             batch_embed_tx,
             shutdown_tx,
+            registry_key: registry_key_clone.clone(),  // Store for cleanup on drop
         };
 
         TEXT_EMBEDDING_WORKERS
