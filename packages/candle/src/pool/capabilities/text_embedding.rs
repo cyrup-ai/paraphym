@@ -5,7 +5,7 @@ use dashmap::DashMap;
 use std::time::Duration;
 use std::sync::atomic::Ordering;
 
-use crate::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
+use crate::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle, query_system_memory_mb};
 use crate::capability::traits::TextEmbeddingCapable;
 
 /// Request for embed() operation
@@ -146,6 +146,8 @@ impl Pool<dyn TextEmbeddingCapable> {
             pending_requests: Arc::clone(&pending_requests),
             last_used: Arc::clone(&last_used),
             worker_id,
+            shutdown_tx: shutdown_tx.clone(),
+            per_worker_mb,
         };
         self.register_worker(registry_key.to_string(), pool_handle);
 
@@ -155,6 +157,8 @@ impl Pool<dyn TextEmbeddingCapable> {
                 pending_requests,
                 last_used,
                 worker_id,
+                shutdown_tx: shutdown_tx.clone(),
+                per_worker_mb,
             },
             embed_tx,
             batch_embed_tx,
@@ -265,10 +269,4 @@ impl Pool<dyn TextEmbeddingCapable> {
     }
 }
 
-/// Query total system memory in MB (helper for memory checks)
-fn query_system_memory_mb() -> usize {
-    use sysinfo::System;
-    let mut sys = System::new_all();
-    sys.refresh_memory();
-    (sys.total_memory() / 1024 / 1024) as usize
-}
+

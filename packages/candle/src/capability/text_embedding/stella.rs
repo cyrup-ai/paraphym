@@ -460,13 +460,20 @@ impl crate::capability::traits::TextEmbeddingCapable for StellaEmbeddingModel {
 /// - variant: ModelVariant (Large=1.5B or Small=400M)
 /// - dimension: usize (embedding output dimension)
 ///
-/// RefCell is required because forward_norm takes &mut EmbeddingModel.
+/// Loaded model with thread-safe interior mutability.
+#[derive(Debug)]
 pub struct LoadedStellaModel {
     tokenizer: Tokenizer,
-    model: std::cell::RefCell<EmbeddingModel>,
+    model: std::sync::Mutex<EmbeddingModel>,
     device: Device,
+    config: Config,
     variant: ModelVariant,
-    dimension: usize,
+}
+
+impl crate::domain::model::traits::CandleModel for LoadedStellaModel {
+    fn info(&self) -> &'static CandleModelInfo {
+        &STELLA_MODEL_INFO
+    }
 }
 
 impl LoadedStellaModel {
@@ -576,11 +583,37 @@ impl LoadedStellaModel {
 
         Ok(Self {
             tokenizer,
-            model: std::cell::RefCell::new(model),
+            model: std::sync::Mutex::new(model),
             device,
+            config: stella_config,
             variant,
-            dimension,
         })
+    }
+
+    /// Get the embedding output dimension
+    pub fn embedding_dimension(&self) -> usize {
+        self.config.embed_head.out_features
+    }
+
+    /// Get supported MRL dimensions (Matryoshka Representation Learning)
+    pub fn supported_dimensions(&self) -> Vec<usize> {
+        vec![256, 768, 1024, 2048, 4096, 6144, 8192]
+    }
+
+    /// Get recommended batch size for this variant
+    pub fn recommended_batch_size(&self) -> usize {
+        match self.variant {
+            ModelVariant::Large => 2,   // 1.5B model - conservative
+            ModelVariant::Small => 8,   // 400M model - more aggressive
+        }
+    }
+
+    /// Get maximum safe batch size for this variant
+    pub fn max_batch_size(&self) -> usize {
+        match self.variant {
+            ModelVariant::Large => 8,   // 1.5B model - GPU memory limit
+            ModelVariant::Small => 32,  // 400M model - more headroom
+        }
     }
 }
 
@@ -609,7 +642,8 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedStellaModel {
             .map_err(|e| format!("Failed to convert mask dtype: {}", e))?;
 
         // Forward pass
-        let mut model = self.model.borrow_mut();
+        let mut model = self.model.lock()
+            .map_err(|e| format!("Failed to acquire model lock: {}", e))?;
         let embeddings = model.forward_norm(
             &input_ids.unsqueeze(0)
                 .map_err(|e| format!("Failed to unsqueeze input_ids: {}", e))?,
@@ -661,7 +695,8 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedStellaModel {
             .map_err(|e| format!("Failed to convert mask dtype: {}", e))?;
 
         // Forward pass
-        let mut model = self.model.borrow_mut();
+        let mut model = self.model.lock()
+            .map_err(|e| format!("Failed to acquire model lock: {}", e))?;
         let embeddings = model.forward_norm(&input_ids, &attention_mask)
             .map_err(|e| format!("Stella batch forward pass failed: {}", e))?;
 
@@ -670,8 +705,8 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedStellaModel {
             .map_err(|e| format!("Failed to convert batch embeddings to vec: {}", e).into())
     }
 
-    fn embedding_dimensions(&self) -> Vec<usize> {
-        vec![self.dimension]
+    fn embedding_dimension(&self) -> usize {
+        self.config.embed_head.out_features
     }
 
     fn recommended_batch_size(&self) -> usize {

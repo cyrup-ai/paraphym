@@ -92,4 +92,9 @@ impl<T: ?Sized> Pool<T> {
     pub fn metrics(&self) -> &PoolMetrics {
         &self.metrics
     }
+
+    /// Get workers map (for maintenance operations)
+    pub fn workers(&self) -> &DashMap<String, Vec<WorkerHandle>> {
+        &self.workers
+    }
 }

@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
 
-use crate::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
+use crate::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle, query_system_memory_mb};
 use crate::capability::traits::ImageEmbeddingCapable;
 
 /// Request for embed_image() operation
@@ -181,6 +181,8 @@ impl Pool<dyn ImageEmbeddingCapable> {
             pending_requests: Arc::clone(&pending_requests),
             last_used: Arc::clone(&last_used),
             worker_id,
+            shutdown_tx: shutdown_tx.clone(),
+            per_worker_mb,
         };
         self.register_worker(registry_key.to_string(), pool_handle);
 
@@ -190,6 +192,8 @@ impl Pool<dyn ImageEmbeddingCapable> {
                 pending_requests,
                 last_used,
                 worker_id,
+                shutdown_tx: shutdown_tx.clone(),
+                per_worker_mb,
             },
             embed_image_tx,
             embed_image_url_tx,
@@ -386,10 +390,4 @@ impl Pool<dyn ImageEmbeddingCapable> {
     }
 }
 
-/// Query total system memory in MB (helper for memory checks)
-fn query_system_memory_mb() -> usize {
-    use sysinfo::System;
-    let mut sys = System::new_all();
-    sys.refresh_memory();
-    (sys.total_memory() / 1024 / 1024) as usize
-}
+

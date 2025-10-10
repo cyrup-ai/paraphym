@@ -14,6 +14,7 @@ categories = ["science", "mathematics", "algorithms", "api-bindings"]
 bitflags = { version = "2.9.4", features = ["serde"] }
 paraphym_simd = { path = "../simd" }
 cylo = { path = "../cylo" }
+ctrlc = { version = "3.4", features = ["termination"] }
 
 # SweetMCP dependencies for proper MCP implementation
 sweetmcp-json-client = { path = "../sweetmcp/packages/json-client" }

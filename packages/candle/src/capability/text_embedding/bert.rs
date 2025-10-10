@@ -389,6 +389,21 @@ pub struct LoadedBertModel {
     device: Device,
 }
 
+impl std::fmt::Debug for LoadedBertModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoadedBertModel")
+            .field("device", &self.device)
+            .field("model", &"<BertModel>")
+            .finish()
+    }
+}
+
+impl crate::domain::model::traits::CandleModel for LoadedBertModel {
+    fn info(&self) -> &'static crate::domain::model::CandleModelInfo {
+        &BERT_EMBEDDING_MODEL_INFO
+    }
+}
+
 impl LoadedBertModel {
     /// Load model and tokenizer from disk once, returning loaded instance ready for inference.
     ///
@@ -501,7 +516,11 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedBertModel {
         ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
 
-    fn embedding_dimensions(&self) -> Vec<usize> {
+    fn embedding_dimension(&self) -> usize {
+        384
+    }
+
+    fn supported_dimensions(&self) -> Vec<usize> {
         vec![384]
     }
 

@@ -345,10 +345,17 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleJinaBertEmbedding
 /// This struct holds the tokenizer, model, and device in memory
 /// to eliminate repeated disk I/O on every inference call. Designed for
 /// use in worker threads that process many requests.
+#[derive(Debug)]
 pub struct LoadedJinaBertModel {
     tokenizer: Tokenizer,
     model: BertModel,
     device: Device,
+}
+
+impl crate::domain::model::traits::CandleModel for LoadedJinaBertModel {
+    fn info(&self) -> &'static crate::domain::model::CandleModelInfo {
+        &JINA_BERT_MODEL_INFO
+    }
 }
 
 impl LoadedJinaBertModel {
@@ -435,13 +442,18 @@ impl LoadedJinaBertModel {
             device,
         })
     }
-}
 
-impl crate::capability::traits::TextEmbeddingCapable for LoadedJinaBertModel {
-    fn embed(&self, text: &str, _task: Option<String>) 
-        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> 
+    /// Generate embedding for a single text using pre-loaded model
+    ///
+    /// # Arguments
+    /// * `text` - The input text to embed
+    /// * `_task` - Optional task type (unused by Jina-BERT)
+    ///
+    /// # Returns
+    /// 768-dimensional embedding vector or error
+    pub fn embed(&self, text: &str, _task: Option<String>)
+        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>
     {
-        // NO I/O - everything already loaded in self
         let embeddings = CandleJinaBertEmbeddingModel::forward_pass(
             &self.tokenizer,
             &self.model,
@@ -453,10 +465,17 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedJinaBertModel {
             .ok_or_else(|| "No embeddings generated".into())
     }
 
-    fn batch_embed(&self, texts: &[String], _task: Option<String>)
+    /// Generate embeddings for multiple texts in batch
+    ///
+    /// # Arguments
+    /// * `texts` - Slice of input texts to embed
+    /// * `_task` - Optional task type (unused by Jina-BERT)
+    ///
+    /// # Returns
+    /// Vector of 768-dimensional embedding vectors or error
+    pub fn batch_embed(&self, texts: &[String], _task: Option<String>)
         -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>>
     {
-        // NO I/O - use loaded state
         let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
         CandleJinaBertEmbeddingModel::forward_pass(
             &self.tokenizer,
@@ -466,19 +485,45 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedJinaBertModel {
         ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
 
-    fn embedding_dimension(&self) -> usize {
+    /// Get embedding dimensionality
+    pub fn embedding_dimension(&self) -> usize {
         JINA_BERT_MODEL_INFO.embedding_dimension.unwrap_or(768) as usize
     }
 
-    fn supported_dimensions(&self) -> Vec<usize> {
+    /// Get list of supported embedding dimensions
+    pub fn supported_dimensions(&self) -> Vec<usize> {
         vec![768]
     }
 
-    fn recommended_batch_size(&self) -> usize {
-        16
+    /// Get recommended batch size for optimal performance
+    pub fn recommended_batch_size(&self) -> usize {
+        8
     }
 
-    fn max_batch_size(&self) -> usize {
-        64
+    /// Get maximum supported batch size
+    pub fn max_batch_size(&self) -> usize {
+        32
+    }
+}
+
+// ============================================================================
+// Trait Implementation
+// ============================================================================
+
+impl crate::capability::traits::TextEmbeddingCapable for LoadedJinaBertModel {
+    fn embed(&self, text: &str, task: Option<String>)
+        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>
+    {
+        self.embed(text, task)
+    }
+
+    fn batch_embed(&self, texts: &[String], task: Option<String>)
+        -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>>
+    {
+        self.batch_embed(texts, task)
+    }
+
+    fn embedding_dimension(&self) -> usize {
+        self.embedding_dimension()
     }
 }

@@ -285,7 +285,7 @@ pub async fn load_plugins(
                 manifest = manifest.with_config_key(key, value);
             }
         }
-        let mut plugin = match Plugin::new(&manifest, [], true) {
+        let mut plugin = match PluginBuilder::new(&manifest).with_wasi(true).build() {
             Ok(p) => p,
             Err(e) => {
                 log::error!(

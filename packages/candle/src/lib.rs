@@ -92,6 +92,9 @@ pub mod prelude {
     // Real workflow execution types - streams-only architecture
     pub use crate::workflow::{CandleExecutableWorkflow, CandleWorkflowStep, candle_workflow};
 
+    // Pool infrastructure for transparent worker management
+    pub use crate::pool::{Pool, PoolError, init_maintenance};
+
     pub struct CandleLibrary;
 
     impl CandleLibrary {
@@ -118,6 +121,9 @@ pub use ystream::{AsyncStream, AsyncStreamSender, AsyncTask, spawn_task};
 // SIMD operations from paraphym-simd for high-performance ML workloads
 pub use paraphym_simd;
 pub use prelude::*;
+
+// Pool infrastructure
+pub use pool::{Pool, PoolError, init_maintenance};
 
 #[cfg(test)]
 mod tests {

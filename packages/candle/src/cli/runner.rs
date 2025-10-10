@@ -52,6 +52,31 @@ impl CliRunner {
 
     /// Run the CLI application using fluent API
     pub async fn run(&mut self) -> Result<()> {
+        // Initialize pool maintenance thread (lazy init)
+        crate::pool::init_maintenance();
+
+        // Setup Ctrl+C handler for graceful shutdown
+        use std::sync::mpsc::channel;
+        let (shutdown_tx, shutdown_rx) = channel();
+
+        ctrlc::set_handler(move || {
+            // Send shutdown signal (handler is called each time Ctrl+C pressed)
+            if shutdown_tx.send(()).is_err() {
+                // Channel closed - main thread already exiting
+                eprintln!("Shutdown already in progress");
+            }
+        })
+        .map_err(|e| anyhow::anyhow!("Failed to set Ctrl-C handler: {}", e))?;
+
+        // Spawn shutdown monitor thread
+        std::thread::spawn(move || {
+            if shutdown_rx.recv().is_ok() {
+                eprintln!("\nShutdown signal received, draining pools...");
+                crate::pool::begin_shutdown(5); // 5 second timeout
+                std::process::exit(0);
+            }
+        });
+
         let mut stdout = StandardStream::stdout(ColorChoice::Always);
 
         // Log warning if tools are specified (WASM loading not yet implemented)

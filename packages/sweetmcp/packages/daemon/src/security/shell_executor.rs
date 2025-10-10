@@ -3,15 +3,16 @@ use std::time::Duration;
 use tokio::time::timeout;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use extism::{UserData, Val, ValType, CurrentPlugin};
+use extism::*;
+use extism::convert::Json;
 use anyhow::Result;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ShellExecuteRequest {
     pub command: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ShellExecuteResponse {
     pub stdout: String,
     pub stderr: String,
@@ -138,43 +139,25 @@ impl ShellExecutor {
     }
 }
 
-// Host function callable from WASM
-pub fn shell_execute_host_fn(
-    _user_data: UserData,
-    inputs: &[Val],
-    outputs: &mut [Val],
-    _context: CurrentPlugin,
-) -> Result<(), extism::Error> {
-    // Extract JSON input from WASM
-    let input_json = match &inputs[0] {
-        Val::String(s) => s.clone(),
-        _ => return Err(extism::Error::msg("Expected string input")),
-    };
-    
-    let request: ShellExecuteRequest = serde_json::from_str(&input_json)
-        .map_err(|e| extism::Error::msg(format!("Invalid request: {}", e)))?;
-    
-    // Execute (blocking call, but fast enough for host fn)
+// Host function using extism 1.12.0 API
+// The host_fn! macro handles JSON serialization/deserialization automatically
+// from plugin memory blocks (I64 pointers)
+host_fn!(shell_execute(_user_data: (); request: Json<ShellExecuteRequest>) -> Json<ShellExecuteResponse> {
+    // Execute command (blocking in host function is acceptable)
     let executor = ShellExecutor::new();
     let response = tokio::runtime::Handle::current()
-        .block_on(executor.execute(&request.command));
-    
-    // Return JSON response to WASM
-    let response_json = serde_json::to_string(&response)
-        .map_err(|e| extism::Error::msg(format!("Response serialization failed: {}", e)))?;
-    
-    outputs[0] = Val::String(response_json);
-    Ok(())
-}
+        .block_on(executor.execute(&request.0.command));
+    Ok(Json(response))
+});
 
-// Register host function with Extism plugin
-pub fn register_shell_host_functions(plugin: &mut extism::Plugin) -> Result<(), extism::Error> {
-    plugin.register_host_fn(
+// Register host function with PluginBuilder (new API pattern)
+// This is called during plugin construction, not after
+pub fn register_shell_host_functions(builder: PluginBuilder) -> PluginBuilder {
+    builder.with_function(
         "shell_execute",
-        [ValType::String], // input: JSON request
-        [ValType::String], // output: JSON response
-        UserData::default(),
-        shell_execute_host_fn,
-    )?;
-    Ok(())
+        [ValType::I64],       // Input: memory pointer to JSON request
+        [ValType::I64],       // Output: memory pointer to JSON response
+        UserData::new(()),    // No shared state needed (using unit type)
+        shell_execute,        // Function created by host_fn! macro above
+    )
 }

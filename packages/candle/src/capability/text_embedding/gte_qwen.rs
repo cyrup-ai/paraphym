@@ -381,11 +381,21 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleGteQwenEmbeddingM
 /// This struct holds the tokenizer, model, device, and config in memory
 /// to eliminate repeated disk I/O on every inference call. Designed for
 /// use in worker threads that process many requests.
+///
+/// Uses Mutex for interior mutability to satisfy both:
+/// - TextEmbeddingCapable trait (&self methods)
+/// - Qwen2 forward pass requirements (&mut Model for KV cache)
+#[derive(Debug)]
 pub struct LoadedGteQwenModel {
     tokenizer: Tokenizer,
-    model: std::cell::RefCell<Model>,
+    model: std::sync::Mutex<Model>,
     device: Device,
-    config: Config,
+}
+
+impl crate::domain::model::traits::CandleModel for LoadedGteQwenModel {
+    fn info(&self) -> &'static CandleModelInfo {
+        &GTE_QWEN_MODEL_INFO
+    }
 }
 
 impl LoadedGteQwenModel {
@@ -487,45 +497,49 @@ impl LoadedGteQwenModel {
         
         Ok(Self {
             tokenizer,
-            model: std::cell::RefCell::new(model),
+            model: std::sync::Mutex::new(model),
             device,
-            config: qwen_config,
         })
     }
+
 }
 
 impl crate::capability::traits::TextEmbeddingCapable for LoadedGteQwenModel {
-    fn embed(&self, text: &str, _task: Option<String>) 
+    fn embed(&self, text: &str, task: Option<String>) 
         -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> 
     {
-        // NO I/O - everything already loaded in self
-        let task_ref = _task.as_deref();
-        let mut model = self.model.borrow_mut();
+        self.validate_input(text)?;
+        
+        let mut model_guard = self.model.lock()
+            .map_err(|e| Box::from(format!("Failed to lock model: {}", e)) as Box<dyn std::error::Error + Send + Sync>)?;
+        
         let embeddings = CandleGteQwenEmbeddingModel::forward_pass_with_task(
             &self.tokenizer,
-            &mut *model,
+            &mut *model_guard,
             &self.device,
             &[text],
-            task_ref,
+            task.as_deref(),
         )?;
 
         embeddings.into_iter().next()
-            .ok_or_else(|| "No embeddings generated".into())
+            .ok_or_else(|| Box::from("No embeddings generated") as Box<dyn std::error::Error + Send + Sync>)
     }
 
-    fn batch_embed(&self, texts: &[String], _task: Option<String>)
-        -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>>
+    fn batch_embed(&self, texts: &[String], task: Option<String>) 
+        -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> 
     {
-        // NO I/O - use loaded state
+        self.validate_batch(texts)?;
+        
+        let mut model_guard = self.model.lock()
+            .map_err(|e| Box::from(format!("Failed to lock model: {}", e)) as Box<dyn std::error::Error + Send + Sync>)?;
+        
         let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
-        let task_ref = _task.as_deref();
-        let mut model = self.model.borrow_mut();
         CandleGteQwenEmbeddingModel::forward_pass_with_task(
             &self.tokenizer,
-            &mut *model,
+            &mut *model_guard,
             &self.device,
             &text_refs,
-            task_ref,
+            task.as_deref(),
         ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
 
@@ -545,3 +559,4 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedGteQwenModel {
         16
     }
 }
+
