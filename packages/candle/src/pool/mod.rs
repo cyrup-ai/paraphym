@@ -221,7 +221,7 @@ pub mod capabilities;
 pub mod maintenance;
 pub mod shutdown;
 
-pub use core::{Pool, PoolConfig, PoolError, WorkerHandle};
+pub use core::{Pool, PoolConfig, PoolError, WorkerHandle, WorkerState};
 pub use capabilities::{
     image_embedding_pool,
     text_embedding_pool,

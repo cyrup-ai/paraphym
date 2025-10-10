@@ -14,7 +14,10 @@ use crate::pool::core::Pool;
 /// A worker is considered idle if:
 /// - It has no pending requests (pending_requests == 0)
 /// - It hasn't been used for at least idle_threshold_secs seconds
-fn all_workers_idle(workers: &[WorkerHandle], idle_threshold_secs: u64) -> bool {
+/// - It's in an evictable state (Ready or Idle, not Loading or Processing)
+fn all_workers_idle<W: crate::pool::core::types::PoolWorkerHandle>(workers: &[W], idle_threshold_secs: u64) -> bool {
+    use crate::pool::core::worker_state::WorkerState;
+    
     if workers.is_empty() {
         return false;
     }
@@ -25,8 +28,15 @@ fn all_workers_idle(workers: &[WorkerHandle], idle_threshold_secs: u64) -> bool 
         .unwrap_or(0);
 
     workers.iter().all(|w| {
-        let pending = w.pending_requests.load(Ordering::Acquire);
-        let last_used = w.last_used.load(Ordering::Acquire);
+        let core = w.core();
+        // CRITICAL: Don't evict workers that are Loading or Processing!
+        let state = core.get_state();
+        if matches!(state, WorkerState::Loading | WorkerState::Processing | WorkerState::Spawning) {
+            return false; // Not evictable
+        }
+        
+        let pending = core.pending_requests.load(Ordering::Acquire);
+        let last_used = core.last_used.load(Ordering::Acquire);
         let idle_duration = now.saturating_sub(last_used);
 
         pending == 0 && idle_duration >= idle_threshold_secs
@@ -37,12 +47,49 @@ fn all_workers_idle(workers: &[WorkerHandle], idle_threshold_secs: u64) -> bool 
 ///
 /// Returns the index of the worker with the oldest last_used timestamp.
 /// Returns None if workers vector is empty.
-fn find_lru_worker(workers: &[WorkerHandle]) -> Option<usize> {
+fn find_lru_worker<W: crate::pool::core::types::PoolWorkerHandle>(workers: &[W]) -> Option<usize> {
     workers
         .iter()
         .enumerate()
-        .min_by_key(|(_, w)| w.last_used.load(Ordering::Acquire))
+        .min_by_key(|(_, w)| w.core().last_used.load(Ordering::Acquire))
         .map(|(idx, _)| idx)
+}
+
+/// Remove dead and failed workers from pool
+fn cleanup_dead_workers<W: crate::pool::core::types::PoolWorkerHandle>(pool: &Pool<W>) {
+    use crate::pool::core::worker_state::WorkerState;
+    
+    for entry in pool.workers().iter() {
+        let registry_key = entry.key();
+        let mut removed_count = 0;
+        
+        if let Some(mut workers) = pool.workers().get_mut(registry_key) {
+            workers.retain(|worker| {
+                let state = worker.core().get_state();
+                
+                if matches!(state, WorkerState::Dead | WorkerState::Failed) {
+                    log::warn!(
+                        "Removing {:?} worker {} for {}",
+                        state,
+                        worker.core().worker_id,
+                        registry_key
+                    );
+                    
+                    // Clean up memory
+                    pool.remove_memory(worker.core().per_worker_mb);
+                    
+                    removed_count += 1;
+                    false // Remove from vector
+                } else {
+                    true // Keep in vector
+                }
+            });
+        }
+        
+        if removed_count > 0 {
+            pool.metrics().workers_evicted.fetch_add(removed_count, Ordering::Release);
+        }
+    }
 }
 
 /// Evict worker from pool
@@ -58,8 +105,8 @@ fn find_lru_worker(workers: &[WorkerHandle]) -> Option<usize> {
 ///
 /// # Returns
 /// Ok(()) on success, Err with description on failure
-fn evict_worker<T: ?Sized>(
-    pool: &Pool<T>,
+fn evict_worker<W: crate::pool::core::types::PoolWorkerHandle>(
+    pool: &Pool<W>,
     registry_key: &str,
     worker_idx: usize,
     per_worker_mb: usize,
@@ -85,10 +132,10 @@ fn evict_worker<T: ?Sized>(
 
     // Send shutdown signal to worker thread
     // Worker loop will receive signal and break
-    if let Err(e) = worker.shutdown_tx.send(()) {
+    if let Err(e) = worker.core().shutdown_tx.send(()) {
         log::warn!(
             "Failed to send shutdown signal to worker {}: {}",
-            worker.worker_id,
+            worker.core().worker_id,
             e
         );
     }
@@ -101,7 +148,7 @@ fn evict_worker<T: ?Sized>(
 
     log::info!(
         "Evicted worker {} from {} (idle cooldown), {} workers remain",
-        worker.worker_id,
+        worker.core().worker_id,
         registry_key,
         remaining_count
     );
@@ -136,11 +183,14 @@ fn validate_pool_health<T: ?Sized>(
 ///
 /// Iterates over all models in the pool and evicts one LRU worker
 /// per idle model.
-fn process_pool_maintenance<T: ?Sized>(
-    pool: &'static Pool<T>,
+fn process_pool_maintenance<W: crate::pool::core::types::PoolWorkerHandle>(
+    pool: &'static Pool<W>,
     idle_threshold_secs: u64,
     pool_name: &str,
 ) {
+    // FIRST: Clean up dead/failed workers
+    cleanup_dead_workers(pool);
+    
     // Collect models that need eviction (to avoid holding locks)
     let mut models_to_evict = Vec::new();
 

@@ -1,15 +1,16 @@
-use crossbeam::channel::{unbounded, Receiver, Sender};
+use crossbeam::channel::{bounded, Receiver, Sender};
 use crossbeam::select;
 use once_cell::sync::Lazy;
 use dashmap::DashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicUsize, AtomicU64, AtomicU32, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use ystream::{AsyncStream, spawn_stream};
 use candle_core::Device;
 
-use crate::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle, query_system_memory_mb};
+use crate::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
 use crate::pool::core::types::{HealthPing, HealthPong, select_worker_power_of_two};
+use crate::pool::core::memory_governor::AllocationGuard;
 use crate::capability::traits::TextToImageCapable;
 use crate::domain::image_generation::{ImageGenerationChunk, ImageGenerationConfig};
 
@@ -29,26 +30,25 @@ pub struct TextToImageWorkerHandle {
     pub registry_key: String,  // Added to enable cleanup on drop
 }
 
+impl crate::pool::core::types::PoolWorkerHandle for TextToImageWorkerHandle {
+    fn core(&self) -> &crate::pool::core::WorkerHandle {
+        &self.core
+    }
+    
+    fn core_mut(&mut self) -> &mut crate::pool::core::WorkerHandle {
+        &mut self.core
+    }
+    
+    fn registry_key(&self) -> &str {
+        &self.registry_key
+    }
+}
+
 impl std::ops::Deref for TextToImageWorkerHandle {
     type Target = WorkerHandle;
     
     fn deref(&self) -> &Self::Target {
         &self.core
-    }
-}
-
-impl Drop for TextToImageWorkerHandle {
-    fn drop(&mut self) {
-        // Clean up from global storage when handle is dropped
-        // This prevents memory leak when workers are evicted
-        if let Some(mut workers) = TEXT_TO_IMAGE_WORKERS.get_mut(&self.registry_key) {
-            workers.retain(|w| w.core.worker_id != self.core.worker_id);
-            log::debug!(
-                "Cleaned up TextToImage worker {} for {} from global storage",
-                self.core.worker_id,
-                self.registry_key
-            );
-        }
     }
 }
 
@@ -64,13 +64,38 @@ pub fn text_to_image_worker<T: TextToImageCapable>(
     health_rx: Receiver<HealthPing>,
     health_tx: Sender<HealthPong>,
     worker_id: usize,
+    state: Arc<AtomicU32>,
 ) {
+    use std::time::{Duration, SystemTime};
+    use crate::pool::core::worker_state::WorkerState;
+    
+    // Track last activity for idle detection
+    let mut last_activity = SystemTime::now();
+    let idle_threshold = Duration::from_secs(300); // 5 minutes
+    
     loop {
+        // Check for idle timeout (Ready → Idle after 5 minutes of inactivity)
+        if let Ok(elapsed) = last_activity.elapsed() {
+            if elapsed > idle_threshold {
+                let current_state = WorkerState::from(state.load(std::sync::atomic::Ordering::Acquire));
+                if matches!(current_state, WorkerState::Ready) {
+                    state.store(WorkerState::Idle as u32, std::sync::atomic::Ordering::Release);
+                }
+            }
+        }
+        
         select! {
             recv(generate_image_rx) -> req => {
                 if let Ok(req) = req {
+                    // Transition: Ready/Idle → Processing
+                    state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
+                    
                     let stream = model.generate_image(&req.prompt, &req.config, &req.device);
                     let _ = req.response.send(Ok(stream));
+                    
+                    // Transition: Processing → Ready
+                    state.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
+                    last_activity = SystemTime::now();
                 }
             }
             recv(health_rx) -> ping => {
@@ -91,55 +116,43 @@ pub fn text_to_image_worker<T: TextToImageCapable>(
             }
             recv(shutdown_rx) -> _ => {
                 log::info!("TextToImage worker {} shutting down", worker_id);
+                // Transition: Ready/Idle → Evicting
+                state.store(WorkerState::Evicting as u32, std::sync::atomic::Ordering::Release);
                 break;
             }
         }
     }
 }
 
-/// Global storage for TextToImage worker handles with channels
-static TEXT_TO_IMAGE_WORKERS: Lazy<DashMap<String, Vec<TextToImageWorkerHandle>>> = 
-    Lazy::new(DashMap::new);
-
 /// Global TextToImage pool instance
-static TEXT_TO_IMAGE_POOL: Lazy<Pool<dyn TextToImageCapable>> = Lazy::new(|| {
+static TEXT_TO_IMAGE_POOL: Lazy<Pool<TextToImageWorkerHandle>> = Lazy::new(|| {
     Pool::new(PoolConfig::default())
 });
 
 /// Access global TextToImage pool
-pub fn text_to_image_pool() -> &'static Pool<dyn TextToImageCapable> {
+pub fn text_to_image_pool() -> &'static Pool<TextToImageWorkerHandle> {
     &TEXT_TO_IMAGE_POOL
 }
 
-impl Pool<dyn TextToImageCapable> {
+impl Pool<TextToImageWorkerHandle> {
     /// Spawn worker for TextToImage model
     pub fn spawn_text_to_image_worker<T, F>(
         &self,
         registry_key: &str,
         model_loader: F,
         per_worker_mb: usize,
+        allocation_guard: AllocationGuard,
     ) -> Result<(), PoolError>
     where
         T: TextToImageCapable + Send + 'static,
         F: FnOnce() -> Result<T, PoolError> + Send + 'static,
     {
-        // Check memory availability
-        let current_memory = self.total_memory_mb();
-        let total_system_mb = query_system_memory_mb();
-        let memory_limit_mb = (total_system_mb as f64 * 0.80) as usize;
-        
-        if current_memory + per_worker_mb > memory_limit_mb {
-            return Err(PoolError::MemoryExhausted(format!(
-                "Cannot spawn worker ({} MB). Current: {} MB, Limit: {} MB (80% of {})",
-                per_worker_mb, current_memory, memory_limit_mb, total_system_mb
-            )));
-        }
 
-        // Create channels
-        let (generate_image_tx, generate_image_rx) = unbounded();
-        let (shutdown_tx, shutdown_rx) = unbounded();
-        let (health_tx_worker, health_rx_worker) = unbounded::<HealthPing>();
-        let (health_tx_main, health_rx_main) = unbounded::<HealthPong>();
+        // Create BOUNDED channels (prevent OOM)
+        let (generate_image_tx, generate_image_rx) = bounded(self.config().image_gen_queue_capacity);
+        let (shutdown_tx, shutdown_rx) = bounded(1);
+        let (health_tx_worker, health_rx_worker) = bounded::<HealthPing>(1);
+        let (health_tx_main, health_rx_main) = bounded::<HealthPong>(1);
 
         // Get worker ID before moving into thread
         let worker_id = self.next_worker_id();
@@ -148,13 +161,33 @@ impl Pool<dyn TextToImageCapable> {
         // Clone channels for worker thread
         let health_rx_worker_clone = health_rx_worker.clone();
         let health_tx_main_clone = health_tx_main.clone();
+        
+        // Create state before spawning thread so we can clone it
+        use std::sync::atomic::AtomicU32;
+        let state = Arc::new(AtomicU32::new(0)); // Spawning state
+        let state_clone = Arc::clone(&state);
 
         // Spawn worker thread
         std::thread::spawn(move || {
+            use crate::pool::core::worker_state::WorkerState;
+            
+            // Guard held by worker thread - will drop on exit
+            let _memory_guard = allocation_guard;
+            
+            // Transition: Spawning → Loading
+            state_clone.store(WorkerState::Loading as u32, std::sync::atomic::Ordering::Release);
+            
             let model = match model_loader() {
-                Ok(m) => m,
+                Ok(m) => {
+                    log::info!("TextToImage worker {} ready", worker_id);
+                    // Transition: Loading → Ready
+                    state_clone.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
+                    m
+                }
                 Err(e) => {
                     log::error!("TextToImage worker {} model loading failed: {}", worker_id, e);
+                    // Transition: Loading → Failed
+                    state_clone.store(WorkerState::Failed as u32, std::sync::atomic::Ordering::Release);
                     return;
                 }
             };
@@ -166,10 +199,14 @@ impl Pool<dyn TextToImageCapable> {
                 health_rx_worker_clone,
                 health_tx_main_clone,
                 worker_id,
+                Arc::clone(&state_clone),
             );
+            
+            // Transition: Ready → Dead (when worker loop exits)
+            state_clone.store(WorkerState::Dead as u32, std::sync::atomic::Ordering::Release);
         });
 
-        // Create handles
+        // Create handles (state already created above before spawning)
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -178,38 +215,25 @@ impl Pool<dyn TextToImageCapable> {
         let pending_requests = Arc::new(AtomicUsize::new(0));
         let last_used = Arc::new(AtomicU64::new(now));
         
-        // Register with pool core
-        let pool_handle = WorkerHandle {
-            pending_requests: Arc::clone(&pending_requests),
-            last_used: Arc::clone(&last_used),
-            worker_id,
-            shutdown_tx: shutdown_tx.clone(),
-            per_worker_mb,
-            health_tx: health_tx_worker.clone(),
-            health_rx: health_rx_main.clone(),
-        };
-        self.register_worker(registry_key.to_string(), pool_handle);
-
         // Store capability-specific handle
         let full_handle = TextToImageWorkerHandle {
             core: WorkerHandle {
-                pending_requests: Arc::clone(&pending_requests),
-                last_used: Arc::clone(&last_used),
+                pending_requests,
+                last_used,
                 worker_id,
                 shutdown_tx: shutdown_tx.clone(),
                 per_worker_mb,
                 health_tx: health_tx_worker,
                 health_rx: health_rx_main,
+                state,
             },
             generate_image_tx,
             shutdown_tx,
-            registry_key: registry_key_clone.clone(),  // Store for cleanup on drop
+            registry_key: registry_key_clone.clone(),
         };
 
-        TEXT_TO_IMAGE_WORKERS
-            .entry(registry_key_clone)
-            .or_insert_with(Vec::new)
-            .push(full_handle);
+        // Single registration point - no duplication
+        self.register_worker(registry_key.to_string(), full_handle);
 
         // Update memory tracking
         self.add_memory(per_worker_mb);
@@ -242,8 +266,21 @@ impl Pool<dyn TextToImageCapable> {
                 return;
             }
 
-            // Get workers from global worker storage
-            let workers = match TEXT_TO_IMAGE_WORKERS.get(&registry_key) {
+            // Get circuit breaker for this model and check state
+            let pool = text_to_image_pool();
+            let circuit = pool.get_circuit_breaker(&registry_key);
+            
+            if !circuit.can_request() {
+                ystream::emit!(sender, ImageGenerationChunk::Error(
+                    format!("Circuit breaker open for {}", registry_key)
+                ));
+                // Update metrics
+                pool.metrics().circuit_rejections.fetch_add(1, Ordering::Relaxed);
+                return;
+            }
+
+            // Get workers from pool
+            let workers = match pool.workers.get(&registry_key) {
                 Some(w) => w,
                 None => {
                     ystream::emit!(sender, ImageGenerationChunk::Error(
@@ -277,7 +314,7 @@ impl Pool<dyn TextToImageCapable> {
             worker.core.touch();
 
             // Send request to worker
-            let (response_tx, response_rx) = crossbeam::channel::unbounded();
+            let (response_tx, response_rx) = crossbeam::channel::bounded(1);
             if let Err(e) = worker.generate_image_tx.send(GenerateImageRequest {
                 prompt,
                 config,
@@ -294,8 +331,16 @@ impl Pool<dyn TextToImageCapable> {
             // Wait for worker's AsyncStream with timeout
             let timeout = Duration::from_secs(request_timeout_secs);
             let worker_stream = match response_rx.recv_timeout(timeout) {
-                Ok(Ok(stream)) => stream,
+                Ok(Ok(stream)) => {
+                    // Record success on circuit breaker
+                    circuit.record_success();
+                    stream
+                }
                 Ok(Err(e)) => {
+                    // Record failure on circuit breaker
+                    circuit.record_failure();
+                    pool.metrics().total_errors.fetch_add(1, Ordering::Relaxed);
+                    
                     ystream::emit!(sender, ImageGenerationChunk::Error(
                         format!("Worker error: {}", e)
                     ));
@@ -303,6 +348,10 @@ impl Pool<dyn TextToImageCapable> {
                     return;
                 }
                 Err(e) => {
+                    // Record timeout as failure
+                    circuit.record_failure();
+                    pool.metrics().total_timeouts.fetch_add(1, Ordering::Relaxed);
+                    
                     ystream::emit!(sender, ImageGenerationChunk::Error(
                         format!("Request timeout: {}", e)
                     ));

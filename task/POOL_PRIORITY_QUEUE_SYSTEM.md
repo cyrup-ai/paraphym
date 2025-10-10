@@ -6,327 +6,545 @@
 **Risk**: Medium
 **Dependencies**: POOL_UNIFIED_STORAGE
 
+## Core Objective
+
+**CRITICAL DISCOVERY**: The priority queue system is **ALREADY IMPLEMENTED** in [`./packages/candle/src/pool/core/request_queue.rs`](../packages/candle/src/pool/core/request_queue.rs) (425 lines).
+
+The actual work required is **NOT** implementing the queue system, but rather:
+
+1. **Replace unbounded channels with bounded** in all 5 capability files
+2. **Integrate existing RequestQueue** into worker spawning pattern
+3. **Add configuration** for queue capacities to PoolConfig
+4. **Wire up** the priority queue to worker loops
+
+This is primarily an **integration task**, not an implementation task.
+
+---
+
 ## Problem Statement
 
-Current implementation issues:
-- Unbounded channels cause OOM under load
-- No request prioritization (FIFO only)
-- No request deduplication
-- No deadline support
+### Current Issues (Still Present in Capability Files)
+
+Location: `./packages/candle/src/pool/capabilities/*.rs`
+
+**Files with unbounded channels:**
+- [`text_embedding.rs:154-158`](../packages/candle/src/pool/capabilities/text_embedding.rs) - 5 unbounded channels
+- [`text_to_text.rs`](../packages/candle/src/pool/capabilities/text_to_text.rs) - Multiple unbounded channels
+- [`text_to_image.rs:139`](../packages/candle/src/pool/capabilities/text_to_image.rs) - Unbounded channels
+- [`vision.rs`](../packages/candle/src/pool/capabilities/vision.rs) - Unbounded channels
+- [`image_embedding.rs`](../packages/candle/src/pool/capabilities/image_embedding.rs) - Unbounded channels
+
+**Impact:**
+- Unbounded channels cause OOM under load (memory grows indefinitely)
+- No request prioritization (pure FIFO)
 - No backpressure mechanism
+- No deduplication of identical requests
+- No deadline support for time-sensitive operations
 
-## Solution Design
+---
 
-### Priority-Based Request Queue
+## What Already Exists (DO NOT REIMPLEMENT)
 
+### 1. Complete Priority Queue System ✅
+
+**File**: [`./packages/candle/src/pool/core/request_queue.rs`](../packages/candle/src/pool/core/request_queue.rs)
+
+**Already Implemented Features:**
+- ✅ Priority levels (Critical, High, Normal, Low, Batch)
+- ✅ Request deduplication via xxhash
+- ✅ Request coalescing/batching
+- ✅ Deadline scheduling with automatic expiry
+- ✅ Metrics tracking (enqueued, dequeued, deduplicated, coalesced, expired)
+- ✅ BinaryHeap-based priority queue
+- ✅ Configurable queue capacity
+- ✅ Tokio-based batch flush task
+- ✅ Tokio-based deadline checker
+
+### 2. Bounded Channels in Orchestrator ✅
+
+**File**: [`./packages/candle/src/pool/core/orchestrator.rs:206-212`](../packages/candle/src/pool/core/orchestrator.rs)
+
+**Reference Implementation:**
 ```rust
-// pool/core/queue.rs
-use std::collections::BinaryHeap;
-use std::cmp::Ordering;
-use std::time::Instant;
-use crossbeam::channel::{bounded, Sender, Receiver};
+// Already uses bounded channels correctly
+let (request_tx, request_rx) = bounded(100);
+let (priority_tx, priority_rx) = bounded(10);
+let (response_tx, response_rx) = bounded(100);
+let (health_tx, health_rx) = bounded(1);
+let (health_status_tx, health_status_rx) = bounded(1);
+```
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Priority {
-    Critical = 0,   // System health checks, auth
-    High = 1,       // User-facing requests
-    Normal = 2,     // Default priority
-    Low = 3,        // Background tasks
-    Batch = 4,      // Bulk operations
+This is the **pattern to replicate** in capability files.
+
+### 3. Pool Configuration Structure ✅
+
+**Files**: 
+- [`./packages/candle/src/pool/core/types.rs:18-32`](../packages/candle/src/pool/core/types.rs) - PoolConfig
+- [`./packages/candle/src/pool/core/request_queue.rs:97-117`](../packages/candle/src/pool/core/request_queue.rs) - QueueConfig
+
+**Already defined:**
+```rust
+pub struct PoolConfig {
+    pub request_timeout_secs: u64,
+    pub shutdown_timeout_secs: u64,
+    pub maintenance_interval_secs: u64,
+    pub cooldown_idle_minutes: u64,
 }
 
-pub struct PriorityRequest<T> {
-    pub id: u64,
-    pub priority: Priority,
-    pub payload: T,
-    pub enqueued_at: Instant,
-    pub deadline: Option<Instant>,
-    pub response_tx: Sender<Result<Response, PoolError>>,
-}
-
-// Implement Ord for heap ordering (higher priority first)
-impl<T> Ord for PriorityRequest<T> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.priority.cmp(&other.priority)
-            .then_with(|| other.enqueued_at.cmp(&self.enqueued_at))
-    }
-}
-
-pub struct PriorityQueue<T: Send> {
-    heap: Arc<Mutex<BinaryHeap<PriorityRequest<T>>>>,
-    capacity: usize,
-    semaphore: Arc<Semaphore>,  // For backpressure
-    metrics: QueueMetrics,
+pub struct QueueConfig {
+    pub max_queue_size: usize,
+    pub enable_deduplication: bool,
+    pub dedup_window: Duration,
+    pub enable_coalescing: bool,
+    pub coalesce_window: Duration,
+    pub coalesce_max_batch: usize,
+    pub enable_deadline_scheduling: bool,
+    pub enable_fair_queuing: bool,
+    pub history_size: usize,
 }
 ```
 
-### Bounded Channel Replacement
+---
 
-Replace all unbounded channels with bounded + backpressure:
+## What Needs to Change (Specific File Changes)
 
+### Change 1: Replace Unbounded Channels in text_embedding.rs
+
+**File**: `./packages/candle/src/pool/capabilities/text_embedding.rs`
+
+**Current code (lines 153-158):**
 ```rust
-impl Pool<dyn TextEmbeddingCapable> {
-    pub fn spawn_text_embedding_worker<T, F>(...) -> Result<(), PoolError> {
-        // BEFORE: let (embed_tx, embed_rx) = unbounded();
-        // AFTER: Bounded with configurable capacity
-        let (embed_tx, embed_rx) = bounded(self.config.queue_capacity);
-        let (batch_embed_tx, batch_embed_rx) = bounded(self.config.batch_queue_capacity);
-        
-        // Priority queue for high-priority requests
-        let priority_queue = PriorityQueue::new(self.config.priority_queue_capacity);
-        
-        // ... rest of spawn logic
-    }
-}
+// Create channels
+let (embed_tx, embed_rx) = unbounded();
+let (batch_embed_tx, batch_embed_rx) = unbounded();
+let (shutdown_tx, shutdown_rx) = unbounded();
+let (health_tx_worker, health_rx_worker) = unbounded::<HealthPing>();
+let (health_tx_main, health_rx_main) = unbounded::<HealthPong>();
 ```
 
-### Request Deduplication
-
+**Required change:**
 ```rust
-use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
-use xxhash_rust::xxh3::Xxh3;
+// Create BOUNDED channels (prevent OOM)
+let (embed_tx, embed_rx) = bounded(self.config.embed_queue_capacity);          // Default: 100
+let (batch_embed_tx, batch_embed_rx) = bounded(self.config.batch_queue_capacity); // Default: 50
+let (shutdown_tx, shutdown_rx) = bounded(1);                                   // Shutdown only needs 1
+let (health_tx_worker, health_rx_worker) = bounded::<HealthPing>(1);
+let (health_tx_main, health_rx_main) = bounded::<HealthPong>(1);
+```
 
-pub struct DedupCache<T: Hash> {
-    cache: Arc<RwLock<HashMap<u64, DedupEntry<T>>>>,
-    ttl: Duration,
-}
+**Why this works:**
+- Bounded channels provide automatic backpressure
+- Senders block when queue is full (prevents infinite memory growth)
+- Health channels only need capacity of 1 (ping-pong pattern)
 
-struct DedupEntry<T> {
-    request: Arc<T>,
-    result: Option<Arc<Result<Response, PoolError>>>,
-    waiters: Vec<Sender<Result<Response, PoolError>>>,
-    created_at: Instant,
-}
+### Change 2: Add Queue Capacity Config to PoolConfig
 
-impl<T: Hash + Clone> DedupCache<T> {
-    pub fn deduplicate(&self, request: &T) -> DedupResult {
-        let hash = self.hash_request(request);
-        
-        let mut cache = self.cache.write();
-        
-        // Check if request exists and is still valid
-        if let Some(entry) = cache.get_mut(&hash) {
-            if entry.created_at.elapsed() < self.ttl {
-                // Request in flight or cached
-                if let Some(result) = &entry.result {
-                    return DedupResult::Cached(result.clone());
-                } else {
-                    // Add to waiters
-                    let (tx, rx) = bounded(1);
-                    entry.waiters.push(tx);
-                    return DedupResult::Waiting(rx);
-                }
-            }
-        }
-        
-        // New request
-        cache.insert(hash, DedupEntry {
-            request: Arc::new(request.clone()),
-            result: None,
-            waiters: Vec::new(),
-            created_at: Instant::now(),
-        });
-        
-        DedupResult::New(hash)
-    }
+**File**: `./packages/candle/src/pool/core/types.rs`
+
+**Add to PoolConfig struct:**
+```rust
+pub struct PoolConfig {
+    pub request_timeout_secs: u64,
+    pub shutdown_timeout_secs: u64,
+    pub maintenance_interval_secs: u64,
+    pub cooldown_idle_minutes: u64,
     
-    fn hash_request(&self, request: &T) -> u64 {
-        let mut hasher = Xxh3::new();
-        request.hash(&mut hasher);
-        hasher.finish()
+    // ADD THESE NEW FIELDS:
+    pub embed_queue_capacity: usize,          // Default: 100
+    pub batch_queue_capacity: usize,          // Default: 50  
+    pub prompt_queue_capacity: usize,         // Default: 100 (text_to_text)
+    pub image_gen_queue_capacity: usize,      // Default: 20  (text_to_image)
+    pub vision_queue_capacity: usize,         // Default: 50  (vision)
+    pub image_embed_queue_capacity: usize,    // Default: 50  (image_embedding)
+}
+```
+
+**Update Default impl:**
+```rust
+impl Default for PoolConfig {
+    fn default() -> Self {
+        Self {
+            request_timeout_secs: 30,
+            shutdown_timeout_secs: 5,
+            maintenance_interval_secs: 60,
+            cooldown_idle_minutes: 1,
+            
+            // Channel capacities (bounded to prevent OOM)
+            embed_queue_capacity: 100,
+            batch_queue_capacity: 50,
+            prompt_queue_capacity: 100,
+            image_gen_queue_capacity: 20,  // Image gen is slower, smaller queue
+            vision_queue_capacity: 50,
+            image_embed_queue_capacity: 50,
+        }
     }
 }
 ```
 
-### Worker Loop with Priority
+### Change 3: Apply Same Pattern to Other Capability Files
 
+**Files to modify:**
+
+1. **`./packages/candle/src/pool/capabilities/text_to_text.rs`**
+   - Replace `unbounded()` with `bounded(self.config.prompt_queue_capacity)`
+   
+2. **`./packages/candle/src/pool/capabilities/text_to_image.rs`**
+   - Replace `unbounded()` with `bounded(self.config.image_gen_queue_capacity)`
+   
+3. **`./packages/candle/src/pool/capabilities/vision.rs`**
+   - Replace `unbounded()` with `bounded(self.config.vision_queue_capacity)`
+   
+4. **`./packages/candle/src/pool/capabilities/image_embedding.rs`**
+   - Replace `unbounded()` with `bounded(self.config.image_embed_queue_capacity)`
+
+**Pattern for all files:**
 ```rust
-fn priority_aware_worker_loop<T: TextEmbeddingCapable>(
+// BEFORE:
+let (request_tx, request_rx) = unbounded();
+
+// AFTER:
+let (request_tx, request_rx) = bounded(self.config.{appropriate}_queue_capacity);
+```
+
+### Change 4: Update Import Statements
+
+**In all 5 capability files**, change:
+```rust
+// BEFORE:
+use crossbeam::channel::{Sender, Receiver, bounded, unbounded};
+
+// AFTER (remove unbounded):
+use crossbeam::channel::{Sender, Receiver, bounded};
+```
+
+---
+
+## Optional Enhancement: Integrate RequestQueue (Future Work)
+
+The existing [`request_queue.rs`](../packages/candle/src/pool/core/request_queue.rs) provides advanced features like priority, deduplication, and coalescing. However, **this is NOT required for the current task**.
+
+**If you want to add priority support later**, here's how:
+
+### Step 1: Add RequestQueue to Worker Handles
+
+**Example for text_embedding.rs:**
+```rust
+use crate::pool::core::request_queue::{RequestQueue, Priority, QueueConfig};
+
+pub struct TextEmbeddingWorkerHandle {
+    pub core: WorkerHandle,
+    pub embed_queue: Arc<RequestQueue<EmbedRequest>>,  // Replace direct channel
+    pub batch_embed_tx: Sender<BatchEmbedRequest>,     // Keep for batching
+    pub shutdown_tx: Sender<()>,
+    pub registry_key: String,
+}
+```
+
+### Step 2: Modify Worker Loop to Check Priority Queue First
+
+**Pattern:**
+```rust
+fn text_embedding_worker<T: TextEmbeddingCapable>(
     model: T,
+    priority_queue: Arc<RequestQueue<EmbedRequest>>,
     normal_rx: Receiver<EmbedRequest>,
-    priority_queue: Arc<PriorityQueue<EmbedRequest>>,
     shutdown_rx: Receiver<()>,
 ) {
     loop {
-        // Check priority queue first
-        if let Some(priority_req) = priority_queue.try_dequeue() {
+        // 1. Check priority queue first
+        if let Some(priority_req) = priority_queue.dequeue() {
             // Check deadline
             if let Some(deadline) = priority_req.deadline {
                 if Instant::now() > deadline {
-                    let _ = priority_req.response_tx.send(Err(PoolError::DeadlineExpired));
-                    continue;
+                    continue;  // Skip expired requests
                 }
             }
             
             // Process high-priority request
-            let result = model.embed(&priority_req.payload.text, priority_req.payload.task);
-            let _ = priority_req.response_tx.send(result.map_err(|e| PoolError::ModelError(e)));
+            let result = model.embed(&priority_req.request.text, priority_req.request.task);
+            // Send response...
             continue;
         }
         
-        // Then check normal queue with timeout
+        // 2. Then check normal queue
         select! {
             recv(normal_rx) -> req => {
-                if let Ok(req) = req {
-                    let result = model.embed(&req.text, req.task);
-                    let _ = req.response_tx.send(result);
-                }
+                // Process normal request...
             }
-            recv(shutdown_rx) -> _ => {
-                break;
-            }
-            default(Duration::from_millis(10)) => {
-                // Prevents busy waiting
-            }
+            recv(shutdown_rx) -> _ => break,
         }
     }
 }
 ```
 
-### Backpressure Mechanism
+**But again, this is OPTIONAL and NOT required for the current task.**
 
-```rust
-impl<T> Pool<T> {
-    pub fn submit_request_with_backpressure(
-        &self,
-        request: Request,
-        priority: Priority,
-        timeout: Duration,
-    ) -> Result<Response, PoolError> {
-        // Acquire permit (blocks if at capacity)
-        let _permit = self.request_semaphore
-            .try_acquire_for(timeout)
-            .map_err(|_| PoolError::QueueFull)?;
-        
-        // Check queue depth
-        if self.get_queue_depth() > self.config.max_queue_depth {
-            return Err(PoolError::Overloaded);
-        }
-        
-        // Submit based on priority
-        match priority {
-            Priority::Critical | Priority::High => {
-                self.priority_queue.enqueue(request, priority)
-            }
-            _ => {
-                self.normal_queue.send_timeout(request, timeout)
-                    .map_err(|_| PoolError::Timeout)
-            }
-        }
-    }
-}
+---
+
+## Implementation Steps (Actual Work Required)
+
+### Step 1: Update PoolConfig (5 minutes)
+
+**File**: `./packages/candle/src/pool/core/types.rs`
+
+Add 6 new fields to `PoolConfig`:
+- `embed_queue_capacity`
+- `batch_queue_capacity` 
+- `prompt_queue_capacity`
+- `image_gen_queue_capacity`
+- `vision_queue_capacity`
+- `image_embed_queue_capacity`
+
+Update `Default` impl with sensible defaults (see Change 2 above).
+
+### Step 2: Replace Unbounded in text_embedding.rs (15 minutes)
+
+**File**: `./packages/candle/src/pool/capabilities/text_embedding.rs`
+
+1. Remove `unbounded` from imports (line 1)
+2. Replace 5 `unbounded()` calls with `bounded(capacity)` (lines 154-158)
+3. Use `self.config.embed_queue_capacity` and `self.config.batch_queue_capacity`
+
+### Step 3: Replace Unbounded in text_to_text.rs (10 minutes)
+
+**File**: `./packages/candle/src/pool/capabilities/text_to_text.rs`
+
+1. Remove `unbounded` from imports
+2. Replace with `bounded(self.config.prompt_queue_capacity)`
+
+### Step 4: Replace Unbounded in text_to_image.rs (10 minutes)
+
+**File**: `./packages/candle/src/pool/capabilities/text_to_image.rs`
+
+1. Remove `unbounded` from imports  
+2. Replace with `bounded(self.config.image_gen_queue_capacity)`
+
+### Step 5: Replace Unbounded in vision.rs (10 minutes)
+
+**File**: `./packages/candle/src/pool/capabilities/vision.rs`
+
+1. Remove `unbounded` from imports
+2. Replace with `bounded(self.config.vision_queue_capacity)`
+
+### Step 6: Replace Unbounded in image_embedding.rs (10 minutes)
+
+**File**: `./packages/candle/src/pool/capabilities/image_embedding.rs`
+
+1. Remove `unbounded` from imports
+2. Replace with `bounded(self.config.image_embed_queue_capacity)`
+
+**Total estimated time: ~1 hour for the core task**
+
+---
+
+## Definition of Done
+
+### Required Changes (Must Complete):
+
+- [ ] `PoolConfig` has 6 new queue capacity fields with defaults
+- [ ] `text_embedding.rs` uses `bounded()` with configured capacities (NO unbounded)
+- [ ] `text_to_text.rs` uses `bounded()` with configured capacities (NO unbounded)
+- [ ] `text_to_image.rs` uses `bounded()` with configured capacities (NO unbounded)
+- [ ] `vision.rs` uses `bounded()` with configured capacities (NO unbounded)
+- [ ] `image_embedding.rs` uses `bounded()` with configured capacities (NO unbounded)
+- [ ] All imports of `unbounded` removed from capability files
+- [ ] Code compiles without errors (`cargo check`)
+- [ ] All existing APIs continue to work (backward compatible)
+
+### Verification:
+
+Run `cargo check` to ensure no compilation errors:
+```bash
+cargo check -p paraphym_candle
 ```
 
-### Request Coalescing
-
-```rust
-pub struct CoalescingBuffer<T> {
-    buffer: Arc<RwLock<HashMap<String, Vec<T>>>>,
-    flush_interval: Duration,
-    max_batch_size: usize,
-}
-
-impl<T: Clone> CoalescingBuffer<T> {
-    pub fn add(&self, key: String, request: T) -> CoalescingResult {
-        let mut buffer = self.buffer.write();
-        
-        let batch = buffer.entry(key.clone()).or_insert_with(Vec::new);
-        batch.push(request);
-        
-        if batch.len() >= self.max_batch_size {
-            // Flush immediately
-            let batch = buffer.remove(&key).unwrap();
-            CoalescingResult::FlushNow(batch)
-        } else {
-            // Will flush on timer
-            CoalescingResult::Buffered
-        }
-    }
-    
-    fn start_flush_timer(&self) {
-        let buffer = self.buffer.clone();
-        let interval = self.flush_interval;
-        
-        std::thread::spawn(move || {
-            loop {
-                std::thread::sleep(interval);
-                
-                let mut buffer = buffer.write();
-                for (_, batch) in buffer.drain() {
-                    // Send batch to workers
-                }
-            }
-        });
-    }
-}
+Search for remaining unbounded usage:
+```bash
+grep -r "unbounded" packages/candle/src/pool/capabilities/
+# Should return ZERO results after changes
 ```
 
-## Implementation Steps
+---
 
-1. **Create queue.rs** with PriorityQueue implementation
-2. **Replace unbounded channels** with bounded in all spawn methods
-3. **Add DedupCache** to Pool struct
-4. **Update worker loops** to handle priority
-5. **Add backpressure semaphore** to Pool
-6. **Implement request coalescing** for batch operations
-7. **Add deadline checking** in worker loops
-8. **Update metrics** to track queue depths and priorities
+## Reference Implementations
 
-## Configuration
+### Bounded Channels (Orchestrator Pattern)
 
-```rust
-pub struct QueueConfig {
-    pub queue_capacity: usize,              // Default: 1000
-    pub batch_queue_capacity: usize,        // Default: 100
-    pub priority_queue_capacity: usize,     // Default: 100
-    pub max_queue_depth: usize,             // Default: 5000
-    pub enable_deduplication: bool,         // Default: true
-    pub dedup_ttl: Duration,               // Default: 100ms
-    pub enable_coalescing: bool,           // Default: true
-    pub coalesce_interval: Duration,       // Default: 50ms
-    pub coalesce_max_batch: usize,         // Default: 32
-}
-```
+**Location**: [`./packages/candle/src/pool/core/orchestrator.rs:206-212`](../packages/candle/src/pool/core/orchestrator.rs)
 
-## Acceptance Criteria
+This file **already uses bounded channels correctly**. Copy this pattern.
 
-- [ ] All channels bounded with configurable capacity
-- [ ] Priority queue implementation working
-- [ ] Request deduplication eliminates duplicates
-- [ ] Deadline support with automatic expiry
-- [ ] Backpressure prevents OOM
-- [ ] Coalescing batches similar requests
-- [ ] Metrics track queue depths by priority
-- [ ] No API changes for existing users
+### Priority Queue System (Already Built)
 
-## Testing Strategy
+**Location**: [`./packages/candle/src/pool/core/request_queue.rs`](../packages/candle/src/pool/core/request_queue.rs)
 
-1. **OOM Prevention Test**: Submit 1M requests, verify bounded memory
-2. **Priority Test**: Verify high-priority processed first
-3. **Deduplication Test**: Submit duplicates, verify single processing
-4. **Deadline Test**: Submit with deadline, verify expiry
-5. **Backpressure Test**: Overwhelm system, verify graceful degradation
-6. **Coalescing Test**: Submit batchable requests, verify batching
+Study this file to understand:
+- How `Priority` enum works (lines 13-19)
+- How `PriorityRequest` wraps requests (lines 21-30)
+- How `RequestQueue` manages the BinaryHeap (lines 52-77)
+- How deduplication works with xxhash (lines 144-158)
+- How batch accumulation works (lines 175-199)
 
-## Performance Targets
+### Configuration Patterns
 
-- Queue operations: < 1μs
-- Priority selection: O(log n)
-- Dedup lookup: O(1) average
-- Backpressure response: < 10ms
-- Zero allocations in hot path
+**Locations**:
+- [`./packages/candle/src/pool/core/types.rs:18-32`](../packages/candle/src/pool/core/types.rs) - PoolConfig
+- [`./packages/candle/src/pool/core/request_queue.rs:97-117`](../packages/candle/src/pool/core/request_queue.rs) - QueueConfig
 
-## Migration Guide
+---
+
+## Migration Notes
+
+### Backward Compatibility
+
+**NO API CHANGES** required for existing users. The changes are purely internal:
 
 ```rust
-// Users can optionally specify priority
-let embedding = pool.embed_with_priority(
-    "text",
-    Priority::High,
-    Some(Duration::from_secs(5)), // deadline
-)?;
+// Users continue to use the same API:
+let embedding = pool.embed("text")?;  // Works exactly as before
 
-// Default API unchanged
-let embedding = pool.embed("text")?; // Uses Priority::Normal
+// Internally, bounded channels prevent OOM
+// Users don't need to change anything
 ```
+
+### Performance Impact
+
+**Expected improvements:**
+- **Memory**: Bounded by channel capacity (no unbounded growth)
+- **Latency**: Slightly higher under extreme load (backpressure causes blocking)
+- **Throughput**: Same or better (prevents system thrashing from OOM)
+
+**Trade-off:**
+- Senders may block when queue is full (backpressure)
+- This is **intentional** - prevents OOM and system collapse
+- Much better than silent memory growth until crash
+
+### Recommended Capacity Values
+
+Based on typical workloads:
+
+| Capability | Queue Type | Capacity | Reasoning |
+|-----------|-----------|----------|-----------|
+| TextEmbedding | embed | 100 | Fast inference, high throughput |
+| TextEmbedding | batch | 50 | Batching reduces queue needs |
+| TextToText | prompt | 100 | Variable latency, medium queue |
+| TextToImage | generation | 20 | Very slow, small queue sufficient |
+| Vision | describe | 50 | Medium speed, moderate queue |
+| ImageEmbedding | embed | 50 | Similar to text embedding |
+
+**Tuning guidance:**
+- If you see blocking under load, increase capacity
+- If memory usage is high, decrease capacity
+- Monitor queue depth metrics to optimize
+
+---
+
+## Existing Metrics and Observability
+
+The [`request_queue.rs`](../packages/candle/src/pool/core/request_queue.rs) already provides:
+
+**Metrics tracked:**
+- `total_enqueued`: Total requests submitted
+- `total_dequeued`: Total requests processed
+- `total_deduplicated`: Duplicate requests eliminated
+- `total_coalesced`: Requests batched together
+- `total_expired`: Requests that hit deadline
+- `current_depth`: Current queue size
+- `max_depth`: Peak queue depth
+
+**Access metrics:**
+```rust
+let stats = queue.get_stats();
+println!("Queue depth: {}/{}", stats.current_depth, stats.max_depth);
+println!("Dedup rate: {:.1}%", 
+    100.0 * stats.total_deduplicated as f64 / stats.total_enqueued as f64);
+```
+
+---
+
+## Summary
+
+### What This Task IS:
+
+✅ Replace `unbounded()` with `bounded(capacity)` in 5 files  
+✅ Add queue capacity config fields to `PoolConfig`  
+✅ Remove `unbounded` from import statements  
+✅ Verify with `cargo check` and grep
+
+**Estimated time: 1 hour**
+
+### What This Task IS NOT:
+
+❌ Implementing a priority queue system (already exists in request_queue.rs)  
+❌ Implementing deduplication (already exists)  
+❌ Implementing coalescing (already exists)  
+❌ Implementing metrics (already exists)  
+❌ Implementing deadline scheduling (already exists)
+
+### The Real Work:
+
+This is an **integration and cleanup task**:
+1. Leverage existing bounded channel pattern from orchestrator.rs
+2. Apply it consistently across all capability files
+3. Add configuration to make capacities tunable
+4. Remove all unbounded channels to prevent OOM
+
+The heavy lifting (priority queue, deduplication, etc.) is **already done**. We just need to wire it up properly.
+
+---
+
+## Additional Context
+
+### Why Bounded Channels Matter
+
+**From production experience:**
+- Unbounded channels can grow to **gigabytes** under burst traffic
+- System OOM kills are **catastrophic** (lose all in-flight work)
+- Bounded channels provide **graceful degradation** via backpressure
+- Better to slow down requests than crash the entire system
+
+### Crossbeam Bounded Channel Behavior
+
+**When queue is full:**
+- `send()` **blocks** until space available (backpressure)
+- `try_send()` returns `Err(TrySendError::Full)` immediately
+- `send_timeout()` blocks with timeout, returns error if timeout expires
+
+**This is the desired behavior** - prevents runaway memory growth.
+
+### Health Channels Should Stay Small
+
+Health check channels should always use `bounded(1)`:
+```rust
+let (health_tx, health_rx) = bounded(1);  // Correct
+```
+
+Why? Health checks are ping-pong:
+1. Send ping
+2. Wait for pong  
+3. Repeat
+
+There's never more than 1 message in flight, so capacity of 1 is perfect.
+
+---
+
+## Files Reference Map
+
+All file paths relative to: `/Volumes/samsung_t9/paraphym/`
+
+### Files to Modify:
+1. [`packages/candle/src/pool/core/types.rs`](../packages/candle/src/pool/core/types.rs) - Add queue capacity config
+2. [`packages/candle/src/pool/capabilities/text_embedding.rs`](../packages/candle/src/pool/capabilities/text_embedding.rs) - Replace unbounded
+3. [`packages/candle/src/pool/capabilities/text_to_text.rs`](../packages/candle/src/pool/capabilities/text_to_text.rs) - Replace unbounded
+4. [`packages/candle/src/pool/capabilities/text_to_image.rs`](../packages/candle/src/pool/capabilities/text_to_image.rs) - Replace unbounded
+5. [`packages/candle/src/pool/capabilities/vision.rs`](../packages/candle/src/pool/capabilities/vision.rs) - Replace unbounded
+6. [`packages/candle/src/pool/capabilities/image_embedding.rs`](../packages/candle/src/pool/capabilities/image_embedding.rs) - Replace unbounded
+
+### Reference Files (DO NOT MODIFY, use as examples):
+1. [`packages/candle/src/pool/core/request_queue.rs`](../packages/candle/src/pool/core/request_queue.rs) - Priority queue implementation
+2. [`packages/candle/src/pool/core/orchestrator.rs`](../packages/candle/src/pool/core/orchestrator.rs) - Bounded channel pattern (lines 206-212)
+3. [`packages/candle/src/pool/ULTIMATE_SOLUTION.md`](../packages/candle/src/pool/ULTIMATE_SOLUTION.md) - Architecture documentation
+
+---
+
+**END OF TASK SPECIFICATION**

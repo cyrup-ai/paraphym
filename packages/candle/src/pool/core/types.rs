@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicU64, AtomicUsize};
+use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use crossbeam::channel::{Sender, Receiver};
 
@@ -21,6 +21,15 @@ pub struct PoolConfig {
     pub shutdown_timeout_secs: u64,     // Default: 5
     pub maintenance_interval_secs: u64, // Default: 60 (1 minute)
     pub cooldown_idle_minutes: u64,     // Default: 1
+    pub max_workers_per_model: usize,   // Default: 4 (adaptive scaling limit)
+    
+    // Channel capacities (bounded to prevent OOM)
+    pub embed_queue_capacity: usize,          // Default: 100
+    pub batch_queue_capacity: usize,          // Default: 50
+    pub prompt_queue_capacity: usize,         // Default: 100 (text_to_text)
+    pub image_gen_queue_capacity: usize,      // Default: 20  (text_to_image)
+    pub vision_queue_capacity: usize,         // Default: 50  (vision)
+    pub image_embed_queue_capacity: usize,    // Default: 50  (image_embedding)
 }
 
 impl Default for PoolConfig {
@@ -30,6 +39,15 @@ impl Default for PoolConfig {
             shutdown_timeout_secs: 5,
             maintenance_interval_secs: 60,
             cooldown_idle_minutes: 1,
+            max_workers_per_model: 4,
+            
+            // Channel capacities (bounded to prevent OOM)
+            embed_queue_capacity: 100,
+            batch_queue_capacity: 50,
+            prompt_queue_capacity: 100,
+            image_gen_queue_capacity: 20,  // Image gen is slower, smaller queue
+            vision_queue_capacity: 50,
+            image_embed_queue_capacity: 50,
         }
     }
 }
@@ -42,10 +60,11 @@ pub struct PoolMetrics {
     pub total_errors: AtomicUsize,
     pub workers_spawned: AtomicUsize,
     pub workers_evicted: AtomicUsize,
+    pub circuit_rejections: AtomicUsize,
 }
 
 /// Handle to a worker thread (capability-specific channels defined in capabilities/)
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WorkerHandle {
     pub pending_requests: Arc<AtomicUsize>,
     pub last_used: Arc<AtomicU64>,
@@ -54,6 +73,9 @@ pub struct WorkerHandle {
     pub per_worker_mb: usize,
     pub health_tx: Sender<HealthPing>,
     pub health_rx: Receiver<HealthPong>,
+    
+    // NEW: Add state tracking
+    pub state: Arc<AtomicU32>,  // WorkerState as u32
 }
 
 impl WorkerHandle {
@@ -78,6 +100,7 @@ impl WorkerHandle {
             per_worker_mb,
             health_tx,
             health_rx,
+            state: Arc::new(AtomicU32::new(0)), // Start in Spawning state
         }
     }
 
@@ -115,6 +138,36 @@ impl WorkerHandle {
                 false
             }
         }
+    }
+    
+    /// Get current worker state
+    pub fn get_state(&self) -> crate::pool::core::worker_state::WorkerState {
+        use crate::pool::core::worker_state::WorkerState;
+        let state_val = self.state.load(Ordering::Acquire);
+        WorkerState::from(state_val)
+    }
+    
+    /// Set worker state (atomic)
+    pub fn set_state(&self, new_state: crate::pool::core::worker_state::WorkerState) {
+        self.state.store(new_state as u32, Ordering::Release);
+    }
+    
+    /// Check if worker can accept requests
+    pub fn can_accept_requests(&self) -> bool {
+        use crate::pool::core::worker_state::WorkerState;
+        matches!(
+            self.get_state(),
+            WorkerState::Ready | WorkerState::Processing | WorkerState::Idle
+        )
+    }
+    
+    /// Check if worker should be evicted
+    pub fn is_evictable(&self) -> bool {
+        use crate::pool::core::worker_state::WorkerState;
+        matches!(
+            self.get_state(),
+            WorkerState::Ready | WorkerState::Idle
+        )
     }
 }
 
@@ -195,4 +248,19 @@ impl Drop for SpawnGuard {
         self.flag.store(false, std::sync::atomic::Ordering::Release);
         log::debug!("Released spawn lock for {}", self.registry_key);
     }
+}
+
+/// Trait for capability-specific worker handles
+/// 
+/// All worker handles (TextEmbeddingWorkerHandle, TextToTextWorkerHandle, etc.)
+/// implement this trait to provide unified access to core WorkerHandle fields.
+pub trait PoolWorkerHandle: Send + Sync + 'static {
+    /// Access core WorkerHandle (pending_requests, last_used, etc.)
+    fn core(&self) -> &WorkerHandle;
+    
+    /// Mutable access to core WorkerHandle
+    fn core_mut(&mut self) -> &mut WorkerHandle;
+    
+    /// Registry key for this worker (model identifier)
+    fn registry_key(&self) -> &str;
 }

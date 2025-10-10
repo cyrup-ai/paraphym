@@ -95,7 +95,7 @@ use crate::pool::capabilities::{
     text_embedding_pool, image_embedding_pool, text_to_image_pool, 
     text_to_text_pool, vision_pool
 };
-use crate::pool::core::{PoolError, ensure_workers_spawned};
+use crate::pool::core::{PoolError, ensure_workers_spawned_adaptive};
 
 // LoadedModel imports
 use crate::capability::text_embedding::{
@@ -244,17 +244,19 @@ impl TextToTextCapable for TextToTextModel {
                 let per_worker_mb = m.info().est_memory_allocation_mb;
 
                 // Cold start: spawn workers if needed
-                if let Err(e) = ensure_workers_spawned(
+                if let Err(e) = ensure_workers_spawned_adaptive(
                     pool,
                     registry_key,
                     per_worker_mb,
-                    |_| {
+                    pool.config().max_workers_per_model,
+                    |_, allocation_guard| {
                         let m_clone = m.clone();
                         pool.spawn_text_to_text_worker(
                             registry_key,
                             move || LoadedKimiK2Model::load(&m_clone)
                                 .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
+                            allocation_guard,
                         )
                     }
                 ) {
@@ -272,17 +274,19 @@ impl TextToTextCapable for TextToTextModel {
                 let per_worker_mb = m.info().est_memory_allocation_mb;
 
                 // Cold start: spawn workers if needed
-                if let Err(e) = ensure_workers_spawned(
+                if let Err(e) = ensure_workers_spawned_adaptive(
                     pool,
                     registry_key,
                     per_worker_mb,
-                    |_| {
+                    pool.config().max_workers_per_model,
+                    |_, allocation_guard| {
                         let m_clone = m.clone();
                         pool.spawn_text_to_text_worker(
                             registry_key,
                             move || LoadedQwen3CoderModel::load(&m_clone)
                                 .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
+                            allocation_guard,
                         )
                     }
                 ) {
@@ -300,17 +304,19 @@ impl TextToTextCapable for TextToTextModel {
                 let per_worker_mb = m.info().est_memory_allocation_mb;
 
                 // Cold start: spawn workers if needed
-                if let Err(e) = ensure_workers_spawned(
+                if let Err(e) = ensure_workers_spawned_adaptive(
                     pool,
                     registry_key,
                     per_worker_mb,
-                    |_| {
+                    pool.config().max_workers_per_model,
+                    |_, allocation_guard| {
                         let m_clone = m.clone();
                         pool.spawn_text_to_text_worker(
                             registry_key,
                             move || LoadedPhi4ReasoningModel::load(&m_clone)
                                 .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
+                            allocation_guard,
                         )
                     }
                 ) {
@@ -336,17 +342,19 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 let per_worker_mb = m.info().est_memory_allocation_mb;
 
                 // Cold start: spawn workers if needed
-                ensure_workers_spawned(
+                ensure_workers_spawned_adaptive(
                     pool,
                     registry_key,
                     per_worker_mb,
-                    |_| {
+                    pool.config().max_workers_per_model,
+                    |_, allocation_guard| {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
                             move || LoadedGteQwenModel::load(&m_clone)
                                 .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
+                            allocation_guard,
                         )
                     }
                 ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
@@ -362,17 +370,19 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 let per_worker_mb = m.info().est_memory_allocation_mb;
                 
                 // Cold start: spawn workers if needed
-                ensure_workers_spawned(
+                ensure_workers_spawned_adaptive(
                     pool,
                     registry_key,
                     per_worker_mb,
-                    |_| {
+                    pool.config().max_workers_per_model,
+                    |_, allocation_guard| {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
                             move || LoadedJinaBertModel::load(&m_clone)
                                 .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
+                            allocation_guard,
                         )
                     }
                 ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
@@ -387,17 +397,19 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 let per_worker_mb = m.info().est_memory_allocation_mb;
                 
                 // Cold start: spawn workers if needed
-                ensure_workers_spawned(
+                ensure_workers_spawned_adaptive(
                     pool,
                     registry_key,
                     per_worker_mb,
-                    |_| {
+                    pool.config().max_workers_per_model,
+                    |_, allocation_guard| {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
                             move || LoadedNvEmbedModel::load(&m_clone)
                                 .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
+                            allocation_guard,
                         )
                     }
                 ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
@@ -412,17 +424,19 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 let per_worker_mb = m.info().est_memory_allocation_mb;
                 
                 // Cold start: spawn workers if needed
-                ensure_workers_spawned(
+                ensure_workers_spawned_adaptive(
                     pool,
                     registry_key,
                     per_worker_mb,
-                    |_| {
+                    pool.config().max_workers_per_model,
+                    |_, allocation_guard| {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
                             move || LoadedStellaModel::load(&m_clone)
                                 .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
+                            allocation_guard,
                         )
                     }
                 ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
@@ -437,17 +451,19 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 let per_worker_mb = m.info().est_memory_allocation_mb;
                 
                 // Cold start: spawn workers if needed
-                ensure_workers_spawned(
+                ensure_workers_spawned_adaptive(
                     pool,
                     registry_key,
                     per_worker_mb,
-                    |_| {
+                    pool.config().max_workers_per_model,
+                    |_, allocation_guard| {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
                             move || LoadedBertModel::load(&m_clone)
                                 .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
+                            allocation_guard,
                         )
                     }
                 ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
@@ -467,17 +483,19 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 let per_worker_mb = m.info().est_memory_allocation_mb;
                 
                 // Cold start: spawn workers if needed
-                ensure_workers_spawned(
+                ensure_workers_spawned_adaptive(
                     pool,
                     registry_key,
                     per_worker_mb,
-                    |_| {
+                    pool.config().max_workers_per_model,
+                    |_, allocation_guard| {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
                             move || LoadedGteQwenModel::load(&m_clone)
                                 .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
+                            allocation_guard,
                         )
                     }
                 ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
@@ -491,17 +509,19 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 let per_worker_mb = m.info().est_memory_allocation_mb;
                 
                 // Cold start: spawn workers if needed
-                ensure_workers_spawned(
+                ensure_workers_spawned_adaptive(
                     pool,
                     registry_key,
                     per_worker_mb,
-                    |_| {
+                    pool.config().max_workers_per_model,
+                    |_, allocation_guard| {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
                             move || LoadedJinaBertModel::load(&m_clone)
                                 .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
+                            allocation_guard,
                         )
                     }
                 ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
@@ -515,17 +535,19 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 let per_worker_mb = m.info().est_memory_allocation_mb;
                 
                 // Cold start: spawn workers if needed
-                ensure_workers_spawned(
+                ensure_workers_spawned_adaptive(
                     pool,
                     registry_key,
                     per_worker_mb,
-                    |_| {
+                    pool.config().max_workers_per_model,
+                    |_, allocation_guard| {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
                             move || LoadedNvEmbedModel::load(&m_clone)
                                 .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
+                            allocation_guard,
                         )
                     }
                 ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
@@ -539,17 +561,19 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 let per_worker_mb = m.info().est_memory_allocation_mb;
                 
                 // Cold start: spawn workers if needed
-                ensure_workers_spawned(
+                ensure_workers_spawned_adaptive(
                     pool,
                     registry_key,
                     per_worker_mb,
-                    |_| {
+                    pool.config().max_workers_per_model,
+                    |_, allocation_guard| {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
                             move || LoadedStellaModel::load(&m_clone)
                                 .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
+                            allocation_guard,
                         )
                     }
                 ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
@@ -563,17 +587,19 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 let per_worker_mb = m.info().est_memory_allocation_mb;
                 
                 // Cold start: spawn workers if needed
-                ensure_workers_spawned(
+                ensure_workers_spawned_adaptive(
                     pool,
                     registry_key,
                     per_worker_mb,
-                    |_| {
+                    pool.config().max_workers_per_model,
+                    |_, allocation_guard| {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
                             move || LoadedBertModel::load(&m_clone)
                                 .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
+                            allocation_guard,
                         )
                     }
                 ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
@@ -605,17 +631,19 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
                 let per_worker_mb = m.info().est_memory_allocation_mb;
 
                 // Cold start: spawn workers if needed
-                ensure_workers_spawned(
+                ensure_workers_spawned_adaptive(
                     pool,
                     registry_key,
                     per_worker_mb,
-                    |_| {
+                    pool.config().max_workers_per_model,
+                    |_, allocation_guard| {
                         let m_clone = m.clone();
                         pool.spawn_image_embedding_worker(
                             registry_key,
                             move || LoadedClipVisionModel::load(&m_clone)
                                 .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
+                            allocation_guard,
                         )
                     }
                 ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
@@ -636,17 +664,19 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
                 let per_worker_mb = m.info().est_memory_allocation_mb;
 
                 // Cold start: spawn workers if needed
-                ensure_workers_spawned(
+                ensure_workers_spawned_adaptive(
                     pool,
                     registry_key,
                     per_worker_mb,
-                    |_| {
+                    pool.config().max_workers_per_model,
+                    |_, allocation_guard| {
                         let m_clone = m.clone();
                         pool.spawn_image_embedding_worker(
                             registry_key,
                             move || LoadedClipVisionModel::load(&m_clone)
                                 .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
+                            allocation_guard,
                         )
                     }
                 ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
@@ -667,17 +697,19 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
                 let per_worker_mb = m.info().est_memory_allocation_mb;
 
                 // Cold start: spawn workers if needed
-                ensure_workers_spawned(
+                ensure_workers_spawned_adaptive(
                     pool,
                     registry_key,
                     per_worker_mb,
-                    |_| {
+                    pool.config().max_workers_per_model,
+                    |_, allocation_guard| {
                         let m_clone = m.clone();
                         pool.spawn_image_embedding_worker(
                             registry_key,
                             move || LoadedClipVisionModel::load(&m_clone)
                                 .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
+                            allocation_guard,
                         )
                     }
                 ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
@@ -698,17 +730,19 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
                 let per_worker_mb = m.info().est_memory_allocation_mb;
 
                 // Cold start: spawn workers if needed
-                ensure_workers_spawned(
+                ensure_workers_spawned_adaptive(
                     pool,
                     registry_key,
                     per_worker_mb,
-                    |_| {
+                    pool.config().max_workers_per_model,
+                    |_, allocation_guard| {
                         let m_clone = m.clone();
                         pool.spawn_image_embedding_worker(
                             registry_key,
                             move || LoadedClipVisionModel::load(&m_clone)
                                 .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
+                            allocation_guard,
                         )
                     }
                 ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
@@ -737,17 +771,19 @@ impl VisionCapable for VisionModel {
                 let per_worker_mb = m.info().est_memory_allocation_mb;
 
                 // Cold start: spawn workers if needed
-                if let Err(e) = ensure_workers_spawned(
+                if let Err(e) = ensure_workers_spawned_adaptive(
                     pool,
                     registry_key,
                     per_worker_mb,
-                    |_| {
+                    pool.config().max_workers_per_model,
+                    |_, allocation_guard| {
                         let m_clone = m.clone();
                         pool.spawn_vision_worker(
                             registry_key,
                             move || LoadedLLaVAModel::load(&m_clone)
                                 .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
+                            allocation_guard,
                         )
                     }
                 ) {
@@ -771,17 +807,19 @@ impl VisionCapable for VisionModel {
                 let per_worker_mb = m.info().est_memory_allocation_mb;
 
                 // Cold start: spawn workers if needed
-                if let Err(e) = ensure_workers_spawned(
+                if let Err(e) = ensure_workers_spawned_adaptive(
                     pool,
                     registry_key,
                     per_worker_mb,
-                    |_| {
+                    pool.config().max_workers_per_model,
+                    |_, allocation_guard| {
                         let m_clone = m.clone();
                         pool.spawn_vision_worker(
                             registry_key,
                             move || LoadedLLaVAModel::load(&m_clone)
                                 .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
+                            allocation_guard,
                         )
                     }
                 ) {
@@ -811,16 +849,18 @@ impl TextToImageCapable for TextToImageModel {
                 let per_worker_mb = m.info().est_memory_allocation_mb;
 
                 // Cold start: spawn workers if needed
-                if let Err(e) = ensure_workers_spawned(
+                if let Err(e) = ensure_workers_spawned_adaptive(
                     pool,
                     registry_key,
                     per_worker_mb,
-                    |_| {
+                    pool.config().max_workers_per_model,
+                    |_, allocation_guard| {
                         let m_inner = (&**m).clone();
                         pool.spawn_text_to_image_worker(
                             registry_key,
                             move || Ok(m_inner),
                             per_worker_mb,
+                            allocation_guard,
                         )
                     }
                 ) {
@@ -838,16 +878,18 @@ impl TextToImageCapable for TextToImageModel {
                 let per_worker_mb = m.info().est_memory_allocation_mb;
 
                 // Cold start: spawn workers if needed
-                if let Err(e) = ensure_workers_spawned(
+                if let Err(e) = ensure_workers_spawned_adaptive(
                     pool,
                     registry_key,
                     per_worker_mb,
-                    |_| {
+                    pool.config().max_workers_per_model,
+                    |_, allocation_guard| {
                         let m_inner = (&**m).clone();
                         pool.spawn_text_to_image_worker(
                             registry_key,
                             move || Ok(m_inner),
                             per_worker_mb,
+                            allocation_guard,
                         )
                     }
                 ) {

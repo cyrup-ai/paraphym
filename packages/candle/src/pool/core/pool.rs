@@ -4,13 +4,16 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use super::types::{PoolConfig, PoolMetrics, WorkerHandle, SpawnGuard};
+use super::types::{PoolConfig, PoolMetrics, WorkerHandle, SpawnGuard, PoolWorkerHandle};
 use super::error::PoolError;
+use super::worker_state::{CircuitBreaker, CircuitBreakerConfig};
+use super::memory_governor::MemoryGovernor;
 
-/// Generic worker pool for capability trait T
-pub struct Pool<T: ?Sized> {
-    /// Map of registry_key -> Vec<WorkerHandle>
-    workers: DashMap<String, Vec<WorkerHandle>>,
+/// Generic worker pool for capability-specific worker handles
+pub struct Pool<W: PoolWorkerHandle> {
+    /// Map of registry_key -> Vec<W> where W is capability-specific handle
+    /// (TextEmbeddingWorkerHandle, TextToTextWorkerHandle, etc.)
+    workers: DashMap<String, Vec<W>>,
 
     /// Pool configuration
     config: PoolConfig,
@@ -30,11 +33,14 @@ pub struct Pool<T: ?Sized> {
     /// Track models currently spawning workers (prevents race conditions)
     spawning_in_progress: DashMap<String, Arc<AtomicBool>>,
 
-    /// Phantom data for generic type
-    _phantom: PhantomData<T>,
+    /// Circuit breakers per model (prevents cascade failures)
+    circuit_breakers: DashMap<String, Arc<CircuitBreaker>>,
+
+    /// Memory governor for system-wide coordination
+    pub memory_governor: Arc<MemoryGovernor>,
 }
 
-impl<T: ?Sized> Pool<T> {
+impl<W: PoolWorkerHandle> Pool<W> {
     /// Create new pool with config
     pub fn new(config: PoolConfig) -> Self {
         Self {
@@ -45,7 +51,8 @@ impl<T: ?Sized> Pool<T> {
             metrics: PoolMetrics::default(),
             shutting_down: Arc::new(AtomicBool::new(false)),
             spawning_in_progress: DashMap::new(),
-            _phantom: PhantomData,
+            circuit_breakers: DashMap::new(),
+            memory_governor: Arc::new(MemoryGovernor::new(0.80)),
         }
     }
 
@@ -60,7 +67,7 @@ impl<T: ?Sized> Pool<T> {
     }
 
     /// Register worker handle for registry_key
-    pub fn register_worker(&self, registry_key: String, handle: WorkerHandle) {
+    pub fn register_worker(&self, registry_key: String, handle: W) {
         self.workers.entry(registry_key).or_insert_with(Vec::new).push(handle);
     }
 
@@ -100,8 +107,28 @@ impl<T: ?Sized> Pool<T> {
     }
 
     /// Get workers map (for maintenance operations)
-    pub fn workers(&self) -> &DashMap<String, Vec<WorkerHandle>> {
+    pub fn workers(&self) -> &DashMap<String, Vec<W>> {
         &self.workers
+    }
+
+    /// Get or create circuit breaker for model
+    ///
+    /// Returns a circuit breaker configured with default thresholds:
+    /// - Opens after 5 consecutive failures
+    /// - Tries half-open after 60s timeout
+    /// - Closes after 3 successful requests in half-open state
+    pub fn get_circuit_breaker(&self, registry_key: &str) -> Arc<CircuitBreaker> {
+        self.circuit_breakers
+            .entry(registry_key.to_string())
+            .or_insert_with(|| {
+                Arc::new(CircuitBreaker::new(CircuitBreakerConfig {
+                    failure_threshold: 5,
+                    success_threshold: 3,
+                    timeout: Duration::from_secs(60),
+                    half_open_requests: 3,
+                }))
+            })
+            .clone()
     }
 
     /// Validate workers and remove dead ones
@@ -111,60 +138,58 @@ impl<T: ?Sized> Pool<T> {
     ///
     /// Returns the number of workers removed.
     pub fn validate_workers(&self, registry_key: &str) -> usize {
-        // Collect dead workers first to avoid TOCTOU race
-        let mut dead_workers = Vec::new();
-        
-        // First pass: identify dead workers without holding lock
-        if let Some(workers_guard) = self.workers.get(registry_key) {
-            for (idx, worker) in workers_guard.iter().enumerate() {
-                if !worker.is_alive() {
-                    dead_workers.push((idx, worker.worker_id, worker.per_worker_mb));
-                }
-            }
-        }
-        
-        // Early return if no dead workers
-        if dead_workers.is_empty() {
-            return 0;
-        }
+        use crate::pool::core::worker_state::WorkerState;
         
         let mut removed_count = 0;
         
-        // Second pass: remove dead workers with proper locking
         if let Some(mut workers_guard) = self.workers.get_mut(registry_key) {
-            // Remove in reverse order to maintain indices
-            for (idx, worker_id, per_worker_mb) in dead_workers.iter().rev() {
-                // Double-check index is still valid
-                if *idx < workers_guard.len() {
-                    // Verify it's the same worker (in case of concurrent modifications)
-                    if workers_guard[*idx].worker_id == *worker_id {
-                        let worker = workers_guard.remove(*idx);
-                        
+            workers_guard.retain(|worker| {
+                let state = worker.core().get_state();
+                
+                // Remove dead/failed workers immediately
+                if matches!(state, WorkerState::Dead | WorkerState::Failed) {
+                    log::warn!(
+                        "Removing {:?} worker {} for {}",
+                        state,
+                        worker.core().worker_id,
+                        registry_key
+                    );
+                    
+                    self.remove_memory(worker.core().per_worker_mb);
+                    let _ = worker.core().shutdown_tx.send(());
+                    removed_count += 1;
+                    
+                    false // Remove
+                }
+                // Also check health for workers that should be alive
+                else if matches!(state, WorkerState::Ready | WorkerState::Processing | WorkerState::Idle) {
+                    // Only do health check for workers claiming to be active
+                    if !worker.core().is_alive() {
                         log::warn!(
-                            "Removing dead worker {} for {} (no health response)",
-                            worker_id,
-                            registry_key
+                            "Removing unresponsive worker {} for {} (state: {:?})",
+                            worker.core().worker_id,
+                            registry_key,
+                            state
                         );
                         
-                        // Update memory tracking
-                        self.remove_memory(*per_worker_mb);
-                        
-                        // Send shutdown signal (may fail if worker already dead)
-                        let _ = worker.shutdown_tx.send(());
-                        
+                        worker.core().set_state(WorkerState::Dead);
+                        self.remove_memory(worker.core().per_worker_mb);
+                        let _ = worker.core().shutdown_tx.send(());
                         removed_count += 1;
+                        
+                        false // Remove
+                    } else {
+                        true // Keep
                     }
                 }
-            }
+                else {
+                    // Keep workers in Spawning/Loading states
+                    true
+                }
+            });
             
             if removed_count > 0 {
-                log::warn!(
-                    "Removed {} dead workers for {}",
-                    removed_count,
-                    registry_key
-                );
-                
-                // Update metrics
+                log::warn!("Removed {} workers for {}", removed_count, registry_key);
                 self.metrics.workers_evicted.fetch_add(removed_count, Ordering::Release);
             }
         }
@@ -177,7 +202,7 @@ impl<T: ?Sized> Pool<T> {
     /// Returns true if at least one worker responds to health check.
     pub fn has_alive_workers(&self, registry_key: &str) -> bool {
         if let Some(workers) = self.workers.get(registry_key) {
-            workers.iter().any(|w| w.is_alive())
+            workers.iter().any(|w| w.core().is_alive())
         } else {
             false
         }
@@ -192,8 +217,8 @@ impl<T: ?Sized> Pool<T> {
             workers
                 .iter()
                 .enumerate()
-                .filter(|(_, w)| w.is_alive())  // Only alive workers
-                .min_by_key(|(_, w)| w.pending_requests.load(Ordering::Acquire))
+                .filter(|(_, w)| w.core().is_alive())  // Only alive workers
+                .min_by_key(|(_, w)| w.core().pending_requests.load(Ordering::Acquire))
                 .map(|(idx, _)| idx)
         } else {
             None

@@ -5,9 +5,25 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use std::collections::BTreeMap;
 use parking_lot::RwLock;
-use sysinfo::{System, SystemExt, ProcessExt};
-use tokio::sync::Semaphore;
-use tracing::{info, warn, error};
+use sysinfo::System;
+
+/// Eviction candidate for emergency memory recovery
+#[derive(Debug, Clone)]
+pub struct EvictionCandidate {
+    pub registry_key: String,
+    pub worker_id: u64,
+    pub size_mb: usize,
+}
+
+/// Memory allocation errors
+#[derive(Debug, thiserror::Error)]
+pub enum MemoryError {
+    #[error("Memory exhausted: requested {requested} MB, only {available} MB available")]
+    Exhausted { requested: usize, available: usize },
+    
+    #[error("Memory allocation requires eviction")]
+    RequiresEviction(Vec<EvictionCandidate>),
+}
 
 /// Memory pressure levels
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -41,14 +57,47 @@ pub struct MemoryGovernor {
     /// Memory pools for different sizes
     memory_pools: Arc<RwLock<MemoryPools>>,
     
-    /// Allocation semaphore for backpressure
-    allocation_sem: Arc<Semaphore>,
+    /// Queue of workers marked for emergency eviction
+    eviction_queue: Arc<RwLock<Vec<EvictionCandidate>>>,
     
     /// Configuration
     config: MemoryConfig,
     
     /// System info handle
     system: Arc<RwLock<System>>,
+}
+
+/// RAII guard that automatically releases memory allocation on drop
+/// 
+/// Prevents memory leaks when worker spawning fails or panics.
+/// Follows the same pattern as SpawnGuard in types.rs.
+pub struct AllocationGuard {
+    governor: MemoryGovernor,
+    size_mb: usize,
+}
+
+impl Drop for AllocationGuard {
+    fn drop(&mut self) {
+        // Atomic release - can't fail
+        let previous = self.governor.allocated_mb.fetch_sub(
+            self.size_mb as u64,
+            Ordering::Release
+        );
+        
+        log::info!(
+            "Released {} MB via AllocationGuard (total: {} MB)",
+            self.size_mb,
+            previous - self.size_mb as u64
+        );
+        
+        // Update pressure after release
+        self.governor.update_pressure();
+        
+        // Return memory to pool if enabled
+        if self.governor.config.enable_memory_pools {
+            self.governor.return_to_pool(self.size_mb);
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -123,7 +172,6 @@ impl MemoryGovernor {
         
         let total_system_mb = (system.total_memory() / 1024 / 1024) as u64;
         let limit_mb = ((total_system_mb as f64) * config.memory_limit_percent) as u64;
-        let max_concurrent_allocs = 100;
         
         let governor = Self {
             total_system_mb: AtomicU64::new(total_system_mb),
@@ -137,7 +185,7 @@ impl MemoryGovernor {
                 medium_pool: Vec::new(),
                 large_pool: Vec::new(),
             })),
-            allocation_sem: Arc::new(Semaphore::new(max_concurrent_allocs)),
+            eviction_queue: Arc::new(RwLock::new(Vec::new())),
             config: config.clone(),
             system: Arc::new(RwLock::new(system)),
         };
@@ -153,70 +201,97 @@ impl MemoryGovernor {
         governor
     }
     
-    /// Try to allocate memory for a worker
-    pub async fn try_allocate(&self, size_mb: usize) -> bool {
-        // Acquire allocation permit
-        let _permit = match self.allocation_sem.try_acquire() {
-            Ok(p) => p,
-            Err(_) => {
-                warn!("Allocation semaphore exhausted, rejecting allocation");
-                return false;
-            }
-        };
-        
-        let current = self.allocated_mb.load(Ordering::Acquire);
+    /// Try to allocate memory for a worker (synchronous with CAS loop)
+    pub fn try_allocate(&self, size_mb: usize) -> Result<AllocationGuard, MemoryError> {
+        let mut current = self.allocated_mb.load(Ordering::Acquire);
         let limit = self.limit_mb.load(Ordering::Acquire);
         let reserved = self.reserved_mb.load(Ordering::Acquire);
         
-        // Check if allocation would exceed limit
-        if current + size_mb as u64 > limit - reserved {
-            // Try memory compaction
-            if self.config.enable_memory_pools {
-                self.compact_memory_pools();
-                
-                // Retry after compaction
-                let current_after = self.allocated_mb.load(Ordering::Acquire);
-                if current_after + size_mb as u64 > limit - reserved {
-                    warn!(
-                        "Memory allocation rejected: {} MB requested, {} MB available",
-                        size_mb,
-                        limit - reserved - current_after
-                    );
-                    return false;
+        loop {
+            // Check if allocation would exceed limit
+            if current + size_mb as u64 > limit - reserved {
+                // Try to find evictable memory
+                if let Some(evictable) = self.find_evictable_memory(size_mb) {
+                    return Err(MemoryError::RequiresEviction(evictable));
                 }
-            } else {
-                return false;
+                return Err(MemoryError::Exhausted {
+                    requested: size_mb,
+                    available: (limit - reserved - current) as usize,
+                });
+            }
+            
+            // Try atomic compare-and-swap to reserve memory
+            match self.allocated_mb.compare_exchange_weak(
+                current,
+                current + size_mb as u64,
+                Ordering::Release,  // Success: publish reservation
+                Ordering::Acquire,  // Failure: get updated value
+            ) {
+                Ok(_) => {
+                    // Successfully reserved - return RAII guard
+                    log::info!("Allocated {} MB (total: {} MB)", size_mb, current + size_mb as u64);
+                    self.update_pressure();
+                    
+                    // Enable huge pages if configured
+                    #[cfg(target_os = "linux")]
+                    if self.config.enable_huge_pages && size_mb >= 100 {
+                        self.enable_huge_pages_for_allocation(size_mb);
+                    }
+                    
+                    return Ok(AllocationGuard {
+                        governor: self.clone(),
+                        size_mb,
+                    });
+                }
+                Err(actual) => {
+                    // Another thread modified allocated_mb - retry with new value
+                    current = actual;
+                }
             }
         }
-        
-        // Try pool allocation first
-        if self.config.enable_memory_pools {
-            if let Some(chunk) = self.allocate_from_pool(size_mb) {
-                info!("Allocated {} MB from memory pool", size_mb);
-                return true;
-            }
-        }
-        
-        // Direct allocation
-        self.allocated_mb.fetch_add(size_mb as u64, Ordering::Release);
-        
-        // Update pressure
-        self.update_pressure();
-        
-        // Enable huge pages if configured
-        #[cfg(target_os = "linux")]
-        if self.config.enable_huge_pages && size_mb >= 100 {
-            self.enable_huge_pages_for_allocation(size_mb);
-        }
-        
-        info!("Allocated {} MB (total: {} MB)", size_mb, current + size_mb as u64);
-        true
     }
     
-    /// Release allocated memory
+    /// Find evictable workers to free up memory
+    fn find_evictable_memory(&self, needed_mb: usize) -> Option<Vec<EvictionCandidate>> {
+        let allocations = self.allocations.read();
+        let mut candidates = Vec::new();
+        let mut freed_mb = 0;
+        
+        // Sort by last_used (LRU)
+        let mut sorted: Vec<_> = allocations.values().collect();
+        sorted.sort_by_key(|a| a.last_accessed);
+        
+        for alloc in sorted {
+            if freed_mb >= needed_mb {
+                break;
+            }
+            
+            // Find idle workers in this model
+            for worker_alloc in &alloc.allocations {
+                candidates.push(EvictionCandidate {
+                    registry_key: alloc.model_name.clone(),
+                    worker_id: worker_alloc.worker_id,
+                    size_mb: worker_alloc.size_mb,
+                });
+                freed_mb += worker_alloc.size_mb;
+                
+                if freed_mb >= needed_mb {
+                    return Some(candidates);
+                }
+            }
+        }
+        
+        if freed_mb >= needed_mb {
+            Some(candidates)
+        } else {
+            None
+        }
+    }
+    
+    /// Release allocated memory (manual release, prefer AllocationGuard)
     pub fn release(&self, size_mb: usize) {
         let previous = self.allocated_mb.fetch_sub(size_mb as u64, Ordering::Release);
-        info!("Released {} MB (total: {} MB)", size_mb, previous - size_mb as u64);
+        log::info!("Released {} MB (total: {} MB)", size_mb, previous - size_mb as u64);
         
         // Return to pool if enabled
         if self.config.enable_memory_pools {
@@ -276,7 +351,7 @@ impl MemoryGovernor {
         MemoryStats {
             total_system_mb: total,
             allocated_mb: allocated,
-            available_mb: limit - allocated,
+            available_mb: limit.saturating_sub(allocated),
             limit_mb: limit,
             pressure: self.get_pressure(),
             utilization: (allocated as f64) / (total as f64),
@@ -313,6 +388,14 @@ impl MemoryGovernor {
         eviction_list
     }
     
+    /// Get pending eviction candidates
+    pub fn get_eviction_queue(&self) -> Vec<EvictionCandidate> {
+        let mut queue = self.eviction_queue.write();
+        let candidates = queue.clone();
+        queue.clear();
+        candidates
+    }
+    
     fn update_pressure(&self) {
         let allocated = self.allocated_mb.load(Ordering::Acquire);
         let total = self.total_system_mb.load(Ordering::Acquire);
@@ -327,7 +410,7 @@ impl MemoryGovernor {
         
         let mut pressure = self.pressure.write();
         if *pressure != new_pressure {
-            info!("Memory pressure changed: {:?} -> {:?}", *pressure, new_pressure);
+            log::info!("Memory pressure changed: {:?} -> {:?}", *pressure, new_pressure);
             *pressure = new_pressure;
         }
     }
@@ -336,31 +419,53 @@ impl MemoryGovernor {
         let governor = self.clone();
         let interval = self.config.pressure_check_interval;
         
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(interval);
+        std::thread::spawn(move || {
             loop {
-                interval.tick().await;
+                std::thread::sleep(interval);
                 
                 // Refresh system memory info
-                governor.system.write().refresh_memory();
+                {
+                    let mut sys = governor.system.write();
+                    sys.refresh_memory();
+                    let used = sys.used_memory() / 1024 / 1024;
+                    let total = sys.total_memory() / 1024 / 1024;
+                    governor.total_system_mb.store(total, Ordering::Release);
+                }
                 
                 // Update pressure
                 governor.update_pressure();
                 
-                // Check for critical pressure
+                // Handle critical pressure
                 if governor.get_pressure() == MemoryPressure::Critical {
-                    warn!("Critical memory pressure detected!");
-                    
-                    // Suggest evictions
-                    let target = (governor.allocated_mb.load(Ordering::Acquire) / 10) as usize;
-                    let evictions = governor.suggest_evictions(target);
-                    
-                    if !evictions.is_empty() {
-                        warn!("Suggested evictions: {:?}", evictions);
-                    }
+                    governor.handle_critical_pressure();
                 }
             }
         });
+    }
+    
+    fn handle_critical_pressure(&self) {
+        log::warn!("CRITICAL memory pressure - initiating emergency eviction");
+        
+        // Target: free 10% of allocated memory
+        let target_mb = (self.allocated_mb.load(Ordering::Acquire) / 10) as usize;
+        
+        if let Some(candidates) = self.find_evictable_memory(target_mb) {
+            for candidate in &candidates {
+                log::warn!(
+                    "Emergency evicting worker {} from {} ({} MB)",
+                    candidate.worker_id,
+                    candidate.registry_key,
+                    candidate.size_mb
+                );
+            }
+            
+            // Store eviction candidates for pool to handle
+            // (Pool maintenance thread will pick these up)
+            let mut eviction_queue = self.eviction_queue.write();
+            eviction_queue.extend(candidates);
+        } else {
+            log::error!("No evictable workers found despite critical pressure!");
+        }
     }
     
     fn initialize_memory_pools(&self) {
@@ -438,7 +543,7 @@ impl MemoryGovernor {
     }
     
     fn compact_memory_pools(&self) {
-        info!("Running memory pool compaction");
+        log::info!("Running memory pool compaction");
         
         let mut pools = self.memory_pools.write();
         
@@ -469,10 +574,10 @@ impl MemoryGovernor {
         
         match output {
             Ok(o) if o.status.success() => {
-                info!("Enabled {} huge pages for allocation", pages_needed);
+                log::info!("Enabled {} huge pages for allocation", pages_needed);
             }
             _ => {
-                warn!("Failed to enable huge pages");
+                log::warn!("Failed to enable huge pages");
             }
         }
     }
@@ -508,7 +613,7 @@ impl Clone for MemoryGovernor {
             pressure: self.pressure.clone(),
             allocations: self.allocations.clone(),
             memory_pools: self.memory_pools.clone(),
-            allocation_sem: self.allocation_sem.clone(),
+            eviction_queue: self.eviction_queue.clone(),
             config: self.config.clone(),
             system: self.system.clone(),
         }
