@@ -109,6 +109,29 @@ fn evict_worker<T: ?Sized>(
     Ok(())
 }
 
+/// Validate health of all workers in a pool
+///
+/// Checks each worker's health and removes dead workers.
+/// Should be called before idle eviction to ensure accurate state.
+fn validate_pool_health<T: ?Sized>(
+    pool: &'static Pool<T>,
+    pool_name: &str,
+) {
+    for entry in pool.workers().iter() {
+        let registry_key = entry.key();
+        let removed = pool.validate_workers(registry_key);
+        
+        if removed > 0 {
+            log::warn!(
+                "[{}] Removed {} dead workers for model '{}'",
+                pool_name,
+                removed,
+                registry_key
+            );
+        }
+    }
+}
+
 /// Process maintenance for one pool
 ///
 /// Iterates over all models in the pool and evicts one LRU worker
@@ -226,7 +249,14 @@ pub fn start_maintenance_thread() -> Result<thread::JoinHandle<()>, String> {
                     break;
                 }
 
-                // Process each pool
+                // Validate worker health (remove dead workers)
+                validate_pool_health(text_embedding_pool(), "TextEmbedding");
+                validate_pool_health(text_to_text_pool(), "TextToText");
+                validate_pool_health(image_embedding_pool(), "ImageEmbedding");
+                validate_pool_health(vision_pool(), "Vision");
+                validate_pool_health(text_to_image_pool(), "TextToImage");
+
+                // Process each pool (evict idle workers)
                 process_pool_maintenance(text_embedding_pool(), idle_threshold, "TextEmbedding");
                 process_pool_maintenance(text_to_text_pool(), idle_threshold, "TextToText");
                 process_pool_maintenance(

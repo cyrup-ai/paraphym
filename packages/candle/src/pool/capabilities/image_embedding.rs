@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
 
 use crate::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle, query_system_memory_mb};
+use crate::pool::core::types::{HealthPing, HealthPong, select_worker_power_of_two};
 use crate::capability::traits::ImageEmbeddingCapable;
 
 /// Request for embed_image() operation
@@ -43,6 +44,14 @@ pub struct ImageEmbeddingWorkerHandle {
     pub shutdown_tx: Sender<()>,
 }
 
+impl std::ops::Deref for ImageEmbeddingWorkerHandle {
+    type Target = WorkerHandle;
+    
+    fn deref(&self) -> &Self::Target {
+        &self.core
+    }
+}
+
 /// Worker loop for ImageEmbedding models
 ///
 /// Processes requests from 4 channels:
@@ -59,6 +68,9 @@ pub fn image_embedding_worker<T: ImageEmbeddingCapable>(
     embed_image_base64_rx: Receiver<EmbedImageBase64Request>,
     batch_embed_images_rx: Receiver<BatchEmbedImagesRequest>,
     shutdown_rx: Receiver<()>,
+    health_rx: Receiver<HealthPing>,
+    health_tx: Sender<HealthPong>,
+    worker_id: usize,
 ) {
     loop {
         select! {
@@ -91,8 +103,24 @@ pub fn image_embedding_worker<T: ImageEmbeddingCapable>(
                     let _ = req.response.send(result);
                 }
             }
+            recv(health_rx) -> ping => {
+                if ping.is_ok() {
+                    let now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    
+                    let pong = HealthPong {
+                        worker_id,
+                        timestamp: now,
+                        queue_depth: embed_image_rx.len() + embed_image_url_rx.len() + embed_image_base64_rx.len() + batch_embed_images_rx.len(),
+                    };
+                    
+                    let _ = health_tx.send(pong);
+                }
+            }
             recv(shutdown_rx) -> _ => {
-                log::info!("ImageEmbedding worker shutting down");
+                log::info!("ImageEmbedding worker {} shutting down", worker_id);
                 break;
             }
         }
@@ -142,10 +170,16 @@ impl Pool<dyn ImageEmbeddingCapable> {
         let (embed_image_base64_tx, embed_image_base64_rx) = unbounded();
         let (batch_embed_images_tx, batch_embed_images_rx) = unbounded();
         let (shutdown_tx, shutdown_rx) = unbounded();
+        let (health_tx_worker, health_rx_worker) = unbounded::<HealthPing>();
+        let (health_tx_main, health_rx_main) = unbounded::<HealthPong>();
 
         // Get worker ID before moving into thread
         let worker_id = self.next_worker_id();
         let registry_key_clone = registry_key.to_string();
+
+        // Clone channels for worker thread
+        let health_rx_worker_clone = health_rx_worker.clone();
+        let health_tx_main_clone = health_tx_main.clone();
 
         // Spawn worker thread
         std::thread::spawn(move || {
@@ -163,7 +197,10 @@ impl Pool<dyn ImageEmbeddingCapable> {
                 embed_image_url_rx,
                 embed_image_base64_rx,
                 batch_embed_images_rx,
-                shutdown_rx
+                shutdown_rx,
+                health_rx_worker_clone,
+                health_tx_main_clone,
+                worker_id,
             );
         });
 
@@ -183,17 +220,21 @@ impl Pool<dyn ImageEmbeddingCapable> {
             worker_id,
             shutdown_tx: shutdown_tx.clone(),
             per_worker_mb,
+            health_tx: health_tx_worker.clone(),
+            health_rx: health_rx_main.clone(),
         };
         self.register_worker(registry_key.to_string(), pool_handle);
 
         // Store capability-specific handle
         let full_handle = ImageEmbeddingWorkerHandle {
             core: WorkerHandle {
-                pending_requests,
-                last_used,
+                pending_requests: Arc::clone(&pending_requests),
+                last_used: Arc::clone(&last_used),
                 worker_id,
                 shutdown_tx: shutdown_tx.clone(),
                 per_worker_mb,
+                health_tx: health_tx_worker,
+                health_rx: health_rx_main,
             },
             embed_image_tx,
             embed_image_url_tx,
@@ -232,10 +273,10 @@ impl Pool<dyn ImageEmbeddingCapable> {
             return Err(PoolError::NoWorkers("No workers available".to_string()));
         }
 
-        // Find least busy worker
-        let worker = workers.iter()
-            .min_by_key(|w| w.core.pending_requests.load(Ordering::Acquire))
-            .ok_or_else(|| PoolError::NoWorkers("No workers available".to_string()))?;
+        // Find alive worker with least load using Power of Two Choices (O(1))
+        let alive_workers: Vec<_> = workers.iter().filter(|w| w.is_alive()).collect();
+        let worker = select_worker_power_of_two(&alive_workers, |w| &w.core)
+            .ok_or_else(|| PoolError::NoWorkers(format!("No alive workers for {}", registry_key)))?;
 
         // Send request
         worker.core.pending_requests.fetch_add(1, Ordering::Release);
@@ -276,10 +317,10 @@ impl Pool<dyn ImageEmbeddingCapable> {
             return Err(PoolError::NoWorkers("No workers available".to_string()));
         }
 
-        // Find least busy worker
-        let worker = workers.iter()
-            .min_by_key(|w| w.core.pending_requests.load(Ordering::Acquire))
-            .ok_or_else(|| PoolError::NoWorkers("No workers available".to_string()))?;
+        // Find alive worker with least load using Power of Two Choices (O(1))
+        let alive_workers: Vec<_> = workers.iter().filter(|w| w.is_alive()).collect();
+        let worker = select_worker_power_of_two(&alive_workers, |w| &w.core)
+            .ok_or_else(|| PoolError::NoWorkers(format!("No alive workers for {}", registry_key)))?;
 
         // Send request
         worker.core.pending_requests.fetch_add(1, Ordering::Release);
@@ -320,10 +361,10 @@ impl Pool<dyn ImageEmbeddingCapable> {
             return Err(PoolError::NoWorkers("No workers available".to_string()));
         }
 
-        // Find least busy worker
-        let worker = workers.iter()
-            .min_by_key(|w| w.core.pending_requests.load(Ordering::Acquire))
-            .ok_or_else(|| PoolError::NoWorkers("No workers available".to_string()))?;
+        // Find alive worker with least load using Power of Two Choices (O(1))
+        let alive_workers: Vec<_> = workers.iter().filter(|w| w.is_alive()).collect();
+        let worker = select_worker_power_of_two(&alive_workers, |w| &w.core)
+            .ok_or_else(|| PoolError::NoWorkers(format!("No alive workers for {}", registry_key)))?;
 
         // Send request
         worker.core.pending_requests.fetch_add(1, Ordering::Release);
@@ -364,10 +405,10 @@ impl Pool<dyn ImageEmbeddingCapable> {
             return Err(PoolError::NoWorkers("No workers available".to_string()));
         }
 
-        // Find least busy worker
-        let worker = workers.iter()
-            .min_by_key(|w| w.core.pending_requests.load(Ordering::Acquire))
-            .ok_or_else(|| PoolError::NoWorkers("No workers available".to_string()))?;
+        // Find alive worker with least load using Power of Two Choices (O(1))
+        let alive_workers: Vec<_> = workers.iter().filter(|w| w.is_alive()).collect();
+        let worker = select_worker_power_of_two(&alive_workers, |w| &w.core)
+            .ok_or_else(|| PoolError::NoWorkers(format!("No alive workers for {}", registry_key)))?;
 
         // Send request
         worker.core.pending_requests.fetch_add(1, Ordering::Release);

@@ -8,6 +8,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use ystream::{AsyncStream, spawn_stream};
 
 use crate::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle, query_system_memory_mb};
+use crate::pool::core::types::{select_worker_power_of_two, HealthPing, HealthPong};
 use crate::capability::traits::VisionCapable;
 use crate::domain::context::CandleStringChunk;
 
@@ -33,6 +34,14 @@ pub struct VisionWorkerHandle {
     pub shutdown_tx: Sender<()>,
 }
 
+impl std::ops::Deref for VisionWorkerHandle {
+    type Target = WorkerHandle;
+    
+    fn deref(&self) -> &Self::Target {
+        &self.core
+    }
+}
+
 /// Worker loop for Vision models
 ///
 /// Processes streaming requests. Worker calls trait method which
@@ -43,6 +52,9 @@ pub fn vision_worker<T: VisionCapable>(
     describe_image_rx: Receiver<DescribeImageRequest>,
     describe_url_rx: Receiver<DescribeUrlRequest>,
     shutdown_rx: Receiver<()>,
+    health_rx: Receiver<HealthPing>,
+    health_tx: Sender<HealthPong>,
+    worker_id: usize,
 ) {
     loop {
         select! {
@@ -58,8 +70,24 @@ pub fn vision_worker<T: VisionCapable>(
                     let _ = req.response.send(Ok(stream));
                 }
             }
+            recv(health_rx) -> ping => {
+                if ping.is_ok() {
+                    let now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    
+                    let pong = HealthPong {
+                        worker_id,
+                        timestamp: now,
+                        queue_depth: describe_image_rx.len() + describe_url_rx.len(),
+                    };
+                    
+                    let _ = health_tx.send(pong);
+                }
+            }
             recv(shutdown_rx) -> _ => {
-                log::info!("Vision worker shutting down");
+                log::info!("Vision worker {} shutting down", worker_id);
                 break;
             }
         }
@@ -108,10 +136,16 @@ impl Pool<dyn VisionCapable> {
         let (describe_image_tx, describe_image_rx) = unbounded();
         let (describe_url_tx, describe_url_rx) = unbounded();
         let (shutdown_tx, shutdown_rx) = unbounded();
+        let (health_tx_worker, health_rx_worker) = unbounded::<HealthPing>();
+        let (health_tx_main, health_rx_main) = unbounded::<HealthPong>();
 
         // Get worker ID before moving into thread
         let worker_id = self.next_worker_id();
         let registry_key_clone = registry_key.to_string();
+
+        // Clone channels for worker thread
+        let health_rx_worker_clone = health_rx_worker.clone();
+        let health_tx_main_clone = health_tx_main.clone();
 
         // Spawn worker thread
         std::thread::spawn(move || {
@@ -123,7 +157,15 @@ impl Pool<dyn VisionCapable> {
                 }
             };
 
-            vision_worker(model, describe_image_rx, describe_url_rx, shutdown_rx);
+            vision_worker(
+                model,
+                describe_image_rx,
+                describe_url_rx,
+                shutdown_rx,
+                health_rx_worker_clone,
+                health_tx_main_clone,
+                worker_id,
+            );
         });
 
         // Create handles
@@ -142,17 +184,21 @@ impl Pool<dyn VisionCapable> {
             worker_id,
             shutdown_tx: shutdown_tx.clone(),
             per_worker_mb,
+            health_tx: health_tx_worker.clone(),
+            health_rx: health_rx_main.clone(),
         };
         self.register_worker(registry_key.to_string(), pool_handle);
 
         // Store capability-specific handle
         let full_handle = VisionWorkerHandle {
             core: WorkerHandle {
-                pending_requests,
-                last_used,
+                pending_requests: Arc::clone(&pending_requests),
+                last_used: Arc::clone(&last_used),
                 worker_id,
                 shutdown_tx: shutdown_tx.clone(),
                 per_worker_mb,
+                health_tx: health_tx_worker,
+                health_rx: health_rx_main,
             },
             describe_image_tx,
             describe_url_tx,
@@ -211,14 +257,17 @@ impl Pool<dyn VisionCapable> {
                 return;
             }
 
-            // Find least busy worker
-            let worker = match workers.iter()
-                .min_by_key(|w| w.core.pending_requests.load(Ordering::Acquire))
-            {
+            // Find alive worker with least load using Power of Two Choices (O(1))
+            let alive_workers: Vec<_> = workers
+                .iter()
+                .filter(|w| w.core.is_alive())
+                .collect();
+            
+            let worker = match select_worker_power_of_two(&alive_workers, |w| &w.core) {
                 Some(w) => w,
                 None => {
                     ystream::emit!(sender, CandleStringChunk(
-                        "No workers available".to_string()
+                        format!("No alive workers for {}", registry_key)
                     ));
                     return;
                 }
@@ -314,14 +363,17 @@ impl Pool<dyn VisionCapable> {
                 return;
             }
 
-            // Find least busy worker
-            let worker = match workers.iter()
-                .min_by_key(|w| w.core.pending_requests.load(Ordering::Acquire))
-            {
+            // Find alive worker with least load using Power of Two Choices (O(1))
+            let alive_workers: Vec<_> = workers
+                .iter()
+                .filter(|w| w.core.is_alive())
+                .collect();
+            
+            let worker = match select_worker_power_of_two(&alive_workers, |w| &w.core) {
                 Some(w) => w,
                 None => {
                     ystream::emit!(sender, CandleStringChunk(
-                        "No workers available".to_string()
+                        format!("No alive workers for {}", registry_key)
                     ));
                     return;
                 }

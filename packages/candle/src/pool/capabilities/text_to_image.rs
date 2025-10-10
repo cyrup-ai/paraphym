@@ -9,6 +9,7 @@ use ystream::{AsyncStream, spawn_stream};
 use candle_core::Device;
 
 use crate::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle, query_system_memory_mb};
+use crate::pool::core::types::{select_worker_power_of_two, HealthPing, HealthPong};
 use crate::capability::traits::TextToImageCapable;
 use crate::domain::image_generation::{ImageGenerationChunk, ImageGenerationConfig};
 
@@ -27,6 +28,14 @@ pub struct TextToImageWorkerHandle {
     pub shutdown_tx: Sender<()>,
 }
 
+impl std::ops::Deref for TextToImageWorkerHandle {
+    type Target = WorkerHandle;
+    
+    fn deref(&self) -> &Self::Target {
+        &self.core
+    }
+}
+
 /// Worker loop for TextToImage models
 ///
 /// Processes streaming requests. Worker calls trait method which
@@ -36,6 +45,9 @@ pub fn text_to_image_worker<T: TextToImageCapable>(
     model: T,
     generate_image_rx: Receiver<GenerateImageRequest>,
     shutdown_rx: Receiver<()>,
+    health_rx: Receiver<HealthPing>,
+    health_tx: Sender<HealthPong>,
+    worker_id: usize,
 ) {
     loop {
         select! {
@@ -45,8 +57,24 @@ pub fn text_to_image_worker<T: TextToImageCapable>(
                     let _ = req.response.send(Ok(stream));
                 }
             }
+            recv(health_rx) -> ping => {
+                if ping.is_ok() {
+                    let now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    
+                    let pong = HealthPong {
+                        worker_id,
+                        timestamp: now,
+                        queue_depth: generate_image_rx.len(),
+                    };
+                    
+                    let _ = health_tx.send(pong);
+                }
+            }
             recv(shutdown_rx) -> _ => {
-                log::info!("TextToImage worker shutting down");
+                log::info!("TextToImage worker {} shutting down", worker_id);
                 break;
             }
         }
@@ -94,10 +122,16 @@ impl Pool<dyn TextToImageCapable> {
         // Create channels
         let (generate_image_tx, generate_image_rx) = unbounded();
         let (shutdown_tx, shutdown_rx) = unbounded();
+        let (health_tx_worker, health_rx_worker) = unbounded::<HealthPing>();
+        let (health_tx_main, health_rx_main) = unbounded::<HealthPong>();
 
         // Get worker ID before moving into thread
         let worker_id = self.next_worker_id();
         let registry_key_clone = registry_key.to_string();
+
+        // Clone channels for worker thread
+        let health_rx_worker_clone = health_rx_worker.clone();
+        let health_tx_main_clone = health_tx_main.clone();
 
         // Spawn worker thread
         std::thread::spawn(move || {
@@ -109,7 +143,14 @@ impl Pool<dyn TextToImageCapable> {
                 }
             };
 
-            text_to_image_worker(model, generate_image_rx, shutdown_rx);
+            text_to_image_worker(
+                model,
+                generate_image_rx,
+                shutdown_rx,
+                health_rx_worker_clone,
+                health_tx_main_clone,
+                worker_id,
+            );
         });
 
         // Create handles
@@ -128,17 +169,21 @@ impl Pool<dyn TextToImageCapable> {
             worker_id,
             shutdown_tx: shutdown_tx.clone(),
             per_worker_mb,
+            health_tx: health_tx_worker.clone(),
+            health_rx: health_rx_main.clone(),
         };
         self.register_worker(registry_key.to_string(), pool_handle);
 
         // Store capability-specific handle
         let full_handle = TextToImageWorkerHandle {
             core: WorkerHandle {
-                pending_requests,
-                last_used,
+                pending_requests: Arc::clone(&pending_requests),
+                last_used: Arc::clone(&last_used),
                 worker_id,
                 shutdown_tx: shutdown_tx.clone(),
                 per_worker_mb,
+                health_tx: health_tx_worker,
+                health_rx: health_rx_main,
             },
             generate_image_tx,
             shutdown_tx,
@@ -198,14 +243,13 @@ impl Pool<dyn TextToImageCapable> {
                 return;
             }
 
-            // Find least busy worker
-            let worker = match workers.iter()
-                .min_by_key(|w| w.core.pending_requests.load(Ordering::Acquire))
-            {
+            // Find alive worker with least load using Power of Two Choices (O(1))
+            let alive_workers: Vec<_> = workers.iter().filter(|w| w.is_alive()).collect();
+            let worker = match select_worker_power_of_two(&alive_workers, |w| &w.core) {
                 Some(w) => w,
                 None => {
                     ystream::emit!(sender, ImageGenerationChunk::Error(
-                        "No workers available".to_string()
+                        format!("No alive workers for {}", registry_key)
                     ));
                     return;
                 }

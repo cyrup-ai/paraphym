@@ -254,3 +254,174 @@ impl crate::capability::traits::ImageEmbeddingCapable for ClipVisionEmbeddingMod
         vec![512, 768]
     }
 }
+
+/// Loaded CLIP Vision model that stays in memory for repeated inference
+///
+/// This struct wraps ClipVisionEmbeddingModel with a persistent tokio runtime
+/// to eliminate runtime recreation overhead on every inference call. Designed for
+/// use in worker threads that process many requests.
+pub struct LoadedClipVisionModel {
+    model: ClipVisionEmbeddingModel,
+    runtime: tokio::runtime::Runtime,
+}
+
+impl std::fmt::Debug for LoadedClipVisionModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoadedClipVisionModel")
+            .field("model", &self.model)
+            .field("runtime", &"<Runtime>")
+            .finish()
+    }
+}
+
+impl CandleModel for LoadedClipVisionModel {
+    fn info(&self) -> &'static CandleModelInfo {
+        self.model.info()
+    }
+}
+
+impl LoadedClipVisionModel {
+    /// Load model into memory from base model reference
+    ///
+    /// Creates a persistent tokio runtime and wraps the ClipVisionEmbeddingModel
+    /// for efficient reuse in worker threads.
+    pub fn load(base_model: &ClipVisionEmbeddingModel)
+        -> std::result::Result<Self, Box<dyn std::error::Error + Send + Sync>>
+    {
+        // Create persistent runtime for this worker
+        let runtime = tokio::runtime::Runtime::new()
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+        
+        // Clone the model (Arc clone is cheap)
+        let model = ClipVisionEmbeddingModel {
+            provider: Arc::clone(&base_model.provider),
+            dimension: base_model.dimension,
+        };
+        
+        Ok(Self {
+            model,
+            runtime,
+        })
+    }
+}
+
+impl crate::capability::traits::ImageEmbeddingCapable for LoadedClipVisionModel {
+    fn embed_image(&self, image_path: &str) 
+        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> 
+    {
+        let provider = Arc::clone(&self.model.provider);
+        let result = self.runtime.block_on(async {
+            provider.encode_image(image_path).await
+        });
+        
+        match result {
+            Ok(tensor) => {
+                tensor.flatten_all()
+                    .and_then(|t| t.to_vec1::<f32>())
+                    .map_err(|e| Box::new(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Failed to convert tensor: {}", e)
+                    )) as Box<dyn std::error::Error + Send + Sync>)
+            }
+            Err(e) => Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )) as Box<dyn std::error::Error + Send + Sync>)
+        }
+    }
+    
+    fn embed_image_url(&self, url: &str) 
+        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> 
+    {
+        let provider = Arc::clone(&self.model.provider);
+        let result = self.runtime.block_on(async {
+            provider.encode_url(url).await
+        });
+        
+        match result {
+            Ok(tensor) => {
+                tensor.flatten_all()
+                    .and_then(|t| t.to_vec1::<f32>())
+                    .map_err(|e| Box::new(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Failed to convert tensor: {}", e)
+                    )) as Box<dyn std::error::Error + Send + Sync>)
+            }
+            Err(e) => Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )) as Box<dyn std::error::Error + Send + Sync>)
+        }
+    }
+    
+    fn embed_image_base64(&self, base64_data: &str) 
+        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> 
+    {
+        let provider = Arc::clone(&self.model.provider);
+        let result = self.runtime.block_on(async {
+            provider.encode_base64(base64_data).await
+        });
+        
+        match result {
+            Ok(tensor) => {
+                tensor.flatten_all()
+                    .and_then(|t| t.to_vec1::<f32>())
+                    .map_err(|e| Box::new(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Failed to convert tensor: {}", e)
+                    )) as Box<dyn std::error::Error + Send + Sync>)
+            }
+            Err(e) => Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )) as Box<dyn std::error::Error + Send + Sync>)
+        }
+    }
+    
+    fn batch_embed_images(&self, image_paths: Vec<&str>) 
+        -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> 
+    {
+        let provider = Arc::clone(&self.model.provider);
+        let result = self.runtime.block_on(async {
+            provider.encode_batch(image_paths).await
+        });
+        
+        match result {
+            Ok(batch_tensor) => {
+                let batch_size = batch_tensor.dim(0)
+                    .map_err(|e| Box::new(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Failed to get batch size: {}", e)
+                    )) as Box<dyn std::error::Error + Send + Sync>)?;
+
+                let mut embeddings = Vec::with_capacity(batch_size);
+
+                for i in 0..batch_size {
+                    let row = batch_tensor
+                        .get(i)
+                        .and_then(|t| t.flatten_all())
+                        .and_then(|t| t.to_vec1::<f32>())
+                        .map_err(|e| Box::new(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Failed to extract embedding {}: {}", i, e)
+                        )) as Box<dyn std::error::Error + Send + Sync>)?;
+                    embeddings.push(row);
+                }
+
+                Ok(embeddings)
+            }
+            Err(e) => Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )) as Box<dyn std::error::Error + Send + Sync>)
+        }
+    }
+    
+    fn embedding_dimension(&self) -> usize {
+        self.model.dimension
+    }
+    
+    fn supported_dimensions(&self) -> Vec<usize> {
+        vec![512, 768]
+    }
+}

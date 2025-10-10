@@ -88,11 +88,14 @@ use crate::domain::completion::CandleCompletionChunk;
 use crate::domain::image_generation::{ImageGenerationConfig, ImageGenerationChunk};
 use crate::domain::context::chunk::CandleStringChunk;
 use candle_core::Device;
-use ystream::AsyncStream;
+use ystream::{AsyncStream, spawn_stream};
 
 // Pool imports
-use crate::pool::capabilities::text_embedding_pool;
-use crate::pool::core::PoolError;
+use crate::pool::capabilities::{
+    text_embedding_pool, image_embedding_pool, text_to_image_pool, 
+    text_to_text_pool, vision_pool
+};
+use crate::pool::core::{PoolError, ensure_workers_spawned};
 
 // LoadedModel imports
 use crate::capability::text_embedding::{
@@ -101,6 +104,13 @@ use crate::capability::text_embedding::{
     nvembed::LoadedNvEmbedModel,
     stella::LoadedStellaModel,
     bert::LoadedBertModel,
+};
+use crate::capability::vision::llava::LoadedLLaVAModel;
+use crate::capability::image_embedding::LoadedClipVisionModel;
+use crate::capability::text_to_text::{
+    kimi_k2::LoadedKimiK2Model,
+    qwen3_coder::LoadedQwen3CoderModel,
+    phi4_reasoning::LoadedPhi4ReasoningModel,
 };
 
 //==============================================================================
@@ -228,9 +238,90 @@ impl TextToTextCapable for TextToTextModel {
         params: &CandleCompletionParams,
     ) -> AsyncStream<CandleCompletionChunk> {
         match self {
-            Self::KimiK2(m) => m.prompt(prompt, params),
-            Self::Qwen3Coder(m) => m.prompt(prompt, params),
-            Self::Phi4Reasoning(m) => m.prompt(prompt, params),
+            Self::KimiK2(m) => {
+                let registry_key = m.info().registry_key;
+                let pool = text_to_text_pool();
+                let per_worker_mb = m.info().est_memory_allocation_mb;
+
+                // Cold start: spawn workers if needed
+                if let Err(e) = ensure_workers_spawned(
+                    pool,
+                    registry_key,
+                    per_worker_mb,
+                    |_| {
+                        let m_clone = m.clone();
+                        pool.spawn_text_to_text_worker(
+                            registry_key,
+                            move || LoadedKimiK2Model::load(&m_clone)
+                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
+                            per_worker_mb,
+                        )
+                    }
+                ) {
+                    return spawn_stream(move |sender| {
+                        ystream::emit!(sender, CandleCompletionChunk::Error(e.to_string()));
+                    });
+                }
+
+                // Route through pool
+                pool.prompt(registry_key, prompt, params.clone())
+            }
+            Self::Qwen3Coder(m) => {
+                let registry_key = m.info().registry_key;
+                let pool = text_to_text_pool();
+                let per_worker_mb = m.info().est_memory_allocation_mb;
+
+                // Cold start: spawn workers if needed
+                if let Err(e) = ensure_workers_spawned(
+                    pool,
+                    registry_key,
+                    per_worker_mb,
+                    |_| {
+                        let m_clone = m.clone();
+                        pool.spawn_text_to_text_worker(
+                            registry_key,
+                            move || LoadedQwen3CoderModel::load(&m_clone)
+                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
+                            per_worker_mb,
+                        )
+                    }
+                ) {
+                    return spawn_stream(move |sender| {
+                        ystream::emit!(sender, CandleCompletionChunk::Error(e.to_string()));
+                    });
+                }
+
+                // Route through pool
+                pool.prompt(registry_key, prompt, params.clone())
+            }
+            Self::Phi4Reasoning(m) => {
+                let registry_key = m.info().registry_key;
+                let pool = text_to_text_pool();
+                let per_worker_mb = m.info().est_memory_allocation_mb;
+
+                // Cold start: spawn workers if needed
+                if let Err(e) = ensure_workers_spawned(
+                    pool,
+                    registry_key,
+                    per_worker_mb,
+                    |_| {
+                        let m_clone = m.clone();
+                        pool.spawn_text_to_text_worker(
+                            registry_key,
+                            move || LoadedPhi4ReasoningModel::load(&m_clone)
+                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
+                            per_worker_mb,
+                        )
+                    }
+                ) {
+                    return spawn_stream(move |sender| {
+                        ystream::emit!(sender, CandleCompletionChunk::Error(e.to_string()));
+                    });
+                }
+
+                // Route through pool
+                pool.prompt(registry_key, prompt, params.clone())
+            }
         }
     }
 }
@@ -242,40 +333,23 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
             Self::GteQwen(m) => {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
+                let per_worker_mb = m.info().est_memory_allocation_mb;
 
-                // Check if workers exist for this model
-                if !pool.has_workers(registry_key) {
-                    // Cold start: Spawn 2 workers if memory allows
-                    let per_worker_mb = m.info().est_memory_allocation_mb;
-                    let current_mb = pool.total_memory_mb();
-                    let total_system_mb = query_system_memory_mb();
-                    let memory_limit_mb = (total_system_mb as f64 * 0.80) as usize;
-                    
-                    // Try spawning 2 workers (cold start policy)
-                    let workers_to_spawn = if current_mb + (2 * per_worker_mb) <= memory_limit_mb {
-                        2  // Spawn 2 workers
-                    } else if current_mb + per_worker_mb <= memory_limit_mb {
-                        1  // Degraded: only 1 worker fits
-                    } else {
-                        return Err(Box::new(PoolError::MemoryExhausted(format!(
-                            "Cannot spawn workers for {}. Need {} MB, only {} MB available (80% limit)",
-                            registry_key, per_worker_mb, memory_limit_mb.saturating_sub(current_mb)
-                        ))) as Box<dyn std::error::Error + Send + Sync>);
-                    };
-                    
-                    // Spawn workers
-                    for _ in 0..workers_to_spawn {
+                // Cold start: spawn workers if needed
+                ensure_workers_spawned(
+                    pool,
+                    registry_key,
+                    per_worker_mb,
+                    |_| {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || {
-                                LoadedGteQwenModel::load(&m_clone)
-                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
-                            },
+                            move || LoadedGteQwenModel::load(&m_clone)
+                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
-                        ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+                        )
                     }
-                }
+                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
                 // Route through pool
                 pool.embed_text(registry_key, text, task)
@@ -285,35 +359,23 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
             Self::JinaBert(m) => {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
+                let per_worker_mb = m.info().est_memory_allocation_mb;
                 
-                if !pool.has_workers(registry_key) {
-                    let per_worker_mb = m.info().est_memory_allocation_mb;
-                    let current_mb = pool.total_memory_mb();
-                    let total_system_mb = query_system_memory_mb();
-                    let memory_limit_mb = (total_system_mb as f64 * 0.80) as usize;
-                    
-                    let workers_to_spawn = if current_mb + (2 * per_worker_mb) <= memory_limit_mb {
-                        2
-                    } else if current_mb + per_worker_mb <= memory_limit_mb {
-                        1
-                    } else {
-                        return Err(Box::new(PoolError::MemoryExhausted(format!(
-                            "Cannot spawn workers for {}", registry_key
-                        ))) as Box<dyn std::error::Error + Send + Sync>);
-                    };
-                    
-                    for _ in 0..workers_to_spawn {
+                // Cold start: spawn workers if needed
+                ensure_workers_spawned(
+                    pool,
+                    registry_key,
+                    per_worker_mb,
+                    |_| {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || {
-                                LoadedJinaBertModel::load(&m_clone)
-                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
-                            },
+                            move || LoadedJinaBertModel::load(&m_clone)
+                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
-                        ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+                        )
                     }
-                }
+                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
                 
                 pool.embed_text(registry_key, text, task)
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
@@ -322,35 +384,23 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
             Self::NvEmbed(m) => {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
+                let per_worker_mb = m.info().est_memory_allocation_mb;
                 
-                if !pool.has_workers(registry_key) {
-                    let per_worker_mb = m.info().est_memory_allocation_mb;
-                    let current_mb = pool.total_memory_mb();
-                    let total_system_mb = query_system_memory_mb();
-                    let memory_limit_mb = (total_system_mb as f64 * 0.80) as usize;
-                    
-                    let workers_to_spawn = if current_mb + (2 * per_worker_mb) <= memory_limit_mb {
-                        2
-                    } else if current_mb + per_worker_mb <= memory_limit_mb {
-                        1
-                    } else {
-                        return Err(Box::new(PoolError::MemoryExhausted(format!(
-                            "Cannot spawn workers for {}", registry_key
-                        ))) as Box<dyn std::error::Error + Send + Sync>);
-                    };
-                    
-                    for _ in 0..workers_to_spawn {
+                // Cold start: spawn workers if needed
+                ensure_workers_spawned(
+                    pool,
+                    registry_key,
+                    per_worker_mb,
+                    |_| {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || {
-                                LoadedNvEmbedModel::load(&m_clone)
-                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
-                            },
+                            move || LoadedNvEmbedModel::load(&m_clone)
+                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
-                        ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+                        )
                     }
-                }
+                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
                 
                 pool.embed_text(registry_key, text, task)
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
@@ -359,35 +409,23 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
             Self::Stella(m) => {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
+                let per_worker_mb = m.info().est_memory_allocation_mb;
                 
-                if !pool.has_workers(registry_key) {
-                    let per_worker_mb = m.info().est_memory_allocation_mb;
-                    let current_mb = pool.total_memory_mb();
-                    let total_system_mb = query_system_memory_mb();
-                    let memory_limit_mb = (total_system_mb as f64 * 0.80) as usize;
-                    
-                    let workers_to_spawn = if current_mb + (2 * per_worker_mb) <= memory_limit_mb {
-                        2
-                    } else if current_mb + per_worker_mb <= memory_limit_mb {
-                        1
-                    } else {
-                        return Err(Box::new(PoolError::MemoryExhausted(format!(
-                            "Cannot spawn workers for {}", registry_key
-                        ))) as Box<dyn std::error::Error + Send + Sync>);
-                    };
-                    
-                    for _ in 0..workers_to_spawn {
+                // Cold start: spawn workers if needed
+                ensure_workers_spawned(
+                    pool,
+                    registry_key,
+                    per_worker_mb,
+                    |_| {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || {
-                                LoadedStellaModel::load(&m_clone)
-                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
-                            },
+                            move || LoadedStellaModel::load(&m_clone)
+                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
-                        ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+                        )
                     }
-                }
+                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
                 
                 pool.embed_text(registry_key, text, task)
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
@@ -396,35 +434,23 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
             Self::Bert(m) => {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
+                let per_worker_mb = m.info().est_memory_allocation_mb;
                 
-                if !pool.has_workers(registry_key) {
-                    let per_worker_mb = m.info().est_memory_allocation_mb;
-                    let current_mb = pool.total_memory_mb();
-                    let total_system_mb = query_system_memory_mb();
-                    let memory_limit_mb = (total_system_mb as f64 * 0.80) as usize;
-                    
-                    let workers_to_spawn = if current_mb + (2 * per_worker_mb) <= memory_limit_mb {
-                        2
-                    } else if current_mb + per_worker_mb <= memory_limit_mb {
-                        1
-                    } else {
-                        return Err(Box::new(PoolError::MemoryExhausted(format!(
-                            "Cannot spawn workers for {}", registry_key
-                        ))) as Box<dyn std::error::Error + Send + Sync>);
-                    };
-                    
-                    for _ in 0..workers_to_spawn {
+                // Cold start: spawn workers if needed
+                ensure_workers_spawned(
+                    pool,
+                    registry_key,
+                    per_worker_mb,
+                    |_| {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || {
-                                LoadedBertModel::load(&m_clone)
-                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
-                            },
+                            move || LoadedBertModel::load(&m_clone)
+                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
-                        ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+                        )
                     }
-                }
+                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
                 
                 pool.embed_text(registry_key, text, task)
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
@@ -438,37 +464,23 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
             Self::GteQwen(m) => {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
+                let per_worker_mb = m.info().est_memory_allocation_mb;
                 
-                // Check if workers exist for this model
-                if !pool.has_workers(registry_key) {
-                    // Cold start: Spawn 2 workers if memory allows
-                    let per_worker_mb = m.info().est_memory_allocation_mb;
-                    let current_mb = pool.total_memory_mb();
-                    let total_system_mb = query_system_memory_mb();
-                    let memory_limit_mb = (total_system_mb as f64 * 0.80) as usize;
-                    
-                    let workers_to_spawn = if current_mb + (2 * per_worker_mb) <= memory_limit_mb {
-                        2
-                    } else if current_mb + per_worker_mb <= memory_limit_mb {
-                        1
-                    } else {
-                        return Err(Box::new(PoolError::MemoryExhausted(format!(
-                            "Cannot spawn workers for {}", registry_key
-                        ))) as Box<dyn std::error::Error + Send + Sync>);
-                    };
-                    
-                    for _ in 0..workers_to_spawn {
+                // Cold start: spawn workers if needed
+                ensure_workers_spawned(
+                    pool,
+                    registry_key,
+                    per_worker_mb,
+                    |_| {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || {
-                                LoadedGteQwenModel::load(&m_clone)
-                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
-                            },
+                            move || LoadedGteQwenModel::load(&m_clone)
+                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
-                        ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+                        )
                     }
-                }
+                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
                 
                 pool.batch_embed_text(registry_key, texts, task)
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
@@ -476,35 +488,23 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
             Self::JinaBert(m) => {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
+                let per_worker_mb = m.info().est_memory_allocation_mb;
                 
-                if !pool.has_workers(registry_key) {
-                    let per_worker_mb = m.info().est_memory_allocation_mb;
-                    let current_mb = pool.total_memory_mb();
-                    let total_system_mb = query_system_memory_mb();
-                    let memory_limit_mb = (total_system_mb as f64 * 0.80) as usize;
-                    
-                    let workers_to_spawn = if current_mb + (2 * per_worker_mb) <= memory_limit_mb {
-                        2
-                    } else if current_mb + per_worker_mb <= memory_limit_mb {
-                        1
-                    } else {
-                        return Err(Box::new(PoolError::MemoryExhausted(format!(
-                            "Cannot spawn workers for {}", registry_key
-                        ))) as Box<dyn std::error::Error + Send + Sync>);
-                    };
-                    
-                    for _ in 0..workers_to_spawn {
+                // Cold start: spawn workers if needed
+                ensure_workers_spawned(
+                    pool,
+                    registry_key,
+                    per_worker_mb,
+                    |_| {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || {
-                                LoadedJinaBertModel::load(&m_clone)
-                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
-                            },
+                            move || LoadedJinaBertModel::load(&m_clone)
+                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
-                        ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+                        )
                     }
-                }
+                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
                 
                 pool.batch_embed_text(registry_key, texts, task)
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
@@ -512,35 +512,23 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
             Self::NvEmbed(m) => {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
+                let per_worker_mb = m.info().est_memory_allocation_mb;
                 
-                if !pool.has_workers(registry_key) {
-                    let per_worker_mb = m.info().est_memory_allocation_mb;
-                    let current_mb = pool.total_memory_mb();
-                    let total_system_mb = query_system_memory_mb();
-                    let memory_limit_mb = (total_system_mb as f64 * 0.80) as usize;
-                    
-                    let workers_to_spawn = if current_mb + (2 * per_worker_mb) <= memory_limit_mb {
-                        2
-                    } else if current_mb + per_worker_mb <= memory_limit_mb {
-                        1
-                    } else {
-                        return Err(Box::new(PoolError::MemoryExhausted(format!(
-                            "Cannot spawn workers for {}", registry_key
-                        ))) as Box<dyn std::error::Error + Send + Sync>);
-                    };
-                    
-                    for _ in 0..workers_to_spawn {
+                // Cold start: spawn workers if needed
+                ensure_workers_spawned(
+                    pool,
+                    registry_key,
+                    per_worker_mb,
+                    |_| {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || {
-                                LoadedNvEmbedModel::load(&m_clone)
-                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
-                            },
+                            move || LoadedNvEmbedModel::load(&m_clone)
+                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
-                        ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+                        )
                     }
-                }
+                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
                 
                 pool.batch_embed_text(registry_key, texts, task)
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
@@ -548,35 +536,23 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
             Self::Stella(m) => {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
+                let per_worker_mb = m.info().est_memory_allocation_mb;
                 
-                if !pool.has_workers(registry_key) {
-                    let per_worker_mb = m.info().est_memory_allocation_mb;
-                    let current_mb = pool.total_memory_mb();
-                    let total_system_mb = query_system_memory_mb();
-                    let memory_limit_mb = (total_system_mb as f64 * 0.80) as usize;
-                    
-                    let workers_to_spawn = if current_mb + (2 * per_worker_mb) <= memory_limit_mb {
-                        2
-                    } else if current_mb + per_worker_mb <= memory_limit_mb {
-                        1
-                    } else {
-                        return Err(Box::new(PoolError::MemoryExhausted(format!(
-                            "Cannot spawn workers for {}", registry_key
-                        ))) as Box<dyn std::error::Error + Send + Sync>);
-                    };
-                    
-                    for _ in 0..workers_to_spawn {
+                // Cold start: spawn workers if needed
+                ensure_workers_spawned(
+                    pool,
+                    registry_key,
+                    per_worker_mb,
+                    |_| {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || {
-                                LoadedStellaModel::load(&m_clone)
-                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
-                            },
+                            move || LoadedStellaModel::load(&m_clone)
+                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
-                        ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+                        )
                     }
-                }
+                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
                 
                 pool.batch_embed_text(registry_key, texts, task)
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
@@ -584,35 +560,23 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
             Self::Bert(m) => {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
+                let per_worker_mb = m.info().est_memory_allocation_mb;
                 
-                if !pool.has_workers(registry_key) {
-                    let per_worker_mb = m.info().est_memory_allocation_mb;
-                    let current_mb = pool.total_memory_mb();
-                    let total_system_mb = query_system_memory_mb();
-                    let memory_limit_mb = (total_system_mb as f64 * 0.80) as usize;
-                    
-                    let workers_to_spawn = if current_mb + (2 * per_worker_mb) <= memory_limit_mb {
-                        2
-                    } else if current_mb + per_worker_mb <= memory_limit_mb {
-                        1
-                    } else {
-                        return Err(Box::new(PoolError::MemoryExhausted(format!(
-                            "Cannot spawn workers for {}", registry_key
-                        ))) as Box<dyn std::error::Error + Send + Sync>);
-                    };
-                    
-                    for _ in 0..workers_to_spawn {
+                // Cold start: spawn workers if needed
+                ensure_workers_spawned(
+                    pool,
+                    registry_key,
+                    per_worker_mb,
+                    |_| {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || {
-                                LoadedBertModel::load(&m_clone)
-                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
-                            },
+                            move || LoadedBertModel::load(&m_clone)
+                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
                             per_worker_mb,
-                        ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+                        )
                     }
-                }
+                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
                 
                 pool.batch_embed_text(registry_key, texts, task)
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
@@ -635,32 +599,124 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
     fn embed_image(&self, image_path: &str) 
         -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
         match self {
-            Self::ClipVision(m) => m.embed_image(image_path)
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>),
+            Self::ClipVision(m) => {
+                let registry_key = m.info().registry_key;
+                let pool = image_embedding_pool();
+                let per_worker_mb = m.info().est_memory_allocation_mb;
+
+                // Cold start: spawn workers if needed
+                ensure_workers_spawned(
+                    pool,
+                    registry_key,
+                    per_worker_mb,
+                    |_| {
+                        let m_clone = m.clone();
+                        pool.spawn_image_embedding_worker(
+                            registry_key,
+                            move || LoadedClipVisionModel::load(&m_clone)
+                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
+                            per_worker_mb,
+                        )
+                    }
+                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+
+                // Route through pool
+                pool.embed_image(registry_key, image_path)
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            }
         }
     }
     
     fn embed_image_url(&self, url: &str) 
         -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
         match self {
-            Self::ClipVision(m) => m.embed_image_url(url)
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>),
+            Self::ClipVision(m) => {
+                let registry_key = m.info().registry_key;
+                let pool = image_embedding_pool();
+                let per_worker_mb = m.info().est_memory_allocation_mb;
+
+                // Cold start: spawn workers if needed
+                ensure_workers_spawned(
+                    pool,
+                    registry_key,
+                    per_worker_mb,
+                    |_| {
+                        let m_clone = m.clone();
+                        pool.spawn_image_embedding_worker(
+                            registry_key,
+                            move || LoadedClipVisionModel::load(&m_clone)
+                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
+                            per_worker_mb,
+                        )
+                    }
+                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+
+                // Route through pool
+                pool.embed_image_url(registry_key, url)
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            }
         }
     }
     
     fn embed_image_base64(&self, base64_data: &str) 
         -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
         match self {
-            Self::ClipVision(m) => m.embed_image_base64(base64_data)
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>),
+            Self::ClipVision(m) => {
+                let registry_key = m.info().registry_key;
+                let pool = image_embedding_pool();
+                let per_worker_mb = m.info().est_memory_allocation_mb;
+
+                // Cold start: spawn workers if needed
+                ensure_workers_spawned(
+                    pool,
+                    registry_key,
+                    per_worker_mb,
+                    |_| {
+                        let m_clone = m.clone();
+                        pool.spawn_image_embedding_worker(
+                            registry_key,
+                            move || LoadedClipVisionModel::load(&m_clone)
+                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
+                            per_worker_mb,
+                        )
+                    }
+                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+
+                // Route through pool
+                pool.embed_image_base64(registry_key, base64_data)
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            }
         }
     }
     
     fn batch_embed_images(&self, image_paths: Vec<&str>) 
         -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> {
         match self {
-            Self::ClipVision(m) => m.batch_embed_images(image_paths)
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>),
+            Self::ClipVision(m) => {
+                let registry_key = m.info().registry_key;
+                let pool = image_embedding_pool();
+                let per_worker_mb = m.info().est_memory_allocation_mb;
+
+                // Cold start: spawn workers if needed
+                ensure_workers_spawned(
+                    pool,
+                    registry_key,
+                    per_worker_mb,
+                    |_| {
+                        let m_clone = m.clone();
+                        pool.spawn_image_embedding_worker(
+                            registry_key,
+                            move || LoadedClipVisionModel::load(&m_clone)
+                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
+                            per_worker_mb,
+                        )
+                    }
+                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+
+                // Route through pool
+                pool.batch_embed_images(registry_key, &image_paths.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            }
         }
     }
     
@@ -675,14 +731,68 @@ impl VisionCapable for VisionModel {
     fn describe_image(&self, image_path: &str, query: &str)
         -> AsyncStream<CandleStringChunk> {
         match self {
-            Self::LLaVA(m) => m.describe_image(image_path, query),
+            Self::LLaVA(m) => {
+                let registry_key = m.info().registry_key;
+                let pool = vision_pool();
+                let per_worker_mb = m.info().est_memory_allocation_mb;
+
+                // Cold start: spawn workers if needed
+                if let Err(e) = ensure_workers_spawned(
+                    pool,
+                    registry_key,
+                    per_worker_mb,
+                    |_| {
+                        let m_clone = m.clone();
+                        pool.spawn_vision_worker(
+                            registry_key,
+                            move || LoadedLLaVAModel::load(&m_clone)
+                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
+                            per_worker_mb,
+                        )
+                    }
+                ) {
+                    return AsyncStream::with_channel(move |tx| {
+                        let _ = tx.send(CandleStringChunk(format!("Error: {}", e)));
+                    });
+                }
+
+                // Route through pool
+                pool.describe_image(registry_key, image_path, query)
+            }
         }
     }
 
     fn describe_url(&self, url: &str, query: &str)
         -> AsyncStream<CandleStringChunk> {
         match self {
-            Self::LLaVA(m) => m.describe_url(url, query),
+            Self::LLaVA(m) => {
+                let registry_key = m.info().registry_key;
+                let pool = vision_pool();
+                let per_worker_mb = m.info().est_memory_allocation_mb;
+
+                // Cold start: spawn workers if needed
+                if let Err(e) = ensure_workers_spawned(
+                    pool,
+                    registry_key,
+                    per_worker_mb,
+                    |_| {
+                        let m_clone = m.clone();
+                        pool.spawn_vision_worker(
+                            registry_key,
+                            move || LoadedLLaVAModel::load(&m_clone)
+                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
+                            per_worker_mb,
+                        )
+                    }
+                ) {
+                    return AsyncStream::with_channel(move |tx| {
+                        let _ = tx.send(CandleStringChunk(format!("Error: {}", e)));
+                    });
+                }
+
+                // Route through pool
+                pool.describe_url(registry_key, url, query)
+            }
         }
     }
 }
@@ -695,8 +805,60 @@ impl TextToImageCapable for TextToImageModel {
         device: &Device,
     ) -> AsyncStream<ImageGenerationChunk> {
         match self {
-            Self::FluxSchnell(m) => m.generate_image(prompt, config, device),
-            Self::StableDiffusion35Turbo(m) => m.generate_image(prompt, config, device),
+            Self::FluxSchnell(m) => {
+                let registry_key = m.info().registry_key;
+                let pool = text_to_image_pool();
+                let per_worker_mb = m.info().est_memory_allocation_mb;
+
+                // Cold start: spawn workers if needed
+                if let Err(e) = ensure_workers_spawned(
+                    pool,
+                    registry_key,
+                    per_worker_mb,
+                    |_| {
+                        let m_inner = (&**m).clone();
+                        pool.spawn_text_to_image_worker(
+                            registry_key,
+                            move || Ok(m_inner),
+                            per_worker_mb,
+                        )
+                    }
+                ) {
+                    return AsyncStream::with_channel(move |sender| {
+                        let _ = sender.send(ImageGenerationChunk::Error(e.to_string()));
+                    });
+                }
+
+                // Route through pool
+                pool.generate_image(registry_key, prompt, config, device)
+            }
+            Self::StableDiffusion35Turbo(m) => {
+                let registry_key = m.info().registry_key;
+                let pool = text_to_image_pool();
+                let per_worker_mb = m.info().est_memory_allocation_mb;
+
+                // Cold start: spawn workers if needed
+                if let Err(e) = ensure_workers_spawned(
+                    pool,
+                    registry_key,
+                    per_worker_mb,
+                    |_| {
+                        let m_inner = (&**m).clone();
+                        pool.spawn_text_to_image_worker(
+                            registry_key,
+                            move || Ok(m_inner),
+                            per_worker_mb,
+                        )
+                    }
+                ) {
+                    return AsyncStream::with_channel(move |sender| {
+                        let _ = sender.send(ImageGenerationChunk::Error(e.to_string()));
+                    });
+                }
+
+                // Route through pool
+                pool.generate_image(registry_key, prompt, config, device)
+            }
         }
     }
     
@@ -1087,10 +1249,4 @@ pub fn model_count() -> usize {
 // HELPER FUNCTIONS
 //==============================================================================
 
-/// Query total system memory in MB
-fn query_system_memory_mb() -> usize {
-    use sysinfo::System;
-    let mut sys = System::new_all();
-    sys.refresh_memory();
-    (sys.total_memory() / 1024 / 1024) as usize
-}
+// query_system_memory_mb is provided by crate::pool::core

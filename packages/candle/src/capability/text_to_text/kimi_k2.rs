@@ -324,6 +324,7 @@ pub static KIMI_K2_MODEL_INFO: CandleModelInfo = CandleModelInfo {
 };
 
 impl CandleModel for CandleKimiK2Model {
+    #[inline]
     fn info(&self) -> &'static CandleModelInfo {
         &KIMI_K2_MODEL_INFO
     }
@@ -361,5 +362,220 @@ pub fn validate_model_path(path: &str) -> Result<(), Box<dyn std::error::Error +
 impl Default for CandleKimiK2Model {
     fn default() -> Self {
         Self::new().unwrap_or_else(|e| panic!("Failed to initialize Kimi K2 model: {}", e))
+    }
+}
+
+
+/// Loaded Kimi K2 model that keeps resources in memory for worker threads
+///
+/// This model pre-loads the tokenizer and device configuration, avoiding
+/// disk I/O on every request. The GGUF model is still loaded lazily due to size.
+#[derive(Clone, Debug)]
+pub struct LoadedKimiK2Model {
+    tokenizer: tokenizers::Tokenizer,
+    gguf_file_path: String,
+    model_path: String,
+    device: candle_core::Device,
+    model_config: LlamaConfig,
+    engine: Arc<Engine>,
+    max_context: u64,
+}
+
+impl LoadedKimiK2Model {
+    /// Load model resources into memory (called once per worker)
+    ///
+    /// This method loads the tokenizer and detects the device once,
+    /// storing them for reuse across multiple requests.
+    pub fn load(base: &CandleKimiK2Model) 
+        -> Result<Self, Box<dyn std::error::Error + Send + Sync>> 
+    {
+        // Get file paths
+        let gguf_file_path = base.huggingface_file("*.gguf")
+            .map_err(|e| Box::from(format!("Failed to get GGUF file: {}", e)) as Box<dyn std::error::Error + Send + Sync>)?;
+        
+        let tokenizer_path = base.huggingface_file("tokenizer.json")
+            .map_err(|e| Box::from(format!("Failed to get tokenizer file: {}", e)) as Box<dyn std::error::Error + Send + Sync>)?;
+        
+        let model_path = tokenizer_path.parent()
+            .ok_or_else(|| Box::from("Failed to determine model directory") as Box<dyn std::error::Error + Send + Sync>)?
+            .to_string_lossy()
+            .to_string();
+        
+        // Load device (prefer GPU if available)
+        let device = crate::core::device_util::detect_best_device()
+            .unwrap_or_else(|e| {
+                log::warn!("Device detection failed: {}. Using CPU.", e);
+                candle_core::Device::Cpu
+            });
+        
+        // Load tokenizer
+        let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer_path)
+            .map_err(|e| Box::from(format!("Failed to load tokenizer: {}", e)) as Box<dyn std::error::Error + Send + Sync>)?;
+        
+        let max_context = base.info().max_input_tokens
+            .map(|t| t.get() as u64)
+            .unwrap_or(131072);
+        
+        Ok(Self {
+            tokenizer,
+            gguf_file_path: gguf_file_path.to_string_lossy().to_string(),
+            model_path,
+            device,
+            model_config: base.model_config.clone(),
+            engine: Arc::clone(&base.engine),
+            max_context,
+        })
+    }
+}
+
+
+impl crate::capability::traits::TextToTextCapable for LoadedKimiK2Model {
+    fn prompt(
+        &self,
+        prompt: CandlePrompt,
+        params: &CandleCompletionParams,
+    ) -> AsyncStream<CandleCompletionChunk> {
+        // Clone pre-loaded resources for the generation closure
+        let engine = Arc::clone(&self.engine);
+        let gguf_file_path = self.gguf_file_path.clone();
+        let model_path = self.model_path.clone();
+        let device = self.device.clone();
+        let tokenizer = self.tokenizer.clone();  // ✅ Clone pre-loaded tokenizer
+        let model_config = self.model_config.clone();
+        let max_context = self.max_context;
+
+        // Extract top_k and top_p with priority: params > ModelInfo > None
+        let top_k = params
+            .additional_params
+            .as_ref()
+            .and_then(|p| p.get("top_k"))
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize)
+            .or(KIMI_K2_MODEL_INFO.default_top_k.map(|k| k as usize));
+
+        let top_p = params
+            .additional_params
+            .as_ref()
+            .and_then(|p| p.get("top_p"))
+            .and_then(|v| v.as_f64())
+            .or(KIMI_K2_MODEL_INFO.default_top_p);
+
+        // Build sampling config with extracted parameters
+        let mut sampling_config =
+            crate::core::generation::SamplingConfig::new(params.temperature as f32);
+
+        if let Some(k) = top_k {
+            sampling_config = sampling_config.with_top_k(k);
+        }
+        if let Some(p) = top_p {
+            sampling_config = sampling_config.with_top_p(p);
+        }
+
+        sampling_config = sampling_config
+            .with_repetition_penalty(1.0)
+            .with_frequency_penalty(0.0)
+            .with_presence_penalty(0.0);
+
+        // Format prompt
+        let prompt_text = format!("User: {}\nAssistant: ", prompt);
+        let max_tokens = params.max_tokens.map(|n| n.get()).unwrap_or(1000);
+
+        // Use Engine's coordinate_generation for automatic metrics and stream conversion
+        engine.coordinate_generation(move || {
+            use crate::core::ModelConfig as CandleConfig;
+            use crate::core::generation::{
+                generator::TextGenerator, models::CandleQuantizedLlamaModel, tokens::SpecialTokens,
+            };
+            use std::sync::Arc;
+
+            // Create model configuration for the quantized model
+            let candle_model_config = Arc::new(
+                CandleConfig::new(
+                    &gguf_file_path,
+                    format!("{}/tokenizer.json", model_path),
+                    crate::core::ModelArchitecture::Llama(
+                        candle_transformers::models::llama::Config {
+                            hidden_size: model_config.hidden_size,
+                            intermediate_size: model_config.intermediate_size,
+                            vocab_size: model_config.vocab_size,
+                            num_hidden_layers: model_config.num_hidden_layers,
+                            num_attention_heads: model_config.num_attention_heads,
+                            num_key_value_heads: model_config
+                                .num_key_value_heads
+                                .unwrap_or(model_config.num_attention_heads),
+                            use_flash_attn: false,
+                            rms_norm_eps: model_config.rms_norm_eps,
+                            rope_theta: model_config.rope_theta,
+                            bos_token_id: model_config.bos_token_id,
+                            eos_token_id: model_config.eos_token_id.clone(),
+                            rope_scaling: model_config.rope_scaling.clone(),
+                            max_position_embeddings: model_config.max_position_embeddings,
+                            tie_word_embeddings: model_config.tie_word_embeddings.unwrap_or(false),
+                        },
+                    ),
+                    "kimi-k2",
+                    "kimi-k2",
+                )
+                .with_vocab_size(model_config.vocab_size)
+                .with_context_length(max_context as usize)
+                .with_dtype(DType::F16), // GGUF models use F16
+            );
+
+            // Load the quantized model - return error stream on failure
+            let quantized_model = match CandleQuantizedLlamaModel::from_gguf_path(
+                &gguf_file_path,
+                device.clone(),
+                candle_model_config,
+            ) {
+                Ok(model) => model,
+                Err(e) => {
+                    return AsyncStream::with_channel(move |sender| {
+                        let _ = sender.send(CandleStringChunk(format!(
+                            "ERROR: Failed to load quantized model: {}",
+                            e
+                        )));
+                    });
+                }
+            };
+
+            // Create TextGenerator with real model and pre-loaded tokenizer
+            let text_generator = TextGenerator::new(
+                Box::new(quantized_model),
+                tokenizer,  // ✅ Use pre-loaded tokenizer (no disk I/O)
+                device,
+                sampling_config,
+            );
+
+            // Set up special tokens
+            let special_tokens = SpecialTokens {
+                bos_token_id: Some(model_config.bos_token_id.unwrap_or(1)),
+                eos_token_id: match &model_config.eos_token_id {
+                    Some(candle_transformers::models::llama::LlamaEosToks::Single(id)) => Some(*id),
+                    _ => Some(2),
+                },
+                pad_token_id: None,
+            };
+
+            // Convert u64 to u32, capping at u32::MAX if necessary
+            let max_tokens_u32 = max_tokens.try_into().unwrap_or_else(|_| {
+                log::warn!(
+                    "max_tokens value {} exceeds u32::MAX, capping at {}",
+                    max_tokens,
+                    u32::MAX
+                );
+                u32::MAX
+            });
+
+            // Generate and return text stream
+            text_generator.generate(prompt_text, max_tokens_u32, special_tokens)
+        })
+    }
+}
+
+
+impl CandleModel for LoadedKimiK2Model {
+    #[inline]
+    fn info(&self) -> &'static CandleModelInfo {
+        &KIMI_K2_MODEL_INFO
     }
 }

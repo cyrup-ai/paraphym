@@ -7,4 +7,4 @@ pub mod clip_vision_embedding;
 
 // Re-exports for convenience
 pub use clip_vision::ClipVisionModel;
-pub use clip_vision_embedding::ClipVisionEmbeddingModel;
+pub use clip_vision_embedding::{ClipVisionEmbeddingModel, LoadedClipVisionModel};

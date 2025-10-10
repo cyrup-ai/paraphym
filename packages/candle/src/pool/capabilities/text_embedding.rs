@@ -6,6 +6,7 @@ use std::time::Duration;
 use std::sync::atomic::Ordering;
 
 use crate::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle, query_system_memory_mb};
+use crate::pool::core::types::{select_worker_power_of_two, HealthPing, HealthPong};
 use crate::capability::traits::TextEmbeddingCapable;
 
 /// Request for embed() operation
@@ -30,6 +31,14 @@ pub struct TextEmbeddingWorkerHandle {
     pub shutdown_tx: Sender<()>,
 }
 
+impl std::ops::Deref for TextEmbeddingWorkerHandle {
+    type Target = WorkerHandle;
+    
+    fn deref(&self) -> &Self::Target {
+        &self.core
+    }
+}
+
 /// Worker loop for TextEmbedding models
 ///
 /// Processes requests from 2 channels:
@@ -42,7 +51,12 @@ pub fn text_embedding_worker<T: TextEmbeddingCapable>(
     embed_rx: Receiver<EmbedRequest>,
     batch_embed_rx: Receiver<BatchEmbedRequest>,
     shutdown_rx: Receiver<()>,
+    health_rx: Receiver<HealthPing>,
+    health_tx: Sender<HealthPong>,
+    worker_id: usize,
 ) {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    
     loop {
         select! {
             recv(embed_rx) -> req => {
@@ -59,8 +73,24 @@ pub fn text_embedding_worker<T: TextEmbeddingCapable>(
                     let _ = req.response.send(result);
                 }
             }
+            recv(health_rx) -> ping => {
+                if ping.is_ok() {
+                    let now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    
+                    let pong = HealthPong {
+                        worker_id,
+                        timestamp: now,
+                        queue_depth: embed_rx.len() + batch_embed_rx.len(),
+                    };
+                    
+                    let _ = health_tx.send(pong);
+                }
+            }
             recv(shutdown_rx) -> _ => {
-                log::info!("TextEmbedding worker shutting down");
+                log::info!("TextEmbedding worker {} shutting down", worker_id);
                 break;
             }
         }
@@ -108,10 +138,16 @@ impl Pool<dyn TextEmbeddingCapable> {
         let (embed_tx, embed_rx) = unbounded();
         let (batch_embed_tx, batch_embed_rx) = unbounded();
         let (shutdown_tx, shutdown_rx) = unbounded();
+        let (health_tx_worker, health_rx_worker) = unbounded::<HealthPing>();
+        let (health_tx_main, health_rx_main) = unbounded::<HealthPong>();
 
         // Get worker ID before moving into thread
         let worker_id = self.next_worker_id();
         let registry_key_clone = registry_key.to_string();
+
+        // Clone channels for worker thread
+        let health_rx_worker_clone = health_rx_worker.clone();
+        let health_tx_main_clone = health_tx_main.clone();
 
         // Spawn worker thread
         std::thread::spawn(move || {
@@ -123,7 +159,15 @@ impl Pool<dyn TextEmbeddingCapable> {
                 }
             };
 
-            text_embedding_worker(model, embed_rx, batch_embed_rx, shutdown_rx);
+            text_embedding_worker(
+                model,
+                embed_rx,
+                batch_embed_rx,
+                shutdown_rx,
+                health_rx_worker_clone,
+                health_tx_main_clone,
+                worker_id,
+            );
         });
 
         // Register worker handles
@@ -148,17 +192,21 @@ impl Pool<dyn TextEmbeddingCapable> {
             worker_id,
             shutdown_tx: shutdown_tx.clone(),
             per_worker_mb,
+            health_tx: health_tx_worker.clone(),
+            health_rx: health_rx_main.clone(),
         };
         self.register_worker(registry_key.to_string(), pool_handle);
 
         // Create full handle with channels
         let full_handle = TextEmbeddingWorkerHandle {
             core: WorkerHandle {
-                pending_requests,
-                last_used,
+                pending_requests: Arc::clone(&pending_requests),
+                last_used: Arc::clone(&last_used),
                 worker_id,
                 shutdown_tx: shutdown_tx.clone(),
                 per_worker_mb,
+                health_tx: health_tx_worker,
+                health_rx: health_rx_main,
             },
             embed_tx,
             batch_embed_tx,
@@ -196,10 +244,14 @@ impl Pool<dyn TextEmbeddingCapable> {
             return Err(PoolError::NoWorkers("No workers available".to_string()));
         }
 
-        // Find least busy worker
-        let worker = workers.iter()
-            .min_by_key(|w| w.core.pending_requests.load(Ordering::Acquire))
-            .ok_or_else(|| PoolError::NoWorkers("No workers available".to_string()))?;
+        // Find alive worker with least load using Power of Two Choices (O(1))
+        let alive_workers: Vec<_> = workers
+            .iter()
+            .filter(|w| w.core.is_alive())
+            .collect();
+        
+        let worker = select_worker_power_of_two(&alive_workers, |w| &w.core)
+            .ok_or_else(|| PoolError::NoWorkers(format!("No alive workers for {}", registry_key)))?;
 
         // Send request
         worker.core.pending_requests.fetch_add(1, Ordering::Release);
@@ -242,10 +294,14 @@ impl Pool<dyn TextEmbeddingCapable> {
             return Err(PoolError::NoWorkers("No workers available".to_string()));
         }
 
-        // Find least busy worker
-        let worker = workers.iter()
-            .min_by_key(|w| w.core.pending_requests.load(Ordering::Acquire))
-            .ok_or_else(|| PoolError::NoWorkers("No workers available".to_string()))?;
+        // Find alive worker with least load using Power of Two Choices (O(1))
+        let alive_workers: Vec<_> = workers
+            .iter()
+            .filter(|w| w.core.is_alive())
+            .collect();
+        
+        let worker = select_worker_power_of_two(&alive_workers, |w| &w.core)
+            .ok_or_else(|| PoolError::NoWorkers(format!("No alive workers for {}", registry_key)))?;
 
         // Send request
         worker.core.pending_requests.fetch_add(1, Ordering::Release);

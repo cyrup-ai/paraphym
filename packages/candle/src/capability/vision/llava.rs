@@ -717,3 +717,41 @@ impl Default for LLaVAModel {
         Self::new()
     }
 }
+
+/// Loaded LLaVA model for pool workers
+///
+/// Wrapper around LLaVAModel that can be loaded in pool worker threads.
+/// Delegates all VisionCapable trait methods to the wrapped model.
+#[derive(Debug)]
+pub struct LoadedLLaVAModel {
+    model: LLaVAModel,
+}
+
+impl LoadedLLaVAModel {
+    /// Load model from LLaVAModel configuration
+    ///
+    /// Creates a new LLaVAModel instance in the pool worker thread.
+    pub fn load(config: &LLaVAModel) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        // Create new instance - LLaVAModel uses lazy initialization
+        let _ = config; // Suppress unused warning
+        Ok(Self {
+            model: LLaVAModel::new(),
+        })
+    }
+}
+
+impl CandleModel for LoadedLLaVAModel {
+    fn info(&self) -> &'static CandleModelInfo {
+        self.model.info()
+    }
+}
+
+impl crate::capability::traits::VisionCapable for LoadedLLaVAModel {
+    fn describe_image(&self, image_path: &str, query: &str) -> AsyncStream<CandleStringChunk> {
+        self.model.describe_image(image_path, query)
+    }
+
+    fn describe_url(&self, url: &str, query: &str) -> AsyncStream<CandleStringChunk> {
+        self.model.describe_url(url, query)
+    }
+}

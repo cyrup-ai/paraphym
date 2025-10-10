@@ -10,6 +10,7 @@ pub enum PoolError {
     ShuttingDown(String),        // Pool shutting down, rejecting requests
     MemoryExhausted(String),     // Cannot spawn worker, 80% limit reached
     SpawnFailed(String),         // Worker thread spawn failed
+    SpawnTimeout(String),        // Timeout waiting for another thread to spawn workers
 }
 
 impl fmt::Display for PoolError {
@@ -23,6 +24,7 @@ impl fmt::Display for PoolError {
             Self::ShuttingDown(msg) => write!(f, "Shutting down: {}", msg),
             Self::MemoryExhausted(msg) => write!(f, "Memory exhausted: {}", msg),
             Self::SpawnFailed(msg) => write!(f, "Worker spawn failed: {}", msg),
+            Self::SpawnTimeout(msg) => write!(f, "Spawn timeout: {}", msg),
         }
     }
 }
