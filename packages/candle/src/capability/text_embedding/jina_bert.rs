@@ -339,3 +339,146 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleJinaBertEmbedding
         64
     }
 }
+
+/// Loaded Jina-BERT model that stays in memory for repeated inference
+///
+/// This struct holds the tokenizer, model, and device in memory
+/// to eliminate repeated disk I/O on every inference call. Designed for
+/// use in worker threads that process many requests.
+pub struct LoadedJinaBertModel {
+    tokenizer: Tokenizer,
+    model: BertModel,
+    device: Device,
+}
+
+impl LoadedJinaBertModel {
+    /// Load model into memory from base model reference
+    ///
+    /// Extracts all initialization logic that was previously done on each
+    /// embed() call. The loaded model can then be used for many inferences
+    /// without reloading from disk.
+    pub fn load(base_model: &CandleJinaBertEmbeddingModel)
+        -> std::result::Result<Self, Box<dyn std::error::Error + Send + Sync>>
+    {
+        // Get configuration from ModelInfo
+        let max_length = base_model.info().max_input_tokens
+            .ok_or("max_input_tokens missing in ModelInfo")?
+            .get() as usize;
+        
+        // Auto-detect device
+        let device = crate::core::device_util::detect_best_device()
+            .unwrap_or_else(|e| {
+                log::warn!("Device detection failed: {}. Using CPU.", e);
+                Device::Cpu
+            });
+        
+        // Auto-detect dtype based on device
+        let dtype = if device.is_cuda() { DType::F16 } else { DType::F32 };
+        
+        // Get file paths via huggingface_file
+        let tokenizer_path = base_model.huggingface_file("tokenizer.json")?;
+        let weights_path = base_model.huggingface_file("model.safetensors")?;
+        
+        // Load tokenizer
+        let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
+            .map_err(|e| format!("Failed to load tokenizer: {}", e))?;
+        
+        // Configure tokenizer
+        let pad_id = tokenizer.token_to_id("[PAD]")
+            .ok_or_else(|| "Missing [PAD] token")?;
+        
+        let padding_params = PaddingParams {
+            strategy: tokenizers::PaddingStrategy::BatchLongest,
+            direction: tokenizers::PaddingDirection::Right,
+            pad_id,
+            pad_token: "[PAD]".to_string(),
+            ..Default::default()
+        };
+        tokenizer.with_padding(Some(padding_params));
+        
+        let truncation_params = TruncationParams {
+            max_length,
+            ..Default::default()
+        };
+        tokenizer.with_truncation(Some(truncation_params))
+            .map_err(|e| format!("Failed to set truncation: {}", e))?;
+        
+        // Create Jina-BERT config
+        let jina_config = Config {
+            vocab_size: 30528,
+            hidden_size: 768,
+            num_hidden_layers: 12,
+            num_attention_heads: 12,
+            intermediate_size: 3072,
+            hidden_act: candle_nn::Activation::Gelu,
+            max_position_embeddings: 8192,
+            type_vocab_size: 2,
+            initializer_range: 0.02,
+            layer_norm_eps: 1e-12,
+            pad_token_id: 0,
+            position_embedding_type: PositionEmbeddingType::Alibi,
+        };
+        
+        // Load model weights
+        let vb = unsafe {
+            VarBuilder::from_mmaped_safetensors(&[weights_path], dtype, &device)
+                .map_err(|e| format!("Failed to load weights: {}", e))?
+        };
+        
+        // Create model
+        let model = BertModel::new(vb, &jina_config)
+            .map_err(|e| format!("Failed to create model: {}", e))?;
+        
+        Ok(Self {
+            tokenizer,
+            model,
+            device,
+        })
+    }
+}
+
+impl crate::capability::traits::TextEmbeddingCapable for LoadedJinaBertModel {
+    fn embed(&self, text: &str, _task: Option<String>) 
+        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> 
+    {
+        // NO I/O - everything already loaded in self
+        let embeddings = CandleJinaBertEmbeddingModel::forward_pass(
+            &self.tokenizer,
+            &self.model,
+            &self.device,
+            &[text],
+        )?;
+
+        embeddings.into_iter().next()
+            .ok_or_else(|| "No embeddings generated".into())
+    }
+
+    fn batch_embed(&self, texts: &[String], _task: Option<String>)
+        -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>>
+    {
+        // NO I/O - use loaded state
+        let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+        CandleJinaBertEmbeddingModel::forward_pass(
+            &self.tokenizer,
+            &self.model,
+            &self.device,
+            &text_refs,
+        ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+    }
+
+    fn embedding_dimension(&self) -> usize {
+        JINA_BERT_MODEL_INFO.embedding_dimension.unwrap_or(768) as usize
+    }
+
+    fn supported_dimensions(&self) -> Vec<usize> {
+        vec![768]
+    }
+
+    fn recommended_batch_size(&self) -> usize {
+        16
+    }
+
+    fn max_batch_size(&self) -> usize {
+        64
+    }
+}

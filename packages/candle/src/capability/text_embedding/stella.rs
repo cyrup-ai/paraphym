@@ -434,3 +434,257 @@ impl crate::capability::traits::TextEmbeddingCapable for StellaEmbeddingModel {
         }
     }
 }
+
+// ============================================================================
+// LOADED MODEL WRAPPER (MPOOL_4.md)
+// ============================================================================
+
+/// Loaded Stella model that keeps model/tokenizer in memory.
+///
+/// This wrapper is designed for use in model pool workers where the model is loaded once
+/// during worker spawn and reused across many inference calls, eliminating repeated disk I/O.
+///
+/// ## Usage Pattern
+/// ```rust,ignore
+/// // In worker spawn:
+/// let loaded_model = LoadedStellaModel::load(&base_model)?;
+///
+/// // In worker loop (no I/O):
+/// let embedding = loaded_model.embed("some text", None)?;
+/// ```
+///
+/// ## Memory Layout
+/// - tokenizer: Tokenizer (configured with variant-specific padding)
+/// - model: RefCell<EmbeddingModel> (interior mutability for &mut forward_norm)
+/// - device: Device (CUDA or CPU)
+/// - variant: ModelVariant (Large=1.5B or Small=400M)
+/// - dimension: usize (embedding output dimension)
+///
+/// RefCell is required because forward_norm takes &mut EmbeddingModel.
+pub struct LoadedStellaModel {
+    tokenizer: Tokenizer,
+    model: std::cell::RefCell<EmbeddingModel>,
+    device: Device,
+    variant: ModelVariant,
+    dimension: usize,
+}
+
+impl LoadedStellaModel {
+    /// Load model and tokenizer from disk once, returning loaded instance ready for inference.
+    ///
+    /// This extracts the loading logic from embed() (lines 136-255) so it can be called
+    /// once during worker spawn instead of on every inference.
+    pub fn load(base_model: &StellaEmbeddingModel)
+        -> std::result::Result<Self, Box<dyn std::error::Error + Send + Sync>>
+    {
+        // Get config from ModelInfo
+        let max_length = base_model.info().max_input_tokens
+            .ok_or("max_input_tokens missing in ModelInfo")?
+            .get() as usize;
+
+        let dimension = base_model.info().embedding_dimension
+            .ok_or("embedding_dimension missing in ModelInfo")? as usize;
+
+        let variant = base_model.detect_variant();
+        let embed_dim = base_model.embed_dim(dimension as u32)?;
+
+        // Auto-detect device
+        let device = crate::core::device_util::detect_best_device()
+            .unwrap_or_else(|e| {
+                log::warn!("Device detection failed: {}. Using CPU.", e);
+                Device::Cpu
+            });
+
+        let dtype = if device.is_cuda() { DType::F16 } else { DType::F32 };
+
+        // Load files from HuggingFace
+        let base_weights = base_model.huggingface_file("model.safetensors")?;
+        let projection_head = base_model.huggingface_file(
+            &format!("2_Dense_{}/model.safetensors", dimension)
+        )?;
+        let tokenizer_path = base_model.huggingface_file("tokenizer.json")?;
+
+        // Load tokenizer with variant-specific padding
+        let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
+            .map_err(|e| format!("Failed to load tokenizer: {}", e))?;
+
+        match variant {
+            ModelVariant::Large => {
+                // 1.5B: Left padding with <|endoftext|>
+                let pad_id = tokenizer.token_to_id("<|endoftext|>")
+                    .ok_or("Tokenizer missing <|endoftext|> token")?;
+
+                let padding_params = PaddingParams {
+                    strategy: PaddingStrategy::BatchLongest,
+                    direction: PaddingDirection::Left,
+                    pad_to_multiple_of: None,
+                    pad_id,
+                    pad_type_id: 0,
+                    pad_token: "<|endoftext|>".to_string(),
+                };
+                tokenizer.with_padding(Some(padding_params));
+            }
+            ModelVariant::Small => {
+                // 400M: Right padding
+                tokenizer.with_padding(Some(PaddingParams {
+                    strategy: PaddingStrategy::BatchLongest,
+                    direction: PaddingDirection::Right,
+                    ..Default::default()
+                }));
+            }
+        }
+
+        // Set truncation
+        if tokenizer.get_truncation().is_none() {
+            tokenizer.with_truncation(Some(TruncationParams {
+                max_length,
+                strategy: tokenizers::TruncationStrategy::LongestFirst,
+                stride: 0,
+                direction: tokenizers::TruncationDirection::Right,
+            }))
+            .map_err(|e| format!("Failed to set truncation: {}", e))?;
+        }
+
+        // Create Stella config from detected variant
+        let stella_config = match variant {
+            ModelVariant::Large => Config::new_1_5_b_v5(embed_dim),
+            ModelVariant::Small => Config::new_400_m_v5(embed_dim),
+        };
+
+        // Load model weights (base + projection head)
+        let base_vb = unsafe {
+            VarBuilder::from_mmaped_safetensors(
+                &[base_weights],
+                dtype,
+                &device
+            )
+            .map_err(|e| format!("Failed to load base model weights: {}", e))?
+        };
+
+        let embed_vb = unsafe {
+            VarBuilder::from_mmaped_safetensors(
+                &[projection_head],
+                DType::F32,  // Projection heads always F32
+                &device
+            )
+            .map_err(|e| format!("Failed to load projection head weights: {}", e))?
+        };
+
+        // Create Stella model with MRL projection
+        let model = EmbeddingModel::new(&stella_config, base_vb, embed_vb)
+            .map_err(|e| format!("Failed to create Stella model: {}", e))?;
+
+        Ok(Self {
+            tokenizer,
+            model: std::cell::RefCell::new(model),
+            device,
+            variant,
+            dimension,
+        })
+    }
+}
+
+impl crate::capability::traits::TextEmbeddingCapable for LoadedStellaModel {
+    fn embed(&self, text: &str, task: Option<String>)
+        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>
+    {
+        // No I/O - use loaded state
+
+        // Format with instruction prefix (using base model's static method)
+        let formatted_text = StellaEmbeddingModel::format_with_instruction(
+            &StellaEmbeddingModel {},
+            &[text],
+            task.as_deref()
+        )[0].clone();
+
+        // Tokenize
+        let tokens = self.tokenizer.encode(formatted_text, true)
+            .map_err(|e| format!("Tokenization failed: {}", e))?;
+
+        let input_ids = Tensor::new(tokens.get_ids(), &self.device)
+            .map_err(|e| format!("Failed to create input tensor: {}", e))?;
+        let attention_mask = Tensor::new(tokens.get_attention_mask(), &self.device)
+            .map_err(|e| format!("Failed to create attention mask: {}", e))?
+            .to_dtype(DType::U8)
+            .map_err(|e| format!("Failed to convert mask dtype: {}", e))?;
+
+        // Forward pass
+        let mut model = self.model.borrow_mut();
+        let embeddings = model.forward_norm(
+            &input_ids.unsqueeze(0)
+                .map_err(|e| format!("Failed to unsqueeze input_ids: {}", e))?,
+            &attention_mask.unsqueeze(0)
+                .map_err(|e| format!("Failed to unsqueeze attention_mask: {}", e))?
+        )
+        .map_err(|e| format!("Stella forward pass failed: {}", e))?;
+
+        // Extract first embedding
+        let embedding_vec = embeddings.to_vec2::<f32>()
+            .map_err(|e| format!("Failed to convert embeddings to vec: {}", e))?
+            .into_iter()
+            .next()
+            .ok_or("No embeddings generated")?;
+
+        Ok(embedding_vec)
+    }
+
+    fn batch_embed(&self, texts: &[String], task: Option<String>)
+        -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>>
+    {
+        // No I/O - use loaded state
+        let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+
+        // Format with instruction prefix
+        let formatted_texts = StellaEmbeddingModel::format_with_instruction(
+            &StellaEmbeddingModel {},
+            &text_refs,
+            task.as_deref()
+        );
+
+        // Tokenize batch
+        let encodings = self.tokenizer.encode_batch(formatted_texts, true)
+            .map_err(|e| format!("Batch tokenization failed: {}", e))?;
+
+        // Create batch tensors
+        let ids_vecs: Vec<Vec<u32>> = encodings.iter()
+            .map(|e| e.get_ids().to_vec())
+            .collect();
+        let mask_vecs: Vec<Vec<u32>> = encodings.iter()
+            .map(|e| e.get_attention_mask().to_vec())
+            .collect();
+
+        let input_ids = Tensor::new(ids_vecs, &self.device)
+            .map_err(|e| format!("Failed to create batch input tensor: {}", e))?;
+        let attention_mask = Tensor::new(mask_vecs, &self.device)
+            .map_err(|e| format!("Failed to create batch attention mask: {}", e))?
+            .to_dtype(DType::U8)
+            .map_err(|e| format!("Failed to convert mask dtype: {}", e))?;
+
+        // Forward pass
+        let mut model = self.model.borrow_mut();
+        let embeddings = model.forward_norm(&input_ids, &attention_mask)
+            .map_err(|e| format!("Stella batch forward pass failed: {}", e))?;
+
+        // Convert to Vec<Vec<f32>>
+        embeddings.to_vec2::<f32>()
+            .map_err(|e| format!("Failed to convert batch embeddings to vec: {}", e).into())
+    }
+
+    fn embedding_dimensions(&self) -> Vec<usize> {
+        vec![self.dimension]
+    }
+
+    fn recommended_batch_size(&self) -> usize {
+        match self.variant {
+            ModelVariant::Large => 8,
+            ModelVariant::Small => 16,
+        }
+    }
+
+    fn max_batch_size(&self) -> usize {
+        match self.variant {
+            ModelVariant::Large => 32,
+            ModelVariant::Small => 64,
+        }
+    }
+}

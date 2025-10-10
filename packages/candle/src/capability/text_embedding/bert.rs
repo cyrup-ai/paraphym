@@ -358,3 +358,158 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleBertEmbeddingMode
         128
     }
 }
+
+// ============================================================================
+// LOADED MODEL WRAPPER (MPOOL_4.md)
+// ============================================================================
+
+/// Loaded BERT model that keeps model/tokenizer in memory.
+///
+/// This wrapper is designed for use in model pool workers where the model is loaded once
+/// during worker spawn and reused across many inference calls, eliminating repeated disk I/O.
+///
+/// ## Usage Pattern
+/// ```rust,ignore
+/// // In worker spawn:
+/// let loaded_model = LoadedBertModel::load(&base_model)?;
+///
+/// // In worker loop (no I/O):
+/// let embedding = loaded_model.embed("some text", None)?;
+/// ```
+///
+/// ## Memory Layout
+/// - tokenizer: Tokenizer (configured with [PAD] token padding)
+/// - model: BertModel (immutable - no RefCell needed)
+/// - device: Device (CUDA or CPU)
+///
+/// No RefCell needed because forward_pass takes &BertModel (immutable reference).
+pub struct LoadedBertModel {
+    tokenizer: Tokenizer,
+    model: BertModel,
+    device: Device,
+}
+
+impl LoadedBertModel {
+    /// Load model and tokenizer from disk once, returning loaded instance ready for inference.
+    ///
+    /// This extracts the loading logic from embed() (lines 197-259) so it can be called
+    /// once during worker spawn instead of on every inference.
+    pub fn load(base_model: &CandleBertEmbeddingModel)
+        -> std::result::Result<Self, Box<dyn std::error::Error + Send + Sync>>
+    {
+        // Get configuration from ModelInfo
+        let max_length = base_model.info().max_input_tokens
+            .ok_or("max_input_tokens missing in ModelInfo")?
+            .get() as usize;
+
+        // Auto-detect device
+        let device = crate::core::device_util::detect_best_device()
+            .unwrap_or_else(|e| {
+                log::warn!("Device detection failed: {}. Using CPU.", e);
+                Device::Cpu
+            });
+
+        // Auto-detect dtype based on device
+        let dtype = if device.is_cuda() { DType::F16 } else { DType::F32 };
+
+        // Get file paths via huggingface_file
+        let model_weights_path = base_model.huggingface_file("model.safetensors")?;
+        let tokenizer_path = base_model.huggingface_file("tokenizer.json")?;
+        let config_path = base_model.huggingface_file("config.json")?;
+
+        // Load tokenizer
+        let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
+            .map_err(|e| format!("Failed to load tokenizer: {}", e))?;
+
+        // Configure tokenizer for padding and truncation
+        if let Some(pad_token) = tokenizer.get_vocab(true).get("[PAD]").copied() {
+            let padding_params = PaddingParams {
+                strategy: tokenizers::PaddingStrategy::BatchLongest,
+                direction: tokenizers::PaddingDirection::Right,
+                pad_to_multiple_of: None,
+                pad_id: pad_token,
+                pad_type_id: 0,
+                pad_token: "[PAD]".to_string(),
+            };
+            tokenizer.with_padding(Some(padding_params));
+        }
+
+        if tokenizer.get_truncation().is_none() {
+            let truncation_params = TruncationParams {
+                max_length,
+                strategy: tokenizers::TruncationStrategy::LongestFirst,
+                stride: 0,
+                direction: tokenizers::TruncationDirection::Right,
+            };
+            tokenizer.with_truncation(Some(truncation_params))
+                .map_err(|e| format!("Failed to set tokenizer truncation: {}", e))?;
+        }
+
+        // Load BERT model configuration
+        let config_json = std::fs::read_to_string(&config_path)
+            .map_err(|e| format!("Failed to read config.json: {}", e))?;
+        let bert_config: Config = serde_json::from_str(&config_json)
+            .map_err(|e| format!("Failed to parse config.json: {}", e))?;
+
+        // Load model weights
+        let vb = unsafe {
+            VarBuilder::from_mmaped_safetensors(&[model_weights_path], dtype, &device)
+                .map_err(|e| format!("Failed to load model weights: {}", e))?
+        };
+
+        // Create BERT model
+        let model = BertModel::load(vb, &bert_config)
+            .map_err(|e| format!("Failed to create BERT model: {}", e))?;
+
+        Ok(Self {
+            tokenizer,
+            model,
+            device,
+        })
+    }
+}
+
+impl crate::capability::traits::TextEmbeddingCapable for LoadedBertModel {
+    fn embed(&self, text: &str, _task: Option<String>)
+        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>
+    {
+        // No I/O - use loaded state
+        // BERT doesn't use task-specific instructions, ignore task parameter
+
+        let embeddings = CandleBertEmbeddingModel::forward_pass(
+            &self.tokenizer,
+            &self.model,
+            &self.device,
+            &[text]
+        ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+
+        embeddings.into_iter().next()
+            .ok_or_else(|| "No embeddings generated".into())
+    }
+
+    fn batch_embed(&self, texts: &[String], _task: Option<String>)
+        -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>>
+    {
+        // No I/O - use loaded state
+        let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+
+        CandleBertEmbeddingModel::forward_pass(
+            &self.tokenizer,
+            &self.model,
+            &self.device,
+            &text_refs
+        ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+    }
+
+    fn embedding_dimensions(&self) -> Vec<usize> {
+        vec![384]
+    }
+
+    fn recommended_batch_size(&self) -> usize {
+        16
+    }
+
+    fn max_batch_size(&self) -> usize {
+        128
+    }
+}

@@ -362,3 +362,177 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleNvEmbedEmbeddingM
         8
     }
 }
+
+// ============================================================================
+// LOADED MODEL WRAPPER (MPOOL_4.md)
+// ============================================================================
+
+/// Loaded NvEmbed model that keeps model/tokenizer in memory.
+///
+/// This wrapper is designed for use in model pool workers where the model is loaded once
+/// during worker spawn and reused across many inference calls, eliminating repeated disk I/O.
+///
+/// ## Usage Pattern
+/// ```rust,ignore
+/// // In worker spawn:
+/// let loaded_model = LoadedNvEmbedModel::load(&base_model)?;
+///
+/// // In worker loop (no I/O):
+/// let embedding = loaded_model.embed("some text", None)?;
+/// ```
+///
+/// ## Memory Layout
+/// - tokenizer: Tokenizer (configured with EOS padding)
+/// - model: RefCell<NvEmbedModel> (interior mutability for &mut forward_pass)
+/// - device: Device (CUDA or CPU)
+///
+/// RefCell is required because forward_pass_with_instruction takes &mut NvEmbedModel.
+pub struct LoadedNvEmbedModel {
+    tokenizer: Tokenizer,
+    model: std::cell::RefCell<NvEmbedModel>,
+    device: Device,
+}
+
+impl LoadedNvEmbedModel {
+    /// Load model and tokenizer from disk once, returning loaded instance ready for inference.
+    ///
+    /// This extracts the loading logic from load_model_and_tokenizer() (lines 188-267)
+    /// so it can be called once during worker spawn instead of on every inference.
+    pub fn load(base_model: &CandleNvEmbedEmbeddingModel)
+        -> std::result::Result<Self, Box<dyn std::error::Error + Send + Sync>>
+    {
+        // Load tokenizer from HuggingFace
+        let tokenizer_path = base_model.huggingface_file("tokenizer.json")?;
+        let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
+            .map_err(|e| format!("Failed to load tokenizer: {}", e))?;
+
+        // Configure tokenizer with EOS padding (ID=2 for NvEmbed)
+        let pad_token = tokenizers::AddedToken {
+            content: "<pad>".to_string(),
+            single_word: false,
+            lstrip: false,
+            rstrip: false,
+            normalized: false,
+            special: true,
+        };
+        tokenizer.add_special_tokens(&[pad_token]);
+
+        let pad_id = 2u32;
+        let padding_params = tokenizers::PaddingParams {
+            strategy: tokenizers::PaddingStrategy::BatchLongest,
+            direction: tokenizers::PaddingDirection::Right,
+            pad_to_multiple_of: None,
+            pad_id,
+            pad_type_id: 0,
+            pad_token: "<pad>".to_string(),
+        };
+        tokenizer.with_padding(Some(padding_params));
+
+        let truncation_params = tokenizers::TruncationParams {
+            max_length: 32768,
+            strategy: tokenizers::TruncationStrategy::LongestFirst,
+            stride: 0,
+            direction: tokenizers::TruncationDirection::Right,
+        };
+        tokenizer.with_truncation(Some(truncation_params))
+            .map_err(|e| format!("Failed to set truncation: {}", e))?;
+
+        // Detect device
+        let device = Device::cuda_if_available(0)
+            .map_err(|e| format!("Failed to initialize device: {}", e))?;
+
+        // Load config (model.safetensors.index.json)
+        let config_path = base_model.huggingface_file("model.safetensors.index.json")?;
+        let config_json = std::fs::read_to_string(&config_path)
+            .map_err(|e| format!("Failed to read config: {}", e))?;
+        let config: BertConfig = serde_json::from_str(&config_json)
+            .map_err(|e| format!("Failed to parse config: {}", e))?;
+
+        // Load safetensors shards
+        let index_json: serde_json::Value = serde_json::from_str(&config_json)
+            .map_err(|e| format!("Failed to parse index: {}", e))?;
+
+        let weight_map = index_json.get("weight_map")
+            .and_then(|v| v.as_object())
+            .ok_or("Missing weight_map in config")?;
+
+        let shard_files: std::collections::HashSet<String> =
+            weight_map.values()
+                .filter_map(|v| v.as_str())
+                .map(|s| s.to_string())
+                .collect();
+
+        let mut shard_paths = Vec::new();
+        for shard_name in shard_files {
+            let path = base_model.huggingface_file(&shard_name)?;
+            shard_paths.push(path);
+        }
+
+        // Build VarBuilder from shards
+        let dtype = if device.is_cuda() { DType::F16 } else { DType::F32 };
+        let vb = unsafe {
+            VarBuilder::from_mmaped_safetensors(&shard_paths, dtype, &device)
+                .map_err(|e| format!("Failed to load safetensors: {}", e))?
+        };
+
+        // Load model
+        let model = NvEmbedModel::load(vb, &config)
+            .map_err(|e| format!("Failed to load model: {}", e))?;
+
+        Ok(Self {
+            tokenizer,
+            model: std::cell::RefCell::new(model),
+            device,
+        })
+    }
+}
+
+impl crate::capability::traits::TextEmbeddingCapable for LoadedNvEmbedModel {
+    fn embed(&self, text: &str, task: Option<String>)
+        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>
+    {
+        // No I/O - use loaded state
+        let task_ref = task.as_deref();
+        let mut model = self.model.borrow_mut();
+
+        let embeddings = CandleNvEmbedEmbeddingModel::forward_pass_with_instruction(
+            &self.tokenizer,
+            &mut *model,
+            &self.device,
+            &[text],
+            task_ref
+        ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+
+        embeddings.into_iter().next()
+            .ok_or_else(|| "No embeddings generated".into())
+    }
+
+    fn batch_embed(&self, texts: &[String], task: Option<String>)
+        -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>>
+    {
+        // No I/O - use loaded state
+        let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+        let task_ref = task.as_deref();
+        let mut model = self.model.borrow_mut();
+
+        CandleNvEmbedEmbeddingModel::forward_pass_with_instruction(
+            &self.tokenizer,
+            &mut *model,
+            &self.device,
+            &text_refs,
+            task_ref
+        ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+    }
+
+    fn embedding_dimensions(&self) -> Vec<usize> {
+        vec![4096]
+    }
+
+    fn recommended_batch_size(&self) -> usize {
+        2
+    }
+
+    fn max_batch_size(&self) -> usize {
+        8
+    }
+}

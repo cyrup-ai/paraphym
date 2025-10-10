@@ -63,6 +63,10 @@ impl CandleAgentRoleAgent {
 
         AsyncStream::with_channel(move |_sender| {
             let _background_stream = ystream::spawn_stream(move |stream_sender| {
+                // Extract handlers from state for recursive inference
+                let on_chunk_handler = state.on_chunk_handler.clone();
+                let on_tool_result_handler = state.on_tool_result_handler.clone();
+                
                 // Initialize tool router
                 let tool_router = {
                     let Some(runtime) = crate::runtime::shared_runtime() else {
@@ -202,6 +206,12 @@ impl CandleAgentRoleAgent {
                                                     .block_on(router.call_tool(&name, sweet_args))
                                                 {
                                                     Ok(response) => {
+                                                        // Call tool result handler if configured
+                                                        if let Some(ref handler) = on_tool_result_handler {
+                                                            let results = vec![format!("{:?}", response)];
+                                                            handler(&results);
+                                                        }
+                                                        
                                                         CandleMessageChunk::Text(format!(
                                                             "Tool '{}' executed: {:?}",
                                                             name, response
@@ -228,7 +238,14 @@ impl CandleAgentRoleAgent {
                         }
                         CandleCompletionChunk::Error(error) => CandleMessageChunk::Error(error),
                     };
-                    ystream::emit!(stream_sender, message_chunk);
+                    
+                    // Apply chunk handler if configured (zero allocation for None)
+                    let final_chunk = if let Some(ref handler) = on_chunk_handler {
+                        handler(message_chunk)
+                    } else {
+                        message_chunk
+                    };
+                    ystream::emit!(stream_sender, final_chunk);
                 }
 
                 // CRITICAL: Call handler for recursion
@@ -1250,14 +1267,18 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
         let embedding_model = self.text_embedding_model;
         let temperature = self.temperature;
         let max_tokens = self.max_tokens;
-        let _memory_read_timeout = self.memory_read_timeout;
+        let memory_read_timeout = self.memory_read_timeout;
         let system_prompt = self.system_prompt.clone();
         let tools = self.tools;
         let on_conversation_turn_handler = self.on_conversation_turn_handler;
+        let on_chunk_handler = self.on_chunk_handler;
+        let on_tool_result_handler = self.on_tool_result_handler;
         let context_file = self.context_file;
         let context_files = self.context_files;
         let context_directory = self.context_directory;
         let context_github = self.context_github;
+        let additional_params = self.additional_params;
+        let metadata = self.metadata;
         
         // ALWAYS create memory internally - WE GUARANTEE MEMORY
         let memory: Option<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>> = {
@@ -1522,13 +1543,22 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                         // Memory context injection
                         let memory_context: Option<String> = if let Some(ref mem_manager) = memory {
                             let memory_stream = mem_manager.search_by_content(&user_message);
+                            let timeout_duration = std::time::Duration::from_millis(memory_read_timeout);
 
-                            // Use tokio::task::block_in_place pattern (matches domain/agent/chat.rs:460)
+                            // Use tokio::task::block_in_place pattern with timeout protection
                             let results: Vec<MemoryResult<MemoryNode>> =
                                 tokio::task::block_in_place(|| {
                                     tokio::runtime::Handle::current().block_on(async {
-                                        use futures_util::StreamExt;
-                                        memory_stream.take(5).collect().await
+                                        match tokio::time::timeout(timeout_duration, async {
+                                            use futures_util::StreamExt;
+                                            memory_stream.take(5).collect().await
+                                        }).await {
+                                            Ok(results) => results,
+                                            Err(_) => {
+                                                log::warn!("Memory search timed out after {}ms, proceeding with empty context", memory_read_timeout);
+                                                Vec::new()
+                                            }
+                                        }
                                     })
                                 });
 
@@ -1577,6 +1607,15 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                                 // Pass merged tools to completion system for function calling
                                 params.tools = Some(ZeroOneOrMany::from(all_tools));
                             }
+                        }
+
+                        // Merge additional params if provided (zero allocation for empty map)
+                        if !additional_params.is_empty() {
+                            let params_map: serde_json::Map<String, serde_json::Value> = additional_params
+                                .into_iter()
+                                .map(|(k, v)| (k, serde_json::Value::String(v)))
+                                .collect();
+                            params = params.with_additional_params(Some(serde_json::Value::Object(params_map)));
                         }
 
                         // Call REAL provider inference
@@ -1651,6 +1690,12 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                                                             router.call_tool(&name, sweet_args),
                                                         ) {
                                                             Ok(response) => {
+                                                                // Call tool result handler if configured (zero allocation for None)
+                                                                if let Some(ref handler) = on_tool_result_handler {
+                                                                    let results = vec![format!("{:?}", response)];
+                                                                    handler(&results);
+                                                                }
+                                                                
                                                                 // Convert response to text result
                                                                 let result_text = format!(
                                                                     "Tool '{}' executed successfully: {:?}",
@@ -1689,7 +1734,13 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                                 }
                             };
 
-                            ystream::emit!(stream_sender, message_chunk);
+                            // Apply chunk handler if configured (zero allocation for None)
+                            let final_chunk = if let Some(ref handler) = on_chunk_handler {
+                                handler(message_chunk)
+                            } else {
+                                message_chunk
+                            };
+                            ystream::emit!(stream_sender, final_chunk);
                         }
 
                         // Store conversation turn in memory after completion
@@ -1725,6 +1776,16 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                                 .push("assistant_response".to_string());
                             assistant_memory.metadata.source = Some("chat".to_string());
                             assistant_memory.metadata.importance = 0.8;
+
+                            // Merge builder metadata into memory metadata (zero allocation for empty map)
+                            for (key, value) in &metadata {
+                                if let Err(e) = user_memory.metadata.set_custom(key, value) {
+                                    log::warn!("Failed to set custom metadata '{}' on user memory: {:?}", key, e);
+                                }
+                                if let Err(e) = assistant_memory.metadata.set_custom(key, value) {
+                                    log::warn!("Failed to set custom metadata '{}' on assistant memory: {:?}", key, e);
+                                }
+                            }
 
                             // Create PendingMemory operations
                             let user_pending = memory_manager.create_memory(user_memory);
@@ -1770,7 +1831,7 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                                 text_embedding_model: embedding_model.clone(),
                                 temperature,
                                 max_tokens,
-                                memory_read_timeout: _memory_read_timeout,
+                                memory_read_timeout,
                                 system_prompt: system_prompt.clone(),
                                 tools: tools.clone(),
                                 context_file: None,
@@ -1807,6 +1868,7 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
         let temperature = self.temperature;
         let max_tokens = self.max_tokens;
         let system_prompt = self.system_prompt.clone();
+        let on_chunk_handler = self.on_chunk_handler;
         let user_message = message.into();
 
         AsyncStream::with_channel(move |_sender| {
@@ -1876,7 +1938,13 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                         CandleCompletionChunk::Error(error) => CandleMessageChunk::Error(error),
                     };
 
-                    ystream::emit!(stream_sender, message_chunk);
+                    // Apply chunk handler if configured (zero allocation for None)
+                    let final_chunk = if let Some(ref handler) = on_chunk_handler {
+                        handler(message_chunk)
+                    } else {
+                        message_chunk
+                    };
+                    ystream::emit!(stream_sender, final_chunk);
                 }
             });
         })
