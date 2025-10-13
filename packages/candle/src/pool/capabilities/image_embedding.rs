@@ -135,8 +135,14 @@ pub fn image_embedding_worker<T: ImageEmbeddingCapable>(
                     // Transition: Ready/Idle → Processing
                     state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
 
-                    let rt = crate::runtime::shared_runtime()
-                        .expect("Shared runtime required for async operations");
+                    let Some(rt) = crate::runtime::shared_runtime() else {
+                        log::error!("Shared runtime unavailable for embed_image_url");
+                        let _ = req.response.send(Err(PoolError::RuntimeUnavailable));
+                        state.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
+                        last_activity = SystemTime::now();
+                        continue;
+                    };
+
                     let result = rt.block_on(model.embed_image_url(&req.url))
                         .map_err(|e| PoolError::ModelError(e.to_string()));
                     let _ = req.response.send(result);
@@ -151,8 +157,14 @@ pub fn image_embedding_worker<T: ImageEmbeddingCapable>(
                     // Transition: Ready/Idle → Processing
                     state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
 
-                    let rt = crate::runtime::shared_runtime()
-                        .expect("Shared runtime required for async operations");
+                    let Some(rt) = crate::runtime::shared_runtime() else {
+                        log::error!("Shared runtime unavailable for embed_image_base64");
+                        let _ = req.response.send(Err(PoolError::RuntimeUnavailable));
+                        state.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
+                        last_activity = SystemTime::now();
+                        continue;
+                    };
+
                     let result = rt.block_on(model.embed_image_base64(&req.base64_data))
                         .map_err(|e| PoolError::ModelError(e.to_string()));
                     let _ = req.response.send(result);
@@ -167,8 +179,14 @@ pub fn image_embedding_worker<T: ImageEmbeddingCapable>(
                     // Transition: Ready/Idle → Processing
                     state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
 
-                    let rt = crate::runtime::shared_runtime()
-                        .expect("Shared runtime required for async operations");
+                    let Some(rt) = crate::runtime::shared_runtime() else {
+                        log::error!("Shared runtime unavailable for batch_embed_images");
+                        let _ = req.response.send(Err(PoolError::RuntimeUnavailable));
+                        state.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
+                        last_activity = SystemTime::now();
+                        continue;
+                    };
+
                     let paths: Vec<&str> = req.image_paths.iter().map(|s| s.as_str()).collect();
                     let result = rt.block_on(model.batch_embed_images(paths))
                         .map_err(|e| PoolError::ModelError(e.to_string()));
