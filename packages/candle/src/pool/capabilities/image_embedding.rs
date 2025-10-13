@@ -113,8 +113,14 @@ pub fn image_embedding_worker<T: ImageEmbeddingCapable>(
                     // Transition: Ready/Idle → Processing
                     state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
 
-                    let rt = crate::runtime::shared_runtime()
-                        .expect("Shared runtime required for async operations");
+                    let Some(rt) = crate::runtime::shared_runtime() else {
+                        log::error!("Shared runtime unavailable for image embedding");
+                        let _ = req.response.send(Err(PoolError::RuntimeUnavailable));
+                        state.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
+                        last_activity = SystemTime::now();
+                        continue;
+                    };
+
                     let result = rt.block_on(model.embed_image(&req.image_path))
                         .map_err(|e| PoolError::ModelError(e.to_string()));
                     let _ = req.response.send(result);

@@ -208,10 +208,16 @@ You are a master at refactoring code, remembering to check for code that ALREADY
                         agent.chat(CandleChatLoop::UserPrompt("".to_string()))
                     }
                     InputHandlerResult::Chat(message) => {
-                        // Resolve with smart input detection
-                        let resolved = tokio::runtime::Handle::current().block_on(async {
-                            resolve_smart_input(&message).await.unwrap_or(message.clone())
-                        });
+                        // Resolve with smart input detection using shared runtime
+                        let resolved = match crate::runtime::shared_runtime() {
+                            Some(rt) => rt.block_on(async {
+                                resolve_smart_input(&message).await.unwrap_or(message.clone())
+                            }),
+                            None => {
+                                log::warn!("Shared runtime unavailable, using message as-is: {}", message);
+                                message.clone()
+                            }
+                        };
                         agent.chat(CandleChatLoop::UserPrompt(resolved))
                     }
                 }

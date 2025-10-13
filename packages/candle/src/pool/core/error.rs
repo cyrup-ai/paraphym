@@ -12,6 +12,7 @@ pub enum PoolError {
     SpawnFailed(String),         // Worker thread spawn failed
     SpawnTimeout(String),        // Timeout waiting for another thread to spawn workers
     CircuitOpen(String),         // Circuit breaker open, rejecting requests
+    RuntimeUnavailable,          // Shared runtime not available for async operations
 }
 
 impl fmt::Display for PoolError {
@@ -27,6 +28,7 @@ impl fmt::Display for PoolError {
             Self::SpawnFailed(msg) => write!(f, "Worker spawn failed: {}", msg),
             Self::SpawnTimeout(msg) => write!(f, "Spawn timeout: {}", msg),
             Self::CircuitOpen(msg) => write!(f, "Circuit breaker open: {}", msg),
+            Self::RuntimeUnavailable => write!(f, "Shared runtime unavailable"),
         }
     }
 }

@@ -86,10 +86,13 @@ impl MultimodalEmbeddingService {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("Failed to create runtime for image embedding");
+            let Some(rt) = crate::runtime::shared_runtime() else {
+                log::error!("Shared runtime unavailable for image embedding");
+                let _ = tx.send(Err(crate::memory::utils::error::Error::Other(
+                    "Runtime unavailable".to_string()
+                )));
+                return;
+            };
                 
             rt.block_on(async move {
                 let result = vision_model
@@ -110,11 +113,14 @@ impl MultimodalEmbeddingService {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("Failed to create runtime for image URL embedding");
-                
+            let Some(rt) = crate::runtime::shared_runtime() else {
+                log::error!("Shared runtime unavailable for image URL embedding");
+                let _ = tx.send(Err(crate::memory::utils::error::Error::Other(
+                    "Runtime unavailable".to_string()
+                )));
+                return;
+            };
+            
             rt.block_on(async move {
                 let result = vision_model
                     .embed_image_url(&url).await
@@ -134,11 +140,14 @@ impl MultimodalEmbeddingService {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("Failed to create runtime for base64 image embedding");
-                
+            let Some(rt) = crate::runtime::shared_runtime() else {
+                log::error!("Shared runtime unavailable for base64 image embedding");
+                let _ = tx.send(Err(crate::memory::utils::error::Error::Other(
+                    "Runtime unavailable".to_string()
+                )));
+                return;
+            };
+            
             rt.block_on(async move {
                 let result = vision_model
                     .embed_image_base64(&base64_data).await
@@ -158,11 +167,14 @@ impl MultimodalEmbeddingService {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("Failed to create runtime for batch image embedding");
-                
+            let Some(rt) = crate::runtime::shared_runtime() else {
+                log::error!("Shared runtime unavailable for batch image embedding");
+                let _ = tx.send(Err(crate::memory::utils::error::Error::Other(
+                    "Runtime unavailable".to_string()
+                )));
+                return;
+            };
+            
             rt.block_on(async move {
                 let paths: Vec<&str> = image_paths.iter().map(|s| s.as_str()).collect();
                 let result = vision_model

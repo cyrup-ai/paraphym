@@ -7,6 +7,8 @@ use std::num::NonZeroU32;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 
+use log;
+
 use candle_core::{Device, IndexOp, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::generation::{LogitsProcessor, Sampling};
@@ -154,15 +156,13 @@ impl LLaVAModel {
             .ok_or("max_output_tokens not in ModelInfo")?.get() as usize;
         let use_kv_cache = self.info().supports_kv_cache;
         
-        // Step 6: Spawn dedicated thread with async runtime
+        // Step 6: Spawn dedicated thread with shared async runtime
         thread::spawn(move || {
-            // Create tokio runtime for async image operations
-            let rt = match tokio::runtime::Runtime::new() {
-                Ok(rt) => rt,
-                Err(e) => {
-                    let _ = init_tx.send(Err(format!("Runtime creation failed: {}", e)));
-                    return;
-                }
+            // Get shared runtime reference
+            let Some(rt) = crate::runtime::shared_runtime() else {
+                log::error!("Shared runtime unavailable for LLaVA worker initialization");
+                let _ = init_tx.send(Err("Runtime unavailable".to_string()));
+                return;
             };
 
             // Load tokenizer INSIDE thread
@@ -241,7 +241,7 @@ impl LLaVAModel {
         temperature: f64,
         max_new_tokens: usize,
         use_kv_cache: bool,
-        rt: tokio::runtime::Runtime,
+        rt: &'static tokio::runtime::Runtime,
     ) {
         while let Ok(request) = request_rx.recv() {
             match request {
