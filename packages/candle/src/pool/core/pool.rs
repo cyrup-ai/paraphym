@@ -1,13 +1,16 @@
 use dashmap::DashMap;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tracing::{info, warn, debug, instrument};
+use tracing::{debug, info, instrument, warn};
 
-use super::types::{PoolConfig, PoolMetrics, SpawnGuard, PoolWorkerHandle, PoolHealth, HealthStatusLevel, ModelHealth, WorkerHealthStats, MemoryHealth};
 use super::error::PoolError;
-use super::worker_state::{CircuitBreaker, CircuitBreakerConfig};
 use super::memory_governor::MemoryGovernor;
+use super::types::{
+    HealthStatusLevel, MemoryHealth, ModelHealth, PoolConfig, PoolHealth, PoolMetrics,
+    PoolWorkerHandle, SpawnGuard, WorkerHealthStats,
+};
+use super::worker_state::{CircuitBreaker, CircuitBreakerConfig};
 
 /// Generic worker pool for capability-specific worker handles
 pub struct Pool<W: PoolWorkerHandle> {
@@ -59,7 +62,10 @@ impl<W: PoolWorkerHandle> Pool<W> {
     /// Check if workers exist for registry_key
     #[instrument(skip(self))]
     pub fn has_workers(&self, registry_key: &str) -> bool {
-        self.workers.get(registry_key).map(|w| !w.is_empty()).unwrap_or(false)
+        self.workers
+            .get(registry_key)
+            .map(|w| !w.is_empty())
+            .unwrap_or(false)
     }
 
     /// Get next worker ID
@@ -69,7 +75,7 @@ impl<W: PoolWorkerHandle> Pool<W> {
 
     /// Register worker handle for registry_key
     pub fn register_worker(&self, registry_key: String, handle: W) {
-        self.workers.entry(registry_key).or_insert_with(Vec::new).push(handle);
+        self.workers.entry(registry_key).or_default().push(handle);
     }
 
     /// Get total memory used
@@ -141,13 +147,13 @@ impl<W: PoolWorkerHandle> Pool<W> {
     #[instrument(skip(self), fields(registry_key = %registry_key))]
     pub fn validate_workers(&self, registry_key: &str) -> usize {
         use crate::pool::core::worker_state::WorkerState;
-        
+
         let mut removed_count = 0;
-        
+
         if let Some(mut workers_guard) = self.workers.get_mut(registry_key) {
             workers_guard.retain(|worker| {
                 let state = worker.core().get_state();
-                
+
                 // Remove dead/failed workers immediately
                 if matches!(state, WorkerState::Dead | WorkerState::Failed) {
                     warn!(
@@ -155,15 +161,18 @@ impl<W: PoolWorkerHandle> Pool<W> {
                         state = ?state,
                         "Removing dead worker"
                     );
-                    
+
                     self.remove_memory(worker.core().per_worker_mb);
                     let _ = worker.core().shutdown_tx.send(());
                     removed_count += 1;
-                    
+
                     false // Remove
                 }
                 // Also check health for workers that should be alive
-                else if matches!(state, WorkerState::Ready | WorkerState::Processing | WorkerState::Idle) {
+                else if matches!(
+                    state,
+                    WorkerState::Ready | WorkerState::Processing | WorkerState::Idle
+                ) {
                     // Only do health check for workers claiming to be active
                     if !worker.core().is_alive() {
                         warn!(
@@ -171,32 +180,30 @@ impl<W: PoolWorkerHandle> Pool<W> {
                             state = ?state,
                             "Removing unresponsive worker"
                         );
-                        
+
                         worker.core().set_state(WorkerState::Dead);
                         self.remove_memory(worker.core().per_worker_mb);
                         let _ = worker.core().shutdown_tx.send(());
                         removed_count += 1;
-                        
+
                         false // Remove
                     } else {
                         true // Keep
                     }
-                }
-                else {
+                } else {
                     // Keep workers in Spawning/Loading states
                     true
                 }
             });
-            
+
             if removed_count > 0 {
-                info!(
-                    removed_count = removed_count,
-                    "Worker validation complete"
-                );
-                self.metrics.workers_evicted.fetch_add(removed_count, Ordering::Release);
+                info!(removed_count = removed_count, "Worker validation complete");
+                self.metrics
+                    .workers_evicted
+                    .fetch_add(removed_count, Ordering::Release);
             }
         }
-        
+
         removed_count
     }
 
@@ -221,7 +228,7 @@ impl<W: PoolWorkerHandle> Pool<W> {
             workers
                 .iter()
                 .enumerate()
-                .filter(|(_, w)| w.core().is_alive())  // Only alive workers
+                .filter(|(_, w)| w.core().is_alive()) // Only alive workers
                 .min_by_key(|(_, w)| w.core().pending_requests.load(Ordering::Acquire))
                 .map(|(idx, _)| idx)
         } else {
@@ -230,67 +237,71 @@ impl<W: PoolWorkerHandle> Pool<W> {
     }
 
     /// Try to acquire exclusive spawn lock for a model
-    /// 
+    ///
     /// Returns Some(guard) if this thread won the race to spawn workers.
     /// Returns None if another thread is already spawning workers.
-    /// 
+    ///
     /// Uses compare-and-swap for lock-free synchronization.
     pub fn try_acquire_spawn_lock(&self, registry_key: &str) -> Option<SpawnGuard> {
         // Get or create atomic flag for this model
-        let flag = self.spawning_in_progress
+        let flag = self
+            .spawning_in_progress
             .entry(registry_key.to_string())
             .or_insert_with(|| Arc::new(AtomicBool::new(false)))
             .value()
             .clone();
-        
+
         // Try to claim spawn lock using compare-exchange
         // If flag is false (not spawning), set to true (spawning) and return guard
         // If flag is true (already spawning), return None
         match flag.compare_exchange(
-            false,                    // Expected: not spawning
-            true,                     // Desired: now spawning
-            Ordering::AcqRel,         // Success ordering
-            Ordering::Acquire,        // Failure ordering
+            false,             // Expected: not spawning
+            true,              // Desired: now spawning
+            Ordering::AcqRel,  // Success ordering
+            Ordering::Acquire, // Failure ordering
         ) {
             Ok(_) => {
                 debug!("Acquired spawn lock for {}", registry_key);
                 Some(SpawnGuard::new(flag, registry_key.to_string()))
-            },
+            }
             Err(_) => {
-                debug!("Spawn lock busy for {} (another thread spawning)", registry_key);
+                debug!(
+                    "Spawn lock busy for {} (another thread spawning)",
+                    registry_key
+                );
                 None
-            },
+            }
         }
     }
-    
+
     /// Wait for workers to become available (blocking)
-    /// 
+    ///
     /// Called by threads that lose the spawn race. Polls until:
     /// - Workers become available (success)
     /// - Spawning thread releases lock without creating workers (spawn failed)
     /// - Timeout exceeded (spawn timeout)
     pub fn wait_for_workers(&self, registry_key: &str, timeout: Duration) -> Result<(), PoolError> {
         let start = Instant::now();
-        
+
         loop {
             // Check if workers are ready
             if self.has_workers(registry_key) {
                 debug!("Workers ready for {}", registry_key);
                 return Ok(());
             }
-            
+
             // Check if spawning thread released lock (spawn completed or failed)
-            if let Some(flag) = self.spawning_in_progress.get(registry_key) {
-                if !flag.load(Ordering::Acquire) {
-                    // Spawning finished but no workers available = spawn failed
-                    return Err(PoolError::SpawnFailed(format!(
-                        "Worker spawning completed for {} but no workers available. \
+            if let Some(flag) = self.spawning_in_progress.get(registry_key)
+                && !flag.load(Ordering::Acquire)
+            {
+                // Spawning finished but no workers available = spawn failed
+                return Err(PoolError::SpawnFailed(format!(
+                    "Worker spawning completed for {} but no workers available. \
                          Check logs for model loading errors.",
-                        registry_key
-                    )));
-                }
+                    registry_key
+                )));
             }
-            
+
             // Check timeout
             if start.elapsed() > timeout {
                 return Err(PoolError::SpawnTimeout(format!(
@@ -298,12 +309,12 @@ impl<W: PoolWorkerHandle> Pool<W> {
                     timeout, registry_key
                 )));
             }
-            
+
             // Sleep briefly before next poll (50ms balances latency vs CPU)
             std::thread::sleep(Duration::from_millis(50));
         }
     }
-    
+
     /// Get comprehensive pool health status
     ///
     /// Returns JSON-serializable health information including:
@@ -318,18 +329,19 @@ impl<W: PoolWorkerHandle> Pool<W> {
         let mut models = Vec::new();
         let mut has_unhealthy = false;
         let mut has_degraded = false;
-        
+
         // Collect health info for each model
         for entry in self.workers.iter() {
             let registry_key = entry.key();
             let workers = entry.value();
-            
+
             let total = workers.len();
-            let busy = workers.iter()
+            let busy = workers
+                .iter()
                 .filter(|w| w.core().pending_requests.load(Ordering::Acquire) > 0)
                 .count();
             let idle = total - busy;
-            
+
             // Determine model health status
             let status = if total == 0 {
                 has_unhealthy = true;
@@ -340,25 +352,21 @@ impl<W: PoolWorkerHandle> Pool<W> {
             } else {
                 HealthStatusLevel::Healthy
             };
-            
+
             let model_health = ModelHealth {
                 registry_key: registry_key.clone(),
                 status,
-                workers: WorkerHealthStats {
-                    total,
-                    busy,
-                    idle,
-                },
+                workers: WorkerHealthStats { total, busy, idle },
                 queue_depth: 0,
                 avg_latency_ms: self.metrics.get_avg_latency(registry_key),
             };
-            
+
             models.push(model_health);
         }
-        
+
         // Get memory stats
         let memory_stats = self.memory_governor.get_stats();
-        
+
         // Determine overall pool status
         let status = if has_unhealthy {
             HealthStatusLevel::Unhealthy
@@ -367,7 +375,7 @@ impl<W: PoolWorkerHandle> Pool<W> {
         } else {
             HealthStatusLevel::Healthy
         };
-        
+
         PoolHealth {
             status,
             models,

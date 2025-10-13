@@ -378,14 +378,15 @@ mod tests {
             tags: vec![],
             metadata: serde_json::Value::Object(serde_json::Map::new()),
         };
-        data.memories
-            .push(serde_json::to_value(memory)?);
+        data.memories.push(serde_json::to_value(memory)?);
 
         // Add a test relationship
-        let relationship =
-            crate::memory::schema::relationship_schema::Relationship::new("source", "target", "related_to");
-        data.relationships
-            .push(serde_json::to_value(relationship)?);
+        let relationship = crate::memory::schema::relationship_schema::Relationship::new(
+            "source",
+            "target",
+            "related_to",
+        );
+        data.relationships.push(serde_json::to_value(relationship)?);
 
         // Convert the data
         let result = converter.convert(&data)?;
@@ -399,9 +400,9 @@ mod tests {
         if let serde_json::Value::Object(memory_obj) = memory {
             if let Some(serde_json::Value::Object(metadata)) = memory_obj.get("metadata") {
                 assert_eq!(
-                    metadata
-                        .get("schema_version")
-                        .ok_or_else(|| Box::<dyn std::error::Error>::from("Missing schema_version"))?,
+                    metadata.get("schema_version").ok_or_else(|| {
+                        Box::<dyn std::error::Error>::from("Missing schema_version")
+                    })?,
                     &serde_json::json!("0.2.0")
                 );
             } else {
@@ -417,9 +418,9 @@ mod tests {
         if let serde_json::Value::Object(rel_obj) = relationship {
             if let Some(serde_json::Value::Object(metadata)) = rel_obj.get("metadata") {
                 assert_eq!(
-                    metadata
-                        .get("schema_version")
-                        .ok_or_else(|| Box::<dyn std::error::Error>::from("Missing schema_version"))?,
+                    metadata.get("schema_version").ok_or_else(|| {
+                        Box::<dyn std::error::Error>::from("Missing schema_version")
+                    })?,
                     &serde_json::json!("0.2.0")
                 );
             } else {
@@ -467,18 +468,19 @@ mod tests {
             tags: vec![],
             metadata: serde_json::Value::Object(memory_metadata),
         };
-        data.memories
-            .push(serde_json::to_value(memory)?);
+        data.memories.push(serde_json::to_value(memory)?);
 
         // Add a test relationship with schema version
-        let mut relationship =
-            crate::memory::schema::relationship_schema::Relationship::new("source", "target", "related_to");
+        let mut relationship = crate::memory::schema::relationship_schema::Relationship::new(
+            "source",
+            "target",
+            "related_to",
+        );
         let mut rel_metadata = serde_json::Map::new();
         rel_metadata.insert("schema_version".to_string(), serde_json::json!("0.2.0"));
         rel_metadata.insert("advanced_features".to_string(), serde_json::json!(true));
         relationship.metadata = serde_json::Value::Object(rel_metadata);
-        data.relationships
-            .push(serde_json::to_value(relationship)?);
+        data.relationships.push(serde_json::to_value(relationship)?);
 
         // Convert the data
         let result = converter.convert(&data)?;

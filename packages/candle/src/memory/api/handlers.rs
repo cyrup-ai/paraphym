@@ -13,8 +13,8 @@ use futures_util::StreamExt;
 
 use super::models::{CreateMemoryRequest, HealthResponse, MemoryResponse, SearchRequest};
 use crate::memory::SurrealMemoryManager;
-use crate::memory::manager::surreal::MemoryManager;
 use crate::memory::core::primitives::node::MemoryNode;
+use crate::memory::manager::surreal::MemoryManager;
 
 /// Create a new memory
 pub async fn create_memory(

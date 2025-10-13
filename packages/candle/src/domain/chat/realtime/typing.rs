@@ -4,16 +4,16 @@
 //! crossbeam-skiplist for concurrent access, and `AsyncStream` integration for blazing-fast
 //! performance without any locking mechanisms.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use atomic_counter::{AtomicCounter, ConsistentCounter};
 use crossbeam_skiplist::SkipMap;
-use ystream::{emit, AsyncStream};
+use cyrup_sugars::prelude::MessageChunk;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
-use cyrup_sugars::prelude::MessageChunk;
+use ystream::{AsyncStream, emit};
 
 use crate::domain::context::chunk::CandleCollectionChunk;
 use crate::domain::util::unix_timestamp_nanos;
@@ -214,11 +214,7 @@ impl TypingIndicator {
 
     /// Start typing indicator with zero-allocation key generation
     #[must_use]
-    pub fn start_typing(
-        &self,
-        user_id: String,
-        session_id: String,
-    ) -> AsyncStream<RealTimeEvent> {
+    pub fn start_typing(&self, user_id: String, session_id: String) -> AsyncStream<RealTimeEvent> {
         let key = format!("{user_id}:{session_id}");
         let typing_states = self.typing_states.clone();
         let event_broadcaster = self.event_broadcaster.clone();
@@ -249,11 +245,7 @@ impl TypingIndicator {
 
     /// Stop typing indicator with event emission
     #[must_use]
-    pub fn stop_typing(
-        &self,
-        user_id: String,
-        session_id: String,
-    ) -> AsyncStream<RealTimeEvent> {
+    pub fn stop_typing(&self, user_id: String, session_id: String) -> AsyncStream<RealTimeEvent> {
         let key = format!("{user_id}:{session_id}");
         let typing_states = self.typing_states.clone();
         let event_broadcaster = self.event_broadcaster.clone();
@@ -275,7 +267,10 @@ impl TypingIndicator {
 
     /// Get currently typing users in a session
     #[must_use]
-    pub fn get_typing_users_stream(&self, session_id: String) -> AsyncStream<CandleCollectionChunk<Vec<String>>> {
+    pub fn get_typing_users_stream(
+        &self,
+        session_id: String,
+    ) -> AsyncStream<CandleCollectionChunk<Vec<String>>> {
         let typing_states = self.typing_states.clone();
 
         AsyncStream::with_channel(move |sender| {
@@ -288,10 +283,13 @@ impl TypingIndicator {
                 }
             }
 
-            emit!(sender, CandleCollectionChunk {
-                items: typing_users,
-                error_message: None,
-            });
+            emit!(
+                sender,
+                CandleCollectionChunk {
+                    items: typing_users,
+                    error_message: None,
+                }
+            );
         })
     }
 
@@ -538,7 +536,7 @@ impl MessageChunk for TypingCleanupEvent {
             timestamp: unix_timestamp_nanos(),
         }
     }
-    
+
     fn error(&self) -> Option<&str> {
         // TypingCleanupEvent doesn't carry error information
         None

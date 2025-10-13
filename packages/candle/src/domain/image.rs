@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use candle_core::{Device, Tensor};
+use serde::{Deserialize, Serialize};
 
 /// Image structure for storing image data and metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,7 +15,7 @@ pub struct Image {
 }
 
 /// Tensor-based image representation
-/// 
+///
 /// Wraps a Candle tensor with metadata about its format and device location.
 /// Used throughout the image processing pipeline to ensure correct dimension
 /// ordering and device placement.
@@ -24,11 +24,11 @@ pub struct ImageTensor {
     /// The underlying Candle tensor containing image data
     /// Typically F32 dtype with shape matching the format
     pub tensor: Tensor,
-    
+
     /// Dimension format of the tensor (CHW or HWC)
     /// Must be tracked to ensure correct permutation operations
     pub format: TensorFormat,
-    
+
     /// Device where tensor is located (CPU, CUDA, Metal)
     /// Must match for tensor operations
     pub device: Device,
@@ -73,18 +73,18 @@ pub enum ImageDetail {
 }
 
 /// Tensor dimension format for images
-/// 
+///
 /// Tracks the ordering of dimensions in image tensors:
 /// - CHW: Candle's native format (Channel, Height, Width)
 /// - HWC: image crate's format (Height, Width, Channel)
-/// 
+///
 /// Conversion via permute: HWC→CHW uses (2, 0, 1), CHW→HWC uses (1, 2, 0)
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum TensorFormat {
     /// Channel-Height-Width (Candle default)
     /// Shape: (C, H, W) - e.g., (3, 224, 224) for RGB 224x224
     CHW,
-    
+
     /// Height-Width-Channel (image crate format)
     /// Shape: (H, W, C) - e.g., (224, 224, 3) for RGB 224x224
     HWC,

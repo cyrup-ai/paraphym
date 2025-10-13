@@ -59,18 +59,26 @@ impl CandleQwen3CoderModel {
     /// Returns error if model download fails or model loading fails
     pub async fn new() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         use hf_hub::api::tokio::Api;
-        
+
         // Create HuggingFace API instance
-        let api = Api::new()
-            .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(format!("Failed to create HF API: {}", e)))?;
-        
+        let api = Api::new().map_err(|e| {
+            Box::<dyn std::error::Error + Send + Sync>::from(format!(
+                "Failed to create HF API: {}",
+                e
+            ))
+        })?;
+
         // Get the model repository
         let repo = api.model(QWEN3_CODER_MODEL_INFO.registry_key.to_string());
-        
+
         // List files in the repo to find GGUF file
-        let repo_info = repo.info().await
-            .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(format!("Failed to get repo info: {}", e)))?;
-        
+        let repo_info = repo.info().await.map_err(|e| {
+            Box::<dyn std::error::Error + Send + Sync>::from(format!(
+                "Failed to get repo info: {}",
+                e
+            ))
+        })?;
+
         // Find a GGUF file (prefer Q4_K_M quantization)
         let gguf_filename = repo_info
             .siblings
@@ -79,33 +87,47 @@ impl CandleQwen3CoderModel {
             .find(|f| f.rfilename.contains("Q4_K_M"))
             .or_else(|| {
                 // Fallback to any .gguf file if Q4_K_M not found
-                repo_info.siblings.iter().find(|f| f.rfilename.ends_with(".gguf"))
+                repo_info
+                    .siblings
+                    .iter()
+                    .find(|f| f.rfilename.ends_with(".gguf"))
             })
             .ok_or_else(|| {
                 Box::<dyn std::error::Error + Send + Sync>::from("No GGUF file found in repository")
             })?
             .rfilename
             .clone();
-        
+
         // Download GGUF file
-        let gguf_path = repo.get(&gguf_filename).await
-            .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(format!("Failed to download GGUF file: {}", e)))?;
-        
+        let gguf_path = repo.get(&gguf_filename).await.map_err(|e| {
+            Box::<dyn std::error::Error + Send + Sync>::from(format!(
+                "Failed to download GGUF file: {}",
+                e
+            ))
+        })?;
+
         // Download tokenizer
-        let _tokenizer_path = repo.get("tokenizer.json").await
-            .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(format!("Failed to download tokenizer: {}", e)))?;
-        
+        let _tokenizer_path = repo.get("tokenizer.json").await.map_err(|e| {
+            Box::<dyn std::error::Error + Send + Sync>::from(format!(
+                "Failed to download tokenizer: {}",
+                e
+            ))
+        })?;
+
         // Extract model directory from GGUF file path
-        let model_cache_dir = gguf_path.parent()
+        let model_cache_dir = gguf_path
+            .parent()
             .ok_or_else(|| {
-                Box::<dyn std::error::Error + Send + Sync>::from("Could not determine model directory")
+                Box::<dyn std::error::Error + Send + Sync>::from(
+                    "Could not determine model directory",
+                )
             })?
             .to_str()
             .ok_or_else(|| {
                 Box::<dyn std::error::Error + Send + Sync>::from("Invalid model directory path")
             })?
             .to_string();
-        
+
         Self::from_gguf(
             model_cache_dir,
             gguf_path
@@ -136,7 +158,8 @@ impl CandleQwen3CoderModel {
         );
 
         // Get configuration from ModelInfo
-        let max_context = QWEN3_CODER_MODEL_INFO.max_input_tokens
+        let max_context = QWEN3_CODER_MODEL_INFO
+            .max_input_tokens
             .map(|t| t.get())
             .unwrap_or(32768);
         let default_temperature = QWEN3_CODER_MODEL_INFO.default_temperature.unwrap_or(0.7);
@@ -324,7 +347,9 @@ impl crate::capability::traits::TextToTextCapable for CandleQwen3CoderModel {
         let model_config = self.model_config.clone();
 
         // Get configuration from ModelInfo
-        let max_context = self.info().max_input_tokens
+        let max_context = self
+            .info()
+            .max_input_tokens
             .map(|t| t.get())
             .unwrap_or(32768);
         let _use_kv_cache = self.info().supports_kv_cache;
@@ -518,7 +543,6 @@ fn validate_model_path(path: &str) -> Result<(), Box<dyn std::error::Error + Sen
     Ok(())
 }
 
-
 /// Loaded Qwen3 Coder model that keeps resources in memory for worker threads
 ///
 /// This model pre-loads the tokenizer and device configuration, avoiding
@@ -539,34 +563,39 @@ impl LoadedQwen3CoderModel {
     ///
     /// This method loads the tokenizer and detects the device once,
     /// storing them for reuse across multiple requests.
-    pub fn load(base: &CandleQwen3CoderModel) 
-        -> Result<Self, Box<dyn std::error::Error + Send + Sync>> 
-    {
+    pub fn load(
+        base: &CandleQwen3CoderModel,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Get file paths
         let gguf_file_path = std::path::PathBuf::from(&base.gguf_file_path);
         let tokenizer_path = std::path::PathBuf::from(&base.model_path).join("tokenizer.json");
-        
+
         if !tokenizer_path.exists() {
-            return Err(Box::from(format!("Tokenizer file not found: {:?}", tokenizer_path)) as Box<dyn std::error::Error + Send + Sync>);
+            return Err(
+                Box::from(format!("Tokenizer file not found: {:?}", tokenizer_path))
+                    as Box<dyn std::error::Error + Send + Sync>,
+            );
         }
-        
+
         let model_path = base.model_path.clone();
-        
+
         // Load device (prefer GPU if available)
-        let device = crate::core::device_util::detect_best_device()
-            .unwrap_or_else(|e| {
-                log::warn!("Device detection failed: {}. Using CPU.", e);
-                candle_core::Device::Cpu
-            });
-        
+        let device = crate::core::device_util::detect_best_device().unwrap_or_else(|e| {
+            log::warn!("Device detection failed: {}. Using CPU.", e);
+            candle_core::Device::Cpu
+        });
+
         // Load tokenizer
-        let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer_path)
-            .map_err(|e| Box::from(format!("Failed to load tokenizer: {}", e)) as Box<dyn std::error::Error + Send + Sync>)?;
-        
-        let max_context = QWEN3_CODER_MODEL_INFO.max_input_tokens
+        let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer_path).map_err(|e| {
+            Box::from(format!("Failed to load tokenizer: {}", e))
+                as Box<dyn std::error::Error + Send + Sync>
+        })?;
+
+        let max_context = QWEN3_CODER_MODEL_INFO
+            .max_input_tokens
             .map(|t| t.get() as u64)
             .unwrap_or(32768);
-        
+
         Ok(Self {
             tokenizer,
             gguf_file_path: gguf_file_path.to_string_lossy().to_string(),
@@ -579,7 +608,6 @@ impl LoadedQwen3CoderModel {
     }
 }
 
-
 impl crate::capability::traits::TextToTextCapable for LoadedQwen3CoderModel {
     fn prompt(
         &self,
@@ -591,7 +619,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3CoderModel {
         let gguf_file_path = self.gguf_file_path.clone();
         let model_path = self.model_path.clone();
         let device = self.device.clone();
-        let tokenizer = self.tokenizer.clone();  // ✅ Clone pre-loaded tokenizer
+        let tokenizer = self.tokenizer.clone(); // ✅ Clone pre-loaded tokenizer
         let model_config = self.model_config.clone();
         let max_context = self.max_context;
 
@@ -692,7 +720,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3CoderModel {
             // Create TextGenerator with real model and pre-loaded tokenizer
             let text_generator = TextGenerator::new(
                 Box::new(quantized_model),
-                tokenizer,  // ✅ Use pre-loaded tokenizer (no disk I/O)
+                tokenizer, // ✅ Use pre-loaded tokenizer (no disk I/O)
                 device,
                 sampling_config,
             );
@@ -722,7 +750,6 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3CoderModel {
         })
     }
 }
-
 
 impl CandleModel for LoadedQwen3CoderModel {
     #[inline]

@@ -12,7 +12,7 @@ pub mod types;
 // Re-export key types
 pub use committee::{Committee, CommitteeConfig, ModelCommitteeEvaluator};
 pub use common::models::{LocalModel, LocalModelType};
-pub use quantum::{QuantumSignature, QuantumRouter};
+pub use quantum::{QuantumRouter, QuantumSignature};
 pub use types::{CognitiveError, CognitiveState};
 
 // Local-only implementations of cognitive features
@@ -52,7 +52,8 @@ impl LocalCognitiveManager {
             new_metadata.importance = enhanced_importance;
             // Create new memory with updated metadata
             let mut updated_memory = enhanced_memory.clone();
-            updated_memory.metadata = std::sync::Arc::new(crossbeam_utils::CachePadded::new(new_metadata));
+            updated_memory.metadata =
+                std::sync::Arc::new(crossbeam_utils::CachePadded::new(new_metadata));
             Ok(updated_memory)
         } else {
             // Return original memory without modification

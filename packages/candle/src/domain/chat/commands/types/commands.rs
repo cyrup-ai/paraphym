@@ -7,7 +7,10 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::actions::{TemplateAction, MacroAction, SearchScope, BranchAction, SessionAction, ToolAction, StatsType, ThemeAction, DebugAction, HistoryAction, ImportType};
+use super::actions::{
+    BranchAction, DebugAction, HistoryAction, ImportType, MacroAction, SearchScope, SessionAction,
+    StatsType, TemplateAction, ThemeAction, ToolAction,
+};
 use super::errors::{CandleCommandError, CommandResult};
 
 /// Settings category enumeration for zero allocation dispatch
@@ -577,26 +580,43 @@ impl ImmutableChatCommand {
             Self::Import { source, .. } => Self::validate_import_source(source),
             Self::Custom { name, .. } => Self::validate_custom_name(name),
             Self::Chat { message, .. } => Self::validate_chat_message(message),
-            Self::Template { name: Some(name), .. }
-            | Self::Macro { name: Some(name), .. }
-            | Self::Branch { name: Some(name), .. }
-            | Self::Session { name: Some(name), .. }
-            | Self::Tool { name: Some(name), .. }
-            | Self::Theme { name: Some(name), .. } => {
-                Self::validate_generic_name(name, self.command_name())
+            Self::Template {
+                name: Some(name), ..
             }
-            Self::History { limit: Some(limit), .. } => Self::validate_limit(*limit, 10_000, "History"),
-            Self::Undo { count: Some(count), .. } => Self::validate_limit(*count, 100, "Undo"),
+            | Self::Macro {
+                name: Some(name), ..
+            }
+            | Self::Branch {
+                name: Some(name), ..
+            }
+            | Self::Session {
+                name: Some(name), ..
+            }
+            | Self::Tool {
+                name: Some(name), ..
+            }
+            | Self::Theme {
+                name: Some(name), ..
+            } => Self::validate_generic_name(name, self.command_name()),
+            Self::History {
+                limit: Some(limit), ..
+            } => Self::validate_limit(*limit, 10_000, "History"),
+            Self::Undo {
+                count: Some(count), ..
+            } => Self::validate_limit(*count, 100, "Undo"),
             _ => Ok(()),
         }
     }
 
     #[inline]
     fn validate_export_format(format: &str) -> CommandResult<()> {
-        if !matches!(format, "json" | "markdown" | "pdf" | "html" | "csv" | "xml" | "yaml") {
-            return Err(CandleCommandError::invalid_arguments(
-                format!("Invalid export format '{format}'. Supported: json, markdown, pdf, html, csv, xml, yaml")
-            ));
+        if !matches!(
+            format,
+            "json" | "markdown" | "pdf" | "html" | "csv" | "xml" | "yaml"
+        ) {
+            return Err(CandleCommandError::invalid_arguments(format!(
+                "Invalid export format '{format}'. Supported: json, markdown, pdf, html, csv, xml, yaml"
+            )));
         }
         Ok(())
     }
@@ -604,7 +624,9 @@ impl ImmutableChatCommand {
     #[inline]
     fn validate_search_query(query: &str) -> CommandResult<()> {
         if query.is_empty() {
-            return Err(CandleCommandError::invalid_arguments("Search query cannot be empty"));
+            return Err(CandleCommandError::invalid_arguments(
+                "Search query cannot be empty",
+            ));
         }
         if query.len() > 1000 {
             return Err(CandleCommandError::invalid_arguments(
@@ -617,12 +639,14 @@ impl ImmutableChatCommand {
     #[inline]
     fn validate_name_length(name: &str, context: &str, max_len: usize) -> CommandResult<()> {
         if name.is_empty() {
-            return Err(CandleCommandError::invalid_arguments(format!("{context} name cannot be empty")));
+            return Err(CandleCommandError::invalid_arguments(format!(
+                "{context} name cannot be empty"
+            )));
         }
         if name.len() > max_len {
-            return Err(CandleCommandError::invalid_arguments(
-                format!("{context} name too long (max {max_len} characters)"),
-            ));
+            return Err(CandleCommandError::invalid_arguments(format!(
+                "{context} name too long (max {max_len} characters)"
+            )));
         }
         Ok(())
     }
@@ -630,7 +654,9 @@ impl ImmutableChatCommand {
     #[inline]
     fn validate_import_source(source: &str) -> CommandResult<()> {
         if source.is_empty() {
-            return Err(CandleCommandError::invalid_arguments("Import source cannot be empty"));
+            return Err(CandleCommandError::invalid_arguments(
+                "Import source cannot be empty",
+            ));
         }
         if !source.starts_with("http://")
             && !source.starts_with("https://")
@@ -649,16 +675,21 @@ impl ImmutableChatCommand {
     #[inline]
     fn validate_custom_name(name: &str) -> CommandResult<()> {
         if name.is_empty() {
-            return Err(CandleCommandError::invalid_arguments("Custom command name cannot be empty"));
+            return Err(CandleCommandError::invalid_arguments(
+                "Custom command name cannot be empty",
+            ));
         }
         if name.len() > 100 {
             return Err(CandleCommandError::invalid_arguments(
                 "Custom command name too long (max 100 characters)",
             ));
         }
-        if !name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
+        if !name
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+        {
             return Err(CandleCommandError::invalid_arguments(
-                "Custom command name can only contain alphanumeric characters, underscores, and hyphens"
+                "Custom command name can only contain alphanumeric characters, underscores, and hyphens",
             ));
         }
         Ok(())
@@ -667,7 +698,9 @@ impl ImmutableChatCommand {
     #[inline]
     fn validate_chat_message(message: &str) -> CommandResult<()> {
         if message.is_empty() {
-            return Err(CandleCommandError::invalid_arguments("Chat message cannot be empty"));
+            return Err(CandleCommandError::invalid_arguments(
+                "Chat message cannot be empty",
+            ));
         }
         if message.len() > 100_000 {
             return Err(CandleCommandError::invalid_arguments(
@@ -680,12 +713,14 @@ impl ImmutableChatCommand {
     #[inline]
     fn validate_generic_name(name: &str, command_name: &str) -> CommandResult<()> {
         if name.is_empty() {
-            return Err(CandleCommandError::invalid_arguments(format!("{command_name} name cannot be empty")));
+            return Err(CandleCommandError::invalid_arguments(format!(
+                "{command_name} name cannot be empty"
+            )));
         }
         if name.len() > 100 {
-            return Err(CandleCommandError::invalid_arguments(
-                format!("{command_name} name too long (max 100 characters)"),
-            ));
+            return Err(CandleCommandError::invalid_arguments(format!(
+                "{command_name} name too long (max 100 characters)"
+            )));
         }
         Ok(())
     }
@@ -693,12 +728,14 @@ impl ImmutableChatCommand {
     #[inline]
     fn validate_limit(value: usize, max: usize, context: &str) -> CommandResult<()> {
         if value == 0 {
-            return Err(CandleCommandError::invalid_arguments(format!("{context} limit must be greater than 0")));
+            return Err(CandleCommandError::invalid_arguments(format!(
+                "{context} limit must be greater than 0"
+            )));
         }
         if value > max {
-            return Err(CandleCommandError::invalid_arguments(
-                format!("{context} limit too large (max {max})"),
-            ));
+            return Err(CandleCommandError::invalid_arguments(format!(
+                "{context} limit too large (max {max})"
+            )));
         }
         Ok(())
     }
@@ -715,10 +752,20 @@ impl ImmutableChatCommand {
             Self::Import { .. } => 10000,
             Self::Stats { .. } | Self::Load { .. } => 3000,
             // All commands with default duration
-            Self::Debug { .. } | Self::History { .. } | Self::Config { .. } | Self::Template { .. } 
-            | Self::Macro { .. } | Self::Branch { .. } | Self::Session { .. } | Self::Tool { .. } 
-            | Self::Theme { .. } | Self::Settings { .. } | Self::Custom { .. } | Self::Copy { .. } 
-            | Self::Retry { .. } | Self::Undo { .. } => 1000,
+            Self::Debug { .. }
+            | Self::History { .. }
+            | Self::Config { .. }
+            | Self::Template { .. }
+            | Self::Macro { .. }
+            | Self::Branch { .. }
+            | Self::Session { .. }
+            | Self::Tool { .. }
+            | Self::Theme { .. }
+            | Self::Settings { .. }
+            | Self::Custom { .. }
+            | Self::Copy { .. }
+            | Self::Retry { .. }
+            | Self::Undo { .. } => 1000,
         }
     }
 
@@ -732,11 +779,24 @@ impl ImmutableChatCommand {
             Self::Stats { .. } => 10 * 1024 * 1024,  // 10MB for statistics
             Self::History { .. } => 20 * 1024 * 1024, // 20MB for large history
             Self::Search { .. } => 5 * 1024 * 1024,  // 5MB for search operations
-            Self::Help { .. } | Self::Clear { .. }
-            | Self::Config { .. } | Self::Template { .. } | Self::Macro { .. } | Self::Branch { .. }
-            | Self::Session { .. } | Self::Tool { .. } | Self::Theme { .. } | Self::Debug { .. }
-            | Self::Save { .. } | Self::Load { .. } | Self::Settings { .. } | Self::Custom { .. }
-            | Self::Copy { .. } | Self::Retry { .. } | Self::Undo { .. } | Self::Chat { .. } => {
+            Self::Help { .. }
+            | Self::Clear { .. }
+            | Self::Config { .. }
+            | Self::Template { .. }
+            | Self::Macro { .. }
+            | Self::Branch { .. }
+            | Self::Session { .. }
+            | Self::Tool { .. }
+            | Self::Theme { .. }
+            | Self::Debug { .. }
+            | Self::Save { .. }
+            | Self::Load { .. }
+            | Self::Settings { .. }
+            | Self::Custom { .. }
+            | Self::Copy { .. }
+            | Self::Retry { .. }
+            | Self::Undo { .. }
+            | Self::Chat { .. } => {
                 1024 * 1024 // 1MB for standard operations
             }
         }

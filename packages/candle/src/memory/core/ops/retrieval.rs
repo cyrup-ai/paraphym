@@ -11,9 +11,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
 use crate::domain::memory::cognitive::types::{
-    CognitiveProcessor,
-    CognitiveProcessorConfig,
-    DecisionOutcome,
+    CognitiveProcessor, CognitiveProcessorConfig, DecisionOutcome,
 };
 use crate::memory::filter::MemoryFilter;
 use crate::memory::utils::Result;
@@ -135,18 +133,16 @@ impl<V: VectorStore> HybridRetrieval<V> {
         limit: usize,
     ) -> Result<Vec<RetrievalResult>> {
         let filter = crate::memory::filter::MemoryFilter::new();
-        
+
         // COGNITIVE PROCESSING: Evaluate query embedding for confidence
         // This determines if the query itself represents valid search intent
         let query_decision = self.cognitive_processor.process(&query_vector);
-        
-        let search_stream = self
-            .vector_store
-            .search(query_vector, limit, Some(filter));
-        
+
+        let search_stream = self.vector_store.search(query_vector, limit, Some(filter));
+
         // Collect all results from the stream
         let results = search_stream.collect();
-        
+
         // Apply cognitive decision to filter and enhance results
         let retrieval_results: Vec<RetrievalResult> = match query_decision {
             Ok(decision) => {
@@ -157,23 +153,23 @@ impl<V: VectorStore> HybridRetrieval<V> {
                             "HybridRetrieval: Query ACCEPTED with confidence {:.4}",
                             decision.confidence
                         );
-                        
+
                         results
                             .into_iter()
                             .map(|result| {
                                 let mut metadata = HashMap::new();
                                 metadata.insert(
                                     "cognitive_confidence".to_string(),
-                                    serde_json::json!(decision.confidence)
+                                    serde_json::json!(decision.confidence),
                                 );
                                 metadata.insert(
                                     "cognitive_outcome".to_string(),
-                                    serde_json::json!("Accept")
+                                    serde_json::json!("Accept"),
                                 );
-                                
+
                                 // Weight similarity by cognitive confidence
                                 let weighted_score = result.score * decision.confidence;
-                                
+
                                 RetrievalResult {
                                     id: result.id,
                                     method: RetrievalMethod::VectorSimilarity,
@@ -189,23 +185,23 @@ impl<V: VectorStore> HybridRetrieval<V> {
                             "HybridRetrieval: Query DEFERRED with confidence {:.4}",
                             decision.confidence
                         );
-                        
+
                         results
                             .into_iter()
                             .map(|result| {
                                 let mut metadata = HashMap::new();
                                 metadata.insert(
                                     "cognitive_confidence".to_string(),
-                                    serde_json::json!(decision.confidence)
+                                    serde_json::json!(decision.confidence),
                                 );
                                 metadata.insert(
                                     "cognitive_outcome".to_string(),
-                                    serde_json::json!("Defer")
+                                    serde_json::json!("Defer"),
                                 );
-                                
+
                                 // Reduce score for deferred queries
                                 let reduced_score = result.score * 0.5;
-                                
+
                                 RetrievalResult {
                                     id: result.id,
                                     method: RetrievalMethod::VectorSimilarity,
@@ -232,7 +228,7 @@ impl<V: VectorStore> HybridRetrieval<V> {
                     "HybridRetrieval: Cognitive processor error: {} - using unfiltered results",
                     e
                 );
-                
+
                 results
                     .into_iter()
                     .map(|result| RetrievalResult {
@@ -244,7 +240,7 @@ impl<V: VectorStore> HybridRetrieval<V> {
                     .collect()
             }
         };
-        
+
         Ok(retrieval_results)
     }
 }
@@ -342,7 +338,7 @@ impl<V: VectorStore + Send + Sync + 'static> RetrievalStrategy for SemanticRetri
 
                 // Search in vector store
                 let search_stream = vector_store.search(query_embedding, limit, filter);
-                
+
                 // Collect all results from the stream
                 let results = search_stream.collect();
 
@@ -665,12 +661,11 @@ impl<V: VectorStore + Clone + Send + Sync + 'static> RetrievalManager<V> {
         limit: usize,
     ) -> Result<Vec<crate::memory::vector::VectorSearchResult>> {
         let filter = crate::memory::filter::MemoryFilter::new();
-        let search_stream = self.vector_store
-            .search(query_vector, limit, Some(filter));
-        
+        let search_stream = self.vector_store.search(query_vector, limit, Some(filter));
+
         // Collect all results from the stream
         let results = search_stream.collect();
-        
+
         Ok(results)
     }
 

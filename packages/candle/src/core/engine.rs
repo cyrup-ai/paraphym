@@ -4,16 +4,19 @@
 //! architecture. The engine routes requests to appropriate AI providers using atomic
 //! operations and borrowed data to eliminate allocations in hot paths.
 
-use std::sync::{Arc, atomic::{AtomicBool, AtomicU64, Ordering}};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, AtomicU64, Ordering},
+};
 
+use log::error;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use log::error;
 
 use crate::domain::completion::response::CompletionResponse;
-use crate::domain::context::chunk::{CandleStringChunk, CandleCompletionChunk};
+use crate::domain::context::chunk::{CandleCompletionChunk, CandleStringChunk};
 use crate::domain::model::CandleUsage;
-use crate::{spawn_task, AsyncStream, AsyncTask};
+use crate::{AsyncStream, AsyncTask, spawn_task};
 
 /// Parameters for completion execution
 #[derive(Debug, Clone)]
@@ -213,11 +216,12 @@ impl EngineConfig {
         }
 
         if let Some(temp) = self.temperature
-            && !(0.0..=1.0).contains(&temp) {
-                return Err(EngineError::ConfigurationError(
-                    "Temperature must be between 0.0 and 1.0".to_string(),
-                ));
-            }
+            && !(0.0..=1.0).contains(&temp)
+        {
+            return Err(EngineError::ConfigurationError(
+                "Temperature must be between 0.0 and 1.0".to_string(),
+            ));
+        }
 
         Ok(())
     }
@@ -422,24 +426,23 @@ impl Engine {
     }
 
     /// Coordinate text generation with metrics and streaming management
-    /// 
+    ///
     /// Provides orchestration services for providers:
     /// - Automatic metrics tracking (request_count, active_requests, etc.)
     /// - Stream conversion from CandleStringChunk to CandleCompletionChunk  
     /// - Error handling and health monitoring
     /// - Performance timing and throughput calculation
-    pub fn coordinate_generation<F>(&self, generation_fn: F) 
-        -> AsyncStream<CandleCompletionChunk>
-    where 
-        F: FnOnce() -> AsyncStream<CandleStringChunk> + Send + 'static
+    pub fn coordinate_generation<F>(&self, generation_fn: F) -> AsyncStream<CandleCompletionChunk>
+    where
+        F: FnOnce() -> AsyncStream<CandleStringChunk> + Send + 'static,
     {
         // Update metrics atomically
         self.request_count.fetch_add(1, Ordering::Relaxed);
         self.active_requests.fetch_add(1, Ordering::Relaxed);
-        
+
         // Execute provider's generation function
         let text_stream = generation_fn();
-        
+
         // Convert and manage streaming response with metrics
         self.manage_streaming_response(text_stream)
     }
@@ -451,10 +454,9 @@ impl Engine {
     /// - Custom completion logic requiring direct control over chunk types
     ///
     /// This bypasses the text-to-completion conversion and provides metrics tracking only.
-    pub fn coordinate_completion<F>(&self, generation_fn: F)
-        -> AsyncStream<CandleCompletionChunk>
+    pub fn coordinate_completion<F>(&self, generation_fn: F) -> AsyncStream<CandleCompletionChunk>
     where
-        F: FnOnce() -> AsyncStream<CandleCompletionChunk> + Send + 'static
+        F: FnOnce() -> AsyncStream<CandleCompletionChunk> + Send + 'static,
     {
         // Update metrics atomically
         self.request_count.fetch_add(1, Ordering::Relaxed);
@@ -495,9 +497,10 @@ impl Engine {
     }
 
     /// Convert TextGenerator output to completion chunks with metrics tracking
-    fn manage_streaming_response(&self, text_stream: AsyncStream<CandleStringChunk>)
-        -> AsyncStream<CandleCompletionChunk> {
-
+    fn manage_streaming_response(
+        &self,
+        text_stream: AsyncStream<CandleStringChunk>,
+    ) -> AsyncStream<CandleCompletionChunk> {
         let active_requests = Arc::clone(&self.active_requests);
         let successful_requests = Arc::clone(&self.successful_requests);
         let failed_requests = Arc::clone(&self.failed_requests);

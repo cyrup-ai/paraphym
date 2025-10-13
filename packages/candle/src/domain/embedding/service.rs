@@ -5,8 +5,8 @@
 
 use std::collections::HashMap;
 
-use ystream::AsyncStream;
 use crate::domain::memory::serialization::content_hash;
+use ystream::AsyncStream;
 
 /// Error type for vector store operations
 #[derive(Debug, thiserror::Error)]
@@ -144,5 +144,3 @@ impl InMemoryEmbeddingCache {
         }
     }
 }
-
-

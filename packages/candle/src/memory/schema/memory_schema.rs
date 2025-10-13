@@ -67,7 +67,7 @@ impl Memory {
     pub fn new(content: String, memory_type: MemoryTypeEnum) -> Self {
         let now = Utc::now();
         let id = Uuid::new_v4().to_string();
-        
+
         Self {
             id,
             content,

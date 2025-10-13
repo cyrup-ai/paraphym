@@ -2,8 +2,8 @@
 //!
 //! Detects whether input is a file path, URL, or literal text and resolves accordingly.
 
+use anyhow::{Context, Result};
 use std::path::Path;
-use anyhow::{Result, Context};
 
 /// Resolve input using smart detection: file path, URL, or literal text
 ///
@@ -20,21 +20,21 @@ use anyhow::{Result, Context};
 ///
 /// # Examples
 /// ```no_run
-/// use paraphym_candle::util::input_resolver::resolve_smart_input;
+/// use paraphym_candle::util::input_resolver::resolve_input;
 ///
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// // File path
-/// let content = resolve_smart_input("./README.md").await?;
+/// let content = resolve_input("./README.md").await?;
 ///
 /// // URL
-/// let content = resolve_smart_input("https://example.com/doc.txt").await?;
+/// let content = resolve_input("https://example.com/doc.txt").await?;
 ///
 /// // Literal text
-/// let content = resolve_smart_input("Hello, world!").await?;
+/// let content = resolve_input("Hello, world!").await?;
 /// # Ok(())
 /// # }
 /// ```
-pub async fn resolve_smart_input(input: &str) -> Result<String> {
+pub async fn resolve_input(input: &str) -> Result<String> {
     if Path::new(input).exists() {
         // File path - load from disk
         tokio::fs::read_to_string(input)
@@ -46,23 +46,26 @@ pub async fn resolve_smart_input(input: &str) -> Result<String> {
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .context("Failed to create HTTP client")?;
-        
+
         let mut last_error = None;
         for attempt in 0..3 {
             match client.get(input).send().await {
                 Ok(response) => {
-                    return response.text().await
+                    return response
+                        .text()
+                        .await
                         .context("Failed to read response body");
                 }
                 Err(e) => {
                     last_error = Some(e);
                     if attempt < 2 {
-                        tokio::time::sleep(std::time::Duration::from_millis(100 * (1 << attempt))).await;
+                        tokio::time::sleep(std::time::Duration::from_millis(100 * (1 << attempt)))
+                            .await;
                     }
                 }
             }
         }
-        
+
         Err(last_error.unwrap().into())
     } else {
         // Literal text - use as-is
@@ -80,8 +83,8 @@ pub async fn resolve_smart_input(input: &str) -> Result<String> {
 ///
 /// # Note
 /// This function returns the input as-is for literal text.
-/// For file paths and URLs, use the async version `resolve_smart_input`.
-pub fn resolve_smart_input_sync(input: &str) -> Result<String> {
+/// For file paths and URLs, use the async version `resolve_input`.
+pub fn resolve_input_sync(input: &str) -> Result<String> {
     Ok(input.to_string())
 }
 
@@ -91,7 +94,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolve_literal_text() {
-        let result = resolve_smart_input("Hello, world!").await;
+        let result = resolve_input("Hello, world!").await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "Hello, world!");
     }
@@ -100,7 +103,7 @@ mod tests {
     async fn test_resolve_url() {
         // URL format should be recognized
         let input = "https://example.com/doc.txt";
-        let result = resolve_smart_input(input).await;
+        let result = resolve_input(input).await;
         // We don't test actual fetch, just that it's recognized as URL
         // The result may fail due to network, which is expected
         assert!(result.is_ok() || result.is_err());
@@ -108,7 +111,7 @@ mod tests {
 
     #[test]
     fn test_sync_literal() {
-        let result = resolve_smart_input_sync("Test content");
+        let result = resolve_input_sync("Test content");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "Test content");
     }

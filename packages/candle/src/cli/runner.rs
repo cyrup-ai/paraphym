@@ -14,7 +14,7 @@ use super::prompt::PromptBuilder;
 
 use crate::builders::agent_role::{CandleAgentBuilder, CandleAgentRoleBuilder, CandleFluentAi};
 use crate::domain::chat::CandleChatLoop;
-use crate::util::input_resolver::resolve_smart_input;
+use crate::util::input_resolver::resolve_input;
 
 /// CLI runner for interactive chat
 pub struct CliRunner {
@@ -112,7 +112,7 @@ impl CliRunner {
 
         // Resolve system prompt using smart input resolution
         let system_prompt = if let Some(ref prompt_input) = self.args.system_prompt {
-            resolve_smart_input(prompt_input)
+            resolve_input(prompt_input)
                 .await
                 .context("Failed to resolve system prompt")?
         } else {
@@ -133,20 +133,20 @@ You are a master at refactoring code, remembering to check for code that ALREADY
         };
 
         // Clone for use in closure - wrap in Arc<Mutex<>> for interior mutability
-        use std::sync::Mutex;
         use std::sync::Arc;
+        use std::sync::Mutex;
         let handler = Arc::new(Mutex::new(self.handler.clone()));
         let prompt_builder = self.prompt_builder.clone();
 
         // Build agent - use agent_role defaults, set properties, optionally override model
         let agent_builder = CandleFluentAi::agent_role(&self.args.agent_role).into_agent();
-        
+
         let agent = if let Some(registry_key) = &self.args.model {
             use crate::capability::registry::{self, TextToTextModel};
-            
+
             let text_model = registry::get::<TextToTextModel>(registry_key)
                 .ok_or_else(|| anyhow::anyhow!("Model not found in registry: {}", registry_key))?;
-            
+
             agent_builder
                 .model(text_model)
                 .temperature(self.args.temperature)
@@ -162,8 +162,7 @@ You are a master at refactoring code, remembering to check for code that ALREADY
         };
 
         let agent = agent.on_conversation_turn(
-            move |_conversation: &crate::domain::agent::role::CandleAgentConversation,
-                  agent| {
+            move |_conversation: &crate::domain::agent::role::CandleAgentConversation, agent| {
                 let input = match prompt_builder.get_user_input("You: ") {
                     Ok(i) => i,
                     Err(e) => {
@@ -181,8 +180,7 @@ You are a master at refactoring code, remembering to check for code that ALREADY
                         // Mutex poisoned - recover data and continue
                         let mut stderr = StandardStream::stderr(ColorChoice::Always);
                         let _ = stderr.set_color(ColorSpec::new().set_fg(Some(Color::Yellow)));
-                        let _ =
-                            writeln!(&mut stderr, "⚠️  Handler mutex poisoned, recovering...");
+                        let _ = writeln!(&mut stderr, "⚠️  Handler mutex poisoned, recovering...");
                         let _ = stderr.reset();
                         poisoned.into_inner().handle(&input)
                     }
@@ -208,17 +206,26 @@ You are a master at refactoring code, remembering to check for code that ALREADY
                         agent.chat(CandleChatLoop::UserPrompt("".to_string()))
                     }
                     InputHandlerResult::Chat(message) => {
-                        // Resolve with smart input detection using shared runtime
-                        let resolved = match crate::runtime::shared_runtime() {
-                            Some(rt) => rt.block_on(async {
-                                resolve_smart_input(&message).await.unwrap_or(message.clone())
-                            }),
-                            None => {
-                                log::warn!("Shared runtime unavailable, using message as-is: {}", message);
-                                message.clone()
-                            }
-                        };
-                        agent.chat(CandleChatLoop::UserPrompt(resolved))
+                        use ystream::{AsyncStream, emit, spawn_task};
+
+                        let agent_clone = agent.clone();
+
+                        AsyncStream::with_channel(move |sender| {
+                            spawn_task(async move || {
+                                // Async resolve without blocking
+                                let resolved =
+                                    resolve_input(&message).await.unwrap_or(message.clone());
+
+                                // Get chat stream with resolved input
+                                let chat_stream =
+                                    agent_clone.chat(CandleChatLoop::UserPrompt(resolved));
+
+                                // Forward all chunks
+                                while let Some(chunk) = chat_stream.try_next() {
+                                    emit!(sender, chunk);
+                                }
+                            });
+                        })
                     }
                 }
             },
@@ -290,7 +297,6 @@ You are a master at refactoring code, remembering to check for code that ALREADY
 
         Ok(())
     }
-
 
     /// Format command result for display
     fn format_command_result(result: &CommandResult) -> String {

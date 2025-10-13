@@ -4,9 +4,9 @@
 //! chat messages in a production environment using async streaming patterns.
 
 // Removed unused import: use crate::error::ZeroAllocResult;
-use ystream::AsyncStream;
-use unicode_normalization::UnicodeNormalization;
 use thiserror::Error;
+use unicode_normalization::UnicodeNormalization;
+use ystream::AsyncStream;
 
 use super::types::CandleMessage;
 
@@ -19,15 +19,15 @@ pub enum SanitizationError {
     /// Content exceeds maximum allowed length
     #[error("Content too long: {0} characters (maximum: {1})")]
     TooLong(usize, usize),
-    
+
     /// Invalid UTF-8 encoding detected
     #[error("Invalid UTF-8 encoding in content")]
     InvalidEncoding,
-    
+
     /// Content contains prohibited characters after filtering
     #[error("Content contains prohibited characters")]
     ProhibitedCharacters,
-    
+
     /// Generic sanitization processing error
     #[error("Sanitization failed: {0}")]
     ProcessingError(String),
@@ -45,17 +45,17 @@ pub enum SanitizationError {
 pub fn process_message(message: CandleMessage) -> AsyncStream<CandleMessage> {
     AsyncStream::with_channel(move |sender| {
         let mut processed_message = message;
-        
+
         // Apply security sanitization pipeline to message content
-        processed_message.content = sanitize_content(&processed_message.content)
-            .unwrap_or_else(|e| {
+        processed_message.content =
+            sanitize_content(&processed_message.content).unwrap_or_else(|e| {
                 log::warn!("Content sanitization failed: {e}");
-                
+
                 // SECURITY CRITICAL: Truncate FIRST, then sanitize the truncated content
                 // This ensures overlength content still goes through full security pipeline
                 // Without this, attackers could bypass HTML escaping by sending 100K+ chars
                 let truncated: String = processed_message.content.chars().take(1000).collect();
-                
+
                 // Apply sanitization to truncated content
                 sanitize_content(&truncated).unwrap_or_else(|_| {
                     // Ultimate fallback: empty string if sanitization impossible
@@ -118,7 +118,7 @@ pub fn sanitize_content(content: &str) -> Result<String, SanitizationError> {
     if char_count > MAX_CONTENT_LENGTH {
         return Err(SanitizationError::TooLong(char_count, MAX_CONTENT_LENGTH));
     }
-    
+
     // Stage 2: Control character filtering (terminal corruption prevention)
     let filtered: String = content
         .chars()
@@ -131,16 +131,16 @@ pub fn sanitize_content(content: &str) -> Result<String, SanitizationError> {
             !c.is_control()
         })
         .collect();
-    
+
     // Stage 3: Unicode normalization (encoding attack prevention)
     // NFC = Canonical Decomposition followed by Canonical Composition
     // Ensures consistent representation of characters like é, ñ, etc.
     let normalized: String = filtered.nfc().collect();
-    
+
     // Stage 4: HTML entity escaping (XSS prevention)
     // Converts: < → &lt;, > → &gt;, & → &amp;, etc.
     let escaped = html_escape::encode_text(&normalized).to_string();
-    
+
     // Final cleanup: trim and return
     Ok(escaped.trim().to_string())
 }

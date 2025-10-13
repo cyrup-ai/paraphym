@@ -19,11 +19,11 @@ pub use converter::*;
 pub use exporter::*;
 pub use importer::*;
 pub use schema_migrations::*;
-use surrealdb::engine::any::Any;
+use sha2::{Digest, Sha256};
 use surrealdb::Surreal;
+use surrealdb::engine::any::Any;
 use tokio::sync::oneshot;
 pub use validator::*;
-use sha2::{Digest, Sha256};
 
 /// Result type for migration operations
 pub type Result<T> = std::result::Result<T, MigrationError>;
@@ -118,10 +118,10 @@ impl MigrationManager {
         db.query("DEFINE TABLE IF NOT EXISTS schema_migrations SCHEMALESS")
             .await
             .map_err(|e| MigrationError::DatabaseError(format!("{:?}", e)))?;
-        
+
         // Load existing migration records using SchemaTracker's persistence
         let tracker = SchemaTracker::load_from_db(&db).await?;
-        
+
         Ok(Self {
             db,
             migrations: Vec::new(),
@@ -138,10 +138,10 @@ impl MigrationManager {
     pub async fn migrate(&mut self) -> Result<()> {
         // Sort migrations by version
         self.migrations.sort_by_key(|m| m.version());
-        
+
         for migration in &self.migrations {
             let version = migration.version();
-            
+
             // Calculate SHA256 checksum from version, name, and content
             let content_to_hash = format!(
                 "version:{}\nname:{}\ncontent:{}",
@@ -154,23 +154,23 @@ impl MigrationManager {
                 .iter()
                 .map(|b| format!("{:02x}", b))
                 .collect::<String>();
-            
+
             // If migration was previously applied, verify checksum hasn't changed
             if self.tracker.is_applied(version) {
-                if let Some(existing_record) = self.tracker.applied_migrations()
+                if let Some(existing_record) = self
+                    .tracker
+                    .applied_migrations()
                     .iter()
                     .find(|r| r.version == version)
                     && existing_record.checksum != checksum
                 {
-                    return Err(MigrationError::ValidationFailed(
-                        format!(
-                            "Migration v{} ({}) checksum mismatch: expected {}, found {}. Migration code may have been tampered with.",
-                            version,
-                            migration.name(),
-                            existing_record.checksum,
-                            checksum
-                        )
-                    ));
+                    return Err(MigrationError::ValidationFailed(format!(
+                        "Migration v{} ({}) checksum mismatch: expected {}, found {}. Migration code may have been tampered with.",
+                        version,
+                        migration.name(),
+                        existing_record.checksum,
+                        checksum
+                    )));
                 }
                 log::debug!(
                     "Migration v{} ({}) already applied, skipping",
@@ -179,16 +179,12 @@ impl MigrationManager {
                 );
                 continue;
             }
-            
-            log::info!(
-                "Applying migration v{}: {}",
-                version,
-                migration.name()
-            );
-            
+
+            log::info!("Applying migration v{}: {}", version, migration.name());
+
             // Execute migration (await the PendingMigration)
             migration.up(Arc::clone(&self.db)).await?;
-            
+
             // Record in database
             let record = MigrationRecord {
                 version,
@@ -196,58 +192,59 @@ impl MigrationManager {
                 applied_at: crate::domain::memory::cache::get_cached_utc(),
                 checksum: checksum.clone(),
             };
-            
-            let _: Option<MigrationRecord> = self.db.create(("schema_migrations", format!("v{}", version)))
+
+            let _: Option<MigrationRecord> = self
+                .db
+                .create(("schema_migrations", format!("v{}", version)))
                 .content(record.clone())
                 .await
                 .map_err(|e| MigrationError::DatabaseError(format!("{:?}", e)))?;
-            
+
             // Update tracker
-            self.tracker.record_migration(version, migration.name().to_string(), checksum);
-            
+            self.tracker
+                .record_migration(version, migration.name().to_string(), checksum);
+
             log::info!(
                 "Migration v{} ({}) applied successfully",
                 version,
                 migration.name()
             );
         }
-        
+
         Ok(())
     }
 
     /// Rollback to a specific version
     pub async fn rollback_to(&mut self, target_version: u32) -> Result<()> {
         // Sort migrations in reverse order
-        self.migrations.sort_by_key(|m| std::cmp::Reverse(m.version()));
-        
+        self.migrations
+            .sort_by_key(|m| std::cmp::Reverse(m.version()));
+
         for migration in &self.migrations {
             let version = migration.version();
-            
+
             if version <= target_version {
                 break;
             }
-            
+
             if !self.tracker.is_applied(version) {
                 continue;
             }
-            
-            log::info!(
-                "Rolling back migration v{}: {}",
-                version,
-                migration.name()
-            );
-            
+
+            log::info!("Rolling back migration v{}: {}", version, migration.name());
+
             migration.down(Arc::clone(&self.db)).await?;
-            
+
             // Remove from database
-            self.db.delete::<Option<MigrationRecord>>(("schema_migrations", format!("v{}", version)))
+            self.db
+                .delete::<Option<MigrationRecord>>(("schema_migrations", format!("v{}", version)))
                 .await
                 .map_err(|e| MigrationError::DatabaseError(format!("{:?}", e)))?;
-            
+
             // FIX: Update tracker to reflect rollback
             self.tracker.remove_migration(version);
         }
-        
+
         Ok(())
     }
 }

@@ -39,14 +39,13 @@ pub use commands::{
     ImmutableChatCommand as CandleImmutableChatCommand,
 };
 pub use config::{CandleChatConfig, CandlePersonalityConfig};
-pub use conversation::{
-    CandleConversationEvent as CandleConversation,
-};
+pub use conversation::CandleConversationEvent as CandleConversation;
 pub use export::{ExportData as CandleExportData, ExportFormat as CandleExportFormat};
 pub use formatting::{
     FormatStyle as CandleFormatStyle, StreamingMessageFormatter as CandleStreamingMessageFormatter,
 };
 
+pub use r#loop::CandleChatLoop;
 pub use macros::{
     ChatMacro as CandleChatMacro, MacroAction as CandleMacroAction,
     MacroExecutionConfig as CandleMacroExecutionConfig, MacroMetadata as CandleMacroMetadata,
@@ -58,7 +57,6 @@ pub use message::message_processing::{
     validate_message_sync as candle_validate_message_sync,
 };
 pub use message::types::{CandleMessage, CandleMessageChunk, CandleMessageRole};
-pub use r#loop::CandleChatLoop;
 pub use realtime::RealTimeSystem as CandleRealTimeSystem;
 pub use search::{
     CandleConversationTag, CandleConversationTagger, CandleEnhancedHistoryManager,
@@ -72,11 +70,9 @@ pub use templates::{
     TemplateManager as CandleTemplateManager,
 };
 pub use types::responses::{
+    FinalResponse as CandleFinalResponse, FunctionCall as CandleFunctionCall,
+    OpenAIFunctionCallResponse as CandleOpenAIFunctionCallResponse, ToolCall as CandleToolCall,
     ToolSelectionResponse as CandleToolSelectionResponse,
-    OpenAIFunctionCallResponse as CandleOpenAIFunctionCallResponse,
-    ToolCall as CandleToolCall,
-    FunctionCall as CandleFunctionCall,
-    FinalResponse as CandleFinalResponse,
 };
 
 // ============================================================================

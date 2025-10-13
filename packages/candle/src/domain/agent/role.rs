@@ -1,15 +1,13 @@
 //! Candle Agent role trait and implementation - EXACT REPLICA of domain with Candle prefixes
 
-use std::fmt;
 use cyrup_sugars::ZeroOneOrMany;
+use std::fmt;
 
 use serde_json::Value;
 
 use crate::domain::chat::CandleMessageRole;
-use sweet_mcp_type::JsonValue as SweetJsonValue;
 use simd_json::value::owned::Object as JsonObject;
-
-
+use sweet_mcp_type::JsonValue as SweetJsonValue;
 
 /// MCP Server configuration
 #[derive(Debug, Clone)]
@@ -102,12 +100,12 @@ pub trait CandleAgentRole: Send + Sync + fmt::Debug + Clone {
 }
 
 /// Agent helper type provided to `on_conversation_turn` callbacks.
-/// 
+///
 /// This type provides the `chat()` method for controlling conversation flow:
 /// - `agent.chat(CandleChatLoop::Break)` - Exit the conversation loop
 /// - `agent.chat(CandleChatLoop::UserPrompt(msg))` - Send a message
 /// - `agent.chat(CandleChatLoop::Reprompt(msg))` - Re-prompt with a message
-/// 
+///
 /// # Example
 /// ```ignore
 /// .on_conversation_turn(|conversation, agent| {
@@ -137,9 +135,7 @@ impl CandleAgentConversation {
     #[inline]
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            messages: None,
-        }
+        Self { messages: None }
     }
 
     /// Create a conversation with an initial user message
@@ -250,10 +246,8 @@ pub fn convert_serde_to_sweet_json(value: Value) -> SweetJsonValue {
         }
         Value::String(s) => SweetJsonValue::String(s),
         Value::Array(arr) => {
-            let sweet_arr: Vec<SweetJsonValue> = arr
-                .into_iter()
-                .map(convert_serde_to_sweet_json)
-                .collect();
+            let sweet_arr: Vec<SweetJsonValue> =
+                arr.into_iter().map(convert_serde_to_sweet_json).collect();
             SweetJsonValue::Array(Box::new(sweet_arr))
         }
         Value::Object(obj) => {

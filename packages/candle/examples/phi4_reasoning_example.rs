@@ -11,19 +11,18 @@
 //! cargo run --example phi4_reasoning_example --release
 //! ```
 
-use std::num::NonZeroU64;
 use clap::Parser;
-use std::io::Write;
-use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use paraphym_candle::{
     capability::text_to_text::phi4_reasoning::CandlePhi4ReasoningModel,
     capability::traits::TextToTextCapable,
     domain::{
+        completion::CandleCompletionParams, context::chunk::CandleCompletionChunk,
         prompt::CandlePrompt,
-        completion::CandleCompletionParams,
-        context::chunk::CandleCompletionChunk,
     },
 };
+use std::io::Write;
+use std::num::NonZeroU64;
+use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -56,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create the model (downloads happen lazily during first generation)
     let model = CandlePhi4ReasoningModel::new();
-    
+
     stdout.set_color(ColorSpec::new().set_fg(Some(Color::Green)))?;
     writeln!(&mut stdout, "✅ Model initialized!")?;
     stdout.reset()?;
@@ -106,7 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Display results
     stdout.set_color(ColorSpec::new().set_fg(Some(Color::Cyan)).set_bold(true))?;
     writeln!(&mut stdout, "\n{}", "=".repeat(80))?;
-    
+
     if let Some(thinking) = reasoning {
         writeln!(&mut stdout, "🧠 REASONING PROCESS:")?;
         stdout.reset()?;
@@ -139,7 +138,7 @@ fn extract_reasoning(response: &str) -> (Option<String>, String) {
             return (Some(reasoning), solution);
         }
     }
-    
+
     // No thinking tags found - entire response is solution
     (None, response.trim().to_string())
 }

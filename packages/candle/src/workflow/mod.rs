@@ -24,9 +24,9 @@ pub mod ops;
 pub mod parallel;
 
 // Re-export candle core types for ergonomic imports
-pub use core::{candle_workflow, CandleExecutableWorkflow, CandleWorkflowStep};
+pub use core::{CandleExecutableWorkflow, CandleWorkflowStep, candle_workflow};
 
 // Re-export main public macro and types
 pub use macros::parallel;
-pub use ops::{map, passthrough, then, Op, DynOp};
-pub use parallel::{ParallelN, ParallelBuilder};
+pub use ops::{DynOp, Op, map, passthrough, then};
+pub use parallel::{ParallelBuilder, ParallelN};

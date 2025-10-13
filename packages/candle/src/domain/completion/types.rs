@@ -8,10 +8,10 @@ use std::ops::RangeInclusive;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use cyrup_sugars::ZeroOneOrMany;
 use crate::domain::model::{
     CandleValidationError as ValidationError, CandleValidationResult as ValidationResult,
 };
+use cyrup_sugars::ZeroOneOrMany;
 
 /// Temperature range for generation (0.0 to 2.0)
 pub const TEMPERATURE_RANGE: RangeInclusive<f64> = 0.0..=2.0;

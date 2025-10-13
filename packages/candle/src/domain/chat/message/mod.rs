@@ -12,8 +12,8 @@ pub mod message_processing;
 pub mod types {
     use std::fmt;
 
-    use serde::{Deserialize, Serialize};
     use cyrup_sugars::prelude::MessageChunk;
+    use serde::{Deserialize, Serialize};
 
     /// Represents a Candle chat message with role and content
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,19 +87,18 @@ pub mod types {
         }
 
         fn error(&self) -> Option<&str> {
-            if self.role == CandleMessageRole::System && 
-               (self.content.contains("error") || 
-                self.content.contains("Error") ||
-                self.content.contains("failed") ||
-                self.content.contains("Failed")) {
+            if self.role == CandleMessageRole::System
+                && (self.content.contains("error")
+                    || self.content.contains("Error")
+                    || self.content.contains("failed")
+                    || self.content.contains("Failed"))
+            {
                 Some(&self.content)
             } else {
                 None
             }
         }
     }
-
-
 
     impl CandleMessageChunk {
         /// Create a simple text chunk

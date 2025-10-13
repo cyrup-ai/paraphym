@@ -1,13 +1,13 @@
 //! Memory module that provides the core memory functionality
 
 // New hierarchical module structure
+pub mod cognitive_queue;
+pub mod cognitive_worker;
 pub mod manager;
 pub mod ops;
 pub mod primitives;
 pub mod schema;
 pub mod systems;
-pub mod cognitive_queue;
-pub mod cognitive_worker;
 
 #[cfg(test)]
 pub mod tests;
@@ -37,9 +37,7 @@ pub use primitives::metadata::{
 // Primitives types
 pub use primitives::node::MemoryNode;
 pub use primitives::relationship::MemoryRelationship;
-pub use primitives::types::{
-    BaseMemory, MemoryContent, MemoryTypeEnum, RelationshipType,
-};
+pub use primitives::types::{BaseMemory, MemoryContent, MemoryTypeEnum, RelationshipType};
 
 // Type alias for backward compatibility
 pub type MemoryType = MemoryTypeEnum;
@@ -47,9 +45,5 @@ pub type MemoryType = MemoryTypeEnum;
 pub use schema::*;
 pub use systems::*;
 // Cognitive queue exports
-pub use cognitive_queue::{
-    CognitiveProcessingQueue, 
-    CognitiveTask, 
-    CognitiveTaskType
-};
+pub use cognitive_queue::{CognitiveProcessingQueue, CognitiveTask, CognitiveTaskType};
 pub use cognitive_worker::CognitiveWorker;

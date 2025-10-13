@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime};
 
 use crossbeam_utils::CachePadded;
@@ -238,7 +238,6 @@ impl Default for HealthCheckConfig {
 }
 
 impl HealthCheckConfig {
-
     /// Create disabled health check configuration
     #[inline]
     #[must_use]
@@ -466,7 +465,7 @@ impl DatabaseConfig {
                 let has_sqlite_ext = std::path::Path::new(conn_str)
                     .extension()
                     .is_some_and(|ext| ext.eq_ignore_ascii_case("sqlite"));
-                
+
                 if conn_str == ":memory:" || has_db_ext || has_sqlite_ext {
                     Ok(())
                 } else {

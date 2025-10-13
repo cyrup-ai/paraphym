@@ -35,10 +35,7 @@ impl QueryProcessor {
     ) -> Result<ProcessedQuery, Box<dyn std::error::Error + Send + Sync>> {
         let start_time = std::time::Instant::now();
 
-        let terms: Vec<String> = query
-            .split_whitespace()
-            .map(str::to_lowercase)
-            .collect();
+        let terms: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
 
         let expanded_terms = if options.enable_query_expansion {
             Self::expand_terms_sync(&terms, &options.expansion_dictionary)

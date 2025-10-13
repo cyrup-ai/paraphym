@@ -3,8 +3,8 @@
 //! This module provides a wrapper around inquire for creating rich terminal prompts
 //! with autocompletion, fuzzy matching, and history management.
 
+use super::completion::{CommandCompleter, ModelCompleter};
 use inquire::{Select, Text};
-use super::completion::{ModelCompleter, CommandCompleter};
 
 /// Prompt builder for interactive CLI
 #[derive(Clone)]
@@ -34,10 +34,16 @@ impl PromptBuilder {
 
         // Set default if provided and exists in options
         if let Some(def) = default
-            && let Some(best_match) = self.model_completer.best_match(def) {
+            && let Some(best_match) = self.model_completer.best_match(def)
+        {
             select = select.with_starting_cursor(0);
             // Find index of best match
-            if let Some(pos) = self.model_completer.all_options().iter().position(|m| m == &best_match) {
+            if let Some(pos) = self
+                .model_completer
+                .all_options()
+                .iter()
+                .position(|m| m == &best_match)
+            {
                 select = select.with_starting_cursor(pos);
             }
         }

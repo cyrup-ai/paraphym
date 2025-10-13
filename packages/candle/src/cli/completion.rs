@@ -3,8 +3,8 @@
 //! This module provides intelligent autocompletion for model selection and chat commands
 //! using the fuzzy-matcher library for approximate string matching.
 
-use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
+use fuzzy_matcher::skim::SkimMatcherV2;
 
 /// Available chat commands
 pub const CHAT_COMMANDS: &[&str] = &[
@@ -177,7 +177,11 @@ mod tests {
         let completer = ModelCompleter::new();
         let matches = completer.complete("phi");
         assert!(!matches.is_empty());
-        assert!(matches.iter().any(|m| m.contains("phi") || m.contains("Phi")));
+        assert!(
+            matches
+                .iter()
+                .any(|m| m.contains("phi") || m.contains("Phi"))
+        );
     }
 
     #[test]

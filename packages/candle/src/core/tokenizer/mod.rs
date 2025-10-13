@@ -8,10 +8,6 @@ pub mod core;
 
 // Re-export main tokenizer types for convenient access
 pub use core::{
-    CandlePaddingStrategy,
-    CandleStreamingTokenizer,
-    CandleTokenizer,
-    CandleTokenizerConfig,
-    CandleTokenizerError,
-    CandleTokenizerStats,
+    CandlePaddingStrategy, CandleStreamingTokenizer, CandleTokenizer, CandleTokenizerConfig,
+    CandleTokenizerError, CandleTokenizerStats,
 };

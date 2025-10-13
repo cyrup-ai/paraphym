@@ -175,9 +175,7 @@ impl ApiKeyManager {
         keys.insert(dev_key.clone(), user_context);
         key_hashes.insert(key_hash, dev_key);
 
-        log::info!(
-            "Development API key configuration created. Use generated key for API access."
-        );
+        log::info!("Development API key configuration created. Use generated key for API access.");
 
         Ok(Self { keys, key_hashes })
     }
@@ -224,8 +222,7 @@ impl ApiKeyManager {
 }
 
 /// Global secure JWT configuration
-static JWT_CONFIG: Lazy<Result<JwtConfig, SecurityConfigError>> =
-    Lazy::new(JwtConfig::from_env);
+static JWT_CONFIG: Lazy<Result<JwtConfig, SecurityConfigError>> = Lazy::new(JwtConfig::from_env);
 
 /// Global secure API key manager
 static API_KEY_MANAGER: Lazy<Result<ApiKeyManager, SecurityConfigError>> =

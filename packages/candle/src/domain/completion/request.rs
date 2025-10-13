@@ -10,10 +10,10 @@ use serde_json::Value;
 use thiserror::Error;
 
 use super::types::{MAX_CHUNK_SIZE, MAX_TOKENS, TEMPERATURE_RANGE};
-use sweet_mcp_type::ToolInfo;
 use crate::domain::chat::message::types::CandleMessage as ChatMessage;
 use crate::domain::context::CandleDocument as Document;
 use crate::memory::core::ops::retrieval::RetrievalResult;
+use sweet_mcp_type::ToolInfo;
 // NOTE: ToolDefinition was removed with HTTP infrastructure cleanup
 // Local Candle tool definitions will be implemented when needed
 use crate::domain::model::{ValidationError, ValidationResult};

@@ -7,14 +7,12 @@ use std::sync::Arc;
 
 // StreamExt not currently used but may be needed for future async operations
 
-use crate::memory::cognitive::types::CognitiveError;
 use crate::capability::text_to_text::{CandleKimiK2Model, CandleQwen3CoderModel};
 use crate::capability::traits::TextToTextCapable;
 use crate::domain::{
-    completion::CandleCompletionParams,
-    context::chunk::CandleCompletionChunk,
-    prompt::CandlePrompt,
+    completion::CandleCompletionParams, context::chunk::CandleCompletionChunk, prompt::CandlePrompt,
 };
+use crate::memory::cognitive::types::CognitiveError;
 
 /// Committee configuration for provider-based evaluation
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,14 +46,22 @@ pub struct Committee {
 
 impl Committee {
     pub async fn new(config: CommitteeConfig) -> Result<Self, CognitiveError> {
-        let kimi_model = Arc::new(CandleKimiK2Model::new()
-            .map_err(|e| CognitiveError::InitializationError(e.to_string()))?);
-        let qwen_model = Arc::new(CandleQwen3CoderModel::new().await
-            .map_err(|e| CognitiveError::InitializationError(e.to_string()))?);
+        let kimi_model = Arc::new(
+            CandleKimiK2Model::new()
+                .map_err(|e| CognitiveError::InitializationError(e.to_string()))?,
+        );
+        let qwen_model = Arc::new(
+            CandleQwen3CoderModel::new()
+                .await
+                .map_err(|e| CognitiveError::InitializationError(e.to_string()))?,
+        );
 
-        Ok(Self { config, kimi_model, qwen_model })
+        Ok(Self {
+            config,
+            kimi_model,
+            qwen_model,
+        })
     }
-
 
     /// Evaluate content using KimiK2 model directly
     pub async fn evaluate(&self, content: &str) -> Result<f64, CognitiveError> {
@@ -67,12 +73,12 @@ impl Committee {
         let prompt = CandlePrompt::new(&evaluation_prompt);
         let params = CandleCompletionParams::default();
 
-        // Use real model.prompt() method - no abstraction layer
+        // Use real model.prompt() method - consume stream synchronously to avoid !Send
         let mut response = String::new();
         let stream = self.kimi_model.prompt(prompt, &params);
-        let stream = Box::pin(stream);
 
-        while let Some(chunk) = stream.next().await {
+        // Consume AsyncStream synchronously with try_next (no async)
+        while let Some(chunk) = stream.try_next() {
             match chunk {
                 CandleCompletionChunk::Text(text) => response.push_str(&text),
                 CandleCompletionChunk::Complete { text, .. } => {
@@ -86,7 +92,6 @@ impl Committee {
         let score = parse_score_from_response(&response).unwrap_or(0.5);
         Ok(score)
     }
-
 }
 
 /// Parse numerical score from AI response
@@ -97,9 +102,10 @@ pub fn parse_score_from_response(response: &str) -> Option<f64> {
 
     for cap in re.captures_iter(response) {
         if let Ok(score) = cap[1].parse::<f64>()
-            && (0.0..=1.0).contains(&score) {
-                return Some(score);
-            }
+            && (0.0..=1.0).contains(&score)
+        {
+            return Some(score);
+        }
     }
     None
 }

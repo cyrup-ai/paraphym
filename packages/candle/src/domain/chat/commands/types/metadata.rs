@@ -299,7 +299,8 @@ impl ResourceUsage {
     #[inline]
     #[must_use]
     pub fn duration_us(&self) -> u64 {
-        self.end_time_us.unwrap_or_else(unix_timestamp_micros)
+        self.end_time_us
+            .unwrap_or_else(unix_timestamp_micros)
             .saturating_sub(self.start_time_us)
     }
 
@@ -546,11 +547,7 @@ impl PerformanceMetrics {
     #[inline]
     pub fn slowest_execution_us(&self) -> Option<u64> {
         let slowest = self.slowest_execution_us.load(Ordering::Relaxed);
-        if slowest == 0 {
-            None
-        } else {
-            Some(slowest)
-        }
+        if slowest == 0 { None } else { Some(slowest) }
     }
 }
 

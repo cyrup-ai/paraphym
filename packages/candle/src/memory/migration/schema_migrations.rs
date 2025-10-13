@@ -71,11 +71,12 @@ impl SchemaTracker {
     /// Load migration history from database
     pub async fn load_from_db(db: &Surreal<Any>) -> crate::memory::migration::Result<Self> {
         let query = "SELECT * FROM schema_migrations";
-        let mut response = db.query(query)
-            .await
-            .map_err(|e| crate::memory::migration::MigrationError::DatabaseError(
-                format!("Failed to load migrations: {:?}", e)
-            ))?;
+        let mut response = db.query(query).await.map_err(|e| {
+            crate::memory::migration::MigrationError::DatabaseError(format!(
+                "Failed to load migrations: {:?}",
+                e
+            ))
+        })?;
 
         let records: Vec<MigrationRecord> = response.take(0).unwrap_or_default();
 
@@ -92,9 +93,12 @@ impl SchemaTracker {
         // Clear existing records
         db.query("DELETE FROM schema_migrations")
             .await
-            .map_err(|e| crate::memory::migration::MigrationError::DatabaseError(
-                format!("Failed to clear schema_migrations: {:?}", e)
-            ))?;
+            .map_err(|e| {
+                crate::memory::migration::MigrationError::DatabaseError(format!(
+                    "Failed to clear schema_migrations: {:?}",
+                    e
+                ))
+            })?;
 
         // Insert all current records using typed API
         for record in self.applied.values() {
@@ -102,9 +106,12 @@ impl SchemaTracker {
                 .create(("schema_migrations", format!("v{}", record.version)))
                 .content(record.clone())
                 .await
-                .map_err(|e| crate::memory::migration::MigrationError::DatabaseError(
-                    format!("Failed to save migration v{}: {:?}", record.version, e)
-                ))?;
+                .map_err(|e| {
+                    crate::memory::migration::MigrationError::DatabaseError(format!(
+                        "Failed to save migration v{}: {:?}",
+                        record.version, e
+                    ))
+                })?;
         }
 
         Ok(())
@@ -154,7 +161,8 @@ impl Migration for V1InitialSchema {
             "DEFINE TABLE IF NOT EXISTS memory SCHEMALESS",
             "DEFINE TABLE IF NOT EXISTS memory_relationship SCHEMALESS",
             "DEFINE INDEX IF NOT EXISTS memory_type_idx ON TABLE memory COLUMNS memory_type",
-        ].join("\n")
+        ]
+        .join("\n")
     }
 
     fn up(&self, db: Arc<Surreal<Any>>) -> PendingMigration {
@@ -165,7 +173,9 @@ impl Migration for V1InitialSchema {
             let result = db
                 .query("DEFINE TABLE IF NOT EXISTS memory SCHEMALESS")
                 .await
-                .map_err(|e| MigrationError::DatabaseError(format!("Failed to create memory table: {:?}", e)));
+                .map_err(|e| {
+                    MigrationError::DatabaseError(format!("Failed to create memory table: {:?}", e))
+                });
 
             if let Err(e) = result {
                 let _ = tx.send(Err(e));
@@ -176,7 +186,12 @@ impl Migration for V1InitialSchema {
             let result = db
                 .query("DEFINE TABLE IF NOT EXISTS memory_relationship SCHEMALESS")
                 .await
-                .map_err(|e| MigrationError::DatabaseError(format!("Failed to create relationship table: {:?}", e)));
+                .map_err(|e| {
+                    MigrationError::DatabaseError(format!(
+                        "Failed to create relationship table: {:?}",
+                        e
+                    ))
+                });
 
             if let Err(e) = result {
                 let _ = tx.send(Err(e));
@@ -208,7 +223,12 @@ impl Migration for V1InitialSchema {
             let result = db
                 .query("REMOVE INDEX IF EXISTS memory_type_idx ON TABLE memory")
                 .await
-                .map_err(|e| MigrationError::DatabaseError(format!("Failed to remove memory_type index: {:?}", e)));
+                .map_err(|e| {
+                    MigrationError::DatabaseError(format!(
+                        "Failed to remove memory_type index: {:?}",
+                        e
+                    ))
+                });
 
             if let Err(e) = result {
                 let _ = tx.send(Err(e));
@@ -219,7 +239,12 @@ impl Migration for V1InitialSchema {
             let result = db
                 .query("REMOVE TABLE IF EXISTS memory_relationship")
                 .await
-                .map_err(|e| MigrationError::DatabaseError(format!("Failed to drop relationship table: {:?}", e)));
+                .map_err(|e| {
+                    MigrationError::DatabaseError(format!(
+                        "Failed to drop relationship table: {:?}",
+                        e
+                    ))
+                });
 
             if let Err(e) = result {
                 let _ = tx.send(Err(e));
@@ -230,7 +255,9 @@ impl Migration for V1InitialSchema {
             let result = db
                 .query("REMOVE TABLE IF EXISTS memory")
                 .await
-                .map_err(|e| MigrationError::DatabaseError(format!("Failed to drop memory table: {:?}", e)));
+                .map_err(|e| {
+                    MigrationError::DatabaseError(format!("Failed to drop memory table: {:?}", e))
+                });
 
             if let Err(e) = result {
                 let _ = tx.send(Err(e));
@@ -290,7 +317,9 @@ impl Migration for V2AddVectorIndex {
             let result = db
                 .query("REMOVE INDEX IF EXISTS memory_embedding_idx ON TABLE memory")
                 .await
-                .map_err(|e| MigrationError::DatabaseError(format!("Failed to remove vector index: {:?}", e)));
+                .map_err(|e| {
+                    MigrationError::DatabaseError(format!("Failed to remove vector index: {:?}", e))
+                });
 
             if let Err(e) = result {
                 let _ = tx.send(Err(e));
@@ -344,7 +373,12 @@ impl Migration for V3AddRelationshipStrength {
             let result = db
                 .query("UPDATE memory_relationship SET strength = 0.5 WHERE strength IS NULL")
                 .await
-                .map_err(|e| MigrationError::DatabaseError(format!("Failed to set default strength: {:?}", e)));
+                .map_err(|e| {
+                    MigrationError::DatabaseError(format!(
+                        "Failed to set default strength: {:?}",
+                        e
+                    ))
+                });
 
             if let Err(e) = result {
                 let _ = tx.send(Err(e));
@@ -363,9 +397,16 @@ impl Migration for V3AddRelationshipStrength {
         tokio::spawn(async move {
             // Remove strength index
             let result = db
-                .query("REMOVE INDEX IF EXISTS relationship_strength_idx ON TABLE memory_relationship")
+                .query(
+                    "REMOVE INDEX IF EXISTS relationship_strength_idx ON TABLE memory_relationship",
+                )
                 .await
-                .map_err(|e| MigrationError::DatabaseError(format!("Failed to remove strength index: {:?}", e)));
+                .map_err(|e| {
+                    MigrationError::DatabaseError(format!(
+                        "Failed to remove strength index: {:?}",
+                        e
+                    ))
+                });
 
             if let Err(e) = result {
                 let _ = tx.send(Err(e));
@@ -441,9 +482,12 @@ impl Migration for V4QuantumEntanglement {
             let result = db
                 .query("DEFINE FIELD bond_type ON entangled TYPE string")
                 .await
-                .map_err(|e| MigrationError::DatabaseError(
-                    format!("Failed to define bond_type field: {:?}", e)
-                ));
+                .map_err(|e| {
+                    MigrationError::DatabaseError(format!(
+                        "Failed to define bond_type field: {:?}",
+                        e
+                    ))
+                });
 
             if let Err(e) = result {
                 let _ = tx.send(Err(e));
@@ -454,9 +498,12 @@ impl Migration for V4QuantumEntanglement {
             let result = db
                 .query("DEFINE FIELD created_at ON entangled TYPE datetime DEFAULT time::now()")
                 .await
-                .map_err(|e| MigrationError::DatabaseError(
-                    format!("Failed to define created_at field: {:?}", e)
-                ));
+                .map_err(|e| {
+                    MigrationError::DatabaseError(format!(
+                        "Failed to define created_at field: {:?}",
+                        e
+                    ))
+                });
 
             if let Err(e) = result {
                 let _ = tx.send(Err(e));
@@ -478,11 +525,16 @@ impl Migration for V4QuantumEntanglement {
 
             // Step 6: Create bond_type index for type filtering
             let result = db
-                .query("DEFINE INDEX IF NOT EXISTS entangled_type_idx ON entangled COLUMNS bond_type")
+                .query(
+                    "DEFINE INDEX IF NOT EXISTS entangled_type_idx ON entangled COLUMNS bond_type",
+                )
                 .await
-                .map_err(|e| MigrationError::DatabaseError(
-                    format!("Failed to create bond_type index: {:?}", e)
-                ));
+                .map_err(|e| {
+                    MigrationError::DatabaseError(format!(
+                        "Failed to create bond_type index: {:?}",
+                        e
+                    ))
+                });
 
             if let Err(e) = result {
                 let _ = tx.send(Err(e));
@@ -513,9 +565,12 @@ impl Migration for V4QuantumEntanglement {
             let result = db
                 .query("REMOVE TABLE IF EXISTS entangled")
                 .await
-                .map_err(|e| MigrationError::DatabaseError(
-                    format!("Failed to drop entangled table: {:?}", e)
-                ));
+                .map_err(|e| {
+                    MigrationError::DatabaseError(format!(
+                        "Failed to drop entangled table: {:?}",
+                        e
+                    ))
+                });
 
             log::info!("V4 migration rolled back: entangled RELATION table removed");
             let _ = tx.send(result.map(|_| ()));

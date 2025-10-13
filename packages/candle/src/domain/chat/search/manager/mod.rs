@@ -44,7 +44,10 @@ impl CandleEnhancedHistoryManager {
 
     /// Add message to history manager (streaming)
     #[must_use]
-    pub fn add_message_stream(&self, message: &CandleSearchChatMessage) -> AsyncStream<super::types::IndexOperationResult> {
+    pub fn add_message_stream(
+        &self,
+        message: &CandleSearchChatMessage,
+    ) -> AsyncStream<super::types::IndexOperationResult> {
         let message_id = message.message.id.clone();
         let timestamp = message.message.timestamp;
         let message_clone = message.clone();
@@ -88,10 +91,10 @@ impl CandleEnhancedHistoryManager {
     ) -> AsyncStream<CandleSearchResult> {
         let search_index = Arc::clone(&self.search_index);
         let query_clone = query.clone();
-        
+
         // Create ChatSearcher with the index
         let searcher = super::ChatSearcher::new(search_index);
-        
+
         // Delegate to ChatSearcher which has full implementation
         searcher.search_stream(query_clone)
     }

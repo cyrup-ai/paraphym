@@ -3,24 +3,24 @@
 //! This module provides high-performance message streaming using lock-free queues,
 //! atomic counters, and `AsyncStream` patterns for blazing-fast real-time updates.
 
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use atomic_counter::{AtomicCounter, ConsistentCounter};
 use crossbeam_queue::SegQueue;
 use crossbeam_skiplist::SkipMap;
-use ystream::{emit, AsyncStream};
+use cyrup_sugars::prelude::MessageChunk;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
-use cyrup_sugars::prelude::MessageChunk;
+use ystream::{AsyncStream, emit};
 
 use super::events::RealTimeEvent;
 // Use the domain's RealTimeError
-use crate::domain::util::unix_timestamp_nanos;
 use crate::domain::chat::message::types::{
     CandleMessage as Message, CandleMessageRole as MessageRole,
 };
+use crate::domain::util::unix_timestamp_nanos;
 
 /// Live update message with zero-allocation string handling
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -87,8 +87,9 @@ impl LiveUpdateMessage {
         let timestamp_nanos = unix_timestamp_nanos();
 
         let size_bytes = u32::try_from(
-            id.len() + content.len() + message_type.len() + session_id.len() + user_id.len()
-        ).unwrap_or(u32::MAX);
+            id.len() + content.len() + message_type.len() + session_id.len() + user_id.len(),
+        )
+        .unwrap_or(u32::MAX);
 
         Self {
             id,
@@ -306,15 +307,17 @@ impl StreamSubscriber {
     pub fn should_receive(&self, message: &LiveUpdateMessage) -> bool {
         // Check session filter
         if let Some(session_filter) = &self.session_filter
-            && message.session_id != *session_filter {
-                return false;
-            }
+            && message.session_id != *session_filter
+        {
+            return false;
+        }
 
         // Check user filter
         if let Some(user_filter) = &self.user_filter
-            && message.user_id != *user_filter {
-                return false;
-            }
+            && message.user_id != *user_filter
+        {
+            return false;
+        }
 
         // Check priority filter
         if message.priority < self.min_priority {
@@ -767,9 +770,11 @@ impl MessageChunk for ProcessingEvent {
 
     fn error(&self) -> Option<&str> {
         match self {
-            Self::MessageProcessed { message_id, delivered_count, .. } if *delivered_count == 0 => {
-                Some(message_id)
-            }
+            Self::MessageProcessed {
+                message_id,
+                delivered_count,
+                ..
+            } if *delivered_count == 0 => Some(message_id),
             _ => None,
         }
     }

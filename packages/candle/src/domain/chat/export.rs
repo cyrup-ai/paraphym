@@ -3,15 +3,15 @@
 //! Provides zero-allocation export capabilities for chat conversations and history.
 //! Supports multiple formats with blazing-fast serialization and ergonomic APIs.
 
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::Write;
-use serde::{Deserialize, Serialize, Serializer, Deserializer};
 use thiserror::Error;
 
 use crate::domain::util::duration_to_micros_u64;
 
 /// String serialization helper
 mod arc_str_serde {
-    use super::{Serializer, Deserializer, Deserialize};
+    use super::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S>(arc_str: &str, serializer: S) -> Result<S::Ok, S::Error>
     where

@@ -95,16 +95,18 @@ impl ParameterType {
     /// Validate integer value - zero allocation where possible
     #[inline]
     fn validate_integer(value: &str) -> ValidationResult {
-        i64::from_str(value)
-            .map_err(|_| CandleCommandError::validation_failed(format!("Invalid integer: {value}")))?;
+        i64::from_str(value).map_err(|_| {
+            CandleCommandError::validation_failed(format!("Invalid integer: {value}"))
+        })?;
         Ok(())
     }
 
     /// Validate float value - zero allocation where possible
     #[inline]
     fn validate_float(value: &str) -> ValidationResult {
-        f64::from_str(value)
-            .map_err(|_| CandleCommandError::validation_failed(format!("Invalid float: {value}")))?;
+        f64::from_str(value).map_err(|_| {
+            CandleCommandError::validation_failed(format!("Invalid float: {value}"))
+        })?;
         Ok(())
     }
 
@@ -312,7 +314,7 @@ impl ParameterType {
             "m" => num * 60,
             "h" => num * 3600,
             "d" => num * 86400,
-            "s" | "" => num, // seconds or empty defaults to seconds
+            "s" | "" => num,  // seconds or empty defaults to seconds
             _ => return None, // invalid unit
         })
     }

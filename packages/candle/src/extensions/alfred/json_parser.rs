@@ -1,6 +1,6 @@
+use crate::extensions::common::types::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::extensions::common::types::Result;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AlfredScriptFilterOutput {

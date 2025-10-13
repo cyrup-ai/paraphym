@@ -1,5 +1,5 @@
-pub mod types;
 pub mod sandbox;
+pub mod types;
 
-pub use types::{ExtensionError, Result};
 pub use sandbox::{SandboxConfig, SandboxedOutput, execute_sandboxed};
+pub use types::{ExtensionError, Result};

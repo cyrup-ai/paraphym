@@ -3,9 +3,9 @@ use std::sync::atomic::AtomicUsize;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crossbeam_skiplist::SkipMap;
-use ystream::AsyncStream;
 use regex::Regex;
 use uuid::Uuid;
+use ystream::AsyncStream;
 
 use super::types::{CandleConversationTag, CandleTaggingStatistics};
 

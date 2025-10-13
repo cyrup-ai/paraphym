@@ -4,10 +4,9 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use crossbeam_channel::{bounded, unbounded};
-use ystream::{AsyncStream, AsyncTask};
 use cyrup_sugars::prelude::MessageChunk;
 use serde::{Deserialize, Serialize};
-
+use ystream::{AsyncStream, AsyncTask};
 
 /// Result type for channel operations that implements `MessageChunk`
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,8 +14,6 @@ pub struct ChannelResult {
     pub success: bool,
     pub error_message: Option<String>,
 }
-
-
 
 impl Default for ChannelResult {
     fn default() -> Self {
@@ -58,10 +55,12 @@ impl<T> OneshotResult<T> {
     pub fn unwrap(self) -> T {
         match self {
             OneshotResult::Ok(value) => value,
-            OneshotResult::Err(err) => panic!("called `OneshotResult::unwrap()` on an `Err` value: {err}"),
+            OneshotResult::Err(err) => {
+                panic!("called `OneshotResult::unwrap()` on an `Err` value: {err}")
+            }
         }
     }
-    
+
     /// Extract the value or return a default
     pub fn unwrap_or(self, default: T) -> T {
         match self {
@@ -69,7 +68,7 @@ impl<T> OneshotResult<T> {
             OneshotResult::Err(_) => default,
         }
     }
-    
+
     /// Convert to Option, discarding error message
     pub fn ok(self) -> Option<T> {
         match self {
@@ -77,12 +76,12 @@ impl<T> OneshotResult<T> {
             OneshotResult::Err(_) => None,
         }
     }
-    
+
     /// Check if this is an Ok result
     pub fn is_ok(&self) -> bool {
         matches!(self, OneshotResult::Ok(_))
     }
-    
+
     /// Check if this is an Err result  
     pub fn is_err(&self) -> bool {
         matches!(self, OneshotResult::Err(_))
@@ -93,7 +92,7 @@ impl<T: Clone> MessageChunk for OneshotResult<T> {
     fn bad_chunk(error: String) -> Self {
         OneshotResult::Err(error)
     }
-    
+
     fn error(&self) -> Option<&str> {
         match self {
             OneshotResult::Ok(_) => None,
@@ -107,7 +106,6 @@ impl<T: Clone> Default for OneshotResult<T> {
         OneshotResult::Err("Default oneshot result".to_string())
     }
 }
-
 
 /// A multi-producer, single-consumer channel for sending values between tasks
 pub struct Channel<T> {
@@ -224,7 +222,9 @@ impl<T: Send + Clone + 'static> OneshotChannel<T> {
     /// Returns the value if the receiver has been dropped or sending fails
     pub fn send(mut self, value: T) -> Result<(), T> {
         if let Some(sender) = self.sender.take() {
-            sender.send(value).map_err(crossbeam_channel::SendError::into_inner)
+            sender
+                .send(value)
+                .map_err(crossbeam_channel::SendError::into_inner)
         } else {
             Err(value)
         }

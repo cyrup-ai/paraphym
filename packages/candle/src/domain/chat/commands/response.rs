@@ -10,7 +10,7 @@ use std::sync::LazyLock;
 use serde_json::{Map, Value};
 use tokio::sync::mpsc;
 
-use super::types::{CommandOutput, OutputType, CandleCommandError, CommandInfo};
+use super::types::{CandleCommandError, CommandInfo, CommandOutput, OutputType};
 use crate::domain::util::unix_timestamp_nanos;
 
 /// Response formatter with streaming support
@@ -115,19 +115,19 @@ impl ResponseFormatter {
 
         // Add execution time if metrics are enabled
         if self.include_metrics && output.execution_time > 0 {
-            write!(&mut result, " ({}μs)", output.execution_time)
-                .map_err(|e| ResponseError::FormatError {
+            write!(&mut result, " ({}μs)", output.execution_time).map_err(|e| {
+                ResponseError::FormatError {
                     detail: format!("Failed to write metrics: {e}"),
-                })?;
+                }
+            })?;
         }
 
         // Add timestamp if enabled
         if self.include_timestamps {
             let timestamp = chrono::Utc::now().format("%H:%M:%S");
-            write!(&mut result, " [{timestamp}]")
-                .map_err(|e| ResponseError::FormatError {
-                    detail: format!("Failed to write timestamp: {e}"),
-                })?;
+            write!(&mut result, " [{timestamp}]").map_err(|e| ResponseError::FormatError {
+                detail: format!("Failed to write timestamp: {e}"),
+            })?;
         }
 
         Ok(result)
@@ -203,15 +203,17 @@ impl ResponseFormatter {
             &mut result,
             "Status: {}",
             if output.success { "SUCCESS" } else { "FAILED" }
-        ).map_err(|e| ResponseError::FormatError {
+        )
+        .map_err(|e| ResponseError::FormatError {
             detail: format!("Failed to write status: {e}"),
         })?;
 
         // Message
-        writeln!(&mut result, "Message: {}", output.message)
-            .map_err(|e| ResponseError::FormatError {
+        writeln!(&mut result, "Message: {}", output.message).map_err(|e| {
+            ResponseError::FormatError {
                 detail: format!("Failed to write message: {e}"),
-            })?;
+            }
+        })?;
 
         // Data section
         if let Some(data) = &output.data {
@@ -222,47 +224,55 @@ impl ResponseFormatter {
                 }
             })?;
             for line in data_str.lines() {
-                writeln!(&mut result, "  {line}")
-                    .map_err(|e| ResponseError::FormatError {
-                        detail: format!("Failed to write data line: {e}"),
-                    })?;
+                writeln!(&mut result, "  {line}").map_err(|e| ResponseError::FormatError {
+                    detail: format!("Failed to write data line: {e}"),
+                })?;
             }
         }
 
         // Metrics section
         if self.include_metrics {
             result.push_str("Metrics:\n");
-            writeln!(&mut result, "  Execution Time: {}μs", output.execution_time)
-                .map_err(|e| ResponseError::FormatError {
+            writeln!(&mut result, "  Execution Time: {}μs", output.execution_time).map_err(
+                |e| ResponseError::FormatError {
                     detail: format!("Failed to write execution time: {e}"),
-                })?;
+                },
+            )?;
             if let Some(ref usage) = output.resource_usage {
-                writeln!(&mut result, "  Memory Usage: {} bytes", usage.memory_bytes)
-                    .map_err(|e| ResponseError::FormatError {
+                writeln!(&mut result, "  Memory Usage: {} bytes", usage.memory_bytes).map_err(
+                    |e| ResponseError::FormatError {
                         detail: format!("Failed to write memory usage: {e}"),
-                    })?;
-                writeln!(&mut result, "  CPU Time: {}μs", usage.cpu_time_us)
-                    .map_err(|e| ResponseError::FormatError {
+                    },
+                )?;
+                writeln!(&mut result, "  CPU Time: {}μs", usage.cpu_time_us).map_err(|e| {
+                    ResponseError::FormatError {
                         detail: format!("Failed to write CPU time: {e}"),
-                    })?;
-                writeln!(&mut result, "  Network Requests: {}", usage.network_requests)
-                    .map_err(|e| ResponseError::FormatError {
-                        detail: format!("Failed to write network requests: {e}"),
-                    })?;
-                writeln!(&mut result, "  Disk Operations: {}", usage.disk_operations)
-                    .map_err(|e| ResponseError::FormatError {
+                    }
+                })?;
+                writeln!(
+                    &mut result,
+                    "  Network Requests: {}",
+                    usage.network_requests
+                )
+                .map_err(|e| ResponseError::FormatError {
+                    detail: format!("Failed to write network requests: {e}"),
+                })?;
+                writeln!(&mut result, "  Disk Operations: {}", usage.disk_operations).map_err(
+                    |e| ResponseError::FormatError {
                         detail: format!("Failed to write disk operations: {e}"),
-                    })?;
+                    },
+                )?;
             }
         }
 
         // Timestamp
         if self.include_timestamps {
             let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC");
-            writeln!(&mut result, "Timestamp: {timestamp}")
-                .map_err(|e| ResponseError::FormatError {
+            writeln!(&mut result, "Timestamp: {timestamp}").map_err(|e| {
+                ResponseError::FormatError {
                     detail: format!("Failed to write timestamp: {e}"),
-                })?;
+                }
+            })?;
         }
 
         result.push_str("========================\n");
@@ -279,10 +289,7 @@ impl ResponseFormatter {
             Value::String("command_response".to_string()),
         );
         json_output.insert("success".to_string(), Value::Bool(output.success));
-        json_output.insert(
-            "message".to_string(),
-            Value::String(output.message.clone()),
-        );
+        json_output.insert("message".to_string(), Value::String(output.message.clone()));
 
         if let Some(data) = &output.data {
             json_output.insert("data".to_string(), data.clone());
@@ -387,10 +394,7 @@ impl ResponseFormatter {
                     Value::String(cmd.description.clone()),
                 );
                 command_obj.insert("usage".to_string(), Value::String(cmd.usage.clone()));
-                command_obj.insert(
-                    "category".to_string(),
-                    Value::String(cmd.category.clone()),
-                );
+                command_obj.insert("category".to_string(), Value::String(cmd.category.clone()));
 
                 let aliases: Vec<Value> = cmd
                     .aliases
@@ -560,8 +564,7 @@ pub enum ResponseError {
 }
 
 /// Global response formatter
-static GLOBAL_FORMATTER: LazyLock<ResponseFormatter> =
-    LazyLock::new(ResponseFormatter::new);
+static GLOBAL_FORMATTER: LazyLock<ResponseFormatter> = LazyLock::new(ResponseFormatter::new);
 
 /// Get global response formatter
 #[must_use]

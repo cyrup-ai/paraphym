@@ -3,9 +3,9 @@
 
 use std::fmt;
 
+use cyrup_sugars::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use cyrup_sugars::prelude::*;
 
 /// Represents the direction of a relationship
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

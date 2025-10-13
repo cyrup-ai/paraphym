@@ -18,7 +18,7 @@ use crate::memory::utils::error::Error;
 /// Convert serde_json::Value to surrealdb::Value
 fn json_to_surreal_value(json: serde_json::Value) -> surrealdb::Value {
     use surrealdb::value::to_value;
-    
+
     to_value(json).unwrap_or_default()
 }
 
@@ -316,7 +316,10 @@ impl MemoryType for BaseMemory {
 
     fn to_entity(&self) -> BaseEntity {
         use crate::memory::graph::entity::BaseEntity;
-        let mut entity = BaseEntity::new(self.id.clone(), format!("memory_{}", self.metadata.category));
+        let mut entity = BaseEntity::new(
+            self.id.clone(),
+            format!("memory_{}", self.metadata.category),
+        );
 
         /// Helper function to safely serialize values to JSON, with fallback handling
         fn serialize_field<T: Serialize>(value: &T, field_name: &str) -> serde_json::Value {
@@ -334,10 +337,7 @@ impl MemoryType for BaseMemory {
         }
 
         // Add basic fields as attributes
-        entity = entity.with_attribute(
-            "name",
-            json_to_surreal_value(self.name.clone().into()),
-        );
+        entity = entity.with_attribute("name", json_to_surreal_value(self.name.clone().into()));
         entity = entity.with_attribute(
             "description",
             json_to_surreal_value(self.description.clone().into()),
@@ -501,17 +501,20 @@ impl MemoryType for BaseMemory {
         if let Some(created_str) = get_attr("created_at", &attributes)
             .ok()
             .and_then(|v| v.as_str().map(|s| s.to_string()))
-            && let Ok(parsed) = DateTime::parse_from_rfc3339(&created_str) {
-                metadata.created_at = parsed.with_timezone(&Utc);
-            }
+            && let Ok(parsed) = DateTime::parse_from_rfc3339(&created_str)
+        {
+            metadata.created_at = parsed.with_timezone(&Utc);
+        }
         if let Some(keywords_val) = get_attr("keywords", &attributes).ok()
-            && let Ok(keywords) = serde_json::from_value::<Vec<String>>(keywords_val) {
-                metadata.keywords = keywords;
-            }
+            && let Ok(keywords) = serde_json::from_value::<Vec<String>>(keywords_val)
+        {
+            metadata.keywords = keywords;
+        }
         if let Some(tags_val) = get_attr("tags", &attributes).ok()
-            && let Ok(tags) = serde_json::from_value::<Vec<String>>(tags_val) {
-                metadata.tags = tags;
-            }
+            && let Ok(tags) = serde_json::from_value::<Vec<String>>(tags_val)
+        {
+            metadata.tags = tags;
+        }
         if let Ok(custom_val) = get_attr("custom", &attributes) {
             metadata.custom = custom_val;
         }

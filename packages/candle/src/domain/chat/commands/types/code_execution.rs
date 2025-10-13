@@ -227,7 +227,10 @@ echo "File processing complete""#,
     ///
     /// Returns `ValidationError` if resource limits would be exceeded
     #[inline]
-    pub fn check_resource_limits(&self, request: &CodeExecutionRequest) -> Result<(), ValidationError> {
+    pub fn check_resource_limits(
+        &self,
+        request: &CodeExecutionRequest,
+    ) -> Result<(), ValidationError> {
         self.resource_limits.validate_request(request)
     }
 }
@@ -662,7 +665,9 @@ impl ExecutionError {
             Self::NetworkAccessDenied => "Network access denied".to_string(),
             Self::FilesystemAccessDenied => "Filesystem access denied".to_string(),
             Self::CompilationFailed { message } => format!("Compilation failed: {message}"),
-            Self::InvalidLanguageConfig { message } => format!("Invalid language configuration: {message}"),
+            Self::InvalidLanguageConfig { message } => {
+                format!("Invalid language configuration: {message}")
+            }
             Self::SystemError { message } => format!("System error: {message}"),
         }
     }
@@ -674,47 +679,47 @@ pub enum ValidationError {
     /// Syntax validation failed
     #[error("Syntax validation failed: {message}")]
     SyntaxValidationFailed { message: String },
-    
+
     /// Security validation failed
     #[error("Security validation failed: {message}")]
     SecurityValidationFailed { message: String },
-    
+
     /// Resource limit validation failed
     #[error("Resource limit validation failed: {message}")]
     ResourceLimitValidationFailed { message: String },
-    
+
     /// Language not supported
     #[error("Language not supported: {language}")]
     LanguageNotSupported { language: String },
-    
+
     /// Code contains prohibited patterns
     #[error("Code contains prohibited patterns: {patterns:?}")]
     ProhibitedPatterns { patterns: Vec<String> },
-    
+
     /// Code exceeds size limits
     #[error("Code exceeds size limit: {size} bytes (max: {limit} bytes)")]
     CodeSizeExceeded { size: usize, limit: usize },
-    
+
     /// Invalid encoding detected
     #[error("Invalid encoding detected: {encoding}")]
     InvalidEncoding { encoding: String },
-    
+
     /// Timeout value invalid
     #[error("Invalid timeout value: {timeout} seconds (max: {max_timeout} seconds)")]
     InvalidTimeout { timeout: u64, max_timeout: u64 },
-    
+
     /// Memory limit invalid
     #[error("Invalid memory limit: {memory} bytes (max: {max_memory} bytes)")]
     InvalidMemoryLimit { memory: u64, max_memory: u64 },
-    
+
     /// CPU limit invalid
     #[error("Invalid CPU limit: {cpu}% (max: {max_cpu}%)")]
     InvalidCpuLimit { cpu: u8, max_cpu: u8 },
-    
+
     /// Environment variable validation failed
     #[error("Environment variable validation failed: {variable} = {value}")]
     InvalidEnvironmentVariable { variable: String, value: String },
-    
+
     /// Working directory validation failed
     #[error("Working directory validation failed: {directory}")]
     InvalidWorkingDirectory { directory: String },
@@ -724,25 +729,33 @@ impl ValidationError {
     /// Create a syntax validation error
     #[inline]
     pub fn syntax_failed(message: impl Into<String>) -> Self {
-        Self::SyntaxValidationFailed { message: message.into() }
+        Self::SyntaxValidationFailed {
+            message: message.into(),
+        }
     }
 
     /// Create a security validation error
     #[inline]
     pub fn security_failed(message: impl Into<String>) -> Self {
-        Self::SecurityValidationFailed { message: message.into() }
+        Self::SecurityValidationFailed {
+            message: message.into(),
+        }
     }
 
     /// Create a resource limit validation error
     #[inline]
     pub fn resource_limit_failed(message: impl Into<String>) -> Self {
-        Self::ResourceLimitValidationFailed { message: message.into() }
+        Self::ResourceLimitValidationFailed {
+            message: message.into(),
+        }
     }
 
     /// Create a language not supported error
     #[inline]
     pub fn language_not_supported(language: impl Into<String>) -> Self {
-        Self::LanguageNotSupported { language: language.into() }
+        Self::LanguageNotSupported {
+            language: language.into(),
+        }
     }
 
     /// Create a prohibited patterns error
@@ -815,7 +828,6 @@ impl Default for ValidationConfig {
 }
 
 impl ValidationConfig {
-
     /// Create secure Python validation configuration
     #[inline]
     #[must_use]
@@ -1026,7 +1038,11 @@ impl ValidationConfig {
     /// - Security scanning is enabled and prohibited patterns are found
     /// - Language-specific validation fails
     #[inline]
-    pub fn validate_code(&self, code: &str, language: &CodeLanguage) -> Result<(), ValidationError> {
+    pub fn validate_code(
+        &self,
+        code: &str,
+        language: &CodeLanguage,
+    ) -> Result<(), ValidationError> {
         // Check code size
         if code.len() > self.max_code_size_bytes {
             return Err(ValidationError::code_size_exceeded(
@@ -1067,9 +1083,9 @@ impl ValidationConfig {
             if trimmed.starts_with("import ") || trimmed.starts_with("from ") {
                 for prohibited in &self.prohibited_imports {
                     if trimmed.contains(prohibited) {
-                        return Err(ValidationError::security_failed(
-                            format!("Prohibited import: {prohibited}")
-                        ));
+                        return Err(ValidationError::security_failed(format!(
+                            "Prohibited import: {prohibited}"
+                        )));
                     }
                 }
             }
@@ -1083,7 +1099,7 @@ impl ValidationConfig {
         // Check for Node.js requires
         if code.contains("require(") {
             return Err(ValidationError::security_failed(
-                "Node.js require() is not allowed"
+                "Node.js require() is not allowed",
             ));
         }
         Ok(())
@@ -1095,7 +1111,7 @@ impl ValidationConfig {
         // Check for unsafe blocks
         if code.contains("unsafe") {
             return Err(ValidationError::security_failed(
-                "Unsafe Rust code is not allowed"
+                "Unsafe Rust code is not allowed",
             ));
         }
         Ok(())
@@ -1107,7 +1123,7 @@ impl ValidationConfig {
         // Check for dangerous syscalls
         if code.contains("syscall.") {
             return Err(ValidationError::security_failed(
-                "Direct syscalls are not allowed"
+                "Direct syscalls are not allowed",
             ));
         }
         Ok(())
@@ -1119,7 +1135,7 @@ impl ValidationConfig {
         // Check for dangerous file operations
         if code.contains("rm -rf /") {
             return Err(ValidationError::security_failed(
-                "Destructive file operations are not allowed"
+                "Destructive file operations are not allowed",
             ));
         }
         Ok(())
@@ -1154,7 +1170,7 @@ impl Default for ResourceLimits {
             max_memory_bytes: 128 * 1024 * 1024, // 128MB
             max_cpu_percent: 80,
             max_file_operations: 100,
-            max_network_requests: 0, // No network by default
+            max_network_requests: 0,            // No network by default
             max_output_size_bytes: 1024 * 1024, // 1MB
             max_processes: 1,
         }
@@ -1162,7 +1178,6 @@ impl Default for ResourceLimits {
 }
 
 impl ResourceLimits {
-
     /// Create resource limits for analysis workloads
     #[inline]
     #[must_use]

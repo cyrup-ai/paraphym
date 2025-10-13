@@ -112,8 +112,6 @@ pub enum TemplateCategory {
     Custom,
 }
 
-
-
 /// Variable type enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum VariableType {
@@ -442,12 +440,12 @@ impl CompiledTemplate {
             TemplateAst::Expression { operator, operands } => {
                 Self::evaluate_expression(operator, operands, context)
             }
-            TemplateAst::Loop { variable, iterable, body } => {
-                Self::render_loop(variable, iterable, body, context)
-            }
-            TemplateAst::Function { name, args } => {
-                Self::call_function(name, args, context)
-            }
+            TemplateAst::Loop {
+                variable,
+                iterable,
+                body,
+            } => Self::render_loop(variable, iterable, body, context),
+            TemplateAst::Function { name, args } => Self::call_function(name, args, context),
         }
     }
 
@@ -477,30 +475,42 @@ impl CompiledTemplate {
                 }
             }
             "-" => {
-                let l = left.parse::<f64>().map_err(|_| TemplateError::RenderError {
-                    message: format!("Cannot subtract non-numeric value: {left}"),
-                })?;
-                let r = right.parse::<f64>().map_err(|_| TemplateError::RenderError {
-                    message: format!("Cannot subtract non-numeric value: {right}"),
-                })?;
+                let l = left
+                    .parse::<f64>()
+                    .map_err(|_| TemplateError::RenderError {
+                        message: format!("Cannot subtract non-numeric value: {left}"),
+                    })?;
+                let r = right
+                    .parse::<f64>()
+                    .map_err(|_| TemplateError::RenderError {
+                        message: format!("Cannot subtract non-numeric value: {right}"),
+                    })?;
                 Ok((l - r).to_string())
             }
             "*" => {
-                let l = left.parse::<f64>().map_err(|_| TemplateError::RenderError {
-                    message: format!("Cannot multiply non-numeric value: {left}"),
-                })?;
-                let r = right.parse::<f64>().map_err(|_| TemplateError::RenderError {
-                    message: format!("Cannot multiply non-numeric value: {right}"),
-                })?;
+                let l = left
+                    .parse::<f64>()
+                    .map_err(|_| TemplateError::RenderError {
+                        message: format!("Cannot multiply non-numeric value: {left}"),
+                    })?;
+                let r = right
+                    .parse::<f64>()
+                    .map_err(|_| TemplateError::RenderError {
+                        message: format!("Cannot multiply non-numeric value: {right}"),
+                    })?;
                 Ok((l * r).to_string())
             }
             "/" => {
-                let l = left.parse::<f64>().map_err(|_| TemplateError::RenderError {
-                    message: format!("Cannot divide non-numeric value: {left}"),
-                })?;
-                let r = right.parse::<f64>().map_err(|_| TemplateError::RenderError {
-                    message: format!("Cannot divide non-numeric value: {right}"),
-                })?;
+                let l = left
+                    .parse::<f64>()
+                    .map_err(|_| TemplateError::RenderError {
+                        message: format!("Cannot divide non-numeric value: {left}"),
+                    })?;
+                let r = right
+                    .parse::<f64>()
+                    .map_err(|_| TemplateError::RenderError {
+                        message: format!("Cannot divide non-numeric value: {right}"),
+                    })?;
                 if r == 0.0 {
                     return Err(TemplateError::RenderError {
                         message: "Division by zero".to_string(),
@@ -509,12 +519,16 @@ impl CompiledTemplate {
                 Ok((l / r).to_string())
             }
             "%" => {
-                let l = left.parse::<f64>().map_err(|_| TemplateError::RenderError {
-                    message: format!("Cannot modulo non-numeric value: {left}"),
-                })?;
-                let r = right.parse::<f64>().map_err(|_| TemplateError::RenderError {
-                    message: format!("Cannot modulo non-numeric value: {right}"),
-                })?;
+                let l = left
+                    .parse::<f64>()
+                    .map_err(|_| TemplateError::RenderError {
+                        message: format!("Cannot modulo non-numeric value: {left}"),
+                    })?;
+                let r = right
+                    .parse::<f64>()
+                    .map_err(|_| TemplateError::RenderError {
+                        message: format!("Cannot modulo non-numeric value: {right}"),
+                    })?;
                 if r == 0.0 {
                     return Err(TemplateError::RenderError {
                         message: "Modulo by zero".to_string(),
@@ -578,10 +592,12 @@ impl CompiledTemplate {
         let iterable_value = Self::render_ast(iterable, context)?;
 
         // Get collection from context
-        let collection = context.get_variable(&iterable_value)
-            .ok_or_else(|| TemplateError::VariableError {
-                message: format!("Loop iterable '{iterable_value}' not found"),
-            })?;
+        let collection =
+            context
+                .get_variable(&iterable_value)
+                .ok_or_else(|| TemplateError::VariableError {
+                    message: format!("Loop iterable '{iterable_value}' not found"),
+                })?;
 
         let mut result = String::new();
 
@@ -613,7 +629,9 @@ impl CompiledTemplate {
         context: &TemplateContext,
     ) -> TemplateResult<String> {
         // Get function from context
-        let func = context.functions.get(name)
+        let func = context
+            .functions
+            .get(name)
             .ok_or_else(|| TemplateError::RenderError {
                 message: format!("Function '{name}' not found"),
             })?;
@@ -674,7 +692,10 @@ impl ChatTemplate {
     /// # Errors
     ///
     /// Returns `TemplateError` if template rendering fails or required variables are missing
-    pub fn render<S: std::hash::BuildHasher>(&self, variables: &HashMap<String, String, S>) -> TemplateResult<String> {
+    pub fn render<S: std::hash::BuildHasher>(
+        &self,
+        variables: &HashMap<String, String, S>,
+    ) -> TemplateResult<String> {
         let mut context = TemplateContext::new();
         for (key, value) in variables {
             context.set_variable(key.clone(), TemplateValue::String(value.clone()));

@@ -7,10 +7,10 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use super::memory::MemoryConfig;
-use crate::domain::util::unix_timestamp_nanos;
 use super::super::SurrealDBMemoryManager;
+use super::memory::MemoryConfig;
 use crate::domain::init::globals::{CONFIG_CACHE, LOCAL_CONFIG};
+use crate::domain::util::unix_timestamp_nanos;
 
 /// Memory metadata for pool management with zero-allocation patterns
 #[derive(Debug, Clone, Serialize, Deserialize)]

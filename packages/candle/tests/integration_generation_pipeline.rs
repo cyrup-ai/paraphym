@@ -19,12 +19,12 @@ fn test_provider_type_verification() {
     // Create agent using builder pattern - this tests that the default provider
     // (KimiK2) is properly instantiated and configured
     // Note: We can't easily inspect the provider type without storing the agent
-    // due to `into_agent()` returning `impl CandleAgentBuilder` 
+    // due to `into_agent()` returning `impl CandleAgentBuilder`
     // The fact that this compiles and runs validates the integration
-    
+
     println!("✓ Agent builder pattern works correctly");
     println!("  Default provider (KimiK2) instantiated successfully");
-    
+
     // The integration test succeeds if this code compiles, as it validates:
     // 1. CandleAgentRoleBuilder trait is properly implemented
     // 2. into_agent() returns a valid CandleAgentBuilder
@@ -126,10 +126,7 @@ async fn test_stream_conversion() {
         .iter()
         .any(|c| matches!(c, CandleCompletionChunk::Complete { .. }));
 
-    assert!(
-        has_completion,
-        "Stream should contain a completion marker"
-    );
+    assert!(has_completion, "Stream should contain a completion marker");
 
     println!("✓ Stream conversion verified");
     println!("  Total chunks: {}", chunks.len());
@@ -173,8 +170,12 @@ async fn test_text_generator_with_mock_model() {
                 logits[i * self.vocab_size] = 10.0;
             }
 
-            Tensor::from_slice(&logits, (batch_size, seq_len, self.vocab_size), &self.device)
-                .map_err(|e| e.into())
+            Tensor::from_slice(
+                &logits,
+                (batch_size, seq_len, self.vocab_size),
+                &self.device,
+            )
+            .map_err(|e| e.into())
         }
 
         fn device(&self) -> &Device {
@@ -201,7 +202,9 @@ async fn test_text_generator_with_mock_model() {
             }
         }
 
-        eprintln!("Skipping: No tokenizer found (set TEST_TOKENIZER_PATH or provide tokenizer.json)");
+        eprintln!(
+            "Skipping: No tokenizer found (set TEST_TOKENIZER_PATH or provide tokenizer.json)"
+        );
         String::new()
     });
 
@@ -272,7 +275,11 @@ fn test_simd_operations_available() {
     // Test temperature scaling
     let mut logits = vec![1.0, 2.0, 3.0, 4.0, 5.0];
     let _ = scale_temperature(&mut logits, 0.5);
-    assert_eq!(logits.len(), 5, "Temperature scaling should preserve length");
+    assert_eq!(
+        logits.len(),
+        5,
+        "Temperature scaling should preserve length"
+    );
 
     // Test softmax
     let logits = vec![1.0, 2.0, 3.0];
@@ -303,7 +310,6 @@ fn test_simd_operations_available() {
 /// This test validates error propagation and recovery.
 #[tokio::test]
 async fn test_error_handling() {
-
     // Test 1: Invalid engine configuration
     let invalid_config = EngineConfig::new("", ""); // Empty model name
     let engine_result = Engine::new(invalid_config);
@@ -350,7 +356,7 @@ async fn test_error_handling() {
 async fn test_memory_integration_compatibility() {
     // The fact that this code compiles validates memory integration compatibility
     // Memory system is compiled and linked correctly with the agent system
-    
+
     println!("✓ Memory integration compatibility verified");
     println!("  Agent creation with memory support: OK");
     println!("  Memory system compiled and linked successfully");

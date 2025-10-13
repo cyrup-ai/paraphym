@@ -8,7 +8,10 @@ use std::collections::HashMap;
 
 use thiserror::Error;
 
-use super::types::{CommandInfo, ImmutableChatCommand, CandleCommandError, SearchScope, ParameterInfo, ParameterType, StabilityLevel};
+use super::types::{
+    CandleCommandError, CommandInfo, ImmutableChatCommand, ParameterInfo, ParameterType,
+    SearchScope, StabilityLevel,
+};
 
 /// Command parsing errors with owned strings
 #[derive(Error, Debug, Clone)]

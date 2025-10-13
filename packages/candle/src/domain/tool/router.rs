@@ -10,9 +10,9 @@ use std::sync::Arc;
 use serde_json::Value;
 use ystream::AsyncStream;
 
-use sweet_mcp_type::{ToolInfo, JsonValue};
-use cylo::{Cylo, create_backend, BackendConfig, ExecutionRequest, ExecutionResult};
 use crate::domain::context::chunk::CandleJsonChunk;
+use cylo::{BackendConfig, Cylo, ExecutionRequest, ExecutionResult, create_backend};
+use sweet_mcp_type::{JsonValue, ToolInfo};
 
 /// `SweetMCP` Tool Router
 ///
@@ -34,9 +34,7 @@ pub struct SweetMcpRouter {
 #[derive(Debug, Clone)]
 pub enum ToolRoute {
     /// Execute via `SweetMCP` `WASM` plugin
-    SweetMcpPlugin {
-        plugin_path: String,
-    },
+    SweetMcpPlugin { plugin_path: String },
     /// Execute directly via `Cylo` backend
     CyloExecution {
         backend_type: String,
@@ -56,8 +54,8 @@ pub struct PluginConfig {
 /// Configuration for Cylo execution backend
 #[derive(Debug, Clone)]
 pub struct CyloBackendConfig {
-    pub backend_type: String,  // "Apple", "LandLock", "FireCracker"
-    pub config_value: String,  // e.g., "python:alpine3.20" or "/tmp/sandbox"
+    pub backend_type: String, // "Apple", "LandLock", "FireCracker"
+    pub config_value: String, // e.g., "python:alpine3.20" or "/tmp/sandbox"
 }
 
 /// Tool execution error types
@@ -137,7 +135,9 @@ impl SweetMcpRouter {
         // Find the tool route
         let route = {
             let routes = self.tool_routes.read().await;
-            routes.get(tool_name).cloned()
+            routes
+                .get(tool_name)
+                .cloned()
                 .ok_or_else(|| RouterError::ToolNotFound(tool_name.to_string()))?
         };
 
@@ -146,8 +146,12 @@ impl SweetMcpRouter {
             ToolRoute::SweetMcpPlugin { plugin_path } => {
                 self.execute_sweetmcp_plugin(&plugin_path, args).await
             }
-            ToolRoute::CyloExecution { backend_type, config } => {
-                self.execute_cylo_backend(&backend_type, &config, args).await
+            ToolRoute::CyloExecution {
+                backend_type,
+                config,
+            } => {
+                self.execute_cylo_backend(&backend_type, &config, args)
+                    .await
             }
         }
     }
@@ -163,7 +167,11 @@ impl SweetMcpRouter {
 
     /// Execute tool and return `ystream` for compatibility
     #[must_use]
-    pub fn call_tool_stream(&self, tool_name: &str, args: JsonValue) -> AsyncStream<CandleJsonChunk> {
+    pub fn call_tool_stream(
+        &self,
+        tool_name: &str,
+        args: JsonValue,
+    ) -> AsyncStream<CandleJsonChunk> {
         let tool_name = tool_name.to_string();
         let router = self.clone_for_async();
 
@@ -171,14 +179,17 @@ impl SweetMcpRouter {
         AsyncStream::with_channel(move |sender| {
             let Some(runtime) = crate::runtime::shared_runtime() else {
                 let error_value = Value::Object(
-                    [("error".to_string(), Value::String("Runtime unavailable for tool execution".to_string()))]
+                    [(
+                        "error".to_string(),
+                        Value::String("Runtime unavailable for tool execution".to_string()),
+                    )]
                     .into_iter()
-                    .collect::<serde_json::Map<_, _>>()
+                    .collect::<serde_json::Map<_, _>>(),
                 );
                 ystream::emit!(sender, CandleJsonChunk(error_value));
                 return;
             };
-            
+
             runtime.spawn(async move {
                 match router.call_tool(&tool_name, args).await {
                     Ok(result) => {
@@ -187,8 +198,8 @@ impl SweetMcpRouter {
                     Err(e) => {
                         let error_value = Value::Object(
                             [("error".to_string(), Value::String(e.to_string()))]
-                            .into_iter()
-                            .collect::<serde_json::Map<_, _>>()
+                                .into_iter()
+                                .collect::<serde_json::Map<_, _>>(),
                         );
                         ystream::emit!(sender, CandleJsonChunk(error_value));
                     }
@@ -210,7 +221,7 @@ impl SweetMcpRouter {
                 description: Some(plugin_config.description.clone()),
                 input_schema: plugin_config.input_schema.clone(),
             };
-            
+
             tools.push(tool_info);
             routes.insert(
                 plugin_config.tool_name.clone(),
@@ -245,7 +256,9 @@ impl SweetMcpRouter {
             let tool = ToolInfo {
                 name: tool_name.to_string(),
                 description: Some(format!("Execute {language} code securely via Cylo")),
-                input_schema: Self::create_code_execution_schema(&format!("{language} code to execute")),
+                input_schema: Self::create_code_execution_schema(&format!(
+                    "{language} code to execute"
+                )),
             };
 
             tools.push(tool);
@@ -262,7 +275,11 @@ impl SweetMcpRouter {
     }
 
     /// Execute `SweetMCP` `WASM` plugin
-    async fn execute_sweetmcp_plugin(&self, plugin_path: &str, args: JsonValue) -> Result<Value, RouterError> {
+    async fn execute_sweetmcp_plugin(
+        &self,
+        plugin_path: &str,
+        args: JsonValue,
+    ) -> Result<Value, RouterError> {
         // Create Cylo backend for SweetMCP plugin execution
         let cylo_env = Cylo::SweetMcpPlugin(plugin_path.to_string());
         let config = BackendConfig::new("sweetmcp_plugin");
@@ -275,7 +292,8 @@ impl SweetMcpRouter {
 
         // Execute via backend
         let result_handle = backend.execute_code(request);
-        let result = result_handle.await
+        let result = result_handle
+            .await
             .map_err(|e| RouterError::ExecutionFailed(e.to_string()))?;
 
         // Convert ExecutionResult to JSON Value
@@ -283,14 +301,23 @@ impl SweetMcpRouter {
     }
 
     /// Execute via Cylo backend directly
-    async fn execute_cylo_backend(&self, backend_type: &str, config: &str, args: JsonValue) -> Result<Value, RouterError> {
+    async fn execute_cylo_backend(
+        &self,
+        backend_type: &str,
+        config: &str,
+        args: JsonValue,
+    ) -> Result<Value, RouterError> {
         // Create appropriate Cylo environment
         let cylo_env = match backend_type {
             "Apple" => Cylo::Apple(config.to_string()),
             "LandLock" => Cylo::LandLock(config.to_string()),
             "FireCracker" => Cylo::FireCracker(config.to_string()),
             "SweetMcpPlugin" => Cylo::SweetMcpPlugin(config.to_string()),
-            _ => return Err(RouterError::BackendError(format!("Unknown backend type: {backend_type}"))),
+            _ => {
+                return Err(RouterError::BackendError(format!(
+                    "Unknown backend type: {backend_type}"
+                )));
+            }
         };
 
         let backend_config = BackendConfig::new(backend_type);
@@ -302,7 +329,8 @@ impl SweetMcpRouter {
 
         // Execute via backend
         let result_handle = backend.execute_code(request);
-        let result = result_handle.await
+        let result = result_handle
+            .await
             .map_err(|e| RouterError::ExecutionFailed(e.to_string()))?;
 
         // Convert ExecutionResult to JSON Value
@@ -314,11 +342,13 @@ impl SweetMcpRouter {
         // Convert sweet_mcp_type::JsonValue to serde_json::Value first
         let args_value = Self::convert_sweet_json_to_serde(args);
 
-        let code = args_value.get("code")
+        let code = args_value
+            .get("code")
             .and_then(|v| v.as_str())
             .ok_or_else(|| RouterError::InvalidArguments("Missing 'code' parameter".to_string()))?;
 
-        let language = args_value.get("language")
+        let language = args_value
+            .get("language")
             .and_then(|v| v.as_str())
             .unwrap_or("python");
 
@@ -364,23 +394,27 @@ impl SweetMcpRouter {
             JsonValue::Static(StaticNode::Bool(b)) => serde_json::Value::Bool(b),
             JsonValue::Static(StaticNode::I64(n)) => serde_json::Value::Number(n.into()),
             JsonValue::Static(StaticNode::U64(n)) => serde_json::Value::Number(n.into()),
-            JsonValue::Static(StaticNode::F64(f)) => {
-                serde_json::Value::Number(serde_json::Number::from_f64(f).unwrap_or_else(|| 0.into()))
-            }
+            JsonValue::Static(StaticNode::F64(f)) => serde_json::Value::Number(
+                serde_json::Number::from_f64(f).unwrap_or_else(|| 0.into()),
+            ),
             JsonValue::String(s) => serde_json::Value::String(s),
-            JsonValue::Array(arr) => {
-                serde_json::Value::Array(arr.into_iter().map(Self::convert_sweet_json_to_serde).collect())
-            }
-            JsonValue::Object(obj) => {
-                serde_json::Value::Object(obj.into_iter().map(|(k, v)| (k, Self::convert_sweet_json_to_serde(v))).collect())
-            }
+            JsonValue::Array(arr) => serde_json::Value::Array(
+                arr.into_iter()
+                    .map(Self::convert_sweet_json_to_serde)
+                    .collect(),
+            ),
+            JsonValue::Object(obj) => serde_json::Value::Object(
+                obj.into_iter()
+                    .map(|(k, v)| (k, Self::convert_sweet_json_to_serde(v)))
+                    .collect(),
+            ),
         }
     }
 
     /// Create a code execution input schema
     fn create_code_execution_schema(description: &str) -> JsonValue {
         use crate::domain::agent::role::convert_serde_to_sweet_json;
-        
+
         // Build schema using serde_json macro for clean, type-safe construction
         let schema = serde_json::json!({
             "type": "object",
@@ -398,7 +432,7 @@ impl SweetMcpRouter {
             },
             "required": ["code"]
         });
-        
+
         // Convert serde_json::Value to sweet_mcp_type::JsonValue (simd_json::Value)
         convert_serde_to_sweet_json(schema)
     }

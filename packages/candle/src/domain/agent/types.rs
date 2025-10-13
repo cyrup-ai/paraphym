@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use crate::domain::chat::message::types::CandleMessageRole as MessageRole;
 use crate::domain::context::CandleContext;
-use cyrup_sugars::ZeroOneOrMany as ZeroOneOrMany;
+use cyrup_sugars::ZeroOneOrMany;
 // Type aliases for trait objects
 type Context = Box<dyn CandleContext + Send + Sync>;
 use uuid;
@@ -59,7 +59,7 @@ impl CandleAdditionalParams {
 }
 
 /// Agent helper type for conversation turn callbacks.
-/// Note: This is defined here for legacy compatibility. 
+/// Note: This is defined here for legacy compatibility.
 /// See `CandleAgentRoleAgent` in `domain/agent/role` for the active implementation.
 pub struct AgentRoleAgent;
 

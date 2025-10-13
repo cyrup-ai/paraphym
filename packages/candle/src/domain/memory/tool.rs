@@ -5,7 +5,10 @@
 
 // Removed unused import: std::future::Future
 // Removed unused import: std::pin::Pin
-use std::sync::{atomic::{AtomicUsize, Ordering}, Arc, LazyLock};
+use std::sync::{
+    Arc, LazyLock,
+    atomic::{AtomicUsize, Ordering},
+};
 
 // Ultra-high-performance zero-allocation imports
 // Removed unused import: arrayvec::ArrayVec
@@ -15,11 +18,11 @@ use crossbeam_utils::CachePadded;
 use serde::{Deserialize, Serialize};
 
 // Removed unused import: serde_json::Value
-use super::{Error as MemoryError};
-use crate::memory::core::{SurrealDBMemoryManager, MemoryNode, MemoryType};
+use super::Error as MemoryError;
+use crate::memory::core::{MemoryNode, MemoryType, SurrealDBMemoryManager};
 // Removed unused imports: AsyncStream, AsyncTask, spawn_async
-use crate::domain::error::ZeroAllocError;
 use crate::domain::agent::role::convert_serde_to_sweet_json;
+use crate::domain::error::ZeroAllocError;
 use sweet_mcp_type::ToolInfo;
 
 /// Maximum number of memory nodes in result collections
@@ -114,7 +117,9 @@ impl MemoryTool {
     pub fn new(memory: Arc<SurrealDBMemoryManager>) -> Self {
         let data = ToolInfo {
             name: "memory".to_string(),
-            description: Some("Memory management tool for storing and retrieving information".to_string()),
+            description: Some(
+                "Memory management tool for storing and retrieving information".to_string(),
+            ),
             input_schema: convert_serde_to_sweet_json(serde_json::json!({
                 "type": "object",
                 "properties": {

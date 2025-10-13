@@ -24,8 +24,8 @@ use crate::memory::utils::error::Error;
 use std::path::Path;
 
 // Vector search and embedding imports
-use crate::capability::traits::TextEmbeddingCapable;
 use crate::capability::registry::TextEmbeddingModel;
+use crate::capability::traits::TextEmbeddingCapable;
 use log; // For logging in create_memory
 
 /// Content structure for creating/updating memory nodes (without ID)
@@ -495,7 +495,10 @@ impl SurrealDBMemoryManager {
     /// # Arguments
     /// * `db` - Connected SurrealDB instance
     /// * `embedding_model` - Custom embedding model to use for vector operations
-    pub async fn with_embedding_model(db: Surreal<Any>, embedding_model: TextEmbeddingModel) -> Result<Self> {
+    pub async fn with_embedding_model(
+        db: Surreal<Any>,
+        embedding_model: TextEmbeddingModel,
+    ) -> Result<Self> {
         Ok(Self {
             db,
             embedding_model: Some(embedding_model),
@@ -523,7 +526,9 @@ impl SurrealDBMemoryManager {
     pub async fn with_embeddings(db: Surreal<Any>) -> Result<Self> {
         use crate::capability::registry;
         let default_model: TextEmbeddingModel = registry::get("dunzhang/stella_en_400M_v5")
-            .ok_or_else(|| Error::Config("Default Stella embedding model not found in registry".into()))?;
+            .ok_or_else(|| {
+                Error::Config("Default Stella embedding model not found in registry".into())
+            })?;
         Self::with_embedding_model(db, default_model).await
     }
 

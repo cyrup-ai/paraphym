@@ -1,9 +1,10 @@
-use crossbeam_channel::{unbounded, Sender, Receiver};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
+/// Cognitive processing queue with batching and prioritization
 /// Task types for cognitive processing
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CognitiveTaskType {
@@ -22,7 +23,7 @@ pub enum CognitiveTaskType {
 pub struct CognitiveTask {
     pub memory_id: String,
     pub task_type: CognitiveTaskType,
-    pub priority: u8,  // 0=lowest, 255=highest
+    pub priority: u8, // 0=lowest, 255=highest
     pub created_at: DateTime<Utc>,
 }
 
@@ -84,53 +85,54 @@ impl BatchAccumulator {
     }
 }
 
-/// Lock-free queue for cognitive processing
-#[derive(Clone)]
+/// Async queue for cognitive processing
 pub struct CognitiveProcessingQueue {
-    sender: Sender<CognitiveTask>,
-    receiver: Receiver<CognitiveTask>,
+    sender: UnboundedSender<CognitiveTask>,
+    receiver: Arc<tokio::sync::Mutex<UnboundedReceiver<CognitiveTask>>>,
     // Batch accumulator for CommitteeEvaluation tasks
     batch_accumulator: Arc<Mutex<BatchAccumulator>>,
 }
 
 impl CognitiveProcessingQueue {
-    /// Create new unbounded queue using crossbeam
+    /// Create new unbounded queue using tokio channels
     pub fn new() -> Self {
-        let (sender, receiver) = unbounded();
-        Self { 
-            sender, 
-            receiver,
+        let (sender, receiver) = unbounded_channel();
+        Self {
+            sender,
+            receiver: Arc::new(tokio::sync::Mutex::new(receiver)),
             // Default: batch_size=5, max_wait=2000ms
             batch_accumulator: Arc::new(Mutex::new(BatchAccumulator::new(5, 2000))),
         }
     }
-    
+
     /// Enqueue a task for processing
     pub fn enqueue(&self, task: CognitiveTask) -> Result<(), String> {
-        self.sender.send(task)
+        self.sender
+            .send(task)
             .map_err(|e| format!("Failed to enqueue task: {}", e))
     }
-    
+
     /// Enqueue task with automatic batching for CommitteeEvaluation
     pub fn enqueue_with_batching(&self, task: CognitiveTask) -> Result<(), String> {
         // Only batch CommitteeEvaluation tasks
         if matches!(task.task_type, CognitiveTaskType::CommitteeEvaluation) {
-            let mut accumulator = self.batch_accumulator.lock()
+            let mut accumulator = self
+                .batch_accumulator
+                .lock()
                 .map_err(|e| format!("Lock failed: {}", e))?;
 
             if let Some(batch) = accumulator.add(task) {
                 // Convert to BatchProcessing task
-                let memory_ids: Vec<String> = batch.into_iter()
-                    .map(|t| t.memory_id)
-                    .collect();
+                let memory_ids: Vec<String> = batch.into_iter().map(|t| t.memory_id).collect();
 
                 let batch_task = CognitiveTask::new(
                     format!("batch_{}", memory_ids.len()),
                     CognitiveTaskType::BatchProcessing(memory_ids),
-                    5  // Medium priority
+                    5, // Medium priority
                 );
 
-                self.sender.send(batch_task)
+                self.sender
+                    .send(batch_task)
                     .map_err(|e| format!("Failed to enqueue batch: {}", e))?;
             }
             Ok(())
@@ -142,52 +144,68 @@ impl CognitiveProcessingQueue {
 
     /// Flush any pending batches (call before shutdown)
     pub fn flush_batches(&self) -> Result<(), String> {
-        let mut accumulator = self.batch_accumulator.lock()
+        let mut accumulator = self
+            .batch_accumulator
+            .lock()
             .map_err(|e| format!("Lock failed: {}", e))?;
 
         if let Some(batch) = accumulator.flush() {
-            let memory_ids: Vec<String> = batch.into_iter()
-                .map(|t| t.memory_id)
-                .collect();
+            let memory_ids: Vec<String> = batch.into_iter().map(|t| t.memory_id).collect();
 
             let batch_task = CognitiveTask::new(
                 format!("batch_flush_{}", memory_ids.len()),
                 CognitiveTaskType::BatchProcessing(memory_ids),
-                5
+                5,
             );
 
-            self.sender.send(batch_task)
+            self.sender
+                .send(batch_task)
                 .map_err(|e| format!("Failed to enqueue flush batch: {}", e))?;
         }
         Ok(())
     }
-    
-    /// Dequeue a single task (blocks if empty)
-    pub fn dequeue(&self) -> Result<CognitiveTask, String> {
-        self.receiver.recv()
-            .map_err(|e| format!("Failed to dequeue task: {}", e))
+
+    /// Dequeue a single task (async, yields if empty)
+    pub async fn dequeue(&self) -> Result<CognitiveTask, String> {
+        let mut receiver = self.receiver.lock().await;
+        receiver
+            .recv()
+            .await
+            .ok_or_else(|| "Channel closed".to_string())
     }
-    
+
     /// Try to dequeue without blocking
-    pub fn try_dequeue(&self) -> Option<CognitiveTask> {
-        self.receiver.try_recv().ok()
+    pub async fn try_dequeue(&self) -> Option<CognitiveTask> {
+        let mut receiver = self.receiver.lock().await;
+        receiver.try_recv().ok()
     }
-    
+
     /// Batch dequeue up to `size` tasks
-    pub fn batch_dequeue(&self, size: usize) -> Vec<CognitiveTask> {
+    pub async fn batch_dequeue(&self, size: usize) -> Vec<CognitiveTask> {
         let mut batch = Vec::with_capacity(size);
+        let mut receiver = self.receiver.lock().await;
         for _ in 0..size {
-            match self.receiver.try_recv() {
+            match receiver.try_recv() {
                 Ok(task) => batch.push(task),
                 Err(_) => break,
             }
         }
         batch
     }
-    
+
     /// Get approximate queue depth
+    pub async fn get_depth_async(&self) -> usize {
+        let receiver = self.receiver.lock().await;
+        receiver.len()
+    }
+
+    /// Get approximate queue depth (sync version, tries lock)
     pub fn get_depth(&self) -> usize {
-        self.receiver.len()
+        if let Ok(receiver) = self.receiver.try_lock() {
+            receiver.len()
+        } else {
+            0
+        }
     }
 }
 

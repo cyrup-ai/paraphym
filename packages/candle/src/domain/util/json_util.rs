@@ -93,7 +93,7 @@ pub fn merge_inplace(a: &mut serde_json::Value, b: serde_json::Value) {
 ///
 /// Performance: Inlined serialization, minimal string allocation only when necessary
 pub mod stringified_json {
-    use super::{Serializer, Deserializer, Deserialize};
+    use super::{Deserialize, Deserializer, Serializer};
 
     /// Serialize a `serde_json::Value` as its compact string representation
     /// Performance: Single allocation for string conversion only

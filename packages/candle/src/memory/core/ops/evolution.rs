@@ -11,7 +11,7 @@ use std::fmt::Debug;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use surrealdb::Value;
-use surrealdb::value::{to_value, from_value};
+use surrealdb::value::{from_value, to_value};
 
 use crate::memory::constants::{EMPTY_STRING, METADATA_PREFIX};
 use crate::memory::graph::entity::{BaseEntity, Entity};
@@ -81,7 +81,7 @@ impl TransitionType {
     /// Convert to value
     pub fn to_value(&self) -> Value {
         use surrealdb::value::to_value;
-        
+
         match self {
             TransitionType::Linear => to_value("linear").unwrap_or_default(),
             TransitionType::Branching => to_value("branching").unwrap_or_default(),
@@ -95,7 +95,7 @@ impl TransitionType {
     /// Create from value
     pub fn from_value(value: &Value) -> Result<Self> {
         use surrealdb::value::from_value;
-        
+
         // Convert SurrealDB Value to string and parse
         if let Ok(s) = from_value::<String>(value.clone()) {
             s.parse()
@@ -256,26 +256,39 @@ impl EvolutionTransition {
 
     /// Convert to entity
     pub fn to_entity(&self) -> BaseEntity {
-        let mut entity = BaseEntity::new(self.id.clone(), "memory_evolution_transition".to_string());
+        let mut entity =
+            BaseEntity::new(self.id.clone(), "memory_evolution_transition".to_string());
 
         // Add basic attributes using to_value
-        entity = entity.with_attribute("memory_id", to_value(self.memory_id.clone()).unwrap_or_default());
+        entity = entity.with_attribute(
+            "memory_id",
+            to_value(self.memory_id.clone()).unwrap_or_default(),
+        );
         entity = entity.with_attribute("transition_type", self.transition_type.to_value());
         entity = entity.with_attribute("timestamp", to_value(self.timestamp).unwrap_or_default());
 
         // Add source version IDs
         if !self.source_version_ids.is_empty() {
-            entity = entity.with_attribute("source_version_ids", to_value(self.source_version_ids.clone()).unwrap_or_default());
+            entity = entity.with_attribute(
+                "source_version_ids",
+                to_value(self.source_version_ids.clone()).unwrap_or_default(),
+            );
         }
 
         // Add target version IDs
         if !self.target_version_ids.is_empty() {
-            entity = entity.with_attribute("target_version_ids", to_value(self.target_version_ids.clone()).unwrap_or_default());
+            entity = entity.with_attribute(
+                "target_version_ids",
+                to_value(self.target_version_ids.clone()).unwrap_or_default(),
+            );
         }
 
         // Add description if present
         if let Some(ref description) = self.description {
-            entity = entity.with_attribute("description", to_value(description.clone()).unwrap_or_default());
+            entity = entity.with_attribute(
+                "description",
+                to_value(description.clone()).unwrap_or_default(),
+            );
         }
 
         // Add metadata

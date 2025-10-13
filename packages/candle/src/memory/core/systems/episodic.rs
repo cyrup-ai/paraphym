@@ -8,15 +8,15 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use tokio::sync::RwLock;
 use chrono::{DateTime, Utc};
 use crossbeam_skiplist::SkipMap;
-use ystream::AsyncStream;
-use ystream::channel;
+use cyrup_sugars::prelude::MessageChunk;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use surrealdb::Value;
-use cyrup_sugars::prelude::MessageChunk;
+use tokio::sync::RwLock;
+use ystream::AsyncStream;
+use ystream::channel;
 
 use crate::memory::graph::entity::{BaseEntity, Entity};
 use crate::memory::primitives::metadata::MemoryMetadata;
@@ -166,7 +166,10 @@ impl EpisodicEvent {
     }
 
     /// Create a memory record from this event for efficient serialization
-    pub fn to_memory_record(&self, output_text: &str) -> crate::domain::memory::serialization::MemoryRecord {
+    pub fn to_memory_record(
+        &self,
+        output_text: &str,
+    ) -> crate::domain::memory::serialization::MemoryRecord {
         crate::domain::memory::serialization::MemoryRecord::new(
             &self.content.text,
             output_text,
@@ -231,7 +234,10 @@ impl MemoryType for EpisodicMemory {
 
     fn to_entity(&self) -> BaseEntity {
         BaseEntity::new(self.base.id.clone(), "episodic_memory".to_string())
-            .with_attribute("name", surrealdb::value::to_value(self.base.name.clone()).unwrap_or_default())
+            .with_attribute(
+                "name",
+                surrealdb::value::to_value(self.base.name.clone()).unwrap_or_default(),
+            )
             .with_attribute(
                 "description",
                 surrealdb::value::to_value(self.base.description.clone()).unwrap_or_default(),
@@ -371,16 +377,19 @@ impl EpisodicMemory {
                 let content = match serde_json::to_string(&episodic.base.content) {
                     Ok(content_str) => MemoryContent::text(&content_str),
                     Err(_) => {
-                        let _ = tx.send(EpisodicMemoryChunk::new(Err(crate::memory::utils::error::Error::SerializationError(
-                            "Failed to serialize episodic memory content".to_string(),
-                        ))));
+                        let _ = tx.send(EpisodicMemoryChunk::new(Err(
+                            crate::memory::utils::error::Error::SerializationError(
+                                "Failed to serialize episodic memory content".to_string(),
+                            ),
+                        )));
                         return;
                     }
                 };
 
                 // Calculate content hash for deduplication
-                let content_hash = crate::domain::memory::serialization::content_hash(&content.text);
-                
+                let content_hash =
+                    crate::domain::memory::serialization::content_hash(&content.text);
+
                 let memory_node = MemoryNode {
                     id: episodic.base.id.clone(),
                     content,
@@ -389,13 +398,18 @@ impl EpisodicMemory {
                     created_at: episodic.base.metadata.created_at,
                     updated_at: episodic.base.updated_at,
                     embedding: None,
-                    evaluation_status: crate::memory::monitoring::operations::OperationStatus::Pending,
+                    evaluation_status:
+                        crate::memory::monitoring::operations::OperationStatus::Pending,
                     metadata,
                     relevance_score: None,
                 };
 
                 // Persist memory to repository using write lock
-                let created_memory = match memory_repo.write().await.create(&episodic.base.id, &memory_node) {
+                let created_memory = match memory_repo
+                    .write()
+                    .await
+                    .create(&episodic.base.id, &memory_node)
+                {
                     Ok(memory) => memory,
                     Err(e) => {
                         let _ = tx.send(EpisodicMemoryChunk::new(Err(e)));
@@ -403,20 +417,20 @@ impl EpisodicMemory {
                     }
                 };
                 {
-                        // Convert created MemoryNode to BaseMemory
-                        let mut metadata = MemoryMetadata::with_type(MemoryTypeEnum::Episodic);
-                        metadata.created_at = created_memory.created_at;
-                        // MemoryMetadata doesn't have updated_at field - that's on BaseMemory
+                    // Convert created MemoryNode to BaseMemory
+                    let mut metadata = MemoryMetadata::with_type(MemoryTypeEnum::Episodic);
+                    metadata.created_at = created_memory.created_at;
+                    // MemoryMetadata doesn't have updated_at field - that's on BaseMemory
 
-                        let base_memory = BaseMemory {
-                            id: created_memory.id.clone(),
-                            name: name_string.clone(),
-                            description: description_string.clone(),
-                            updated_at: created_memory.updated_at,
-                            metadata,
-                            content: created_memory.content.clone(),
-                        };
-                        EpisodicMemory::from_memory(&base_memory)
+                    let base_memory = BaseMemory {
+                        id: created_memory.id.clone(),
+                        name: name_string.clone(),
+                        description: description_string.clone(),
+                        updated_at: created_memory.updated_at,
+                        metadata,
+                        content: created_memory.content.clone(),
+                    };
+                    EpisodicMemory::from_memory(&base_memory)
                 }
             };
             let _ = tx.send(EpisodicMemoryChunk::new(result));

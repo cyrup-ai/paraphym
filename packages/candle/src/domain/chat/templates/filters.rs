@@ -79,9 +79,7 @@ impl FilterRegistry {
         self.register(
             "uppercase",
             Arc::new(|value, _args| match value {
-                CandleTemplateValue::String(s) => {
-                    Ok(CandleTemplateValue::String(s.to_uppercase()))
-                }
+                CandleTemplateValue::String(s) => Ok(CandleTemplateValue::String(s.to_uppercase())),
                 _ => Err(CandleTemplateError::RenderError {
                     message: "uppercase filter can only be applied to strings".to_string(),
                 }),
@@ -92,9 +90,7 @@ impl FilterRegistry {
         self.register(
             "lowercase",
             Arc::new(|value, _args| match value {
-                CandleTemplateValue::String(s) => {
-                    Ok(CandleTemplateValue::String(s.to_lowercase()))
-                }
+                CandleTemplateValue::String(s) => Ok(CandleTemplateValue::String(s.to_lowercase())),
                 _ => Err(CandleTemplateError::RenderError {
                     message: "lowercase filter can only be applied to strings".to_string(),
                 }),
@@ -118,11 +114,13 @@ impl FilterRegistry {
         self.register(
             "length",
             Arc::new(|value, _args| match value {
-                CandleTemplateValue::String(s) => {
+                CandleTemplateValue::String(s) =>
+                {
                     #[allow(clippy::cast_precision_loss)]
                     Ok(CandleTemplateValue::Number(s.len() as f64))
                 }
-                CandleTemplateValue::Array(arr) => {
+                CandleTemplateValue::Array(arr) =>
+                {
                     #[allow(clippy::cast_precision_loss)]
                     Ok(CandleTemplateValue::Number(arr.len() as f64))
                 }

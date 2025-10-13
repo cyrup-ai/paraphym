@@ -1,18 +1,16 @@
 use std::fmt;
 use std::marker::PhantomData;
 
-use ystream::AsyncStream;
-use serde::de::DeserializeOwned;
 use cyrup_sugars::prelude::MessageChunk;
+use serde::de::DeserializeOwned;
+use ystream::AsyncStream;
 
-use super::error::{ExtractionError, _ExtractionResult as ExtractionResult};
+use super::error::{_ExtractionResult as ExtractionResult, ExtractionError};
 use crate::builders::completion::CompletionRequestBuilder;
 use crate::capability::traits::TextToTextCapable;
 use crate::domain::{
     chat::message::types::CandleMessageRole as MessageRole,
-    completion::{
-        types::CandleCompletionParams as CompletionParams,
-    },
+    completion::types::CandleCompletionParams as CompletionParams,
     context::chunk::{CandleCompletionChunk, FinishReason},
     prompt::CandlePrompt as Prompt,
 };
@@ -35,7 +33,7 @@ where
 
 /// Implementation of the Extractor trait
 #[derive(Clone)]
-pub struct ExtractorImpl<T, P> 
+pub struct ExtractorImpl<T, P>
 where
     T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + 'static,
     P: TextToTextCapable + Send + Sync + Clone,
@@ -45,7 +43,7 @@ where
     _marker: PhantomData<T>,
 }
 
-impl<T, P> fmt::Debug for ExtractorImpl<T, P> 
+impl<T, P> fmt::Debug for ExtractorImpl<T, P>
 where
     T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + 'static,
     P: TextToTextCapable + Send + Sync + Clone,

@@ -7,11 +7,11 @@ use arc_swap::ArcSwap;
 use crossbeam_channel;
 use crossbeam_utils::CachePadded;
 use cyrup_sugars::prelude::MessageChunk;
-use ystream::AsyncStream;
 use once_cell::sync::Lazy;
+use ystream::AsyncStream;
 
-use crate::domain::memory::MemoryError;
 use crate::AsyncTask;
+use crate::domain::memory::MemoryError;
 
 /// Domain initialization error types with semantic error handling
 #[derive(Debug, Clone, thiserror::Error)]
@@ -158,9 +158,7 @@ impl CircuitBreaker {
 }
 
 /// Execute operation with circuit breaker protection using AsyncStream
-pub fn execute_with_circuit_breaker<F, T, E>(
-    operation: F,
-) -> AsyncStream<DomainResult<T>>
+pub fn execute_with_circuit_breaker<F, T, E>(operation: F) -> AsyncStream<DomainResult<T>>
 where
     F: FnOnce() -> std::result::Result<T, E> + Send + 'static,
     T: Send + 'static,

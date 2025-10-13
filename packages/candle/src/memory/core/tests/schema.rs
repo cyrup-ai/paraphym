@@ -1,9 +1,9 @@
 // src/memory/tests/schema.rs
 //! Tests for the memory schema.
 
-use chrono::Utc;
 use crate::memory::core::primitives::types::MemoryTypeEnum;
 use crate::memory::schema::memory_schema::Memory;
+use chrono::Utc;
 
 #[test]
 fn test_new_memory() {

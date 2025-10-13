@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use cyrup_sugars::{prelude::MessageChunk, ZeroOneOrMany};
+use cyrup_sugars::{ZeroOneOrMany, prelude::MessageChunk};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid;
@@ -253,9 +253,9 @@ impl MessageChunk for CandleJsonChunk {
     }
 }
 
-impl<T> Default for CandleCollectionChunk<T> 
-where 
-    T: Default 
+impl<T> Default for CandleCollectionChunk<T>
+where
+    T: Default,
 {
     fn default() -> Self {
         CandleCollectionChunk {
@@ -265,9 +265,9 @@ where
     }
 }
 
-impl<T> MessageChunk for CandleCollectionChunk<T> 
-where 
-    T: Default 
+impl<T> MessageChunk for CandleCollectionChunk<T>
+where
+    T: Default,
 {
     fn bad_chunk(error: String) -> Self {
         CandleCollectionChunk {
@@ -530,10 +530,6 @@ impl MessageChunk for CandleUnit {
         None
     }
 }
-
-
-
-
 
 // Removed orphan rule violating implementations for (A, B) tuple types
 // Use CandleTuple<A, B> wrapper type instead
@@ -998,9 +994,9 @@ impl<T: Default> Default for CandleZeroOneOrManyChunk<T> {
     }
 }
 
-impl<T> MessageChunk for CandleZeroOneOrManyChunk<T> 
-where 
-    T: Default + Clone
+impl<T> MessageChunk for CandleZeroOneOrManyChunk<T>
+where
+    T: Default + Clone,
 {
     fn bad_chunk(_error: String) -> Self {
         CandleZeroOneOrManyChunk(ZeroOneOrMany::None)
@@ -1111,11 +1107,10 @@ impl From<ZeroOneOrManyF32Chunk> for cyrup_sugars::ZeroOneOrMany<f32> {
 }
 
 // Note: Orphan rule violations removed - use wrapper types instead:
-// - Use CandleUnit for () 
+// - Use CandleUnit for ()
 // - Use CandleStringChunk for String
 // - Use CandleUuidChunk for Uuid
 // - Use CandleBoolChunk for bool
 // - Use CandleDurationChunk for Duration
 // - Use CandleDateTimeChunk for DateTime<Utc>
 // - Use ZeroOneOrManyF32Chunk for ZeroOneOrMany<f32>
-

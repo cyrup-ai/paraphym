@@ -14,11 +14,11 @@ pub mod tests;
 
 // Re-export main types
 pub use health::*;
+use log::{error, warn};
 pub use memory_usage::*;
 pub use metrics::*;
 pub use operations::*;
 pub use performance::*;
-use log::{error, warn};
 use prometheus::{Counter, CounterVec, Gauge, GaugeVec, Histogram, HistogramVec, Registry};
 
 /// Monitoring system for mem0

@@ -3,15 +3,15 @@
 //! Provides ultra-performant command type system with focused, single-responsibility
 //! submodules using owned strings allocated once for maximum performance.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crossbeam_skiplist::SkipMap;
 
 // Re-export all submodule types for convenient access - zero allocation re-exports
 pub use self::{
-    actions::*, code_execution::*, commands::*, errors::*, events::*, metadata::ResourceUsage, metadata::*,
-    parameters::*,
+    actions::*, code_execution::*, commands::*, errors::*, events::*, metadata::ResourceUsage,
+    metadata::*, parameters::*,
 };
 use crate::AsyncStream;
 

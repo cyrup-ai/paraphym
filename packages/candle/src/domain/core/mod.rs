@@ -1,15 +1,14 @@
 //! Core domain types and traits
 
-use std::sync::{atomic::AtomicUsize, LazyLock};
+use std::sync::{LazyLock, atomic::AtomicUsize};
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
 use crossbeam_channel;
 use crossbeam_utils::CachePadded;
 
-
-use crate::domain::memory::primitives::types::MemoryError;
 use crate::AsyncTask;
+use crate::domain::memory::primitives::types::MemoryError;
 
 /// Domain initialization error types with semantic error handling
 #[derive(Debug, thiserror::Error)]

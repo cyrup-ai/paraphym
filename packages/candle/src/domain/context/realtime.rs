@@ -4,10 +4,10 @@
 //! when files change on disk. Uses the `notify` crate for cross-platform file
 //! system event monitoring.
 
+use crossbeam_channel::{Receiver, Sender, bounded};
+use log::{debug, error};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::PathBuf;
-use crossbeam_channel::{bounded, Receiver, Sender};
-use log::{debug, error};
 
 /// Events representing file system changes
 #[derive(Debug, Clone)]
@@ -55,34 +55,31 @@ impl RealtimeContextProvider {
     /// - Any of the paths cannot be watched (permissions, doesn't exist, etc.)
     pub fn enable_realtime_updates(&mut self, paths: Vec<PathBuf>) -> anyhow::Result<()> {
         let event_tx = self.event_tx.clone();
-        
-        let mut watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
-            match res {
-                Ok(event) => {
-                    match event.kind {
-                        EventKind::Modify(_) => {
-                            for path in event.paths {
-                                let _ = event_tx.send(ContextUpdateEvent::FileModified(path));
-                            }
+
+        let mut watcher =
+            notify::recommended_watcher(move |res: Result<Event, notify::Error>| match res {
+                Ok(event) => match event.kind {
+                    EventKind::Modify(_) => {
+                        for path in event.paths {
+                            let _ = event_tx.send(ContextUpdateEvent::FileModified(path));
                         }
-                        EventKind::Create(_) => {
-                            for path in event.paths {
-                                let _ = event_tx.send(ContextUpdateEvent::FileCreated(path));
-                            }
-                        }
-                        EventKind::Remove(_) => {
-                            for path in event.paths {
-                                let _ = event_tx.send(ContextUpdateEvent::FileDeleted(path));
-                            }
-                        }
-                        _ => {}
                     }
-                }
+                    EventKind::Create(_) => {
+                        for path in event.paths {
+                            let _ = event_tx.send(ContextUpdateEvent::FileCreated(path));
+                        }
+                    }
+                    EventKind::Remove(_) => {
+                        for path in event.paths {
+                            let _ = event_tx.send(ContextUpdateEvent::FileDeleted(path));
+                        }
+                    }
+                    _ => {}
+                },
                 Err(e) => {
                     error!("File watch error: {e:?}");
                 }
-            }
-        })?;
+            })?;
 
         // Watch all specified paths
         for path in &paths {
@@ -109,7 +106,7 @@ impl RealtimeContextProvider {
         F: Fn(ContextUpdateEvent) + Send + 'static,
     {
         let rx = self.event_rx.clone();
-        
+
         tokio::spawn(async move {
             while let Ok(event) = rx.recv() {
                 debug!("Context update event: {event:?}");

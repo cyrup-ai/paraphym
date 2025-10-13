@@ -5,8 +5,8 @@
 
 //   // Removed unused import
 
-use serde::{Deserialize, Serialize};
 use cyrup_sugars::prelude::MessageChunk;
+use serde::{Deserialize, Serialize};
 
 use crate::domain::chat::message::types::CandleMessage as Message;
 use crate::domain::util::unix_timestamp_nanos;
@@ -98,9 +98,11 @@ impl MessageChunk for RealTimeEvent {
 
     fn error(&self) -> Option<&str> {
         match self {
-            RealTimeEvent::SystemNotification { message, level: NotificationLevel::Error, .. } => {
-                Some(message)
-            }
+            RealTimeEvent::SystemNotification {
+                message,
+                level: NotificationLevel::Error,
+                ..
+            } => Some(message),
             _ => None,
         }
     }
@@ -507,9 +509,10 @@ impl EventFilter {
             };
 
             if let Some(user_id) = event_user_id
-                && user_id != filter_user_id {
-                    return false;
-                }
+                && user_id != filter_user_id
+            {
+                return false;
+            }
         }
 
         // Check session ID filter
@@ -527,23 +530,26 @@ impl EventFilter {
             };
 
             if let Some(session_id) = event_session_id
-                && session_id != filter_session_id {
-                    return false;
-                }
+                && session_id != filter_session_id
+            {
+                return false;
+            }
         }
 
         // Check event type filter
         if let Some(filter_types) = &self.event_types
-            && !filter_types.contains(&event.event_type()) {
-                return false;
-            }
+            && !filter_types.contains(&event.event_type())
+        {
+            return false;
+        }
 
         // Check notification level filter
         if let Some(min_level) = &self.min_notification_level
             && let RealTimeEvent::SystemNotification { level, .. } = event
-            && level.priority() < min_level.priority() {
-                return false;
-            }
+            && level.priority() < min_level.priority()
+        {
+            return false;
+        }
 
         // Check timestamp range filter
         if let Some((start, end)) = &self.timestamp_range {

@@ -5,8 +5,8 @@ use cyrup_sugars::prelude::MessageChunk;
 
 use thiserror::Error;
 
-use crate::memory::core::{MemoryNode};
 use crate::domain::memory::{Error as MemoryError, MemoryToolError};
+use crate::memory::core::MemoryNode;
 
 /// Maximum number of relevant memories for context injection
 const MAX_RELEVANT_MEMORIES: usize = 10;
@@ -111,8 +111,6 @@ impl MessageChunk for MemoryEnhancedChatResponse {
         }
     }
 }
-
-
 
 // LEGACY: This entire impl block for the deleted CandleAgentRoleImpl struct has been commented out
 /*
@@ -359,7 +357,7 @@ impl CandleAgentRoleImpl {
     fn memory_node_to_retrieval_result(memory_node: &MemoryNode) -> RetrievalResult {
         let score = memory_node.relevance_score
             .unwrap_or(memory_node.metadata.importance);
-        
+
         let mut metadata = std::collections::HashMap::new();
         metadata.insert("content".to_string(), serde_json::Value::String(
             memory_node.content.text.clone()
@@ -405,56 +403,44 @@ impl CandleAgentRoleImpl {
         let memory_manager_clone = memory_manager.clone();
 
         ystream::AsyncStream::with_channel(move |sender| {
-            // Use MemoryManager's HIGH-LEVEL API - it handles EVERYTHING internally:
-            // - Embedding generation
-            // - Quantum routing to decide search strategy 
-            // - Vector similarity search with cosine scores
-            // - Temporal decay
-            // - Result ranking
-            let memory_stream = memory_manager_clone.search_by_content(&message);
-
-            // Collect results from the sophisticated memory system
-            let (retrieval_tx, mut retrieval_rx) = tokio::sync::mpsc::channel::<Result<Vec<RetrievalResult>, String>>(1);
-
+            // Spawn single async task to handle all async operations without blocking
             tokio::spawn(async move {
-                use futures_util::StreamExt;
-                
-                let mut stream = memory_stream;
-                let mut results = Vec::new();
-                
-                // Collect up to MAX_RELEVANT_MEMORIES from the stream
-                while let Some(memory_result) = stream.next().await {
-                    if results.len() >= MAX_RELEVANT_MEMORIES {
-                        break;
+                // Use MemoryManager's HIGH-LEVEL API - it handles EVERYTHING internally:
+                // - Embedding generation
+                // - Quantum routing to decide search strategy
+                // - Vector similarity search with cosine scores
+                // - Temporal decay
+                // - Result ranking
+                let memory_stream = memory_manager_clone.search_by_content(&message);
+
+                // Collect results from the sophisticated memory system
+                let (retrieval_tx, mut retrieval_rx) = tokio::sync::mpsc::channel::<Result<Vec<RetrievalResult>, String>>(1);
+
+                tokio::spawn(async move {
+                    use futures_util::StreamExt;
+
+                    let mut stream = memory_stream;
+                    let mut results = Vec::new();
+
+                    // Collect up to MAX_RELEVANT_MEMORIES from the stream
+                    while let Some(memory_result) = stream.next().await {
+                        if results.len() >= MAX_RELEVANT_MEMORIES {
+                            break;
+                        }
+
+                        if let Ok(memory_node) = memory_result {
+                            results.push(Self::memory_node_to_retrieval_result(&memory_node));
+                        }
                     }
-                    
-                    if let Ok(memory_node) = memory_result {
-                        results.push(Self::memory_node_to_retrieval_result(&memory_node));
-                    }
-                }
-                
-                let _ = retrieval_tx.send(Ok(results)).await;
-            });
 
-            // Receive results with configurable timeout
-            let timeout_ms = Self::get_memory_timeout_ms(timeout_ms);
+                    let _ = retrieval_tx.send(Ok(results)).await;
+                });
 
-            // Use shared runtime instead of Handle::current() to avoid nested runtime error
-            let Some(runtime) = crate::runtime::shared_runtime() else {
-                log::error!("Runtime unavailable for memory retrieval");
-                let result = ContextInjectionResult {
-                    injected_context: String::new(),
-                    relevance_score: 0.0,
-                    memory_nodes_used: 0,
-                };
-                let _ = sender.send(result);
-                return;
-            };
-
-            let retrieval_results = runtime.block_on(async {
+                // Receive results with configurable timeout (async, yields instead of blocking)
+                let timeout_ms = Self::get_memory_timeout_ms(timeout_ms);
                 let timeout_duration = std::time::Duration::from_millis(timeout_ms);
-                
-                match tokio::time::timeout(timeout_duration, retrieval_rx.recv()).await {
+
+                let retrieval_results = match tokio::time::timeout(timeout_duration, retrieval_rx.recv()).await {
                     Ok(Some(Ok(results))) => results,
                     Ok(Some(Err(e))) => {
                         log::error!("Memory retrieval failed: {e}");
@@ -470,29 +456,29 @@ impl CandleAgentRoleImpl {
                         );
                         Vec::new()
                     }
-                }
+                };
+
+                let memory_nodes_used = retrieval_results.len();
+                let avg_relevance_score = Self::calculate_avg_relevance(&retrieval_results);
+
+                // Use PromptFormatter to format memories properly
+                let formatter = PromptFormatter::new()
+                    .with_max_memory_length(Some(2000))
+                    .with_headers(true);
+
+                let memories_zero_one_many = ZeroOneOrMany::from(retrieval_results);
+
+                let injected_context = formatter.format_memory_section(&memories_zero_one_many)
+                    .unwrap_or_default();
+
+                let result = ContextInjectionResult {
+                    injected_context,
+                    relevance_score: avg_relevance_score,
+                    memory_nodes_used,
+                };
+
+                let _ = sender.send(result);
             });
-
-            let memory_nodes_used = retrieval_results.len();
-            let avg_relevance_score = Self::calculate_avg_relevance(&retrieval_results);
-
-            // Use PromptFormatter to format memories properly
-            let formatter = PromptFormatter::new()
-                .with_max_memory_length(Some(2000))
-                .with_headers(true);
-            
-            let memories_zero_one_many = ZeroOneOrMany::from(retrieval_results);
-            
-            let injected_context = formatter.format_memory_section(&memories_zero_one_many)
-                .unwrap_or_default();
-
-            let result = ContextInjectionResult {
-                injected_context,
-                relevance_score: avg_relevance_score,
-                memory_nodes_used,
-            };
-
-            let _ = sender.send(result);
         })
     }
 

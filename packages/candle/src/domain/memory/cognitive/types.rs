@@ -1,7 +1,7 @@
 // Removed unused import: std::collections::HashMap
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::RwLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
 
 use crossbeam_queue::SegQueue;
@@ -224,7 +224,7 @@ impl AtomicAttentionWeights {
     pub fn update_from_energy(&self, energy: f32) {
         let clamped = energy.clamp(0.0, 1.0);
         self.set_primary(clamped);
-        
+
         // Reduce other weights proportionally
         let remaining = 1.0 - clamped;
         self.set_secondary(remaining * 0.5);
@@ -734,19 +734,23 @@ impl QuantumSignature {
         entanglement_type: EntanglementType,
     ) -> CognitiveResult<()> {
         let bond = EntanglementBond::new(target_id, bond_strength, entanglement_type);
-        
+
         // Use write lock for interior mutability
         // Lock is held only during the push operation, then immediately released
         self.entanglement_bonds
             .write()
-            .map_err(|e| CognitiveError::LockPoisoned(format!("Failed to acquire write lock for entanglement bonds: {e}")))?
+            .map_err(|e| {
+                CognitiveError::LockPoisoned(format!(
+                    "Failed to acquire write lock for entanglement bonds: {e}"
+                ))
+            })?
             .push(bond);
-        
+
         Ok(())
     }
 
     /// Get all entanglement bonds
-    /// 
+    ///
     /// # Errors
     ///
     /// Returns `CognitiveError::LockPoisoned` if the entanglement bonds `RwLock` is poisoned
@@ -756,7 +760,11 @@ impl QuantumSignature {
         self.entanglement_bonds
             .read()
             .map(|bonds| bonds.clone())
-            .map_err(|e| CognitiveError::LockPoisoned(format!("Failed to acquire read lock for entanglement bonds: {e}")))
+            .map_err(|e| {
+                CognitiveError::LockPoisoned(format!(
+                    "Failed to acquire read lock for entanglement bonds: {e}"
+                ))
+            })
     }
 
     /// Get coherence fingerprint for quantum state access
@@ -1234,7 +1242,7 @@ impl CognitiveState {
             );
             return false;
         }
-        
+
         // Create the actual entanglement bond in quantum signature
         if let Err(e) = self.quantum_signature.create_entanglement_bond(
             target_id,
@@ -1244,14 +1252,14 @@ impl CognitiveState {
             log::error!("Failed to create entanglement bond: {e}");
             return false;
         }
-        
+
         // Record the quantum operation for statistics
         self.stats.record_quantum_operation();
-        
+
         log::debug!(
             "Created quantum entanglement bond to {target_id} with strength {bond_strength} and type {entanglement_type:?}"
         );
-        
+
         true
     }
 
@@ -1292,7 +1300,7 @@ impl CognitiveState {
     }
 
     /// Create cognitive state with existing quantum signature
-    /// 
+    ///
     /// Used for deserializing persisted cognitive states with their quantum signatures.
     #[inline]
     #[must_use]
@@ -1329,15 +1337,14 @@ impl CognitiveState {
                 got: stimulus.len(),
             });
         }
-        
+
         // Update using existing infrastructure
         self.activation_pattern.update(stimulus.to_vec());
-        
+
         // Apply sigmoid activation: 1 / (1 + exp(-x))
-        self.activation_pattern.apply_activation(|x| {
-            1.0 / (1.0 + (-x).exp())
-        });
-        
+        self.activation_pattern
+            .apply_activation(|x| 1.0 / (1.0 + (-x).exp()));
+
         // Calculate energy and update attention weights with maximum precision
         let energy = self.activation_pattern.energy(); // Returns f32
 
@@ -1346,6 +1353,10 @@ impl CognitiveState {
         // while maintaining compatibility with f32-based attention weights API
 
         // Convert to f64 for high-precision intermediate calculation
+        // Using saturating cast to handle potential overflow safely
+        // APPROVED BY DAVID MAPLE on 2025-10-13
+        #[allow(clippy::cast_precision_loss)]
+        // Deliberate: f64 maintains sufficient precision for typical dimensions (128-8192)
         let dimension_f64 = self.activation_pattern.dimension as f64;
         let energy_f64 = f64::from(energy); // Safe conversion f32 -> f64
 
@@ -1361,11 +1372,13 @@ impl CognitiveState {
 
         // Perform precise f64 division, then convert to f32 for attention weights
         // The division happens at full f64 precision, avoiding the clippy warning
-        let normalized_energy = ((energy_f64 / dimension_f64) as f32)
-            .clamp(0.0, 1.0);
+        // APPROVED BY DAVID MAPLE on 2025-10-13
+        #[allow(clippy::cast_possible_truncation)]
+        // Deliberate: result is clamped to [0.0, 1.0] which fits in f32
+        let normalized_energy = ((energy_f64 / dimension_f64) as f32).clamp(0.0, 1.0);
 
         self.attention_weights.update_from_energy(normalized_energy);
-        
+
         Ok(())
     }
 
@@ -1380,20 +1393,19 @@ impl CognitiveState {
     #[must_use]
     pub fn should_consolidate_to_longterm(&self, memory: &WorkingMemoryItem) -> bool {
         // Get temporal context (locked briefly for read)
-        let _temporal_ctx = &*self.temporal_context;
-        
+        let temporal_ctx = &*self.temporal_context;
+
         // Calculate age since temporal window started
-        let age = memory.created_at
-            .duration_since(_temporal_ctx.window_start)
+        let age = memory
+            .created_at
+            .duration_since(temporal_ctx.window_start)
             .unwrap_or(Duration::ZERO);
-        
+
         // Consolidation criteria
-        let age_threshold = Duration::from_secs(300);  // 5 minutes
+        let age_threshold = Duration::from_secs(300); // 5 minutes
         let access_threshold = 3;
-        
-        age >= age_threshold 
-            && memory.access_count >= access_threshold
-            && !memory.is_transient
+
+        age >= age_threshold && memory.access_count >= access_threshold && !memory.is_transient
     }
 
     /// Update temporal window using existing `slide_window` infrastructure
@@ -1416,17 +1428,11 @@ impl CognitiveState {
     /// * `source_id` - Source memory ID
     /// * `target_id` - Target memory ID  
     /// * `strength` - Causal strength [0.0, 1.0]
-    pub fn add_temporal_causal_link(
-        &mut self,
-        source_id: Uuid,
-        target_id: Uuid,
-        strength: f32,
-    ) {
+    pub fn add_temporal_causal_link(&mut self, source_id: Uuid, target_id: Uuid, strength: f32) {
         // Calculate temporal distance (milliseconds)
         // For now, use sequence-based distance as proxy
-        let _temporal_ctx = &*self.temporal_context;
         let temporal_distance = 0i64; // Placeholder - would need memory timestamp lookup
-        
+
         // Create causal link
         let link = CausalLink::new(
             source_id,
@@ -1434,7 +1440,7 @@ impl CognitiveState {
             strength.clamp(0.0, 1.0),
             temporal_distance,
         );
-        
+
         // Add using existing infrastructure
         let temporal_ctx_mut = Arc::make_mut(&mut self.temporal_context);
         let ctx_mut = &mut **temporal_ctx_mut;
@@ -1859,36 +1865,36 @@ impl PatternMatcher {
         if input.is_empty() {
             return Ok(0.0);
         }
-        
+
         if self.patterns.is_empty() {
             return Ok(0.0);
         }
-        
+
         // Find best matching pattern using SIMD-optimized cosine similarity
         let mut best_similarity = -1.0f32; // Start at minimum possible value
-        
+
         for stored_pattern in &self.patterns {
             // Skip dimension mismatches
             if stored_pattern.len() != input.len() {
                 continue;
             }
-            
+
             // Check for zero-magnitude vectors
             let input_magnitude: f32 = input.iter().map(|x| x * x).sum::<f32>().sqrt();
             let pattern_magnitude: f32 = stored_pattern.iter().map(|x| x * x).sum::<f32>().sqrt();
-            
+
             if input_magnitude == 0.0 || pattern_magnitude == 0.0 {
                 continue;
             }
-            
+
             // Use SIMD-optimized cosine similarity from paraphym_simd
             let similarity = cosine_similarity(input, stored_pattern);
             best_similarity = best_similarity.max(similarity);
         }
-        
+
         // Normalize from [-1, 1] to [0, 1] range for threshold comparison
         let normalized_strength = f32::midpoint(best_similarity, 1.0);
-        
+
         if normalized_strength >= self.threshold {
             Ok(normalized_strength)
         } else {

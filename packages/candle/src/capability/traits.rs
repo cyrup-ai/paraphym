@@ -9,14 +9,14 @@
 //! - SpeechToText
 //! - Vision
 
-use ystream::AsyncStream;
-use candle_core::Device;
-use crate::domain::prompt::CandlePrompt;
-use crate::domain::completion::types::CandleCompletionParams;
 use crate::domain::completion::CandleCompletionChunk;
+use crate::domain::completion::types::CandleCompletionParams;
 use crate::domain::context::chunk::CandleStringChunk;
+use crate::domain::image_generation::{ImageGenerationChunk, ImageGenerationConfig};
 use crate::domain::model::traits::{CandleModel, GenerationParams};
-use crate::domain::image_generation::{ImageGenerationConfig, ImageGenerationChunk};
+use crate::domain::prompt::CandlePrompt;
+use candle_core::Device;
+use ystream::AsyncStream;
 
 /// Trait for models capable of text-to-text generation
 pub trait TextToTextCapable: CandleModel {
@@ -41,54 +41,70 @@ pub trait TextToTextCapable: CandleModel {
 /// Trait for models capable of text embedding
 pub trait TextEmbeddingCapable: CandleModel {
     /// Generate embedding for a single text
-    fn embed(&self, text: &str, task: Option<String>) 
-        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>;
-    
+    fn embed(
+        &self,
+        text: &str,
+        task: Option<String>,
+    ) -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>;
+
     /// Generate embeddings for multiple texts in batch
-    fn batch_embed(&self, texts: &[String], task: Option<String>) 
-        -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>>;
-    
+    fn batch_embed(
+        &self,
+        texts: &[String],
+        task: Option<String>,
+    ) -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>>;
+
     /// Get the dimensionality of embeddings produced by this model
     fn embedding_dimension(&self) -> usize;
-    
+
     /// Get the supported embedding dimensions for this model
     fn supported_dimensions(&self) -> Vec<usize> {
         vec![self.embedding_dimension()]
     }
-    
+
     /// Get the recommended batch size for optimal performance
     fn recommended_batch_size(&self) -> usize {
         16
     }
-    
+
     /// Get the maximum batch size supported
     fn max_batch_size(&self) -> usize {
         128
     }
-    
+
     /// Check if this model supports a specific dimension size
     fn supports_dimension(&self, dim: usize) -> bool {
         self.supported_dimensions().contains(&dim)
     }
-    
+
     /// Validate a dimension request
-    fn validate_dimension_request(&self, dim: usize) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    fn validate_dimension_request(
+        &self,
+        dim: usize,
+    ) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if self.supports_dimension(dim) {
             return Ok(());
         }
         let supported = self.supported_dimensions();
-        let supported_str = supported.iter()
+        let supported_str = supported
+            .iter()
             .map(|d| d.to_string())
             .collect::<Vec<_>>()
             .join(", ");
         Err(format!(
             "Model '{}' does not support {}D embeddings. Supported dimensions: [{}]",
-            self.name(), dim, supported_str
-        ).into())
+            self.name(),
+            dim,
+            supported_str
+        )
+        .into())
     }
-    
+
     /// Validate input text before processing
-    fn validate_input(&self, text: &str) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    fn validate_input(
+        &self,
+        text: &str,
+    ) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if text.is_empty() {
             return Err("Input text cannot be empty".into());
         }
@@ -97,9 +113,12 @@ pub trait TextEmbeddingCapable: CandleModel {
         }
         Ok(())
     }
-    
+
     /// Validate a batch of texts
-    fn validate_batch(&self, texts: &[String]) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    fn validate_batch(
+        &self,
+        texts: &[String],
+    ) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if texts.is_empty() {
             return Err("Batch cannot be empty".into());
         }
@@ -107,40 +126,46 @@ pub trait TextEmbeddingCapable: CandleModel {
             return Err("Batch size exceeds maximum (10,000 texts)".into());
         }
         for (index, text) in texts.iter().enumerate() {
-            self.validate_input(text).map_err(|e| {
-                format!("Text at index {} failed validation: {}", index, e)
-            })?;
+            self.validate_input(text)
+                .map_err(|e| format!("Text at index {} failed validation: {}", index, e))?;
         }
         Ok(())
     }
-    
+
     /// Get model configuration information
     fn config_info(&self) -> std::collections::HashMap<String, String> {
         let mut info = std::collections::HashMap::new();
         info.insert("name".to_string(), self.name().to_string());
-        info.insert("dimension".to_string(), self.embedding_dimension().to_string());
+        info.insert(
+            "dimension".to_string(),
+            self.embedding_dimension().to_string(),
+        );
         info
     }
-    
+
     /// Check if this model supports the specified task type
     fn supports_task(&self, _task: &str) -> bool {
         true
     }
-    
+
     /// Check if the model is ready for processing
     fn health_check(&self) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
-    
+
     /// Estimate memory usage for a batch operation
     fn estimate_memory_usage(&self, batch_size: usize) -> usize {
         let text_memory = batch_size * 1024;
         let embedding_memory = batch_size * self.embedding_dimension() * std::mem::size_of::<f32>();
         text_memory + embedding_memory
     }
-    
+
     /// Process texts in chunks to avoid memory/performance issues
-    fn chunked_batch_embed(&self, texts: &[String], task: Option<String>) -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> {
+    fn chunked_batch_embed(
+        &self,
+        texts: &[String],
+        task: Option<String>,
+    ) -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> {
         if texts.is_empty() {
             return Ok(Vec::new());
         }
@@ -155,23 +180,30 @@ pub trait TextEmbeddingCapable: CandleModel {
 }
 
 /// Trait for models capable of image embedding
-#[async_trait::async_trait(?Send)]
 pub trait ImageEmbeddingCapable: CandleModel {
     /// Generate embedding for an image from file path
-    async fn embed_image(&self, image_path: &str)
-        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>;
+    fn embed_image(
+        &self,
+        image_path: &str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>>;
 
     /// Generate embedding for an image from URL
-    async fn embed_image_url(&self, url: &str)
-        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>;
+    fn embed_image_url(
+        &self,
+        url: &str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>>;
 
     /// Generate embedding for an image from base64-encoded data
-    async fn embed_image_base64(&self, base64_data: &str)
-        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>;
+    fn embed_image_base64(
+        &self,
+        base64_data: &str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>>;
 
     /// Generate embeddings for multiple images in batch
-    async fn batch_embed_images(&self, image_paths: Vec<&str>)
-        -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>>;
+    fn batch_embed_images(
+        &self,
+        image_paths: Vec<&str>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>>;
 
     /// Get the dimensionality of embeddings produced by this model
     fn embedding_dimension(&self) -> usize;
@@ -185,12 +217,10 @@ pub trait ImageEmbeddingCapable: CandleModel {
 /// Trait for models capable of vision/multimodal understanding
 pub trait VisionCapable: CandleModel {
     /// Describe an image with a text query, streaming tokens as generated
-    fn describe_image(&self, image_path: &str, query: &str)
-        -> AsyncStream<CandleStringChunk>;
+    fn describe_image(&self, image_path: &str, query: &str) -> AsyncStream<CandleStringChunk>;
 
     /// Describe an image from URL with a text query, streaming tokens as generated
-    fn describe_url(&self, url: &str, query: &str)
-        -> AsyncStream<CandleStringChunk>;
+    fn describe_url(&self, url: &str, query: &str) -> AsyncStream<CandleStringChunk>;
 }
 
 /// Trait for models capable of text-to-image generation
@@ -202,10 +232,10 @@ pub trait TextToImageCapable: CandleModel {
         config: &ImageGenerationConfig,
         device: &Device,
     ) -> AsyncStream<ImageGenerationChunk>;
-    
+
     /// Get the model's name
     fn registry_key(&self) -> &str;
-    
+
     /// Get the default number of generation steps
     fn default_steps(&self) -> usize {
         50

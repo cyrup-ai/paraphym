@@ -2,17 +2,17 @@ use std::fmt;
 
 #[derive(Debug, Clone)]
 pub enum PoolError {
-    NoWorkers(String),           // No workers spawned for registry_key
-    Timeout(String),             // Request timed out after N seconds
-    SendError(String),           // Failed to send request to worker
-    RecvError(String),           // Failed to receive response from worker
-    ModelError(String),          // Model inference error
-    ShuttingDown(String),        // Pool shutting down, rejecting requests
-    MemoryExhausted(String),     // Cannot spawn worker, 80% limit reached
-    SpawnFailed(String),         // Worker thread spawn failed
-    SpawnTimeout(String),        // Timeout waiting for another thread to spawn workers
-    CircuitOpen(String),         // Circuit breaker open, rejecting requests
-    RuntimeUnavailable,          // Shared runtime not available for async operations
+    NoWorkers(String),       // No workers spawned for registry_key
+    Timeout(String),         // Request timed out after N seconds
+    SendError(String),       // Failed to send request to worker
+    RecvError(String),       // Failed to receive response from worker
+    ModelError(String),      // Model inference error
+    ShuttingDown(String),    // Pool shutting down, rejecting requests
+    MemoryExhausted(String), // Cannot spawn worker, 80% limit reached
+    SpawnFailed(String),     // Worker thread spawn failed
+    SpawnTimeout(String),    // Timeout waiting for another thread to spawn workers
+    CircuitOpen(String),     // Circuit breaker open, rejecting requests
+    RuntimeUnavailable,      // Shared runtime not available for async operations
 }
 
 impl fmt::Display for PoolError {

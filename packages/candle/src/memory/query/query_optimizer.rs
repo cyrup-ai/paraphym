@@ -105,7 +105,9 @@ impl QueryOptimizer {
         query_type: QueryType,
         fields: &[String],
     ) -> Option<&IndexInfo> {
-        self.available_indexes.values().find(|&index| self.can_use_index_for_query(index, query_type, fields))
+        self.available_indexes
+            .values()
+            .find(|&index| self.can_use_index_for_query(index, query_type, fields))
     }
 
     /// Check if index can serve query (adapted from IndexAwareQueryPlanner)

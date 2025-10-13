@@ -16,8 +16,8 @@ use crossbeam_channel::unbounded;
 use serde::{Deserialize, Serialize};
 use surrealdb::Value;
 
-use crate::capability::traits::TextEmbeddingCapable;
 use crate::capability::registry::TextEmbeddingModel;
+use crate::capability::traits::TextEmbeddingCapable;
 use crate::memory::constants::SEARCH_TASK;
 use crate::memory::utils::error::Result;
 use crate::memory::vector::vector_store::VectorStore;

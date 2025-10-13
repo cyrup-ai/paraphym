@@ -3,11 +3,11 @@
 //! This module provides `ensure_workers_spawned()` which encapsulates the
 //! decision logic for spawning workers that was previously duplicated 42+ times.
 
+use super::memory_governor::{AllocationGuard, MemoryGovernor};
 use super::{Pool, PoolError, SpawnGuard};
-use super::memory_governor::{MemoryGovernor, AllocationGuard};
-use std::time::Duration;
 use std::sync::Arc;
-use tracing::{info, warn, debug, instrument};
+use std::time::Duration;
+use tracing::{debug, info, instrument, warn};
 
 /// Ensure workers are spawned for a model (cold-start helper with race protection)
 ///
@@ -90,9 +90,9 @@ where
             let allocation_guard = governor
                 .try_allocate(per_worker_mb)
                 .map_err(|e| PoolError::MemoryExhausted(e.to_string()))?;
-            
+
             spawn_fn(worker_idx, allocation_guard)?;
-            
+
             // Guard transferred to worker thread, will drop when worker exits
         }
 
@@ -138,11 +138,8 @@ where
     F: Fn(usize, AllocationGuard) -> Result<(), PoolError>,
 {
     let worker_count = pool.worker_count(registry_key);
-    
-    debug!(
-        worker_count = worker_count,
-        "Adaptive scaling check"
-    );
+
+    debug!(worker_count = worker_count, "Adaptive scaling check");
 
     // Cold start: spawn 1-2 workers
     if worker_count == 0 {
@@ -179,7 +176,7 @@ where
                 let allocation_guard = governor
                     .try_allocate(per_worker_mb)
                     .map_err(|e| PoolError::MemoryExhausted(e.to_string()))?;
-                
+
                 spawn_fn(worker_idx, allocation_guard)?;
             }
 
@@ -194,31 +191,29 @@ where
         let busy_count = pool.busy_worker_count(registry_key);
 
         // If all workers are busy, try to spawn one more
-        if busy_count >= worker_count {
-            if let Some(_guard) = pool.try_acquire_spawn_lock(registry_key) {
-                // Double-check after acquiring lock
-                let current_count = pool.worker_count(registry_key);
-                let current_busy = pool.busy_worker_count(registry_key);
+        if busy_count >= worker_count
+            && let Some(_guard) = pool.try_acquire_spawn_lock(registry_key)
+        {
+            // Double-check after acquiring lock
+            let current_count = pool.worker_count(registry_key);
+            let current_busy = pool.busy_worker_count(registry_key);
 
-                if current_busy >= current_count && current_count < max_workers {
-                    let governor = pool.memory_governor();
-                    
-                    // Try to allocate memory for one more worker
-                    match governor.try_allocate(per_worker_mb) {
-                        Ok(allocation_guard) => {
-                            info!(
-                                current_count = current_count,
-                                max_workers = max_workers,
-                                "All workers busy, spawning 1 more"
-                            );
-                            spawn_fn(current_count, allocation_guard)?;
-                        }
-                        Err(_) => {
-                            // Memory exhausted, can't spawn more workers (not an error, just at capacity)
-                            debug!(
-                                "Cannot spawn additional worker - memory limit reached"
-                            );
-                        }
+            if current_busy >= current_count && current_count < max_workers {
+                let governor = pool.memory_governor();
+
+                // Try to allocate memory for one more worker
+                match governor.try_allocate(per_worker_mb) {
+                    Ok(allocation_guard) => {
+                        info!(
+                            current_count = current_count,
+                            max_workers = max_workers,
+                            "All workers busy, spawning 1 more"
+                        );
+                        spawn_fn(current_count, allocation_guard)?;
+                    }
+                    Err(_) => {
+                        // Memory exhausted, can't spawn more workers (not an error, just at capacity)
+                        debug!("Cannot spawn additional worker - memory limit reached");
                     }
                 }
             }
@@ -267,7 +262,7 @@ impl<W: super::types::PoolWorkerHandle> SpawnLock for Pool<W> {
     fn try_acquire_spawn_lock(&self, registry_key: &str) -> Option<SpawnGuard> {
         Pool::try_acquire_spawn_lock(self, registry_key)
     }
-    
+
     fn wait_for_workers(&self, registry_key: &str, timeout: Duration) -> Result<(), PoolError> {
         Pool::wait_for_workers(self, registry_key, timeout)
     }
@@ -285,8 +280,14 @@ impl<W: super::types::PoolWorkerHandle> WorkerMetrics for Pool<W> {
         self.workers()
             .get(registry_key)
             .map(|workers| {
-                workers.iter()
-                    .filter(|w| w.core().pending_requests.load(std::sync::atomic::Ordering::Acquire) > 0)
+                workers
+                    .iter()
+                    .filter(|w| {
+                        w.core()
+                            .pending_requests
+                            .load(std::sync::atomic::Ordering::Acquire)
+                            > 0
+                    })
                     .count()
             })
             .unwrap_or(0)

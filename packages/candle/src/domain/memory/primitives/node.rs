@@ -1,14 +1,14 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::SystemTime;
 
 use crossbeam_skiplist::SkipMap;
 use crossbeam_utils::CachePadded;
 use serde::{
+    Deserialize, Deserializer, Serialize, Serializer,
     de::{MapAccess, Visitor},
     ser::SerializeStruct,
-    Deserialize, Deserializer, Serialize, Serializer,
 };
 use uuid::Uuid;
 
@@ -520,7 +520,7 @@ impl MemoryNode {
     }
 
     /// Reset node to clean state for pool reuse while preserving allocations
-    /// 
+    ///
     /// This method efficiently clears all node data while preserving heap allocations
     /// for better performance in pooling scenarios. Preserves String and Vec capacities.
     ///
@@ -537,10 +537,10 @@ impl MemoryNode {
         let now = SystemTime::now();
         self.base_memory.created_at = now;
         self.base_memory.updated_at = now;
-        
+
         // 2. Update memory type
         self.base_memory.memory_type = memory_type;
-        
+
         // 3. Reset content while preserving String capacity
         match &mut self.base_memory.content {
             MemoryContent::Text(s) => {
@@ -551,33 +551,33 @@ impl MemoryNode {
                 self.base_memory.content = MemoryContent::text(String::with_capacity(1024));
             }
         }
-        
+
         // 4. Reset embedding vector while preserving capacity
         if let Some(ref mut emb) = self.embedding {
             let dim = emb.dimension;
             emb.data.clear(); // Preserves capacity
             emb.data.resize(dim, 0.0); // Refill with zeros to maintain dimension
         }
-        
+
         // 5. Clear base_memory metadata HashMap
         {
             let mut meta = self.base_memory.metadata.write();
             meta.clear();
         }
-        
+
         // 6. Replace metadata Arc (cheap allocation, simpler than cloning and clearing)
         self.metadata = Arc::new(CachePadded::new(MemoryNodeMetadata::new()));
-        
+
         // 7. Clear relationships skiplist
         self.relationships.clear();
-        
+
         // 8. Reset all atomic statistics counters
         self.stats.access_count.store(0, Ordering::Relaxed);
         self.stats.read_count.store(0, Ordering::Relaxed);
         self.stats.write_count.store(0, Ordering::Relaxed);
         self.stats.relationship_count.store(0, Ordering::Relaxed);
         self.stats.last_access_nanos.store(0, Ordering::Relaxed);
-        
+
         Ok(())
     }
 }
@@ -677,10 +677,10 @@ impl std::hash::Hash for MemoryNode {
 impl Default for MemoryNode {
     fn default() -> Self {
         use super::types::MemoryTypeEnum;
-        
+
         MemoryNode::new(
             MemoryTypeEnum::Semantic,
-            MemoryContent::text("Default memory node")
+            MemoryContent::text("Default memory node"),
         )
     }
 }
@@ -688,10 +688,10 @@ impl Default for MemoryNode {
 impl cyrup_sugars::prelude::MessageChunk for MemoryNode {
     fn bad_chunk(error: String) -> Self {
         use super::types::MemoryTypeEnum;
-        
+
         MemoryNode::new(
             MemoryTypeEnum::Semantic,
-            MemoryContent::text(format!("Error: {error}"))
+            MemoryContent::text(format!("Error: {error}")),
         )
     }
 
@@ -705,9 +705,7 @@ impl cyrup_sugars::prelude::MessageChunk for MemoryNode {
                     None
                 }
             }
-            _ => None
+            _ => None,
         }
     }
 }
-
-

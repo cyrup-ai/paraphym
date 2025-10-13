@@ -7,8 +7,8 @@ use cyrup_sugars::ZeroOneOrMany;
 
 use ystream::AsyncStream;
 
+use crate::capability::registry::{TextEmbeddingModel, TextToTextModel};
 use crate::capability::traits::TextToTextCapable;
-use crate::capability::registry::{TextToTextModel, TextEmbeddingModel};
 use crate::domain::agent::core::AgentError;
 use crate::domain::chat::CandleChatLoop;
 use crate::domain::chat::message::{CandleMessageChunk, CandleMessageRole};
@@ -32,10 +32,7 @@ use crate::memory::core::manager::surreal::Result as MemoryResult;
 // Type aliases to reduce complexity warnings
 type OnToolResultHandler = Arc<dyn Fn(&[String]) + Send + Sync>;
 type OnConversationTurnHandler = Arc<
-    dyn Fn(
-            &CandleAgentConversation,
-            &CandleAgentRoleAgent,
-        ) -> AsyncStream<CandleMessageChunk>
+    dyn Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> AsyncStream<CandleMessageChunk>
         + Send
         + Sync,
 >;
@@ -264,7 +261,7 @@ impl CandleAgentRoleAgent {
                 });
             } else {
                 let _ = stream_sender.send(CandleMessageChunk::Error(
-                    "Runtime unavailable for async operations".to_string()
+                    "Runtime unavailable for async operations".to_string(),
                 ));
             }
         })
@@ -388,7 +385,10 @@ pub trait CandleAgentRoleBuilder: Sized + Send {
 
     /// Set conversation history - EXACT syntax: .conversation_history(...)
     #[must_use]
-    fn conversation_history(self, history: impl ConversationHistoryArgs) -> impl CandleAgentRoleBuilder;
+    fn conversation_history(
+        self,
+        history: impl ConversationHistoryArgs,
+    ) -> impl CandleAgentRoleBuilder;
 
     /// Chat with closure - EXACT syntax: .chat(|conversation| ChatLoop)
     fn chat<F>(self, handler: F) -> Result<AsyncStream<CandleMessageChunk>, AgentError>
@@ -569,7 +569,13 @@ impl std::fmt::Debug for CandleAgentRoleBuilderImpl {
             .field("temperature", &self.temperature)
             .field("max_tokens", &self.max_tokens)
             .field("memory_read_timeout", &self.memory_read_timeout)
-            .field("system_prompt", &format!("{}...", &self.system_prompt[..self.system_prompt.len().min(50)]))
+            .field(
+                "system_prompt",
+                &format!(
+                    "{}...",
+                    &self.system_prompt[..self.system_prompt.len().min(50)]
+                ),
+            )
             .field("tools", &self.tools)
             .finish()
     }
@@ -605,7 +611,7 @@ impl CandleAgentRoleBuilderImpl {
                 "required": ["messages"]
             })),
         };
-        
+
         let reasoner_tool = ToolInfo {
             name: "mcp-reasoner".to_string(),
             description: Some("Advanced reasoning tool with Beam Search and MCTS strategies for complex problem solving".to_string()),
@@ -624,7 +630,7 @@ impl CandleAgentRoleBuilderImpl {
                 "required": ["thought", "thoughtNumber", "totalThoughts", "nextThoughtNeeded"]
             })),
         };
-        
+
         Self {
             name: name.into(),
             text_to_text_model: None,
@@ -665,16 +671,19 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
     fn model(self, model: TextToTextModel) -> impl CandleAgentRoleBuilder {
         use crate::capability::registry;
         use crate::domain::model::traits::CandleModel;
-        
+
         // Get max_tokens from model's ModelInfo
-        let model_max_tokens = model.info().max_output_tokens
+        let model_max_tokens = model
+            .info()
+            .max_output_tokens
             .map(|t| t.get().into())
             .unwrap_or(2000);
-        
+
         // Get default embedding model from registry
-        let default_embedding_model = registry::get::<TextEmbeddingModel>("dunzhang/stella_en_400M_v5")
-            .expect("Default embedding model not found in registry");
-        
+        let default_embedding_model =
+            registry::get::<TextEmbeddingModel>("dunzhang/stella_en_400M_v5")
+                .expect("Default embedding model not found in registry");
+
         CandleAgentBuilderImpl {
             name: self.name,
             text_to_text_model: model,
@@ -731,16 +740,24 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
     where
         P: IntoIterator<Item = (&'static str, &'static str)>,
     {
-        self.additional_params.extend(params.into_iter().map(|(k, v)| (k.to_string(), v.to_string())));
+        self.additional_params.extend(
+            params
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string())),
+        );
         self
     }
 
     /// Set metadata - EXACT syntax: .metadata([("key", "value")])
-    fn metadata<Meta>(mut self, metadata: Meta) -> impl CandleAgentRoleBuilder 
+    fn metadata<Meta>(mut self, metadata: Meta) -> impl CandleAgentRoleBuilder
     where
         Meta: IntoIterator<Item = (&'static str, &'static str)>,
     {
-        self.metadata.extend(metadata.into_iter().map(|(k, v)| (k.to_string(), v.to_string())));
+        self.metadata.extend(
+            metadata
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string())),
+        );
         self
     }
 
@@ -815,7 +832,10 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
         self
     }
 
-    fn conversation_history(self, _history: impl ConversationHistoryArgs) -> impl CandleAgentRoleBuilder {
+    fn conversation_history(
+        self,
+        _history: impl ConversationHistoryArgs,
+    ) -> impl CandleAgentRoleBuilder {
         self
     }
 
@@ -847,17 +867,19 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
         use crate::capability::text_to_text::CandlePhi4ReasoningModel;
         use crate::domain::model::traits::CandleModel;
         use std::sync::Arc;
-        
+
         // Get default text-to-text model if not set
         let text_model = self.text_to_text_model.unwrap_or_else(|| {
             TextToTextModel::Phi4Reasoning(Arc::new(CandlePhi4ReasoningModel::default()))
         });
-        
+
         // Get max_tokens from model's ModelInfo
-        let model_max_tokens = text_model.info().max_output_tokens
+        let model_max_tokens = text_model
+            .info()
+            .max_output_tokens
             .map(|t| t.get().into())
             .unwrap_or(2000);
-        
+
         // Get default embedding model from registry
         let embedding_model = self.text_embedding_model.unwrap_or_else(|| {
             registry::get::<TextEmbeddingModel>("dunzhang/stella_en_400M_v5")
@@ -925,7 +947,13 @@ impl std::fmt::Debug for CandleAgentBuilderImpl {
             .field("temperature", &self.temperature)
             .field("max_tokens", &self.max_tokens)
             .field("memory_read_timeout", &self.memory_read_timeout)
-            .field("system_prompt", &format!("{}...", &self.system_prompt[..self.system_prompt.len().min(50)]))
+            .field(
+                "system_prompt",
+                &format!(
+                    "{}...",
+                    &self.system_prompt[..self.system_prompt.len().min(50)]
+                ),
+            )
             .field("tools", &self.tools)
             .field("additional_params", &self.additional_params)
             .field("metadata", &self.metadata)
@@ -973,15 +1001,23 @@ impl CandleAgentRoleBuilder for CandleAgentBuilderImpl {
     where
         P2: IntoIterator<Item = (&'static str, &'static str)>,
     {
-        self.additional_params.extend(params.into_iter().map(|(k, v)| (k.to_string(), v.to_string())));
+        self.additional_params.extend(
+            params
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string())),
+        );
         self
     }
 
-    fn metadata<Meta>(mut self, metadata: Meta) -> impl CandleAgentRoleBuilder 
+    fn metadata<Meta>(mut self, metadata: Meta) -> impl CandleAgentRoleBuilder
     where
         Meta: IntoIterator<Item = (&'static str, &'static str)>,
     {
-        self.metadata.extend(metadata.into_iter().map(|(k, v)| (k.to_string(), v.to_string())));
+        self.metadata.extend(
+            metadata
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string())),
+        );
         self
     }
 
@@ -1051,7 +1087,10 @@ impl CandleAgentRoleBuilder for CandleAgentBuilderImpl {
         self
     }
 
-    fn conversation_history(self, _history: impl ConversationHistoryArgs) -> impl CandleAgentRoleBuilder {
+    fn conversation_history(
+        self,
+        _history: impl ConversationHistoryArgs,
+    ) -> impl CandleAgentRoleBuilder {
         self
     }
 
@@ -1068,10 +1107,13 @@ impl CandleAgentRoleBuilder for CandleAgentBuilderImpl {
     fn chat_with_message(self, message: impl Into<String>) -> AsyncStream<CandleMessageChunk> {
         let msg = message.into();
         // Use CandleAgentRoleBuilder::chat explicitly to avoid ambiguity
-        CandleAgentRoleBuilder::chat(self, move |_| CandleChatLoop::UserPrompt(msg))
-            .unwrap_or_else(|_| AsyncStream::with_channel(|sender| {
-                let _ = sender.send(CandleMessageChunk::Error("Chat failed".to_string()));
-            }))
+        CandleAgentRoleBuilder::chat(self, move |_| CandleChatLoop::UserPrompt(msg)).unwrap_or_else(
+            |_| {
+                AsyncStream::with_channel(|sender| {
+                    let _ = sender.send(CandleMessageChunk::Error("Chat failed".to_string()));
+                })
+            },
+        )
     }
 
     fn into_agent(self) -> impl CandleAgentBuilder {
@@ -1153,15 +1195,23 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
     where
         P2: IntoIterator<Item = (&'static str, &'static str)>,
     {
-        self.additional_params.extend(params.into_iter().map(|(k, v)| (k.to_string(), v.to_string())));
+        self.additional_params.extend(
+            params
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string())),
+        );
         self
     }
 
-    fn metadata<Meta>(mut self, metadata: Meta) -> Self 
+    fn metadata<Meta>(mut self, metadata: Meta) -> Self
     where
         Meta: IntoIterator<Item = (&'static str, &'static str)>,
     {
-        self.metadata.extend(metadata.into_iter().map(|(k, v)| (k.to_string(), v.to_string())));
+        self.metadata.extend(
+            metadata
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string())),
+        );
         self
     }
 
@@ -1814,7 +1864,7 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                         });
                     } else {
                         let _ = sender.send(CandleMessageChunk::Error(
-                            "Runtime unavailable for async operations".to_string()
+                            "Runtime unavailable for async operations".to_string(),
                         ));
                     }
                 }

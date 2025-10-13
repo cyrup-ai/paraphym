@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 /// Response type for tool selection stage in multi-stage chat loop
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

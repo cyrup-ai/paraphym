@@ -4,8 +4,8 @@ pub mod globals;
 
 use std::sync::{Arc, LazyLock};
 
-use crate::memory::core::manager::surreal::SurrealDBMemoryManager;
 use crate::domain::memory::MemoryConfig;
+use crate::memory::core::manager::surreal::SurrealDBMemoryManager;
 use surrealdb::engine::any;
 
 use crate::domain::core::DomainInitError;
@@ -122,7 +122,10 @@ pub fn pool_size() -> usize {
 ///
 /// # Performance
 /// Async initialization with proper error handling
-pub async fn initialize_pool(pool_size: usize, config: MemoryConfig) -> Result<(), DomainInitError> {
+pub async fn initialize_pool(
+    pool_size: usize,
+    config: MemoryConfig,
+) -> Result<(), DomainInitError> {
     for _ in 0..pool_size {
         let manager = initialize_memory_service_with_config(config.clone()).await?;
         return_to_pool(Arc::new(manager));

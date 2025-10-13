@@ -14,24 +14,21 @@ pub use notnan::{NotNan, NotNanError};
 #[inline]
 #[must_use]
 pub fn duration_to_nanos_u64(duration: Duration) -> u64 {
-    u64::try_from(duration.as_nanos())
-        .unwrap_or(u64::MAX)
+    u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX)
 }
 
 /// Safely convert Duration to u64 microseconds with saturation  
 #[inline]
 #[must_use]
 pub fn duration_to_micros_u64(duration: Duration) -> u64 {
-    u64::try_from(duration.as_micros())
-        .unwrap_or(u64::MAX)
+    u64::try_from(duration.as_micros()).unwrap_or(u64::MAX)
 }
 
 /// Safely convert Duration to u64 milliseconds with saturation
 #[inline]
 #[must_use]
 pub fn duration_to_millis_u64(duration: Duration) -> u64 {
-    u64::try_from(duration.as_millis())
-        .unwrap_or(u64::MAX)
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }
 
 /// Get current UNIX timestamp in nanoseconds as u64

@@ -39,10 +39,10 @@ pub use cyrup_sugars::{ByteSize, OneOrMany};
 pub use ystream as async_task;
 pub use ystream::spawn_task as spawn_async; // Alias for backward compatibility
 // Streaming primitives from paraphym-async (kept as-is per requirements)
-pub use ystream::{spawn_task, AsyncStream, AsyncStreamSender, AsyncTask, NotResult};
 /// Agent workflow and execution patterns - removed fake implementation
 // Re-export HashMap from hashbrown for domain consistency
 pub use hashbrown::HashMap;
+pub use ystream::{AsyncStream, AsyncStreamSender, AsyncTask, NotResult, spawn_task};
 
 // Re-export only from minimal working modules
 // Most re-exports temporarily disabled until import issues resolved

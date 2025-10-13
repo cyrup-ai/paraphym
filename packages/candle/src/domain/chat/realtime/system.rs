@@ -1,8 +1,8 @@
 //! Real-time chat system implementation
 
-use ystream::AsyncStream;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
+use ystream::AsyncStream;
 
 use super::{
     connection::ConnectionManager, events::RealTimeEvent, streaming::LiveMessageStreamer,

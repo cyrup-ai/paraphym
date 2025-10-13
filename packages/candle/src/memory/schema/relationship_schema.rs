@@ -293,10 +293,8 @@ mod tests {
         let mut relationship = Relationship::new("source-id", "target-id", "related_to");
 
         // Set metadata value
-        relationship
-            .set_metadata_value("number", 42)?;
-        relationship
-            .set_metadata_value("string", "value")?;
+        relationship.set_metadata_value("number", 42)?;
+        relationship.set_metadata_value("string", "value")?;
 
         // Get metadata value
         assert_eq!(relationship.get_metadata_value::<i32>("number"), Some(42));
@@ -317,10 +315,8 @@ mod tests {
         let mut relationship = Relationship::new("source-id", "target-id", "related_to");
 
         // Set additional field
-        relationship
-            .set_additional_field("field1", 123)?;
-        relationship
-            .set_additional_field("field2", "value")?;
+        relationship.set_additional_field("field1", 123)?;
+        relationship.set_additional_field("field2", "value")?;
 
         // Get additional field
         assert_eq!(

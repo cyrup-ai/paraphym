@@ -12,14 +12,14 @@
 //! - Scales linearly with CPU core count
 //! - Thread-safe operation sharing with Arc optimization
 
-use std::sync::mpsc;
-use smallvec::SmallVec;
 use crossbeam;
-use ystream::AsyncStream;
 use cyrup_sugars::prelude::MessageChunk;
+use smallvec::SmallVec;
+use std::sync::mpsc;
+use ystream::AsyncStream;
 
-use crate::workflow::ops::{Op, DynOp};
 use crate::domain::context::chunk::ParallelResult;
+use crate::workflow::ops::{DynOp, Op};
 
 /// N-way parallel execution combinator for true concurrent processing
 ///
@@ -205,7 +205,7 @@ where
     /// - Individual operation failures don't stop others
     /// - Graceful degradation on resource exhaustion
     fn call(&self, input: In) -> AsyncStream<ParallelResult<Out>> {
-        let operations: SmallVec<Box<dyn DynOp<In, Out> + Send + Sync>, 16> = 
+        let operations: SmallVec<Box<dyn DynOp<In, Out> + Send + Sync>, 16> =
             self.operations.iter().map(|op| op.clone_boxed()).collect();
         let operation_count = operations.len();
 
@@ -222,25 +222,25 @@ where
             let scope_result = crossbeam::thread::scope(move |scope| {
                 // Create channel for streaming results as they complete
                 let (result_tx, result_rx) = mpsc::channel::<ParallelResult<Out>>();
-                
+
                 // Spawn each operation in separate thread
                 for (op_index, operation) in operations.into_iter().enumerate() {
                     let input_clone = input.clone();
                     let tx_clone = result_tx.clone();
-                    
+
                     scope.spawn(move |_| {
                         // Execute operation and stream all results
                         let op_stream = operation.call(input_clone);
-                        
+
                         // Stream all results from this operation with index tracking
                         while let Some(result) = op_stream.try_next() {
                             let parallel_result = ParallelResult::new(op_index, result);
-                            
+
                             // Send result with operation index for correlation
                             if tx_clone.send(parallel_result).is_err() {
                                 // Receiver dropped, stop processing this operation
                                 log::debug!(
-                                    "Parallel operation {} receiver dropped - terminating", 
+                                    "Parallel operation {} receiver dropped - terminating",
                                     op_index
                                 );
                                 break;
@@ -248,10 +248,10 @@ where
                         }
                     });
                 }
-                
+
                 // Drop the original sender to signal no more senders
                 drop(result_tx);
-                
+
                 // Collect and stream results as they arrive from any operation
                 while let Ok(parallel_result) = result_rx.recv() {
                     if sender_clone.send(parallel_result).is_err() {
@@ -260,14 +260,14 @@ where
                         break;
                     }
                 }
-                
+
                 Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
             });
 
             // Handle thread scope errors (resource exhaustion, panics, etc.)
             if let Err(panic_err) = scope_result {
                 log::error!("Parallel execution failed: {:?}", panic_err);
-                
+
                 // Send error result for graceful degradation
                 let error_msg = format!("Parallel execution failed: {:?}", panic_err);
                 let error_result = ParallelResult::new(0, Out::bad_chunk(error_msg));
@@ -286,7 +286,7 @@ where
 /// ## Example
 /// ```rust,no_run
 /// use paraphym_candle::workflow::parallel::ParallelBuilder;
-/// 
+///
 /// let parallel_ops = ParallelBuilder::new()
 ///     .add_operation(operation1)
 ///     .add_operation(operation2)
@@ -406,33 +406,33 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workflow::ops::map;
     use crate::parallel;
-    
+    use crate::workflow::ops::map;
+
     // Simple test wrapper for i32 that implements MessageChunk
     #[derive(Debug, Clone, Default, PartialEq)]
     struct TestChunk(i32);
-    
+
     impl TestChunk {
         fn value(&self) -> i32 {
             self.0
         }
-        
+
         fn new(value: i32) -> Self {
             Self(value)
         }
     }
-    
+
     impl cyrup_sugars::prelude::MessageChunk for TestChunk {
         fn bad_chunk(_error: String) -> Self {
             Self::default()
         }
-        
+
         fn error(&self) -> Option<&str> {
             None
         }
     }
-    
+
     impl From<i32> for TestChunk {
         fn from(value: i32) -> Self {
             TestChunk(value)
@@ -458,16 +458,16 @@ mod tests {
         // Test TestChunk creation and value access
         let chunk = TestChunk::new(42);
         assert_eq!(chunk.value(), 42);
-        
+
         // Test From trait
         let chunk_from: TestChunk = 100.into();
         assert_eq!(chunk_from.value(), 100);
-        
+
         // Test equality
         let chunk1 = TestChunk::new(50);
         let chunk2 = TestChunk::new(50);
         assert_eq!(chunk1, chunk2);
-        
+
         // Test MessageChunk trait
         assert!(chunk.error().is_none());
         let bad_chunk = TestChunk::bad_chunk("test error".to_string());
@@ -477,14 +477,14 @@ mod tests {
     #[test]
     fn test_stack_allocation_threshold() {
         let mut parallel: ParallelN<i32, TestChunk> = ParallelN::new();
-        
+
         // Add 16 operations - should still be stack allocated
         for _ in 0..16 {
             parallel = parallel.add_operation(map(|x: i32| TestChunk::from(x + 1)));
         }
         assert!(parallel.is_stack_allocated());
         assert_eq!(parallel.operation_count(), 16);
-        
+
         // Add 17th operation - should trigger heap allocation
         parallel = parallel.add_operation(map(|x: i32| TestChunk::from(x + 1)));
         assert!(!parallel.is_stack_allocated());

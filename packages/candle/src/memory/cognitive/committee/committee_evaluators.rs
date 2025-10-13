@@ -2,17 +2,13 @@
 //!
 //! Committee evaluation implementation using existing CandleKimiK2Model and CandleQwen3CoderModel.
 
-use std::sync::Arc;
-use crate::memory::cognitive::types::CognitiveError;
 use crate::capability::traits::TextToTextCapable;
-use crate::memory::cognitive::committee::committee_types::{
-    Committee, CommitteeConfig
-};
 use crate::domain::{
-    completion::CandleCompletionParams,
-    context::chunk::CandleCompletionChunk,
-    prompt::CandlePrompt,
+    completion::CandleCompletionParams, context::chunk::CandleCompletionChunk, prompt::CandlePrompt,
 };
+use crate::memory::cognitive::committee::committee_types::{Committee, CommitteeConfig};
+use crate::memory::cognitive::types::CognitiveError;
+use std::sync::Arc;
 
 /// Committee evaluator using existing models (CandleKimiK2Model, CandleQwen3CoderModel)
 #[derive(Debug)]
@@ -42,31 +38,37 @@ impl ModelCommitteeEvaluator {
     }
 
     /// Evaluate multiple memories in a single batch LLM call
-    /// 
+    ///
     /// This reduces N LLM calls to 1 call for batch size N
-    pub async fn evaluate_batch(&self, memories: &[(String, String)]) -> Result<Vec<(String, f64)>, CognitiveError> {
+    pub async fn evaluate_batch(
+        &self,
+        memories: &[(String, String)],
+    ) -> Result<Vec<(String, f64)>, CognitiveError> {
         // Create batch evaluation prompt
-        let mut batch_prompt = String::from(
-            "Evaluate the quality of each memory below on a scale from 0.0 to 1.0.\n"
-        );
+        let mut batch_prompt =
+            String::from("Evaluate the quality of each memory below on a scale from 0.0 to 1.0.\n");
         batch_prompt.push_str("Consider clarity, relevance, and completeness.\n");
-        batch_prompt.push_str("Return ONLY a JSON array of scores in the exact order: [0.8, 0.6, 0.9, ...]\n\n");
+        batch_prompt.push_str(
+            "Return ONLY a JSON array of scores in the exact order: [0.8, 0.6, 0.9, ...]\n\n",
+        );
 
         for (i, (_id, content)) in memories.iter().enumerate() {
             batch_prompt.push_str(&format!("Memory {}:\n{}\n\n", i + 1, content));
         }
 
-        batch_prompt.push_str("\nReturn scores as JSON array with one score per memory: [score1, score2, ...]");
+        batch_prompt.push_str(
+            "\nReturn scores as JSON array with one score per memory: [score1, score2, ...]",
+        );
 
         let prompt = CandlePrompt::new(&batch_prompt);
         let params = CandleCompletionParams::default();
 
-        // Get response from KimiK2 provider
+        // Get response from KimiK2 provider - consume synchronously to avoid !Send
         let mut response = String::new();
         let stream = self.committee.kimi_model.prompt(prompt, &params);
-        let stream = Box::pin(stream);
 
-        while let Some(chunk) = stream.next().await {
+        // Consume AsyncStream synchronously with try_next (no async)
+        while let Some(chunk) = stream.try_next() {
             match chunk {
                 CandleCompletionChunk::Text(text) => response.push_str(&text),
                 CandleCompletionChunk::Complete { text, .. } => {
@@ -79,9 +81,10 @@ impl ModelCommitteeEvaluator {
 
         // Parse JSON array of scores
         let scores = parse_batch_scores(&response, memories.len())?;
-        
+
         // Pair memory IDs with scores
-        let results: Vec<(String, f64)> = memories.iter()
+        let results: Vec<(String, f64)> = memories
+            .iter()
             .map(|(id, _)| id.clone())
             .zip(scores.into_iter())
             .collect();
@@ -92,7 +95,10 @@ impl ModelCommitteeEvaluator {
     /// Generate evaluation report using AI
     pub async fn generate_report(&self, content: &str) -> Result<String, CognitiveError> {
         let score = self.evaluate(content).await?;
-        Ok(format!("AI evaluation score: {:.2} (using local CandleKimiK2Model)", score))
+        Ok(format!(
+            "AI evaluation score: {:.2} (using local CandleKimiK2Model)",
+            score
+        ))
     }
 
     /// Evaluate with KimiK2 provider
@@ -104,12 +110,12 @@ impl ModelCommitteeEvaluator {
 
         let prompt = CandlePrompt::new(&evaluation_prompt);
         let params = CandleCompletionParams::default();
-        
+
         let mut response = String::new();
         let stream = self.committee.kimi_model.prompt(prompt, &params);
-        let stream = Box::pin(stream);
 
-        while let Some(chunk) = stream.next().await {
+        // Consume synchronously with try_next to maintain Send
+        while let Some(chunk) = stream.try_next() {
             match chunk {
                 CandleCompletionChunk::Text(text) => response.push_str(&text),
                 CandleCompletionChunk::Complete { text, .. } => {
@@ -132,12 +138,12 @@ impl ModelCommitteeEvaluator {
 
         let prompt = CandlePrompt::new(&evaluation_prompt);
         let params = CandleCompletionParams::default();
-        
+
         let mut response = String::new();
         let stream = self.committee.qwen_model.prompt(prompt, &params);
-        let stream = Box::pin(stream);
 
-        while let Some(chunk) = stream.next().await {
+        // Consume synchronously with try_next to maintain Send
+        while let Some(chunk) = stream.try_next() {
             match chunk {
                 CandleCompletionChunk::Text(text) => response.push_str(&text),
                 CandleCompletionChunk::Complete { text, .. } => {
@@ -165,9 +171,9 @@ impl ModelCommitteeEvaluator {
         // Evaluate with KimiK2 provider
         let mut kimi_response = String::new();
         let kimi_stream = self.committee.kimi_model.prompt(prompt.clone(), &params);
-        let kimi_stream = Box::pin(kimi_stream);
 
-        while let Some(chunk) = kimi_stream.next().await {
+        // Consume synchronously with try_next to maintain Send
+        while let Some(chunk) = kimi_stream.try_next() {
             match chunk {
                 CandleCompletionChunk::Text(text) => kimi_response.push_str(&text),
                 CandleCompletionChunk::Complete { text, .. } => {
@@ -184,9 +190,9 @@ impl ModelCommitteeEvaluator {
         // Evaluate with Qwen provider
         let mut qwen_response = String::new();
         let qwen_stream = self.committee.qwen_model.prompt(prompt, &params);
-        let qwen_stream = Box::pin(qwen_stream);
 
-        while let Some(chunk) = qwen_stream.next().await {
+        // Consume synchronously with try_next to maintain Send
+        while let Some(chunk) = qwen_stream.try_next() {
             match chunk {
                 CandleCompletionChunk::Text(text) => qwen_response.push_str(&text),
                 CandleCompletionChunk::Complete { text, .. } => {
@@ -201,7 +207,9 @@ impl ModelCommitteeEvaluator {
         }
 
         if scores.is_empty() {
-            return Err(CognitiveError::EvaluationError("No valid scores from providers".to_string()));
+            return Err(CognitiveError::EvaluationError(
+                "No valid scores from providers".to_string(),
+            ));
         }
 
         let consensus = scores.iter().sum::<f64>() / scores.len() as f64;
@@ -212,7 +220,7 @@ impl ModelCommitteeEvaluator {
 /// Parse batch scores from LLM response
 fn parse_batch_scores(response: &str, expected_count: usize) -> Result<Vec<f64>, CognitiveError> {
     use regex::Regex;
-    
+
     // Extract JSON array from response
     let re = Regex::new(r"\[[\d\.,\s]+\]")
         .map_err(|e| CognitiveError::ProcessingError(format!("Regex error: {}", e)))?;
@@ -224,22 +232,27 @@ fn parse_batch_scores(response: &str, expected_count: usize) -> Result<Vec<f64>,
 
         // Validate score count
         if scores.len() != expected_count {
-            return Err(CognitiveError::ProcessingError(
-                format!("Expected {} scores, got {}", expected_count, scores.len())
-            ));
+            return Err(CognitiveError::ProcessingError(format!(
+                "Expected {} scores, got {}",
+                expected_count,
+                scores.len()
+            )));
         }
 
         // Validate score range
         for (i, &score) in scores.iter().enumerate() {
             if !(0.0..=1.0).contains(&score) {
-                return Err(CognitiveError::ProcessingError(
-                    format!("Score {} at index {} out of range [0.0, 1.0]", score, i)
-                ));
+                return Err(CognitiveError::ProcessingError(format!(
+                    "Score {} at index {} out of range [0.0, 1.0]",
+                    score, i
+                )));
             }
         }
 
         Ok(scores)
     } else {
-        Err(CognitiveError::ProcessingError("No score array found in response".to_string()))
+        Err(CognitiveError::ProcessingError(
+            "No score array found in response".to_string(),
+        ))
     }
 }

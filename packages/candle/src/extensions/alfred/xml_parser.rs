@@ -1,9 +1,9 @@
-use quick_xml::de::from_str;
-use serde::{Deserialize, Serialize};
 use crate::extensions::alfred::json_parser::{
-    AlfredScriptFilterOutput, AlfredItem, AlfredIcon, AlfredModifier
+    AlfredIcon, AlfredItem, AlfredModifier, AlfredScriptFilterOutput,
 };
 use crate::extensions::common::types::Result;
+use quick_xml::de::from_str;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AlfredXmlOutput {
@@ -42,8 +42,10 @@ pub fn parse_xml(output: &str) -> Result<AlfredXmlOutput> {
 
 pub fn xml_to_json(xml_output: AlfredXmlOutput) -> AlfredScriptFilterOutput {
     AlfredScriptFilterOutput {
-        items: xml_output.items.into_iter().map(|xml_item| {
-            AlfredItem {
+        items: xml_output
+            .items
+            .into_iter()
+            .map(|xml_item| AlfredItem {
                 uid: xml_item.uid,
                 title: xml_item.title,
                 subtitle: xml_item.subtitle,
@@ -54,16 +56,23 @@ pub fn xml_to_json(xml_output: AlfredXmlOutput) -> AlfredScriptFilterOutput {
                     icon_type: None,
                 }),
                 valid: xml_item.valid.map(|v| v == "yes" || v == "true"),
-                mods: xml_item.mods.into_iter().map(|m| {
-                    (m.key.clone(), AlfredModifier {
-                        subtitle: m.subtitle,
-                        arg: m.arg,
-                        valid: None,
+                mods: xml_item
+                    .mods
+                    .into_iter()
+                    .map(|m| {
+                        (
+                            m.key.clone(),
+                            AlfredModifier {
+                                subtitle: m.subtitle,
+                                arg: m.arg,
+                                valid: None,
+                            },
+                        )
                     })
-                }).collect(),
+                    .collect(),
                 text: None,
-            }
-        }).collect(),
+            })
+            .collect(),
         skipknowledge: None,
         rerun: None,
         variables: None,

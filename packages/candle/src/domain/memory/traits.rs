@@ -3,8 +3,8 @@
 //! This trait provides the core memory interface for Candle-backed memory implementations,
 //! enabling trait composition, testability, and 'room to move' architecture benefits.
 
-use ystream::AsyncStream;
 use serde::{Deserialize, Serialize};
+use ystream::AsyncStream;
 
 use super::primitives::MemoryNode;
 
@@ -18,9 +18,11 @@ pub struct MemoryLookupResult {
 impl MemoryLookupResult {
     /// Create a result with a found memory node
     pub fn found(memory: MemoryNode) -> Self {
-        Self { memory: Some(memory) }
+        Self {
+            memory: Some(memory),
+        }
     }
-    
+
     /// Create a result with no memory node found
     #[must_use]
     pub fn not_found() -> Self {
@@ -53,7 +55,10 @@ pub trait CandleMemory: Send + Sync + 'static {
     ///
     /// # Returns
     /// `AsyncStream` that completes when the memory is stored
-    fn store_memory(&self, memory_node: &MemoryNode) -> AsyncStream<crate::domain::context::chunk::CandleUnit>;
+    fn store_memory(
+        &self,
+        memory_node: &MemoryNode,
+    ) -> AsyncStream<crate::domain::context::chunk::CandleUnit>;
 
     /// Retrieve memory nodes by similarity search
     ///
@@ -81,7 +86,10 @@ pub trait CandleMemory: Send + Sync + 'static {
     ///
     /// # Returns
     /// `AsyncStream` that completes when the memory is deleted
-    fn delete_memory(&self, id: &str) -> AsyncStream<crate::domain::context::chunk::CandleMemoryOperationResult>;
+    fn delete_memory(
+        &self,
+        id: &str,
+    ) -> AsyncStream<crate::domain::context::chunk::CandleMemoryOperationResult>;
 
     /// Get memory statistics
     ///

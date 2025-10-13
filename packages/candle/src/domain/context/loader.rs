@@ -9,9 +9,9 @@ use std::path::PathBuf;
 
 use cyrup_sugars::ZeroOneOrMany;
 use cyrup_sugars::prelude::MessageChunk;
+use serde::{Deserialize, Serialize};
 use ystream::AsyncStream;
 use ystream::AsyncTask;
-use serde::{Serialize, Deserialize};
 
 /// Wrapper for `PathBuf` that implements `MessageChunk` for streaming
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -129,7 +129,7 @@ impl Loader<PathBuf> for LoaderImpl<PathBuf> {
         let pattern = self.pattern.clone();
         let recursive = self.recursive;
         let filter_fn = self.filter_fn.clone();
-        
+
         ystream::spawn_task(move || {
             let mut results: Vec<PathBuf> = match pattern {
                 Some(p) => {
@@ -138,7 +138,7 @@ impl Loader<PathBuf> for LoaderImpl<PathBuf> {
                     } else {
                         p
                     };
-                    
+
                     match glob::glob(&glob_pattern) {
                         Ok(paths) => paths.filter_map(Result::ok).collect(),
                         Err(_) => Vec::new(), // Return empty on pattern error
@@ -180,7 +180,7 @@ impl Loader<PathBuf> for LoaderImpl<PathBuf> {
                 } else {
                     p
                 };
-                
+
                 if let Ok(paths) = glob::glob(&glob_pattern) {
                     for path in paths.filter_map(Result::ok) {
                         // Apply filter before sending
@@ -189,7 +189,7 @@ impl Loader<PathBuf> for LoaderImpl<PathBuf> {
                         {
                             continue;
                         }
-                        
+
                         let chunk = CandlePathChunk::from(path);
                         if sender.try_send(chunk).is_err() {
                             break;

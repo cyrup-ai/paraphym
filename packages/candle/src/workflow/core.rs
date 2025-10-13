@@ -6,8 +6,8 @@
 
 use std::marker::PhantomData;
 
-use ystream::AsyncStream;
 use crate::domain::context::WorkflowDataChunk;
+use ystream::AsyncStream;
 
 /// Core workflow execution trait enabling polymorphic workflow steps
 ///

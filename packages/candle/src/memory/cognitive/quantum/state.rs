@@ -18,11 +18,11 @@ impl QuantumState {
             measurement_count: 0,
         }
     }
-    
+
     pub fn add_entanglement(&mut self, link: EntanglementLink) {
         self.entanglement_links.push(link);
     }
-    
+
     pub fn measure(&mut self) -> f64 {
         self.measurement_count += 1;
         self.coherence_level *= 0.95; // Decoherence simulation

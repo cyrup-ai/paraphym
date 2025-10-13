@@ -19,13 +19,13 @@ pub enum LocalModelType {
 pub enum CompletionCoreError {
     #[error("Provider unavailable: {0}")]
     ProviderUnavailable(String),
-    
+
     #[error("Request failed: {0}")]
     RequestFailed(String),
-    
+
     #[error("Model error: {0}")]
     ModelError(String),
-    
+
     #[error("Configuration error: {0}")]
     ConfigurationError(String),
 }

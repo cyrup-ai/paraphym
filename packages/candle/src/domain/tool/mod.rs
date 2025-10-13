@@ -13,8 +13,8 @@
 pub mod router;
 
 // Re-export the SweetMCP router - NEW PREFERRED APPROACH
-pub use router::{SweetMcpRouter, RouterError, ToolRoute};
+pub use router::{RouterError, SweetMcpRouter, ToolRoute};
 
 // Re-export SweetMCP types for external compatibility
-pub use sweet_mcp_type::ToolInfo;
 pub use mcp_client_traits::{McpClient, McpToolOperations};
+pub use sweet_mcp_type::ToolInfo;

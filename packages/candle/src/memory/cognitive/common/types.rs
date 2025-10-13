@@ -72,8 +72,8 @@ impl EvaluationRubric {
             description: Option<String>,
         }
 
-        let json_criteria: Vec<JsonCriterion> = serde_json::from_str(spec)
-            .map_err(|e| format!("JSON parsing error: {}", e))?;
+        let json_criteria: Vec<JsonCriterion> =
+            serde_json::from_str(spec).map_err(|e| format!("JSON parsing error: {}", e))?;
 
         if json_criteria.is_empty() {
             return Err("Specification must contain at least one criterion".to_string());
@@ -84,7 +84,9 @@ impl EvaluationRubric {
             .map(|jc| EvaluationCriterion {
                 name: jc.name,
                 weight: jc.weight.unwrap_or(1.0),
-                description: jc.description.unwrap_or_else(|| "No description provided".to_string()),
+                description: jc
+                    .description
+                    .unwrap_or_else(|| "No description provided".to_string()),
             })
             .collect();
 
@@ -93,12 +95,15 @@ impl EvaluationRubric {
 
     fn parse_simple_spec(spec: &str) -> Result<Vec<EvaluationCriterion>, String> {
         let mut criteria = Vec::new();
-        
+
         for criterion_spec in spec.split(';') {
             let parts: Vec<&str> = criterion_spec.trim().split(':').collect();
-            
+
             if parts.is_empty() || parts.len() > 3 {
-                return Err(format!("Invalid criterion format: '{}'. Expected 'name[:weight[:description]]'", criterion_spec));
+                return Err(format!(
+                    "Invalid criterion format: '{}'. Expected 'name[:weight[:description]]'",
+                    criterion_spec
+                ));
             }
 
             let name = parts[0].trim().to_string();
@@ -107,14 +112,19 @@ impl EvaluationRubric {
             }
 
             let weight = if parts.len() > 1 {
-                parts[1].trim().parse::<f64>()
+                parts[1]
+                    .trim()
+                    .parse::<f64>()
                     .map_err(|_| format!("Invalid weight '{}' in criterion '{}'", parts[1], name))?
             } else {
                 1.0
             };
 
             if !(0.0..=10.0).contains(&weight) {
-                return Err(format!("Weight {} for criterion '{}' must be between 0.0 and 10.0", weight, name));
+                return Err(format!(
+                    "Weight {} for criterion '{}' must be between 0.0 and 10.0",
+                    weight, name
+                ));
             }
 
             let description = if parts.len() > 2 {
@@ -136,7 +146,8 @@ impl EvaluationRubric {
 
         Ok(criteria)
     }
-}/// Evaluation criterion for assessment
+}
+/// Evaluation criterion for assessment
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvaluationCriterion {
     pub name: String,

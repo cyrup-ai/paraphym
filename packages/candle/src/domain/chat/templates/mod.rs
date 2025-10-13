@@ -108,7 +108,10 @@ pub fn render_template<S: std::hash::BuildHasher>(
 /// # Errors
 ///
 /// Returns `TemplateError` if template rendering fails (see `render_template`)
-pub fn render_simple<S: std::hash::BuildHasher>(name: &str, variables: HashMap<&str, &str, S>) -> TemplateResult<String> {
+pub fn render_simple<S: std::hash::BuildHasher>(
+    name: &str,
+    variables: HashMap<&str, &str, S>,
+) -> TemplateResult<String> {
     let arc_variables: HashMap<String, String> = variables
         .into_iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))

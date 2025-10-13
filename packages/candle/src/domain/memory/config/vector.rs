@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use crossbeam_utils::CachePadded;
@@ -535,12 +535,12 @@ impl IndexConfig {
         // Use const match to convert f32 multiplier to integer ratio
         // This avoids cast_sign_loss by using compile-time known positive values
         let multiplier_int = match self.index_type {
-            IndexType::FlatIP | IndexType::FlatL2 => 1000,  // 1.0
-            IndexType::IVFPQ => 100,                        // 0.1
-            IndexType::HNSW => 1500,                        // 1.5
-            IndexType::Annoy => 2000,                       // 2.0
-            IndexType::LSH => 1200,                         // 1.2
-            IndexType::SQ => 250,                           // 0.25
+            IndexType::FlatIP | IndexType::FlatL2 => 1000, // 1.0
+            IndexType::IVFPQ => 100,                       // 0.1
+            IndexType::HNSW => 1500,                       // 1.5
+            IndexType::Annoy => 2000,                      // 2.0
+            IndexType::LSH => 1200,                        // 1.2
+            IndexType::SQ => 250,                          // 0.25
         };
         base_size.saturating_mul(multiplier_int) / 1000
     }

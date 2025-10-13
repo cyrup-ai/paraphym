@@ -8,27 +8,25 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 
-use ystream::{AsyncStream, AsyncStreamSender};
+use cyrup_sugars::prelude::MessageChunk;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use cyrup_sugars::prelude::MessageChunk;
+use ystream::{AsyncStream, AsyncStreamSender};
 
 use crate::domain::util::unix_timestamp_nanos;
 
-use pulldown_cmark::{html as md_html, Options as MdOptions, Parser as MdParser};
+use pulldown_cmark::{Options as MdOptions, Parser as MdParser, html as md_html};
 use syntect::highlighting::ThemeSet;
 use syntect::html::highlighted_html_for_string;
 use syntect::parsing::SyntaxSet;
 
 /// Global syntax set for code highlighting (loaded once)
-static SYNTAX_SET: std::sync::LazyLock<SyntaxSet> = std::sync::LazyLock::new(|| {
-    SyntaxSet::load_defaults_newlines()
-});
+static SYNTAX_SET: std::sync::LazyLock<SyntaxSet> =
+    std::sync::LazyLock::new(SyntaxSet::load_defaults_newlines);
 
 /// Global theme set for code highlighting (loaded once)  
-static THEME_SET: std::sync::LazyLock<ThemeSet> = std::sync::LazyLock::new(|| {
-    ThemeSet::load_defaults()
-});
+static THEME_SET: std::sync::LazyLock<ThemeSet> =
+    std::sync::LazyLock::new(ThemeSet::load_defaults);
 
 /// Immutable message content with owned strings
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -75,7 +73,9 @@ impl ImmutableMessageContent {
     pub fn as_text(&self) -> &str {
         match self {
             Self::Plain { text } => text,
-            Self::Markdown { content, .. } | Self::Code { content, .. } | Self::Formatted { content, .. } => content,
+            Self::Markdown { content, .. }
+            | Self::Code { content, .. }
+            | Self::Formatted { content, .. } => content,
             Self::Composite { .. } => "", // Composite content needs rendering
         }
     }
@@ -99,7 +99,9 @@ impl ImmutableMessageContent {
     pub fn is_empty(&self) -> bool {
         match self {
             Self::Plain { text } => text.is_empty(),
-            Self::Markdown { content, .. } | Self::Code { content, .. } | Self::Formatted { content, .. } => content.is_empty(),
+            Self::Markdown { content, .. }
+            | Self::Code { content, .. }
+            | Self::Formatted { content, .. } => content.is_empty(),
             Self::Composite { parts } => parts.is_empty(),
         }
     }
@@ -109,7 +111,9 @@ impl ImmutableMessageContent {
     pub fn char_count(&self) -> usize {
         match self {
             Self::Plain { text } => text.chars().count(),
-            Self::Markdown { content, .. } | Self::Code { content, .. } | Self::Formatted { content, .. } => content.chars().count(),
+            Self::Markdown { content, .. }
+            | Self::Code { content, .. }
+            | Self::Formatted { content, .. } => content.chars().count(),
             Self::Composite { parts } => parts.iter().map(Self::char_count).sum(),
         }
     }
@@ -386,7 +390,11 @@ impl ImmutableFormatOptions {
     #[must_use]
     pub fn html() -> Self {
         Self {
-            flags: FormatFlags::MARKDOWN | FormatFlags::SYNTAX_HIGHLIGHTING | FormatFlags::METADATA | FormatFlags::INLINE_FORMATTING | FormatFlags::LINK_DETECTION,
+            flags: FormatFlags::MARKDOWN
+                | FormatFlags::SYNTAX_HIGHLIGHTING
+                | FormatFlags::METADATA
+                | FormatFlags::INLINE_FORMATTING
+                | FormatFlags::LINK_DETECTION,
             output_format: OutputFormat::Html,
             ..Default::default()
         }
@@ -431,11 +439,11 @@ impl Default for ImmutableFormatOptions {
     #[inline]
     fn default() -> Self {
         Self {
-            flags: FormatFlags::MARKDOWN 
-                | FormatFlags::SYNTAX_HIGHLIGHTING 
-                | FormatFlags::INLINE_FORMATTING 
-                | FormatFlags::LINK_DETECTION 
-                | FormatFlags::EMOJI 
+            flags: FormatFlags::MARKDOWN
+                | FormatFlags::SYNTAX_HIGHLIGHTING
+                | FormatFlags::INLINE_FORMATTING
+                | FormatFlags::LINK_DETECTION
+                | FormatFlags::EMOJI
                 | FormatFlags::OPTIMIZATIONS,
             max_line_length: 80,
             indent_size: 2,
@@ -772,9 +780,7 @@ impl MessageChunk for FormattingEvent {
     fn bad_chunk(error: String) -> Self {
         Self::Failed {
             content_id: 0,
-            error: FormatError::RenderError { 
-                detail: error,
-            },
+            error: FormatError::RenderError { detail: error },
             duration: Duration::ZERO,
         }
     }
@@ -922,11 +928,11 @@ impl StreamingMessageFormatter {
     /// Returns `FormatError::RenderError` if highlighting fails
     fn format_code_to_html(&self, code: &str, language: &str) -> FormatResult<String> {
         // Find syntax definition for language
-        let syntax = SYNTAX_SET
-            .find_syntax_by_token(language)
-            .ok_or_else(|| FormatError::UnsupportedLanguage {
+        let syntax = SYNTAX_SET.find_syntax_by_token(language).ok_or_else(|| {
+            FormatError::UnsupportedLanguage {
                 language: language.to_string(),
-            })?;
+            }
+        })?;
 
         // Get theme based on formatter options
         let theme_name = match self.options.syntax_theme {
@@ -934,19 +940,26 @@ impl StreamingMessageFormatter {
             SyntaxTheme::SolarizedLight => "Solarized (light)",
             SyntaxTheme::SolarizedDark => "Solarized (dark)",
             SyntaxTheme::Light => "InspiredGitHub",
-            SyntaxTheme::Dark | SyntaxTheme::VSCode | SyntaxTheme::HighContrast | SyntaxTheme::Custom => "base16-ocean.dark", // fallback
+            SyntaxTheme::Dark
+            | SyntaxTheme::VSCode
+            | SyntaxTheme::HighContrast
+            | SyntaxTheme::Custom => "base16-ocean.dark", // fallback
         };
 
-        let theme = THEME_SET.themes.get(theme_name)
-            .ok_or_else(|| FormatError::ConfigurationError {
-                detail: format!("Theme '{theme_name}' not found in theme set"),
-            })?;
+        let theme =
+            THEME_SET
+                .themes
+                .get(theme_name)
+                .ok_or_else(|| FormatError::ConfigurationError {
+                    detail: format!("Theme '{theme_name}' not found in theme set"),
+                })?;
 
         // Generate syntax-highlighted HTML
-        highlighted_html_for_string(code, &SYNTAX_SET, syntax, theme)
-            .map_err(|e| FormatError::RenderError {
+        highlighted_html_for_string(code, &SYNTAX_SET, syntax, theme).map_err(|e| {
+            FormatError::RenderError {
                 detail: format!("Syntax highlighting failed: {e}"),
-            })
+            }
+        })
     }
 
     /// Format content with streaming events
@@ -980,7 +993,10 @@ impl StreamingMessageFormatter {
 
         // Process content based on type and create formatted version
         let formatted_result = match content {
-            ImmutableMessageContent::Markdown { content: md_content, .. } => {
+            ImmutableMessageContent::Markdown {
+                content: md_content,
+                ..
+            } => {
                 // Format markdown to HTML
                 let html = Self::format_markdown_to_html(md_content);
                 // Create new content with rendered HTML
@@ -989,7 +1005,11 @@ impl StreamingMessageFormatter {
                     rendered_html: Some(html),
                 })
             }
-            ImmutableMessageContent::Code { content: code_content, language, .. } => {
+            ImmutableMessageContent::Code {
+                content: code_content,
+                language,
+                ..
+            } => {
                 // Format code with syntax highlighting
                 match self.format_code_to_html(code_content, language) {
                     Ok(html) => {
@@ -1004,11 +1024,9 @@ impl StreamingMessageFormatter {
                 }
             }
             // Pass through other content types unchanged
-            ImmutableMessageContent::Plain { .. } |
-            ImmutableMessageContent::Formatted { .. } |
-            ImmutableMessageContent::Composite { .. } => {
-                Ok(content.clone())
-            }
+            ImmutableMessageContent::Plain { .. }
+            | ImmutableMessageContent::Formatted { .. }
+            | ImmutableMessageContent::Composite { .. } => Ok(content.clone()),
         };
 
         // Calculate duration

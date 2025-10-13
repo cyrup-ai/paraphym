@@ -63,4 +63,3 @@ pub struct VoiceInfo {
     /// Additional metadata
     pub metadata: std::collections::HashMap<String, String>,
 }
-

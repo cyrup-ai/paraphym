@@ -153,10 +153,19 @@ impl CompactCompletionResponseBuilder {
         AsyncStream::with_channel(move |sender| {
             let response = CompactCompletionResponse {
                 content: self.content.map(|s| s.to_string()).unwrap_or_default(),
-                model: self.model.map(|s| s.to_string()).unwrap_or_else(|| "unknown".to_string()),
-                provider: self.provider.map(|s| s.to_string()).unwrap_or_else(|| "unknown".to_string()),
+                model: self
+                    .model
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "unknown".to_string()),
+                provider: self
+                    .provider
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "unknown".to_string()),
                 tokens_used: self.tokens_used,
-                finish_reason: self.finish_reason.map(|s| s.to_string()).unwrap_or_else(|| "stop".to_string()),
+                finish_reason: self
+                    .finish_reason
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "stop".to_string()),
                 response_time_ms: self.response_time_ms,
             };
 

@@ -56,10 +56,10 @@ impl TemplateCompiler {
     pub fn compile(&self, template: &ChatTemplate) -> TemplateResult<CompiledTemplate> {
         // Create parser instance
         let parser = TemplateParser::new();
-        
+
         // Parse template content into AST
         let ast = parser.parse(template.get_content())?;
-        
+
         // Extract variables from parsed template (if needed)
         let variables = if template.variables.is_empty() {
             let extracted = parser.extract_variables(template.get_content())?;
@@ -67,21 +67,17 @@ impl TemplateCompiler {
         } else {
             template.variables.clone()
         };
-        
+
         // Create compiled template
-        let mut compiled = CompiledTemplate::new(
-            template.metadata.clone(),
-            ast,
-            variables,
-        );
-        
+        let mut compiled = CompiledTemplate::new(template.metadata.clone(), ast, variables);
+
         // Apply optimizations if enabled
         if self.config.optimize {
             compiled = Self::optimize(compiled)?;
         }
-        
+
         compiled.optimized = self.config.optimize;
-        
+
         Ok(compiled)
     }
 
@@ -95,9 +91,9 @@ impl TemplateCompiler {
         // 1. Adjacent text merging: Text("a") + Text("b") → Text("ab")
         // 2. Constant folding could be added in future
         // 3. Dead code elimination could be added in future
-        
+
         let optimized_ast = Self::optimize_ast(&compiled.ast)?;
-        
+
         Ok(CompiledTemplate {
             ast: optimized_ast,
             ..compiled
@@ -115,7 +111,7 @@ impl TemplateCompiler {
                 // Merge adjacent Text nodes
                 let mut optimized = Vec::new();
                 let mut pending_text = String::new();
-                
+
                 for node in nodes.iter() {
                     if let TemplateAst::Text(t) = node {
                         pending_text.push_str(t);
@@ -127,11 +123,11 @@ impl TemplateCompiler {
                         optimized.push(Self::optimize_ast(node)?);
                     }
                 }
-                
+
                 if !pending_text.is_empty() {
                     optimized.push(TemplateAst::Text(pending_text));
                 }
-                
+
                 // If only one node after optimization, unwrap the block
                 match optimized.len() {
                     0 => Ok(TemplateAst::Text(String::new())),
@@ -145,7 +141,11 @@ impl TemplateCompiler {
                     _ => Ok(TemplateAst::Block(optimized.into())),
                 }
             }
-            TemplateAst::Conditional { condition, if_true, if_false } => {
+            TemplateAst::Conditional {
+                condition,
+                if_true,
+                if_false,
+            } => {
                 let opt_condition = Self::optimize_ast(condition)?;
                 let opt_if_true = Self::optimize_ast(if_true)?;
                 let opt_if_false = if let Some(if_false_ast) = if_false {
@@ -153,17 +153,21 @@ impl TemplateCompiler {
                 } else {
                     None
                 };
-                
+
                 Ok(TemplateAst::Conditional {
                     condition: Arc::new(opt_condition),
                     if_true: Arc::new(opt_if_true),
                     if_false: opt_if_false,
                 })
             }
-            TemplateAst::Loop { variable, iterable, body } => {
+            TemplateAst::Loop {
+                variable,
+                iterable,
+                body,
+            } => {
                 let opt_iterable = Self::optimize_ast(iterable)?;
                 let opt_body = Self::optimize_ast(body)?;
-                
+
                 Ok(TemplateAst::Loop {
                     variable: variable.clone(),
                     iterable: Arc::new(opt_iterable),
@@ -175,7 +179,7 @@ impl TemplateCompiler {
                 for operand in operands.iter() {
                     opt_operands.push(Self::optimize_ast(operand)?);
                 }
-                
+
                 Ok(TemplateAst::Expression {
                     operator: operator.clone(),
                     operands: opt_operands.into(),
@@ -186,7 +190,7 @@ impl TemplateCompiler {
                 for arg in args.iter() {
                     opt_args.push(Self::optimize_ast(arg)?);
                 }
-                
+
                 Ok(TemplateAst::Function {
                     name: name.clone(),
                     args: opt_args.into(),
@@ -202,8 +206,10 @@ impl TemplateCompiler {
     ///
     /// Returns `TemplateError` if compilation fails
     pub fn compile_from_ast(&self, ast: TemplateAst) -> TemplateResult<CompiledTemplate> {
-        use crate::domain::chat::templates::core::{TemplateMetadata, TemplateCategory, TemplatePermissions};
-        
+        use crate::domain::chat::templates::core::{
+            TemplateCategory, TemplateMetadata, TemplatePermissions,
+        };
+
         // Create minimal metadata for testing
         let metadata = TemplateMetadata {
             id: String::from("test"),
@@ -219,20 +225,20 @@ impl TemplateCompiler {
             rating: 0.0,
             permissions: TemplatePermissions::default(),
         };
-        
+
         // No variables for simple test cases
         let variables = Arc::from([]);
-        
+
         // Create compiled template
         let mut compiled = CompiledTemplate::new(metadata, ast, variables);
-        
+
         // Apply optimizations if enabled
         if self.config.optimize {
             compiled = Self::optimize(compiled)?;
         }
-        
+
         compiled.optimized = self.config.optimize;
-        
+
         Ok(compiled)
     }
 

@@ -1,12 +1,12 @@
 //! Database schema for quantum cognitive signatures
 
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::domain::memory::cognitive::types::{
-    CognitiveState, QuantumSignature, EntanglementBond, EntanglementType,
-    AlignedCoherenceFingerprint,
+    AlignedCoherenceFingerprint, CognitiveState, EntanglementBond, EntanglementType,
+    QuantumSignature,
 };
 
 /// Database schema for quantum signature (denormalized cache)
@@ -14,22 +14,22 @@ use crate::domain::memory::cognitive::types::{
 pub struct QuantumSignatureSchema {
     /// Coherence fingerprint for quantum states
     pub coherence_fingerprint: CoherenceFingerprintSchema,
-    
+
     /// Entanglement bonds (cached snapshot)
     pub entanglement_bonds: Vec<EntanglementBondSchema>,
-    
+
     /// Superposition contexts
     pub superposition_contexts: Vec<String>,
-    
+
     /// Collapse probability
     pub collapse_probability: f32,
-    
+
     /// Quantum entropy
     pub quantum_entropy: f64,
-    
+
     /// Creation timestamp
     pub created_at: DateTime<Utc>,
-    
+
     /// Decoherence rate
     pub decoherence_rate: f64,
 }
@@ -45,9 +45,9 @@ pub struct CoherenceFingerprintSchema {
 /// Schema for entanglement bond
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EntanglementBondSchema {
-    pub target_id: String,  // Uuid as string for JSON
+    pub target_id: String, // Uuid as string for JSON
     pub bond_strength: f32,
-    pub bond_type: String,  // EntanglementType as string
+    pub bond_type: String, // EntanglementType as string
     pub created_at: DateTime<Utc>,
 }
 
@@ -55,7 +55,7 @@ impl QuantumSignatureSchema {
     /// Convert from CognitiveState's quantum signature
     pub fn from_cognitive_state(state: &CognitiveState) -> Self {
         let signature = state.quantum_signature();
-        
+
         // Extract coherence fingerprint
         let fingerprint = signature.coherence_fingerprint();
         let coherence_fingerprint = CoherenceFingerprintSchema {
@@ -63,31 +63,33 @@ impl QuantumSignatureSchema {
             phases: fingerprint.phases.clone(),
             dimension: fingerprint.dimension,
         };
-        
+
         // Extract entanglement bonds
         let entanglement_bonds = signature
             .entanglement_bonds()
             .map(|bonds| {
-                bonds.iter().map(|bond| {
-                    EntanglementBondSchema {
+                bonds
+                    .iter()
+                    .map(|bond| EntanglementBondSchema {
                         target_id: bond.target_id.to_string(),
                         bond_strength: bond.bond_strength,
                         bond_type: format!("{:?}", bond.entanglement_type),
                         created_at: bond.created_at.into(),
-                    }
-                }).collect()
+                    })
+                    .collect()
             })
             .unwrap_or_else(|e| {
                 log::warn!("Failed to get entanglement bonds: {}", e);
                 Vec::new()
             });
-        
+
         // Extract other fields
-        let superposition_contexts = signature.superposition_contexts()
+        let superposition_contexts = signature
+            .superposition_contexts()
             .iter()
             .map(|ctx| ctx.to_string())
             .collect();
-        
+
         Self {
             coherence_fingerprint,
             entanglement_bonds,
@@ -98,22 +100,24 @@ impl QuantumSignatureSchema {
             decoherence_rate: signature.decoherence_rate(),
         }
     }
-    
+
     /// Convert to CognitiveState's quantum signature
     pub fn to_cognitive_state(&self) -> Result<CognitiveState, String> {
         // Create AlignedCoherenceFingerprint
         let fingerprint = AlignedCoherenceFingerprint::new(
             self.coherence_fingerprint.amplitudes.clone(),
             self.coherence_fingerprint.phases.clone(),
-        ).map_err(|e| format!("Failed to create coherence fingerprint: {}", e))?;
-        
+        )
+        .map_err(|e| format!("Failed to create coherence fingerprint: {}", e))?;
+
         // Parse entanglement bonds
-        let bonds: Result<Vec<EntanglementBond>, String> = self.entanglement_bonds
+        let bonds: Result<Vec<EntanglementBond>, String> = self
+            .entanglement_bonds
             .iter()
             .map(|bond_schema| {
                 let target_id = Uuid::parse_str(&bond_schema.target_id)
                     .map_err(|e| format!("Invalid UUID: {}", e))?;
-                
+
                 let entanglement_type = match bond_schema.bond_type.as_str() {
                     "Semantic" => EntanglementType::Semantic,
                     "Temporal" => EntanglementType::Temporal,
@@ -123,9 +127,14 @@ impl QuantumSignatureSchema {
                     "Weak" => EntanglementType::Weak,
                     "Bell" => EntanglementType::Bell,
                     "BellPair" => EntanglementType::BellPair,
-                    _ => return Err(format!("Unknown entanglement type: {}", bond_schema.bond_type)),
+                    _ => {
+                        return Err(format!(
+                            "Unknown entanglement type: {}",
+                            bond_schema.bond_type
+                        ));
+                    }
                 };
-                
+
                 Ok(EntanglementBond {
                     target_id,
                     bond_strength: bond_schema.bond_strength,
@@ -134,15 +143,16 @@ impl QuantumSignatureSchema {
                 })
             })
             .collect();
-        
+
         let bonds = bonds?;
-        
+
         // Parse superposition contexts
-        let superposition_contexts: Vec<std::sync::Arc<str>> = self.superposition_contexts
+        let superposition_contexts: Vec<std::sync::Arc<str>> = self
+            .superposition_contexts
             .iter()
             .map(|s| std::sync::Arc::from(s.as_str()))
             .collect();
-        
+
         // Create QuantumSignature
         let quantum_signature = QuantumSignature::new_with_data(
             fingerprint,
@@ -153,8 +163,10 @@ impl QuantumSignatureSchema {
             self.created_at.into(),
             self.decoherence_rate,
         );
-        
+
         // Create CognitiveState with quantum signature
-        Ok(CognitiveState::new_with_quantum_signature(quantum_signature))
+        Ok(CognitiveState::new_with_quantum_signature(
+            quantum_signature,
+        ))
     }
 }

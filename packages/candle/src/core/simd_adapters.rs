@@ -4,7 +4,7 @@
 //! Uses the existing paraphym_simd operations directly without duplication.
 
 use arrayvec::ArrayVec;
-use paraphym_simd::{argmax, scale_temperature, softmax, SimdError};
+use paraphym_simd::{SimdError, argmax, scale_temperature, softmax};
 
 use crate::core::generation::{CandleResult, LogitsBuffer, TokenProb};
 use crate::domain::model::error::CandleModelError as CandleError;

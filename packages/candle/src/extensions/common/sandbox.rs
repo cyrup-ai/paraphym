@@ -1,7 +1,7 @@
-use tokio::process::Command;
-use tokio::time::{timeout, Duration};
-use std::process::Stdio;
 use super::types::{ExtensionError, Result};
+use std::process::Stdio;
+use tokio::process::Command;
+use tokio::time::{Duration, timeout};
 
 pub struct SandboxConfig {
     pub timeout_secs: u64,
@@ -34,20 +34,21 @@ pub async fn execute_sandboxed(
 ) -> Result<SandboxedOutput> {
     let mut cmd = Command::new(command);
     cmd.args(args);
-    
+
     if config.capture_output {
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     } else {
         cmd.stdout(Stdio::null()).stderr(Stdio::null());
     }
-    
+
     let child = cmd.spawn()?;
-    
+
     let result = timeout(
         Duration::from_secs(config.timeout_secs),
-        child.wait_with_output()
-    ).await;
-    
+        child.wait_with_output(),
+    )
+    .await;
+
     match result {
         Ok(Ok(output)) => Ok(SandboxedOutput {
             stdout: String::from_utf8_lossy(&output.stdout).to_string(),
@@ -56,13 +57,11 @@ pub async fn execute_sandboxed(
             timed_out: false,
         }),
         Ok(Err(e)) => Err(ExtensionError::ProcessError(e)),
-        Err(_) => {
-            Ok(SandboxedOutput {
-                stdout: String::new(),
-                stderr: format!("Process timed out after {} seconds", config.timeout_secs),
-                exit_code: None,
-                timed_out: true,
-            })
-        }
+        Err(_) => Ok(SandboxedOutput {
+            stdout: String::new(),
+            stderr: format!("Process timed out after {} seconds", config.timeout_secs),
+            exit_code: None,
+            timed_out: true,
+        }),
     }
 }

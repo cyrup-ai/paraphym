@@ -119,9 +119,12 @@ impl TemplateParser {
                     nodes.push(ast);
                     i = new_i;
                     continue;
-                } else if block_content == "endif" || block_content == "endfor" 
-                    || block_content == "elif" || block_content.starts_with("elif ")
-                    || block_content == "else" {
+                } else if block_content == "endif"
+                    || block_content == "endfor"
+                    || block_content == "elif"
+                    || block_content.starts_with("elif ")
+                    || block_content == "else"
+                {
                     // End tags handled by parent parser
                     break;
                 }
@@ -140,15 +143,21 @@ impl TemplateParser {
                 let expr_start = i + 2;
                 let mut expr_end = expr_start;
                 let mut brace_count = 0;
-                
+
                 while expr_end < chars.len() {
-                    if expr_end + 1 < chars.len() && chars[expr_end] == '}' && chars[expr_end + 1] == '}' {
+                    if expr_end + 1 < chars.len()
+                        && chars[expr_end] == '}'
+                        && chars[expr_end + 1] == '}'
+                    {
                         if brace_count == 0 {
                             break;
                         }
                         brace_count -= 1;
                         expr_end += 1;
-                    } else if expr_end + 1 < chars.len() && chars[expr_end] == '{' && chars[expr_end + 1] == '{' {
+                    } else if expr_end + 1 < chars.len()
+                        && chars[expr_end] == '{'
+                        && chars[expr_end + 1] == '{'
+                    {
                         brace_count += 1;
                         expr_end += 1;
                     }
@@ -206,10 +215,11 @@ impl TemplateParser {
         // Extract condition from {% if condition %}
         let chars: Vec<char> = content.chars().collect();
         let mut block_start = start_pos + 2; // skip {%
-        while block_start < chars.len() && (chars[block_start] == ' ' || chars[block_start] == '\t') {
+        while block_start < chars.len() && (chars[block_start] == ' ' || chars[block_start] == '\t')
+        {
             block_start += 1;
         }
-        
+
         // Find %}
         let mut block_end = block_start;
         while block_end + 1 < chars.len() {
@@ -220,15 +230,19 @@ impl TemplateParser {
         }
 
         let block_content: String = chars[block_start..block_end].iter().collect();
-        let condition_str = block_content.strip_prefix("if ").ok_or_else(|| TemplateError::ParseError {
-            message: "Invalid if block syntax".to_string(),
-        })?.trim();
+        let condition_str = block_content
+            .strip_prefix("if ")
+            .ok_or_else(|| TemplateError::ParseError {
+                message: "Invalid if block syntax".to_string(),
+            })?
+            .trim();
 
         let condition = self.parse_expression(condition_str, depth + 1)?;
 
         // Find the body until endif/elif/else
         let body_start = block_end + 2;
-        let (true_body, next_tag_pos, next_tag) = Self::find_block_end(content, body_start, &["endif", "elif", "else"])?;
+        let (true_body, next_tag_pos, next_tag) =
+            Self::find_block_end(content, body_start, &["endif", "elif", "else"])?;
 
         let if_true = self.parse_with_depth(&true_body, depth + 1)?;
 
@@ -251,7 +265,8 @@ impl TemplateParser {
                 i += 1;
             }
 
-            let (else_body, endif_pos, _) = Self::find_block_end(content, else_start + i, &["endif"])?;
+            let (else_body, endif_pos, _) =
+                Self::find_block_end(content, else_start + i, &["endif"])?;
             let else_ast = self.parse_with_depth(&else_body, depth + 1)?;
             (Some(Arc::new(else_ast)), endif_pos)
         } else {
@@ -295,10 +310,11 @@ impl TemplateParser {
         // Extract loop header from {% for var in items %}
         let chars: Vec<char> = content.chars().collect();
         let mut block_start = start_pos + 2; // skip {%
-        while block_start < chars.len() && (chars[block_start] == ' ' || chars[block_start] == '\t') {
+        while block_start < chars.len() && (chars[block_start] == ' ' || chars[block_start] == '\t')
+        {
             block_start += 1;
         }
-        
+
         // Find %}
         let mut block_end = block_start;
         while block_end + 1 < chars.len() {
@@ -309,9 +325,12 @@ impl TemplateParser {
         }
 
         let block_content: String = chars[block_start..block_end].iter().collect();
-        let loop_header = block_content.strip_prefix("for ").ok_or_else(|| TemplateError::ParseError {
-            message: "Invalid for block syntax".to_string(),
-        })?.trim();
+        let loop_header = block_content
+            .strip_prefix("for ")
+            .ok_or_else(|| TemplateError::ParseError {
+                message: "Invalid for block syntax".to_string(),
+            })?
+            .trim();
 
         let parts: Vec<&str> = loop_header.split(" in ").collect();
         if parts.len() != 2 {
@@ -401,7 +420,8 @@ impl TemplateParser {
                             return Ok((body, start + i, tag_content.to_string()));
                         }
                     }
-                } else if (tag_content == "else" || tag_content.starts_with("elif ")) && depth == 0 {
+                } else if (tag_content == "else" || tag_content.starts_with("elif ")) && depth == 0
+                {
                     // Found our end tag
                     for end_tag in end_tags {
                         if tag_content.starts_with(end_tag) || tag_content == *end_tag {
@@ -499,7 +519,8 @@ impl TemplateParser {
 
     fn parse_comparison(&self, content: &str, depth: usize) -> TemplateResult<TemplateAst> {
         if let Some(pos) = Self::find_operator(content, &["==", "!=", "<=", ">=", "<", ">"]) {
-            let (left_str, op, right_str) = Self::extract_operator(content, pos, &["==", "!=", "<=", ">=", "<", ">"])?;
+            let (left_str, op, right_str) =
+                Self::extract_operator(content, pos, &["==", "!=", "<=", ">=", "<", ">"])?;
             let left = self.parse_additive(&left_str, depth)?;
             let right = self.parse_additive(&right_str, depth)?;
             return Ok(TemplateAst::Expression {
@@ -600,7 +621,7 @@ impl TemplateParser {
         operators: &[&str],
     ) -> TemplateResult<(String, String, String)> {
         let chars: Vec<char> = content.chars().collect();
-        
+
         for op in operators {
             if pos + op.len() <= chars.len() {
                 let substr: String = chars[pos..pos + op.len()].iter().collect();
@@ -636,12 +657,14 @@ impl TemplateParser {
         let func_name = content[..paren_pos].trim();
 
         // Extract arguments
-        let close_paren = content.rfind(')').ok_or_else(|| TemplateError::ParseError {
-            message: "Unclosed function call".to_string(),
-        })?;
-        
+        let close_paren = content
+            .rfind(')')
+            .ok_or_else(|| TemplateError::ParseError {
+                message: "Unclosed function call".to_string(),
+            })?;
+
         let args_str = &content[paren_pos + 1..close_paren];
-        
+
         let args = if args_str.trim().is_empty() {
             Vec::new()
         } else {
@@ -667,19 +690,23 @@ impl TemplateParser {
     /// # Errors
     ///
     /// Returns `TemplateError` if argument parsing fails
-    fn parse_function_args(&self, args_str: &str, depth: usize) -> TemplateResult<Vec<TemplateAst>> {
+    fn parse_function_args(
+        &self,
+        args_str: &str,
+        depth: usize,
+    ) -> TemplateResult<Vec<TemplateAst>> {
         let mut args = Vec::new();
         let mut current_arg = String::new();
         let mut paren_depth = 0;
-        let mut string_delimiter: Option<char> = None;  // Track which quote opened the string
-        
+        let mut string_delimiter: Option<char> = None; // Track which quote opened the string
+
         for ch in args_str.chars() {
             match ch {
                 '"' | '\'' => {
                     match string_delimiter {
-                        None => string_delimiter = Some(ch),           // Open string
-                        Some(delim) if delim == ch => string_delimiter = None,  // Close if matching
-                        _ => {}  // Different quote inside string, ignore
+                        None => string_delimiter = Some(ch), // Open string
+                        Some(delim) if delim == ch => string_delimiter = None, // Close if matching
+                        _ => {} // Different quote inside string, ignore
                     }
                 }
                 '(' if string_delimiter.is_none() => paren_depth += 1,
@@ -693,11 +720,11 @@ impl TemplateParser {
             }
             current_arg.push(ch);
         }
-        
+
         if !current_arg.trim().is_empty() {
             args.push(self.parse_expression(current_arg.trim(), depth + 1)?);
         }
-        
+
         Ok(args)
     }
 
@@ -718,15 +745,21 @@ impl TemplateParser {
                 // Find closing }}
                 let mut expr_end = i;
                 let mut brace_count = 0;
-                
+
                 while expr_end < chars.len() {
-                    if expr_end + 1 < chars.len() && chars[expr_end] == '}' && chars[expr_end + 1] == '}' {
+                    if expr_end + 1 < chars.len()
+                        && chars[expr_end] == '}'
+                        && chars[expr_end + 1] == '}'
+                    {
                         if brace_count == 0 {
                             break;
                         }
                         brace_count -= 1;
                         expr_end += 1;
-                    } else if expr_end + 1 < chars.len() && chars[expr_end] == '{' && chars[expr_end + 1] == '{' {
+                    } else if expr_end + 1 < chars.len()
+                        && chars[expr_end] == '{'
+                        && chars[expr_end + 1] == '{'
+                    {
                         brace_count += 1;
                         expr_end += 1;
                     }
@@ -864,8 +897,7 @@ mod tests {
     #[test]
     fn test_variable_extraction() -> Result<(), Box<dyn std::error::Error>> {
         let parser = TemplateParser::new();
-        let variables = parser
-            .extract_variables("Hello {{name}}, you have {{count}} messages.")?;
+        let variables = parser.extract_variables("Hello {{name}}, you have {{count}} messages.")?;
 
         assert_eq!(variables.len(), 2);
         assert!(variables.iter().any(|v| v.name.as_str() == "name"));

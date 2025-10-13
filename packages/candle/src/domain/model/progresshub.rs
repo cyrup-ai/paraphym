@@ -67,7 +67,9 @@ pub trait ProgressHubModel: Send + Sync + 'static {
     ///
     /// # Errors
     /// Returns error if required files are missing or model initialization fails
-    fn from_downloaded_model(results: progresshub::types::OneOrMany<progresshub::DownloadResult>) -> Result<Self, Box<dyn Error + Send + Sync>>
+    fn from_downloaded_model(
+        results: progresshub::types::OneOrMany<progresshub::DownloadResult>,
+    ) -> Result<Self, Box<dyn Error + Send + Sync>>
     where
         Self: Sized;
 }

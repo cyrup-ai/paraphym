@@ -6,5 +6,5 @@ pub mod models;
 pub mod types;
 
 // Re-export key types
-pub use models::{LocalModel, LocalModelType, CompletionCoreError};
+pub use models::{CompletionCoreError, LocalModel, LocalModelType};
 pub use types::{CommitteeConfig, EvaluationRubric, ImpactFactors};

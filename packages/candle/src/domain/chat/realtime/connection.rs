@@ -4,13 +4,13 @@
 //! health checks, and connection state tracking using atomic operations and lock-free
 //! data structures for maximum performance.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use ahash::RandomState;
 use arc_swap::ArcSwap;
-use crossbeam_channel::{unbounded, Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, unbounded};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -292,7 +292,7 @@ impl ConnectionManager {
         }
 
         self.health_check_running.store(true, Ordering::Release);
-        
+
         let running = self.health_check_running.clone();
         let connections = Arc::clone(&self.connections);
         let heartbeat_timeout = self.heartbeat_timeout;
@@ -302,7 +302,7 @@ impl ConnectionManager {
 
         std::thread::spawn(move || {
             log::info!("Health check thread started (interval: 1s, timeout: {heartbeat_timeout}s)");
-            
+
             while running.load(Ordering::Acquire) {
                 // Step 1: Identify stale connections
                 let stale_connections: Vec<(String, String, usize)> = connections
@@ -310,7 +310,7 @@ impl ConnectionManager {
                     .filter_map(|entry| {
                         let conn_id = entry.key().clone();
                         let conn = entry.value();
-                        
+
                         if conn.is_connection_healthy(heartbeat_timeout) {
                             None
                         } else {
@@ -320,42 +320,43 @@ impl ConnectionManager {
                         }
                     })
                     .collect();
-                
+
                 // Step 2: Handle each stale connection
                 for (conn_id, user_id, attempts) in stale_connections {
                     if let Some(conn_entry) = connections.get(&conn_id) {
                         let conn = conn_entry.value();
-                        
+
                         if attempts < 3 {
                             // Attempt reconnection
                             conn.increment_reconnection_attempts();
                             conn.set_status(ConnectionStatus::Reconnecting);
-                            
+
                             log::warn!(
                                 "Connection {} (user: {}) unhealthy, reconnect attempt {}/3",
-                                conn_id, user_id, attempts + 1
+                                conn_id,
+                                user_id,
+                                attempts + 1
                             );
-                            
+
                             // Send reconnection event
                             let _ = event_sender.send(RealTimeEvent::connection_status_changed(
                                 user_id.clone(),
                                 ConnectionStatus::Reconnecting,
                             ));
-                            
                         } else {
                             // Max reconnection attempts exceeded - remove connection
                             log::error!(
                                 "Connection {conn_id} (user: {user_id}) failed after 3 reconnection attempts, removing"
                             );
-                            
+
                             conn.set_status(ConnectionStatus::Failed);
-                            
+
                             // Send failure event
                             let _ = event_sender.send(RealTimeEvent::connection_status_changed(
                                 user_id.clone(),
                                 ConnectionStatus::Failed,
                             ));
-                            
+
                             // Remove from connections and update counters
                             if connections.remove(&conn_id).is_some() {
                                 failed_checks.fetch_add(1, Ordering::AcqRel);
@@ -364,11 +365,11 @@ impl ConnectionManager {
                         }
                     }
                 }
-                
+
                 // Sleep for check interval
                 std::thread::sleep(Duration::from_secs(1));
             }
-            
+
             log::info!("Health check thread stopped");
         });
 

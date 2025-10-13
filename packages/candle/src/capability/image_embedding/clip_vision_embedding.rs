@@ -5,10 +5,10 @@
 
 use std::sync::Arc;
 
-use crate::memory::utils::error::{Error as MemoryError, Result};
 use super::ClipVisionModel;
-use crate::domain::model::traits::CandleModel;
 use crate::domain::model::CandleModelInfo;
+use crate::domain::model::traits::CandleModel;
+use crate::memory::utils::error::{Error as MemoryError, Result};
 
 /// Async wrapper for ClipVisionModel implementing EmbeddingModel trait
 ///
@@ -39,7 +39,7 @@ impl ClipVisionEmbeddingModel {
     ///
     /// # Arguments
     /// * `dimension` - 512 for ViT-Base-Patch32 or 768 for ViT-Large-Patch14-336
-    /// 
+    ///
     /// Note: ClipVisionModel now uses lazy loading, so no explicit download needed.
     /// Model files are downloaded on-demand via huggingface_file().
     pub async fn with_dimension(dimension: usize) -> Result<Self> {
@@ -50,11 +50,10 @@ impl ClipVisionEmbeddingModel {
                 dimension
             )));
         }
-        
+
         // Create provider with specified dimension
         // Model will be downloaded and loaded on-demand via huggingface_file()
-        let provider = ClipVisionModel::new(dimension)
-            .map_err(MemoryError::Config)?;
+        let provider = ClipVisionModel::new(dimension).map_err(MemoryError::Config)?;
 
         Ok(Self {
             provider: Arc::new(provider),
@@ -83,45 +82,62 @@ impl ClipVisionEmbeddingModel {
     ///
     /// This is the primary method for encoding images to embeddings.
     pub async fn embed_image(&self, image_path: &str) -> Result<Vec<f32>> {
-        let tensor = self.provider.encode_image(image_path).await
+        let tensor = self
+            .provider
+            .encode_image(image_path)
+            .await
             .map_err(|e| MemoryError::ModelError(format!("Image encoding failed: {}", e)))?;
 
         // Convert Tensor to Vec<f32>
         tensor
             .flatten_all()
             .and_then(|t| t.to_vec1::<f32>())
-            .map_err(|e| MemoryError::ModelError(format!("Failed to convert tensor to vector: {}", e)))
+            .map_err(|e| {
+                MemoryError::ModelError(format!("Failed to convert tensor to vector: {}", e))
+            })
     }
 
     /// Encode image from URL
     pub async fn embed_image_url(&self, url: &str) -> Result<Vec<f32>> {
-        let tensor = self.provider.encode_url(url).await
-            .map_err(|e| MemoryError::ModelError(format!("Image URL encoding failed: {}", e)))?;
+        let tensor =
+            self.provider.encode_url(url).await.map_err(|e| {
+                MemoryError::ModelError(format!("Image URL encoding failed: {}", e))
+            })?;
 
         tensor
             .flatten_all()
             .and_then(|t| t.to_vec1::<f32>())
-            .map_err(|e| MemoryError::ModelError(format!("Failed to convert tensor to vector: {}", e)))
+            .map_err(|e| {
+                MemoryError::ModelError(format!("Failed to convert tensor to vector: {}", e))
+            })
     }
 
     /// Encode image from base64 data
     pub async fn embed_image_base64(&self, base64_data: &str) -> Result<Vec<f32>> {
-        let tensor = self.provider.encode_base64(base64_data).await
+        let tensor = self
+            .provider
+            .encode_base64(base64_data)
+            .await
             .map_err(|e| MemoryError::ModelError(format!("Base64 image encoding failed: {}", e)))?;
 
         tensor
             .flatten_all()
             .and_then(|t| t.to_vec1::<f32>())
-            .map_err(|e| MemoryError::ModelError(format!("Failed to convert tensor to vector: {}", e)))
+            .map_err(|e| {
+                MemoryError::ModelError(format!("Failed to convert tensor to vector: {}", e))
+            })
     }
 
     /// Batch encode multiple images
     pub async fn batch_embed_images(&self, image_paths: Vec<&str>) -> Result<Vec<Vec<f32>>> {
-        let batch_tensor = self.provider.encode_batch(image_paths).await
-            .map_err(|e| MemoryError::ModelError(format!("Batch image encoding failed: {}", e)))?;
+        let batch_tensor =
+            self.provider.encode_batch(image_paths).await.map_err(|e| {
+                MemoryError::ModelError(format!("Batch image encoding failed: {}", e))
+            })?;
 
         // Convert batch tensor (N, D) to Vec<Vec<f32>>
-        let batch_size = batch_tensor.dim(0)
+        let batch_size = batch_tensor
+            .dim(0)
             .map_err(|e| MemoryError::ModelError(format!("Failed to get batch size: {}", e)))?;
 
         let mut embeddings = Vec::with_capacity(batch_size);
@@ -131,14 +147,15 @@ impl ClipVisionEmbeddingModel {
                 .get(i)
                 .and_then(|t| t.flatten_all())
                 .and_then(|t| t.to_vec1::<f32>())
-                .map_err(|e| MemoryError::ModelError(format!("Failed to extract embedding {}: {}", i, e)))?;
+                .map_err(|e| {
+                    MemoryError::ModelError(format!("Failed to extract embedding {}: {}", i, e))
+                })?;
             embeddings.push(row);
         }
 
         Ok(embeddings)
     }
 }
-
 
 // Static model info for CLIP Vision Embedding
 #[allow(dead_code)] // Reserved for future vision embedding model registry
@@ -188,34 +205,54 @@ impl CandleModel for ClipVisionEmbeddingModel {
     }
 }
 
-#[async_trait::async_trait(?Send)]
 impl crate::capability::traits::ImageEmbeddingCapable for ClipVisionEmbeddingModel {
-    async fn embed_image(&self, image_path: &str)
-        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>
-    {
-        ClipVisionEmbeddingModel::embed_image(self, image_path).await
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+    fn embed_image(
+        &self,
+        image_path: &str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
+        let image_path = image_path.to_string();
+        Box::pin(async move {
+            ClipVisionEmbeddingModel::embed_image(self, &image_path)
+                .await
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+        })
     }
 
-    async fn embed_image_url(&self, url: &str)
-        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>
-    {
-        ClipVisionEmbeddingModel::embed_image_url(self, url).await
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+    fn embed_image_url(
+        &self,
+        url: &str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
+        let url = url.to_string();
+        Box::pin(async move {
+            ClipVisionEmbeddingModel::embed_image_url(self, &url)
+                .await
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+        })
     }
 
-    async fn embed_image_base64(&self, base64_data: &str)
-        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>
-    {
-        ClipVisionEmbeddingModel::embed_image_base64(self, base64_data).await
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+    fn embed_image_base64(
+        &self,
+        base64_data: &str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
+        let base64_data = base64_data.to_string();
+        Box::pin(async move {
+            ClipVisionEmbeddingModel::embed_image_base64(self, &base64_data)
+                .await
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+        })
     }
 
-    async fn batch_embed_images(&self, image_paths: Vec<&str>)
-        -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>>
-    {
-        ClipVisionEmbeddingModel::batch_embed_images(self, image_paths).await
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+    fn batch_embed_images(
+        &self,
+        image_paths: Vec<&str>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
+        let paths: Vec<String> = image_paths.iter().map(|s| s.to_string()).collect();
+        Box::pin(async move {
+            let path_refs: Vec<&str> = paths.iter().map(|s| s.as_str()).collect();
+            ClipVisionEmbeddingModel::batch_embed_images(self, path_refs)
+                .await
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+        })
     }
 
     fn embedding_dimension(&self) -> usize {
@@ -226,4 +263,3 @@ impl crate::capability::traits::ImageEmbeddingCapable for ClipVisionEmbeddingMod
         vec![512, 768]
     }
 }
-

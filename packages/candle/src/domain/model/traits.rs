@@ -80,25 +80,29 @@ pub trait CandleModel: Send + Sync + std::fmt::Debug + 'static {
     }
 
     /// Get path to a file in a `HuggingFace` repository
-    /// 
+    ///
     /// Downloads the file if not cached, returns cached path if available.
-    /// 
+    ///
     /// # Arguments
     /// * `repo_key` - Repository identifier (e.g., "org/model-name")
     /// * `filename` - File name within the repository (e.g., "config.json")
-    /// 
+    ///
     /// # Errors
     /// Returns error if file download or access fails
-    fn huggingface_file(&self, repo_key: &str, filename: &str) -> Result<std::path::PathBuf, Box<dyn std::error::Error + Send + Sync>>
+    fn huggingface_file(
+        &self,
+        repo_key: &str,
+        filename: &str,
+    ) -> Result<std::path::PathBuf, Box<dyn std::error::Error + Send + Sync>>
     where
-        Self: Sized
+        Self: Sized,
     {
         use hf_hub::api::sync::Api;
-        
+
         let api = Api::new()?;
         let repo = api.model(repo_key.to_string());
         let path = repo.get(filename)?;
-        
+
         Ok(path)
     }
 }
@@ -260,7 +264,6 @@ pub struct FineTuningConfig {
     pub validation_split: Option<f32>,
 }
 
-
 /// Trait for models that can generate embeddings
 pub trait EmbeddingCapable: CandleModel {
     /// Get the dimensionality of the embeddings
@@ -324,4 +327,3 @@ pub trait FineTunable: CandleModel {
         true
     }
 }
-

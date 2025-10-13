@@ -6,9 +6,9 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use ystream::{AsyncStream, AsyncStreamSender};
-use thiserror::Error;
 use cyrup_sugars::prelude::MessageChunk;
+use thiserror::Error;
+use ystream::{AsyncStream, AsyncStreamSender};
 
 use crate::domain::chat::message::types::CandleMessageRole;
 use crate::domain::util::unix_timestamp_nanos;
@@ -122,7 +122,8 @@ pub enum CandleConversationEvent {
 }
 
 impl MessageChunk for CandleConversationEvent {
-    fn bad_chunk(_error: String) -> Self { // Error parameter reserved for future use
+    fn bad_chunk(_error: String) -> Self {
+        // Error parameter reserved for future use
         Self::StatsUpdated {
             total_messages: 0,
             user_messages: 0,
@@ -133,7 +134,9 @@ impl MessageChunk for CandleConversationEvent {
 
     fn error(&self) -> Option<&str> {
         match self {
-            Self::StatsUpdated { total_messages: 0, .. } => Some("Invalid conversation statistics"),
+            Self::StatsUpdated {
+                total_messages: 0, ..
+            } => Some("Invalid conversation statistics"),
             _ => None,
         }
     }
@@ -217,12 +220,12 @@ impl CandleStreamingConversation {
     #[must_use]
     pub fn with_streaming() -> (Self, AsyncStream<CandleConversationEvent>) {
         let (sender, stream) = AsyncStream::channel();
-        
+
         let conversation = Self {
             event_sender: Some(sender),
             ..Self::new()
         };
-        
+
         (conversation, stream)
     }
 
@@ -499,5 +502,3 @@ impl CandleConversationStats {
         }
     }
 }
-
-

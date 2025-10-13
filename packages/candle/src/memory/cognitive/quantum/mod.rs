@@ -2,19 +2,19 @@
 //!
 //! Quantum-inspired patterns for local cognitive processing without cloud dependencies.
 
-pub mod router;
-pub mod types;
-pub mod measurement;
 pub mod entanglement;
 pub mod error_correction;
+pub mod measurement;
+pub mod router;
 pub mod state;
+pub mod types;
 
 // Re-export key types
-pub use router::{QuantumRouter, QuantumRouterError};
-pub use types::{RoutingStrategy, EnhancedQuery, TemporalContext, TemporalType, CognitiveError};
-pub use measurement::{MeasurementBasis, MeasurementMetadata};
 pub use entanglement::EntanglementLink;
+pub use measurement::{MeasurementBasis, MeasurementMetadata};
+pub use router::{QuantumRouter, QuantumRouterError};
 pub use state::QuantumState;
+pub use types::{CognitiveError, EnhancedQuery, RoutingStrategy, TemporalContext, TemporalType};
 
 /// Quantum signature for cognitive operations
 #[derive(Debug, Clone)]

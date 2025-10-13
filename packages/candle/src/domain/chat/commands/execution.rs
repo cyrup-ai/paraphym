@@ -11,11 +11,11 @@ use mime_guess::from_ext;
 use ystream::AsyncStream;
 
 use super::parsing::CommandParser;
-use crate::domain::util::unix_timestamp_micros;
 use super::types::actions::SearchScope;
 use super::types::commands::{CommandExecutionResult, ImmutableChatCommand, OutputType};
 use super::types::events::{CommandEvent, CommandExecutionContext};
 use super::types::metadata::ResourceUsage;
+use crate::domain::util::unix_timestamp_micros;
 
 /// Get current timestamp in microseconds since Unix epoch, with fallback for clock errors
 fn current_timestamp_us() -> u64 {
@@ -191,9 +191,8 @@ impl CommandExecutor {
                     } else {
                         ""
                     };
-                    let message = format!(
-                        "Chat exported to '{output_str}' in {format} format{metadata_str}"
-                    );
+                    let message =
+                        format!("Chat exported to '{output_str}' in {format} format{metadata_str}");
 
                     ystream::emit!(
                         sender,
@@ -248,9 +247,7 @@ impl CommandExecutor {
 
                     // Build search result message
                     let scope_str = format!("{scope:?}").to_lowercase();
-                    let limit_str = limit
-                        .map(|l| format!(" (limit: {l})"))
-                        .unwrap_or_default();
+                    let limit_str = limit.map(|l| format!(" (limit: {l})")).unwrap_or_default();
                     let context_str = if include_context { " with context" } else { "" };
                     let message = format!(
                         "Search for '{query}' in {scope_str} scope{limit_str}{context_str} completed"
@@ -314,7 +311,8 @@ impl CommandExecutor {
             std::thread::spawn(move || {
                 // Emit started event
                 #[allow(clippy::cast_possible_truncation)]
-                let timestamp_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
+                let timestamp_us =
+                    start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
                 ystream::emit!(
                     sender,
                     CommandEvent::Started {
@@ -330,7 +328,9 @@ impl CommandExecutor {
                 // Generate help message with zero allocation
                 let message = if let Some(cmd) = command {
                     if extended {
-                        format!("Extended help for command '{cmd}': Detailed usage, examples, and advanced options available")
+                        format!(
+                            "Extended help for command '{cmd}': Detailed usage, examples, and advanced options available"
+                        )
                     } else {
                         format!("Help for command '{cmd}': Basic usage and description")
                     }
@@ -376,7 +376,8 @@ impl CommandExecutor {
             std::thread::spawn(move || {
                 // Emit started event
                 #[allow(clippy::cast_possible_truncation)]
-                let timestamp_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
+                let timestamp_us =
+                    start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
                 ystream::emit!(
                     sender,
                     CommandEvent::Started {
@@ -464,7 +465,8 @@ impl CommandExecutor {
                         },
                         execution_id,
                         #[allow(clippy::cast_possible_truncation)]
-                        timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64
+                        timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX))
+                            as u64
                     }
                 );
 
@@ -491,9 +493,8 @@ impl CommandExecutor {
                 } else {
                     ""
                 };
-                let message = format!(
-                    "Chat exported to '{output_str}' in {format} format{metadata_str}"
-                );
+                let message =
+                    format!("Chat exported to '{output_str}' in {format} format{metadata_str}");
 
                 // Emit output and completion
                 ystream::emit!(
@@ -504,9 +505,7 @@ impl CommandExecutor {
                 let result = CommandExecutionResult::File {
                     path: output_str,
                     size_bytes: 1024, // Placeholder size
-                    mime_type: from_ext(&format)
-                        .first_or_text_plain()
-                        .to_string(),
+                    mime_type: from_ext(&format).first_or_text_plain().to_string(),
                 };
                 #[allow(clippy::cast_possible_truncation)]
                 let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
@@ -548,7 +547,8 @@ impl CommandExecutor {
                         },
                         execution_id,
                         #[allow(clippy::cast_possible_truncation)]
-                        timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64
+                        timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX))
+                            as u64
                     }
                 );
 
@@ -612,7 +612,8 @@ impl CommandExecutor {
                         },
                         execution_id,
                         #[allow(clippy::cast_possible_truncation)]
-                        timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64
+                        timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX))
+                            as u64
                     }
                 );
 
@@ -650,9 +651,7 @@ impl CommandExecutor {
                     SearchScope::Archived => "archived content",
                 };
 
-                let limit_str = limit
-                    .map(|n| format!(" (limit: {n})"))
-                    .unwrap_or_default();
+                let limit_str = limit.map(|n| format!(" (limit: {n})")).unwrap_or_default();
                 let context_str = if include_context { " with context" } else { "" };
 
                 let message = format!(

@@ -63,6 +63,4 @@ impl Memory {
         }
         self.updated_at = utils::current_timestamp_ms();
     }
-
-
 }

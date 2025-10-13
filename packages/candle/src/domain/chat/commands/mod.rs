@@ -13,8 +13,8 @@ pub mod validation;
 
 // Re-export main Candle types and functions for convenience
 // Global Candle command executor functionality
-use std::sync::{Arc, RwLock};
 use crate::domain::util::unix_timestamp_micros;
+use std::sync::{Arc, RwLock};
 
 pub use execution::CommandExecutor;
 

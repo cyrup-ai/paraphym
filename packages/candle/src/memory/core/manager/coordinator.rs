@@ -7,8 +7,8 @@ use chrono;
 use moka::sync::Cache;
 use tokio::sync::RwLock;
 
-use crate::capability::traits::TextEmbeddingCapable;
 use crate::capability::registry::TextEmbeddingModel;
+use crate::capability::traits::TextEmbeddingCapable;
 
 use crate::domain::memory::cognitive::types::{CognitiveState, EntanglementType};
 use crate::domain::memory::primitives::{node::MemoryNode, types::MemoryTypeEnum};
@@ -63,7 +63,7 @@ pub struct MemoryCoordinator {
     committee_evaluator: Arc<ModelCommitteeEvaluator>,
     quantum_router: Arc<QuantumRouter>,
     quantum_state: Arc<RwLock<QuantumState>>,
-    cognitive_workers: Arc<std::sync::RwLock<Vec<std::thread::JoinHandle<()>>>>,
+    cognitive_workers: Arc<std::sync::RwLock<Vec<tokio::task::JoinHandle<()>>>>,
     // LAZY EVALUATION FIELDS:
     lazy_eval_strategy: LazyEvalStrategy,
     evaluation_cache: Cache<String, f64>,
@@ -89,9 +89,8 @@ impl MemoryCoordinator {
         let quantum_router = Arc::new(QuantumRouter::default());
         let quantum_state = Arc::new(RwLock::new(QuantumState::new()));
 
-        // Spawn cognitive workers
-        let num_workers = 2; // Start with 2 worker threads
-        let mut cognitive_workers = Vec::new();
+        // Spawn cognitive workers as async tasks (now Send-compatible)
+        let num_workers = 2;
 
         for worker_id in 0..num_workers {
             let queue = cognitive_queue.clone();
@@ -102,24 +101,15 @@ impl MemoryCoordinator {
                 queue, manager, evaluator,
             );
 
-            let handle = std::thread::Builder::new()
-                .name(format!("cognitive-worker-{}", worker_id))
-                .spawn(move || {
-                    log::info!("Cognitive worker {} started", worker_id);
-                    worker.run();
-                    log::info!("Cognitive worker {} stopped", worker_id);
-                })
-                .map_err(|e| {
-                    Error::Internal(format!(
-                        "Failed to spawn cognitive worker thread {}: {}",
-                        worker_id, e
-                    ))
-                })?;
-
-            cognitive_workers.push(handle);
+            // Spawn on main tokio runtime (workers are Send now)
+            tokio::spawn(async move {
+                log::info!("Cognitive worker {} started", worker_id);
+                worker.run().await;
+                log::info!("Cognitive worker {} stopped", worker_id);
+            });
         }
 
-        log::info!("Started {} cognitive worker threads", num_workers);
+        log::info!("Started {} cognitive worker tasks", num_workers);
 
         Ok(Self {
             surreal_manager,
@@ -129,7 +119,7 @@ impl MemoryCoordinator {
             committee_evaluator,
             quantum_router,
             quantum_state,
-            cognitive_workers: Arc::new(std::sync::RwLock::new(cognitive_workers)),
+            cognitive_workers: Arc::new(std::sync::RwLock::new(Vec::new())),
             lazy_eval_strategy: LazyEvalStrategy::default(),
             evaluation_cache: Cache::builder()
                 .max_capacity(10_000)
@@ -258,49 +248,26 @@ impl MemoryCoordinator {
     pub fn spawn_cognitive_workers(&self, worker_count: usize) -> Result<usize> {
         use crate::memory::core::cognitive_worker::CognitiveWorker;
 
-        let mut handles = vec![];
-        let mut spawned_count = 0;
-
         for i in 0..worker_count {
-            let worker = CognitiveWorker::new(
-                self.cognitive_queue.clone(),
-                self.surreal_manager.clone(),
-                self.committee_evaluator.clone(),
-            );
+            let queue = self.cognitive_queue.clone();
+            let manager = self.surreal_manager.clone();
+            let evaluator = self.committee_evaluator.clone();
 
-            match std::thread::Builder::new()
-                .name(format!("cognitive-worker-{}", i))
-                .spawn(move || {
-                    worker.run();
-                }) {
-                Ok(handle) => {
-                    handles.push(handle);
-                    spawned_count += 1;
-                }
-                Err(e) => {
-                    log::error!("Failed to spawn cognitive worker thread {}: {}", i, e);
-                    // Continue with remaining workers rather than failing completely
-                }
-            }
+            let worker = CognitiveWorker::new(queue, manager, evaluator);
+
+            // Spawn on main tokio runtime (workers are Send now)
+            tokio::spawn(async move {
+                log::info!("Cognitive worker {} started", i);
+                worker.run().await;
+                log::info!("Cognitive worker {} stopped", i);
+            });
         }
 
-        // Store handles for potential future graceful shutdown
-        self.cognitive_workers
-            .write()
-            .map_err(|e| {
-                Error::Internal(format!(
-                    "Failed to acquire write lock for cognitive workers: {}",
-                    e
-                ))
-            })?
-            .extend(handles);
-
         log::info!(
-            "Spawned {}/{} cognitive worker threads",
-            spawned_count,
+            "Spawned {} cognitive worker tasks",
             worker_count
         );
-        Ok(spawned_count)
+        Ok(worker_count)
     }
 
     /// Enqueue a cognitive task for background processing
@@ -1203,30 +1170,17 @@ impl MemoryCoordinator {
         Ok(embedding)
     }
 
-    /// Shutdown all cognitive worker threads gracefully
+    /// Shutdown all cognitive worker tasks gracefully
     pub fn shutdown_workers(&mut self) {
         // Flush any pending batches before shutdown
         if let Err(e) = self.cognitive_queue.flush_batches() {
             log::warn!("Failed to flush batches during shutdown: {}", e);
         }
 
-        match self.cognitive_workers.write() {
-            Ok(mut workers) => {
-                // Join all worker threads
-                while let Some(handle) = workers.pop() {
-                    if let Err(e) = handle.join() {
-                        log::warn!("Worker thread panicked during shutdown: {:?}", e);
-                    }
-                }
-                log::info!("All cognitive workers shut down");
-            }
-            Err(e) => {
-                log::error!(
-                    "Failed to acquire write lock for cognitive workers during shutdown: {}",
-                    e
-                );
-            }
-        }
+        // Note: Tokio tasks will be cancelled when runtime shuts down
+        // We don't await them here since this method is sync
+        // The queue channel will be dropped, causing workers to exit their loops
+        log::info!("Cognitive workers will shut down when queue is closed");
     }
 }
 

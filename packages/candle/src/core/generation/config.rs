@@ -114,14 +114,16 @@ impl SamplingConfig {
         }
 
         if let Some(top_k) = self.top_k
-            && top_k == 0 {
-                return Err("Top-k must be greater than 0".to_string());
-            }
+            && top_k == 0
+        {
+            return Err("Top-k must be greater than 0".to_string());
+        }
 
         if let Some(top_p) = self.top_p
-            && (top_p <= 0.0 || top_p > 1.0) {
-                return Err("Top-p must be in (0, 1]".to_string());
-            }
+            && (top_p <= 0.0 || top_p > 1.0)
+        {
+            return Err("Top-p must be in (0, 1]".to_string());
+        }
 
         if self.repetition_penalty < 0.0 {
             return Err("Repetition penalty must be non-negative".to_string());

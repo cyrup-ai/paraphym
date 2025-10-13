@@ -8,8 +8,8 @@ use std::task::{Context, Poll};
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
-use crate::memory::{MemoryNode, MemoryRelationship};
 use crate::memory::utils::Result;
+use crate::memory::{MemoryNode, MemoryRelationship};
 
 /// A pending store operation
 pub struct PendingStore {

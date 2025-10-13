@@ -4,7 +4,7 @@
 //! Supports visual question answering, image description, and multi-turn conversations.
 
 use std::num::NonZeroU32;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 
 use log;
@@ -39,7 +39,21 @@ enum LLaVARequest {
     Shutdown,
 }
 
+/// Image processing configuration for LLaVA
+#[derive(Debug, Clone, Copy)]
+struct ImageProcessingConfig {
+    image_size: usize,
+    image_mean: [f32; 3],
+    image_std: [f32; 3],
+}
 
+/// Text generation configuration for LLaVA
+#[derive(Debug, Clone, Copy)]
+struct GenerationConfig {
+    temperature: f64,
+    max_new_tokens: usize,
+    use_kv_cache: bool,
+}
 
 /// LLaVA vision-language provider
 ///
@@ -63,7 +77,7 @@ pub static LLAVA_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     quantization_url: None,
     max_input_tokens: NonZeroU32::new(4096),
     max_output_tokens: NonZeroU32::new(512),
-    input_price: None,  // Local model - no pricing
+    input_price: None, // Local model - no pricing
     output_price: None,
     supports_vision: true,
     supports_function_calling: false,
@@ -95,9 +109,37 @@ pub static LLAVA_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     est_memory_allocation_mb: 0,
 };
 
+/// Configuration for LLaVA model
+struct LLaVAModelConfig {
+    llava_config: CandleLLaVAConfig,
+    device: Device,
+    image_config: ImageProcessingConfig,
+    gen_config: GenerationConfig,
+}
+
+/// Context for LLaVA model thread
+struct LLaVAThreadContext {
+    request_rx: mpsc::Receiver<LLaVARequest>,
+    rt: &'static tokio::runtime::Runtime,
+}
+
+/// References to LLaVA model components
+struct LLaVAModelRefs<'a> {
+    model: &'a LLaVA,
+    tokenizer: &'a Tokenizer,
+    llava_config: &'a CandleLLaVAConfig,
+    device: &'a Device,
+}
+
+/// Configuration for LLaVA processing
+struct LLaVAConfigs {
+    image_config: ImageProcessingConfig,
+    gen_config: GenerationConfig,
+}
+
 impl LLaVAModel {
     /// Create new LLaVA model (lazy initialization)
-    /// 
+    ///
     /// Thread spawns on first describe_image() or describe_url() call.
     /// All configuration comes from LLAVA_MODEL_INFO.
     pub fn new() -> Self {
@@ -111,51 +153,63 @@ impl LLaVAModel {
     ///
     /// Returns sender for communication with model thread.
     /// Thread spawns on first call, subsequent calls return cached sender.
-    fn ensure_thread_spawned(&self) -> Result<mpsc::Sender<LLaVARequest>, Box<dyn std::error::Error + Send + Sync>> {
+    fn ensure_thread_spawned(
+        &self,
+    ) -> Result<mpsc::Sender<LLaVARequest>, Box<dyn std::error::Error + Send + Sync>> {
         // Lock the Option<Sender> - prevents race conditions
-        let mut tx_guard = self.request_tx.lock()
+        let mut tx_guard = self
+            .request_tx
+            .lock()
             .map_err(|e| format!("Lock poisoned: {}", e))?;
 
         // Check if thread already spawned
         if let Some(sender) = tx_guard.as_ref() {
             return Ok(sender.clone());
         }
-        
+
         // === FIRST USE: Initialize thread ===
-        
+
         // Step 1: Get model files via huggingface_file() BEFORE spawning
         // This downloads files if needed and returns cached paths
         let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json")?;
         let weights_path = self.huggingface_file(self.info().registry_key, "model.safetensors")?;
         let config_path = self.huggingface_file(self.info().registry_key, "config.json")?;
-        
+
         // Step 2: Load LLaVA config (CandleLLaVAConfig, not our deleted LLaVAConfig!)
         let llava_config: CandleLLaVAConfig = serde_json::from_slice(
-            &std::fs::read(&config_path)
-                .map_err(|e| format!("Failed to read config: {}", e))?
-        ).map_err(|e| format!("Failed to parse config: {}", e))?;
-        
+            &std::fs::read(&config_path).map_err(|e| format!("Failed to read config: {}", e))?,
+        )
+        .map_err(|e| format!("Failed to parse config: {}", e))?;
+
         // Step 3: Create channels for request/response
         let (request_tx, request_rx) = mpsc::channel();
         let (init_tx, init_rx) = mpsc::channel();
-        
+
         // Step 4: Determine device
         let device = Device::cuda_if_available(0).unwrap_or(Device::Cpu);
-        
+
         // Step 5: Extract ALL config from ModelInfo (self.info())
         // These will be passed to thread as parameters
-        let image_size = self.info().image_size
+        let image_size = self
+            .info()
+            .image_size
             .ok_or("image_size not in ModelInfo")? as usize;
-        let image_mean = self.info().image_mean
+        let image_mean = self
+            .info()
+            .image_mean
             .ok_or("image_mean not in ModelInfo")?;
-        let image_std = self.info().image_std
-            .ok_or("image_std not in ModelInfo")?;
-        let temperature = self.info().default_temperature
+        let image_std = self.info().image_std.ok_or("image_std not in ModelInfo")?;
+        let temperature = self
+            .info()
+            .default_temperature
             .ok_or("default_temperature not in ModelInfo")?;
-        let max_new_tokens = self.info().max_output_tokens
-            .ok_or("max_output_tokens not in ModelInfo")?.get() as usize;
+        let max_new_tokens = self
+            .info()
+            .max_output_tokens
+            .ok_or("max_output_tokens not in ModelInfo")?
+            .get() as usize;
         let use_kv_cache = self.info().supports_kv_cache;
-        
+
         // Step 6: Spawn dedicated thread with shared async runtime
         thread::spawn(move || {
             // Get shared runtime reference
@@ -176,7 +230,11 @@ impl LLaVAModel {
 
             // Load model weights INSIDE thread
             let vb = match unsafe {
-                VarBuilder::from_mmaped_safetensors(&[weights_path], candle_core::DType::F16, &device)
+                VarBuilder::from_mmaped_safetensors(
+                    &[weights_path],
+                    candle_core::DType::F16,
+                    &device,
+                )
             } {
                 Ok(vb) => vb,
                 Err(e) => {
@@ -201,26 +259,34 @@ impl LLaVAModel {
             Self::model_thread_with_config(
                 model,
                 tokenizer,
-                llava_config,
-                device,
-                request_rx,
-                image_size,
-                image_mean,
-                image_std,
-                temperature,
-                max_new_tokens,
-                use_kv_cache,
-                rt,
+                LLaVAModelConfig {
+                    llava_config,
+                    device,
+                    image_config: ImageProcessingConfig {
+                        image_size,
+                        image_mean,
+                        image_std,
+                    },
+                    gen_config: GenerationConfig {
+                        temperature,
+                        max_new_tokens,
+                        use_kv_cache,
+                    },
+                },
+                LLaVAThreadContext {
+                    request_rx,
+                    rt,
+                },
             );
         });
-        
+
         // Step 7: Wait for initialization to complete
         match init_rx.recv() {
-            Ok(Ok(())) => {},
+            Ok(Ok(())) => {}
             Ok(Err(e)) => return Err(e.into()),
             Err(e) => return Err(format!("Init channel failed: {}", e).into()),
         };
-        
+
         // Step 8: Store sender for future calls
         *tx_guard = Some(request_tx.clone());
         Ok(request_tx)
@@ -232,54 +298,59 @@ impl LLaVAModel {
     fn model_thread_with_config(
         model: LLaVA,
         tokenizer: Tokenizer,
-        llava_config: CandleLLaVAConfig,
-        device: Device,
-        request_rx: mpsc::Receiver<LLaVARequest>,
-        image_size: usize,
-        image_mean: [f32; 3],
-        image_std: [f32; 3],
-        temperature: f64,
-        max_new_tokens: usize,
-        use_kv_cache: bool,
-        rt: &'static tokio::runtime::Runtime,
+        config: LLaVAModelConfig,
+        context: LLaVAThreadContext,
     ) {
+        let LLaVAModelConfig { llava_config, device, image_config, gen_config } = config;
+        let LLaVAThreadContext { request_rx, rt } = context;
+        
         while let Ok(request) = request_rx.recv() {
             match request {
-                LLaVARequest::Ask { image_path, question, response_tx } => {
+                LLaVARequest::Ask {
+                    image_path,
+                    question,
+                    response_tx,
+                } => {
                     let result = rt.block_on(async {
                         Self::process_ask(
-                            &model,
-                            &tokenizer,
-                            &llava_config,
-                            &device,
+                            LLaVAModelRefs {
+                                model: &model,
+                                tokenizer: &tokenizer,
+                                llava_config: &llava_config,
+                                device: &device,
+                            },
                             &image_path,
                             &question,
-                            image_size,
-                            image_mean,
-                            image_std,
-                            temperature,
-                            max_new_tokens,
-                            use_kv_cache,
-                        ).await
+                            LLaVAConfigs {
+                                image_config,
+                                gen_config,
+                            },
+                        )
+                        .await
                     });
                     let _ = response_tx.send(result);
                 }
-                LLaVARequest::AskUrl { image_url, question, response_tx } => {
+                LLaVARequest::AskUrl {
+                    image_url,
+                    question,
+                    response_tx,
+                } => {
                     let result = rt.block_on(async {
                         Self::process_ask_url(
-                            &model,
-                            &tokenizer,
-                            &llava_config,
-                            &device,
+                            LLaVAModelRefs {
+                                model: &model,
+                                tokenizer: &tokenizer,
+                                llava_config: &llava_config,
+                                device: &device,
+                            },
                             &image_url,
                             &question,
-                            image_size,
-                            image_mean,
-                            image_std,
-                            temperature,
-                            max_new_tokens,
-                            use_kv_cache,
-                        ).await
+                            LLaVAConfigs {
+                                image_config,
+                                gen_config,
+                            },
+                        )
+                        .await
                     });
                     let _ = response_tx.send(result);
                 }
@@ -290,19 +361,24 @@ impl LLaVAModel {
 
     /// Process ask request asynchronously on model thread
     async fn process_ask(
-        model: &LLaVA,
-        tokenizer: &Tokenizer,
-        llava_config: &CandleLLaVAConfig,
-        device: &Device,
+        refs: LLaVAModelRefs<'_>,
         image_path: &str,
         question: &str,
-        image_size: usize,
-        image_mean: [f32; 3],
-        image_std: [f32; 3],
-        temperature: f64,
-        max_new_tokens: usize,
-        use_kv_cache: bool,
+        configs: LLaVAConfigs,
     ) -> Result<String, String> {
+        let LLaVAModelRefs { model, tokenizer, llava_config, device } = refs;
+        let LLaVAConfigs { image_config, gen_config } = configs;
+        
+        let ImageProcessingConfig {
+            image_size,
+            image_mean,
+            image_std,
+        } = image_config;
+        let GenerationConfig {
+            temperature,
+            max_new_tokens,
+            use_kv_cache,
+        } = gen_config;
         // 1. Preprocess image - async image loading
         let image_tensor = Image::from_path(image_path)
             .resize(image_size, image_size, ResizeFilter::CatmullRom)
@@ -316,7 +392,8 @@ impl LLaVAModel {
         let prompt = format!("USER: <image>\n{}\nASSISTANT:", question);
 
         // 3. Tokenize prompt (handles <image> token)
-        let input_ids = Self::tokenize_image_prompt_static(tokenizer, llava_config, device, &prompt)?;
+        let input_ids =
+            Self::tokenize_image_prompt_static(tokenizer, llava_config, device, &prompt)?;
 
         // 4. Prepare multimodal embeddings (vision + text fusion)
         let image_batch = image_tensor
@@ -329,13 +406,8 @@ impl LLaVAModel {
 
         // 5. Create KV cache
         let llama_config = llava_config.to_llama_config();
-        let mut cache = Cache::new(
-            use_kv_cache,
-            candle_core::DType::F16,
-            &llama_config,
-            device,
-        )
-        .map_err(|e| format!("Cache creation failed: {}", e))?;
+        let mut cache = Cache::new(use_kv_cache, candle_core::DType::F16, &llama_config, device)
+            .map_err(|e| format!("Cache creation failed: {}", e))?;
 
         // 6. Generate response (autoregressive loop)
         let mut generated_text = String::new();
@@ -403,19 +475,24 @@ impl LLaVAModel {
 
     /// Process ask_url request asynchronously on model thread
     async fn process_ask_url(
-        model: &LLaVA,
-        tokenizer: &Tokenizer,
-        llava_config: &CandleLLaVAConfig,
-        device: &Device,
+        refs: LLaVAModelRefs<'_>,
         image_url: &str,
         question: &str,
-        image_size: usize,
-        image_mean: [f32; 3],
-        image_std: [f32; 3],
-        temperature: f64,
-        max_new_tokens: usize,
-        use_kv_cache: bool,
+        configs: LLaVAConfigs,
     ) -> Result<String, String> {
+        let LLaVAModelRefs { model, tokenizer, llava_config, device } = refs;
+        let LLaVAConfigs { image_config, gen_config } = configs;
+        
+        let ImageProcessingConfig {
+            image_size,
+            image_mean,
+            image_std,
+        } = image_config;
+        let GenerationConfig {
+            temperature,
+            max_new_tokens,
+            use_kv_cache,
+        } = gen_config;
         // 1. Preprocess image from URL - async image loading
         let image_tensor = Image::from_url(image_url)
             .resize(image_size, image_size, ResizeFilter::CatmullRom)
@@ -429,7 +506,8 @@ impl LLaVAModel {
         let prompt = format!("USER: <image>\n{}\nASSISTANT:", question);
 
         // 3. Tokenize prompt (handles <image> token)
-        let input_ids = Self::tokenize_image_prompt_static(tokenizer, llava_config, device, &prompt)?;
+        let input_ids =
+            Self::tokenize_image_prompt_static(tokenizer, llava_config, device, &prompt)?;
 
         // 4. Prepare multimodal embeddings (vision + text fusion)
         let image_batch = image_tensor
@@ -442,13 +520,8 @@ impl LLaVAModel {
 
         // 5. Create KV cache
         let llama_config = llava_config.to_llama_config();
-        let mut cache = Cache::new(
-            use_kv_cache,
-            candle_core::DType::F16,
-            &llama_config,
-            device,
-        )
-        .map_err(|e| format!("Cache creation failed: {}", e))?;
+        let mut cache = Cache::new(use_kv_cache, candle_core::DType::F16, &llama_config, device)
+            .map_err(|e| format!("Cache creation failed: {}", e))?;
 
         // 6. Generate response (autoregressive loop)
         let mut generated_text = String::new();
@@ -606,16 +679,17 @@ impl LLaVAModel {
         }
 
         match response_rx.recv() {
-            Ok(Ok(text)) => {
-                AsyncStream::with_channel(move |sender| {
-                    let _ = sender.send(CandleStringChunk(text));
-                })
-            }
+            Ok(Ok(text)) => AsyncStream::with_channel(move |sender| {
+                let _ = sender.send(CandleStringChunk(text));
+            }),
             Ok(Err(e)) => AsyncStream::with_channel(move |sender| {
                 let _ = sender.send(CandleStringChunk(format!("Error: {}", e)));
             }),
             Err(e) => AsyncStream::with_channel(move |sender| {
-                let _ = sender.send(CandleStringChunk(format!("Error: Failed to receive response: {}", e)));
+                let _ = sender.send(CandleStringChunk(format!(
+                    "Error: Failed to receive response: {}",
+                    e
+                )));
             }),
         }
     }
@@ -633,9 +707,9 @@ impl LLaVAModel {
                 });
             }
         };
-        
+
         let (response_tx, response_rx) = mpsc::channel();
-        
+
         if let Err(e) = sender.send(LLaVARequest::AskUrl {
             image_url: image_url.to_string(),
             question: query.to_string(),
@@ -645,18 +719,19 @@ impl LLaVAModel {
                 let _ = tx.send(CandleStringChunk(format!("Error: {}", e)));
             });
         }
-        
+
         match response_rx.recv() {
-            Ok(Ok(text)) => {
-                AsyncStream::with_channel(move |sender| {
-                    let _ = sender.send(CandleStringChunk(text));
-                })
-            }
+            Ok(Ok(text)) => AsyncStream::with_channel(move |sender| {
+                let _ = sender.send(CandleStringChunk(text));
+            }),
             Ok(Err(e)) => AsyncStream::with_channel(move |sender| {
                 let _ = sender.send(CandleStringChunk(format!("Error: {}", e)));
             }),
             Err(e) => AsyncStream::with_channel(move |sender| {
-                let _ = sender.send(CandleStringChunk(format!("Error: Failed to receive response: {}", e)));
+                let _ = sender.send(CandleStringChunk(format!(
+                    "Error: Failed to receive response: {}",
+                    e
+                )));
             }),
         }
     }
@@ -667,11 +742,7 @@ impl LLaVAModel {
     /// streaming happens after full generation. Returns buffered AsyncStream.
     ///
     /// For true streaming, await the entire response then iterate the stream.
-    pub fn stream_chat(
-        &self,
-        image_path: &str,
-        question: &str,
-    ) -> AsyncStream<CandleStringChunk> {
+    pub fn stream_chat(&self, image_path: &str, question: &str) -> AsyncStream<CandleStringChunk> {
         // Use describe_image which handles channel communication and streaming
         self.describe_image(image_path, question)
     }

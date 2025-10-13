@@ -49,7 +49,7 @@ impl QuantumMeasurement {
             },
         }
     }
-    
+
     pub fn measure(&self, _state: &str) -> f64 {
         // Simple measurement simulation
         0.8 // Fixed value for local operation

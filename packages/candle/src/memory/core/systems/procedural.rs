@@ -8,8 +8,11 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
-use surrealdb::{Value, value::{to_value, from_value}};
 use std::collections::BTreeMap;
+use surrealdb::{
+    Value,
+    value::{from_value, to_value},
+};
 
 use crate::memory::graph::graph_db::{GraphError, Result};
 use crate::memory::primitives::types::{BaseMemory, MemoryContent, MemoryTypeEnum};
@@ -163,11 +166,23 @@ impl Condition {
     /// Convert to Value
     pub fn to_value(&self) -> Value {
         let mut obj = BTreeMap::new();
-        obj.insert("id".to_string(), to_value(self.id.clone()).unwrap_or_default());
-        obj.insert("condition_type".to_string(), to_value(self.condition_type.as_str().to_string()).unwrap_or_default());
-        obj.insert("description".to_string(), to_value(self.description.clone()).unwrap_or_default());
+        obj.insert(
+            "id".to_string(),
+            to_value(self.id.clone()).unwrap_or_default(),
+        );
+        obj.insert(
+            "condition_type".to_string(),
+            to_value(self.condition_type.as_str().to_string()).unwrap_or_default(),
+        );
+        obj.insert(
+            "description".to_string(),
+            to_value(self.description.clone()).unwrap_or_default(),
+        );
         obj.insert("expression".to_string(), self.expression.clone());
-        obj.insert("required".to_string(), to_value(self.required).unwrap_or_default());
+        obj.insert(
+            "required".to_string(),
+            to_value(self.required).unwrap_or_default(),
+        );
         to_value(obj).unwrap_or_default()
     }
 
@@ -177,25 +192,47 @@ impl Condition {
             GraphError::ConversionError(format!("Failed to deserialize as object: {}", e))
         })?;
 
-        let id: String = obj_map.get("id")
+        let id: String = obj_map
+            .get("id")
             .ok_or_else(|| GraphError::ConversionError("Missing id in condition".to_string()))
-            .and_then(|v| from_value(v.clone()).map_err(|e| GraphError::ConversionError(format!("Invalid id format: {}", e))))?;
+            .and_then(|v| {
+                from_value(v.clone())
+                    .map_err(|e| GraphError::ConversionError(format!("Invalid id format: {}", e)))
+            })?;
 
-        let condition_type_str: String = obj_map.get("condition_type")
-            .ok_or_else(|| GraphError::ConversionError("Missing condition_type in condition".to_string()))
-            .and_then(|v| from_value(v.clone()).map_err(|e| GraphError::ConversionError(format!("Invalid condition_type format: {}", e))))?;
-        
+        let condition_type_str: String = obj_map
+            .get("condition_type")
+            .ok_or_else(|| {
+                GraphError::ConversionError("Missing condition_type in condition".to_string())
+            })
+            .and_then(|v| {
+                from_value(v.clone()).map_err(|e| {
+                    GraphError::ConversionError(format!("Invalid condition_type format: {}", e))
+                })
+            })?;
+
         let condition_type = ConditionType::parse_from_str(&condition_type_str)?;
 
-        let description: String = obj_map.get("description")
-            .ok_or_else(|| GraphError::ConversionError("Missing description in condition".to_string()))
-            .and_then(|v| from_value(v.clone()).map_err(|e| GraphError::ConversionError(format!("Invalid description format: {}", e))))?;
+        let description: String = obj_map
+            .get("description")
+            .ok_or_else(|| {
+                GraphError::ConversionError("Missing description in condition".to_string())
+            })
+            .and_then(|v| {
+                from_value(v.clone()).map_err(|e| {
+                    GraphError::ConversionError(format!("Invalid description format: {}", e))
+                })
+            })?;
 
-        let expression = obj_map.get("expression")
-            .ok_or_else(|| GraphError::ConversionError("Missing expression in condition".to_string()))?
+        let expression = obj_map
+            .get("expression")
+            .ok_or_else(|| {
+                GraphError::ConversionError("Missing expression in condition".to_string())
+            })?
             .clone();
 
-        let required: bool = obj_map.get("required")
+        let required: bool = obj_map
+            .get("required")
             .and_then(|v| from_value(v.clone()).ok())
             .unwrap_or(false);
 
@@ -309,32 +346,55 @@ impl Step {
     /// Convert to Value
     pub fn to_value(&self) -> Value {
         let mut obj = BTreeMap::new();
-        obj.insert("id".to_string(), to_value(self.id.clone()).unwrap_or_default());
-        obj.insert("name".to_string(), to_value(self.name.clone()).unwrap_or_default());
-        obj.insert("description".to_string(), to_value(self.description.clone()).unwrap_or_default());
-        obj.insert("order".to_string(), to_value(self.order).unwrap_or_default());
+        obj.insert(
+            "id".to_string(),
+            to_value(self.id.clone()).unwrap_or_default(),
+        );
+        obj.insert(
+            "name".to_string(),
+            to_value(self.name.clone()).unwrap_or_default(),
+        );
+        obj.insert(
+            "description".to_string(),
+            to_value(self.description.clone()).unwrap_or_default(),
+        );
+        obj.insert(
+            "order".to_string(),
+            to_value(self.order).unwrap_or_default(),
+        );
         obj.insert("action".to_string(), self.action.clone());
-        obj.insert("status".to_string(), to_value(self.status.as_str().to_string()).unwrap_or_default());
+        obj.insert(
+            "status".to_string(),
+            to_value(self.status.as_str().to_string()).unwrap_or_default(),
+        );
 
-        let conditions: Vec<Value> = self
-            .conditions
-            .iter()
-            .map(|c| c.to_value())
-            .collect();
-        obj.insert("conditions".to_string(), to_value(conditions).unwrap_or_default());
+        let conditions: Vec<Value> = self.conditions.iter().map(|c| c.to_value()).collect();
+        obj.insert(
+            "conditions".to_string(),
+            to_value(conditions).unwrap_or_default(),
+        );
 
         let dependencies: Vec<String> = self.dependencies.clone();
-        obj.insert("dependencies".to_string(), to_value(dependencies).unwrap_or_default());
+        obj.insert(
+            "dependencies".to_string(),
+            to_value(dependencies).unwrap_or_default(),
+        );
 
         if let Some(result) = &self.result {
             obj.insert("result".to_string(), result.clone());
         }
 
         if let Some(error) = &self.error {
-            obj.insert("error".to_string(), to_value(error.clone()).unwrap_or_default());
+            obj.insert(
+                "error".to_string(),
+                to_value(error.clone()).unwrap_or_default(),
+            );
         }
 
-        obj.insert("metadata".to_string(), to_value(self.metadata.clone()).unwrap_or_default());
+        obj.insert(
+            "metadata".to_string(),
+            to_value(self.metadata.clone()).unwrap_or_default(),
+        );
 
         to_value(obj).unwrap_or_default()
     }
@@ -345,48 +405,72 @@ impl Step {
             GraphError::ConversionError(format!("Failed to deserialize as object: {}", e))
         })?;
 
-        let id: String = obj_map.get("id")
+        let id: String = obj_map
+            .get("id")
             .ok_or_else(|| GraphError::ConversionError("Missing id in step".to_string()))
-            .and_then(|v| from_value(v.clone()).map_err(|e| GraphError::ConversionError(format!("Invalid id format: {}", e))))?;
+            .and_then(|v| {
+                from_value(v.clone())
+                    .map_err(|e| GraphError::ConversionError(format!("Invalid id format: {}", e)))
+            })?;
 
-        let name: String = obj_map.get("name")
+        let name: String = obj_map
+            .get("name")
             .ok_or_else(|| GraphError::ConversionError("Missing name in step".to_string()))
-            .and_then(|v| from_value(v.clone()).map_err(|e| GraphError::ConversionError(format!("Invalid name format: {}", e))))?;
+            .and_then(|v| {
+                from_value(v.clone())
+                    .map_err(|e| GraphError::ConversionError(format!("Invalid name format: {}", e)))
+            })?;
 
-        let description: String = obj_map.get("description")
+        let description: String = obj_map
+            .get("description")
             .ok_or_else(|| GraphError::ConversionError("Missing description in step".to_string()))
-            .and_then(|v| from_value(v.clone()).map_err(|e| GraphError::ConversionError(format!("Invalid description format: {}", e))))?;
+            .and_then(|v| {
+                from_value(v.clone()).map_err(|e| {
+                    GraphError::ConversionError(format!("Invalid description format: {}", e))
+                })
+            })?;
 
-        let order: u32 = obj_map.get("order")
+        let order: u32 = obj_map
+            .get("order")
             .ok_or_else(|| GraphError::ConversionError("Missing order in step".to_string()))
-            .and_then(|v| from_value(v.clone()).map_err(|e| GraphError::ConversionError(format!("Invalid order format: {}", e))))?;
+            .and_then(|v| {
+                from_value(v.clone()).map_err(|e| {
+                    GraphError::ConversionError(format!("Invalid order format: {}", e))
+                })
+            })?;
 
-        let action = obj_map.get("action")
+        let action = obj_map
+            .get("action")
             .ok_or_else(|| GraphError::ConversionError("Missing action in step".to_string()))?
             .clone();
 
-        let status_str: String = obj_map.get("status")
+        let status_str: String = obj_map
+            .get("status")
             .and_then(|v| from_value::<String>(v.clone()).ok())
             .unwrap_or_else(|| "Pending".to_string());
         let status = StepStatus::parse_from_str(&status_str)?;
 
-        let conditions: Vec<Condition> = obj_map.get("conditions")
+        let conditions: Vec<Condition> = obj_map
+            .get("conditions")
             .and_then(|v| from_value::<Vec<Value>>(v.clone()).ok())
             .unwrap_or_default()
             .into_iter()
             .filter_map(|v| Condition::from_value(&v).ok())
             .collect();
 
-        let dependencies: Vec<String> = obj_map.get("dependencies")
+        let dependencies: Vec<String> = obj_map
+            .get("dependencies")
             .and_then(|v| from_value(v.clone()).ok())
             .unwrap_or_default();
 
         let result = obj_map.get("result").cloned();
 
-        let error: Option<String> = obj_map.get("error")
+        let error: Option<String> = obj_map
+            .get("error")
             .and_then(|v| from_value(v.clone()).ok());
 
-        let metadata: HashMap<String, Value> = obj_map.get("metadata")
+        let metadata: HashMap<String, Value> = obj_map
+            .get("metadata")
             .and_then(|v| from_value(v.clone()).ok())
             .unwrap_or_default();
 

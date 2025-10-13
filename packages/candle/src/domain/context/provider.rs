@@ -14,11 +14,14 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime};
 
 // Git operations
-use gitgix::{clone_repo as gitgix_clone, open_repo, fetch, merge, CloneOpts, FetchOpts, MergeOpts, GitError as GitGixError};
+use gitgix::{
+    CloneOpts, FetchOpts, GitError as GitGixError, MergeOpts, clone_repo as gitgix_clone, fetch,
+    merge, open_repo,
+};
 
 // Domain imports
 use cyrup_sugars::prelude::MessageChunk;
-use ystream::{spawn_task, AsyncStream, AsyncStreamSender};
+use ystream::{AsyncStream, AsyncStreamSender, spawn_task};
 // Local macro definitions removed - using ystream macros instead
 // Streaming primitives from paraphym-async
 // Macros now available from ystream crate
@@ -31,7 +34,7 @@ use uuid::Uuid;
 
 use crate::domain::context::CandleDocument as Document;
 
-// Additional imports for file reading implementation  
+// Additional imports for file reading implementation
 use base64::{Engine as _, engine::general_purpose};
 use mime_guess;
 
@@ -222,7 +225,8 @@ impl MessageChunk for CandleContextEvent {
 
     fn error(&self) -> Option<&str> {
         match self {
-            CandleContextEvent::ContextLoadFailed { error, .. } | CandleContextEvent::ValidationFailed { error, .. } => Some(error),
+            CandleContextEvent::ContextLoadFailed { error, .. }
+            | CandleContextEvent::ValidationFailed { error, .. } => Some(error),
             _ => None,
         }
     }
@@ -538,10 +542,7 @@ impl std::fmt::Debug for CandleStreamingContextProcessor {
             )
             .field("event_sender", &self.event_sender.is_some())
             .field("max_processing_time_ms", &self.max_processing_time_ms)
-            .field(
-                "max_documents_per_context",
-                &self.max_documents_per_context,
-            )
+            .field("max_documents_per_context", &self.max_documents_per_context)
             .field("max_concurrent_contexts", &self.max_concurrent_contexts)
             .finish()
     }
@@ -659,14 +660,12 @@ impl CandleStreamingContextProcessor {
     /// Load file document with production-quality file reading
     #[inline]
     #[allow(clippy::too_many_lines)]
-    fn load_file_document(
-        context: &CandleImmutableFileContext,
-    ) -> Document {
+    fn load_file_document(context: &CandleImmutableFileContext) -> Document {
         const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024; // 100MB default
         const LARGE_FILE_WARNING_THRESHOLD: u64 = 10 * 1024 * 1024; // 10MB
-        
+
         let file_path = Path::new(&context.path);
-        
+
         // Validate path exists and is a file
         let metadata = match std::fs::metadata(file_path) {
             Ok(meta) => {
@@ -684,7 +683,7 @@ impl CandleStreamingContextProcessor {
                 return Document::bad_chunk(format!("Failed to access file: {e}"));
             }
         };
-        
+
         // Check file size limits to prevent OOM
         if metadata.len() > MAX_FILE_SIZE {
             log::error!(
@@ -698,16 +697,16 @@ impl CandleStreamingContextProcessor {
                 MAX_FILE_SIZE
             ));
         }
-        
+
         // Warn for large files
         if metadata.len() > LARGE_FILE_WARNING_THRESHOLD {
             log::warn!("Reading large file: {} bytes", metadata.len());
         }
-        
+
         // Detect MIME type and derive format/media type
         let mime_guess = mime_guess::from_path(file_path);
         let mime_type = mime_guess.first();
-        
+
         // Determine format and media type based on MIME or extension
         let (format, media_type) = match mime_type {
             Some(mime) => {
@@ -715,43 +714,43 @@ impl CandleStreamingContextProcessor {
                 match mime_str {
                     "text/html" => (
                         crate::domain::context::CandleContentFormat::Html,
-                        crate::domain::context::CandleDocumentMediaType::Html
+                        crate::domain::context::CandleDocumentMediaType::Html,
                     ),
                     "text/markdown" | "text/x-markdown" => (
                         crate::domain::context::CandleContentFormat::Markdown,
-                        crate::domain::context::CandleDocumentMediaType::Markdown
+                        crate::domain::context::CandleDocumentMediaType::Markdown,
                     ),
                     "application/json" => (
                         crate::domain::context::CandleContentFormat::Json,
-                        crate::domain::context::CandleDocumentMediaType::Json
+                        crate::domain::context::CandleDocumentMediaType::Json,
                     ),
                     "application/xml" | "text/xml" => (
                         crate::domain::context::CandleContentFormat::Xml,
-                        crate::domain::context::CandleDocumentMediaType::Xml
+                        crate::domain::context::CandleDocumentMediaType::Xml,
                     ),
                     "application/x-yaml" | "text/yaml" | "text/x-yaml" => (
                         crate::domain::context::CandleContentFormat::Yaml,
-                        crate::domain::context::CandleDocumentMediaType::Yaml
+                        crate::domain::context::CandleDocumentMediaType::Yaml,
                     ),
                     "text/csv" => (
                         crate::domain::context::CandleContentFormat::Csv,
-                        crate::domain::context::CandleDocumentMediaType::Csv
+                        crate::domain::context::CandleDocumentMediaType::Csv,
                     ),
                     "application/pdf" => (
                         crate::domain::context::CandleContentFormat::Base64,
-                        crate::domain::context::CandleDocumentMediaType::PDF
+                        crate::domain::context::CandleDocumentMediaType::PDF,
                     ),
                     "text/plain" => {
                         // For text/plain, use extension-based detection for better accuracy
                         Self::detect_format_from_extension(file_path)
-                    },
+                    }
                     _ if mime_str.starts_with("text/") => (
                         crate::domain::context::CandleContentFormat::Text,
-                        crate::domain::context::CandleDocumentMediaType::TXT
+                        crate::domain::context::CandleDocumentMediaType::TXT,
                     ),
                     _ if mime_str.starts_with("image/") => (
                         crate::domain::context::CandleContentFormat::Base64,
-                        crate::domain::context::CandleDocumentMediaType::Image
+                        crate::domain::context::CandleDocumentMediaType::Image,
                     ),
                     _ => {
                         // Fall back to extension-based detection
@@ -759,9 +758,9 @@ impl CandleStreamingContextProcessor {
                     }
                 }
             }
-            None => Self::detect_format_from_extension(file_path)
+            None => Self::detect_format_from_extension(file_path),
         };
-        
+
         // Read file content - try UTF-8 first for text formats
         let data = match format {
             crate::domain::context::CandleContentFormat::Base64 => {
@@ -789,21 +788,25 @@ impl CandleStreamingContextProcessor {
                                 );
                                 return Document {
                                     data: general_purpose::STANDARD.encode(&bytes),
-                                    format: Some(crate::domain::context::CandleContentFormat::Base64),
+                                    format: Some(
+                                        crate::domain::context::CandleContentFormat::Base64,
+                                    ),
                                     media_type: Some(media_type),
                                     additional_props: Self::build_metadata_props(context),
                                 };
                             }
                             Err(read_err) => {
                                 log::error!("Failed to read file as text or binary: {read_err}");
-                                return Document::bad_chunk(format!("Failed to read file: {read_err}"));
+                                return Document::bad_chunk(format!(
+                                    "Failed to read file: {read_err}"
+                                ));
                             }
                         }
                     }
                 }
             }
         };
-        
+
         // Create the document with actual content
         Document {
             data,
@@ -812,68 +815,74 @@ impl CandleStreamingContextProcessor {
             additional_props: Self::build_metadata_props(context),
         }
     }
-    
+
     /// Helper function to detect format from file extension (case-insensitive)
     #[inline]
     fn detect_format_from_extension(
-        path: &Path
-    ) -> (crate::domain::context::CandleContentFormat, crate::domain::context::CandleDocumentMediaType) {
+        path: &Path,
+    ) -> (
+        crate::domain::context::CandleContentFormat,
+        crate::domain::context::CandleDocumentMediaType,
+    ) {
         // Convert extension to lowercase for case-insensitive matching
-        let ext_lower = path.extension()
+        let ext_lower = path
+            .extension()
             .and_then(|ext| ext.to_str())
             .map(str::to_lowercase);
-        
+
         match ext_lower.as_deref() {
             Some("html" | "htm") => (
                 crate::domain::context::CandleContentFormat::Html,
-                crate::domain::context::CandleDocumentMediaType::Html
+                crate::domain::context::CandleDocumentMediaType::Html,
             ),
             Some("md" | "markdown") => (
                 crate::domain::context::CandleContentFormat::Markdown,
-                crate::domain::context::CandleDocumentMediaType::Markdown
+                crate::domain::context::CandleDocumentMediaType::Markdown,
             ),
             Some("json") => (
                 crate::domain::context::CandleContentFormat::Json,
-                crate::domain::context::CandleDocumentMediaType::Json
+                crate::domain::context::CandleDocumentMediaType::Json,
             ),
             Some("xml") => (
                 crate::domain::context::CandleContentFormat::Xml,
-                crate::domain::context::CandleDocumentMediaType::Xml
+                crate::domain::context::CandleDocumentMediaType::Xml,
             ),
             Some("yaml" | "yml") => (
                 crate::domain::context::CandleContentFormat::Yaml,
-                crate::domain::context::CandleDocumentMediaType::Yaml
+                crate::domain::context::CandleDocumentMediaType::Yaml,
             ),
             Some("csv") => (
                 crate::domain::context::CandleContentFormat::Csv,
-                crate::domain::context::CandleDocumentMediaType::Csv
+                crate::domain::context::CandleDocumentMediaType::Csv,
             ),
             Some("pdf") => (
                 crate::domain::context::CandleContentFormat::Base64,
-                crate::domain::context::CandleDocumentMediaType::PDF
+                crate::domain::context::CandleDocumentMediaType::PDF,
             ),
             Some("doc" | "docx") => (
                 crate::domain::context::CandleContentFormat::Base64,
-                crate::domain::context::CandleDocumentMediaType::DOCX
+                crate::domain::context::CandleDocumentMediaType::DOCX,
             ),
             Some("jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp") => (
                 crate::domain::context::CandleContentFormat::Base64,
-                crate::domain::context::CandleDocumentMediaType::Image
+                crate::domain::context::CandleDocumentMediaType::Image,
             ),
             Some("txt" | "text" | "log") => (
                 crate::domain::context::CandleContentFormat::Text,
-                crate::domain::context::CandleDocumentMediaType::TXT
+                crate::domain::context::CandleDocumentMediaType::TXT,
             ),
             _ => (
                 crate::domain::context::CandleContentFormat::Text,
-                crate::domain::context::CandleDocumentMediaType::PlainText
-            )
+                crate::domain::context::CandleDocumentMediaType::PlainText,
+            ),
         }
     }
-    
+
     /// Build metadata properties `HashMap`
     #[inline]
-    fn build_metadata_props(context: &CandleImmutableFileContext) -> HashMap<String, serde_json::Value> {
+    fn build_metadata_props(
+        context: &CandleImmutableFileContext,
+    ) -> HashMap<String, serde_json::Value> {
         let mut props = HashMap::with_capacity(4);
         props.insert(
             "id".to_string(),
@@ -1014,8 +1023,8 @@ impl CandleContext<CandleFile> {
     /// Load single file - EXACT syntax: `CandleContext`<CandleFile>`::of("/path/to/file.txt`")
     #[inline]
     pub fn of(path: impl AsRef<Path>) -> Self {
+        use sha2::{Digest, Sha256};
         use std::io::Read;
-        use sha2::{Sha256, Digest};
 
         let path_ref = path.as_ref();
         let path_str = path_ref.to_string_lossy().to_string();
@@ -1038,11 +1047,13 @@ impl CandleContext<CandleFile> {
                             }
                         }
                         let result = hasher.finalize();
-                        result.iter().fold(String::with_capacity(result.len() * 2), |mut s, b| {
-                            use std::fmt::Write;
-                            let _ = write!(&mut s, "{b:02x}");
-                            s
-                        })
+                        result
+                            .iter()
+                            .fold(String::with_capacity(result.len() * 2), |mut s, b| {
+                                use std::fmt::Write;
+                                let _ = write!(&mut s, "{b:02x}");
+                                s
+                            })
                     }
                     Err(_) => String::new(),
                 };
@@ -1188,9 +1199,10 @@ impl CandleContext<CandleDirectory> {
                             sender: &AsyncStreamSender<Document, 1024>,
                         ) -> Result<(), std::io::Error> {
                             if let Some(max) = max_depth
-                                && current_depth > max {
-                                    return Ok(());
-                                }
+                                && current_depth > max
+                            {
+                                return Ok(());
+                            }
 
                             for entry in std::fs::read_dir(path)? {
                                 let entry = entry?;
@@ -1200,14 +1212,15 @@ impl CandleContext<CandleDirectory> {
                                     let should_include = if extensions.is_empty() {
                                         true
                                     } else {
-                                        path.extension()
-                                            .and_then(|ext| ext.to_str())
-                                            .is_some_and(|ext| extensions.contains(&ext.to_string()))
+                                        path.extension().and_then(|ext| ext.to_str()).is_some_and(
+                                            |ext| extensions.contains(&ext.to_string()),
+                                        )
                                     };
 
                                     if should_include
-                                        && let Ok(content) = std::fs::read_to_string(&path) {
-                                            let document = Document {
+                                        && let Ok(content) = std::fs::read_to_string(&path)
+                                    {
+                                        let document = Document {
                                                 data: content,
                                                 format: Some(crate::domain::context::CandleContentFormat::Text),
                                                 media_type: Some(
@@ -1229,19 +1242,21 @@ impl CandleContext<CandleDirectory> {
                                                     );
                                                     props
                                                 }};
-                                            let _ = sender.send(document);
-                                        }
-                                } else if path.is_dir() && recursive
-                                    && let Some(path_str) = path.to_str() {
-                                        traverse_dir(
-                                            path_str,
-                                            recursive,
-                                            extensions,
-                                            max_depth,
-                                            current_depth + 1,
-                                            sender,
-                                        )?;
+                                        let _ = sender.send(document);
                                     }
+                                } else if path.is_dir()
+                                    && recursive
+                                    && let Some(path_str) = path.to_str()
+                                {
+                                    traverse_dir(
+                                        path_str,
+                                        recursive,
+                                        extensions,
+                                        max_depth,
+                                        current_depth + 1,
+                                        sender,
+                                    )?;
+                                }
                             }
                             Ok(())
                         }
@@ -1301,7 +1316,7 @@ impl CandleContext<CandleGithub> {
             .or_else(|_| std::env::var("USERPROFILE"))
             .map_or_else(
                 |_| std::path::PathBuf::from("/tmp/paraphym/github"),
-                |home| std::path::PathBuf::from(home).join(".cache/paraphym/github")
+                |home| std::path::PathBuf::from(home).join(".cache/paraphym/github"),
             )
     }
 
@@ -1313,11 +1328,17 @@ impl CandleContext<CandleGithub> {
         branch: String,
     ) -> Document {
         let mut props = HashMap::new();
-        props.insert("id".to_string(), serde_json::Value::String(Uuid::new_v4().to_string()));
+        props.insert(
+            "id".to_string(),
+            serde_json::Value::String(Uuid::new_v4().to_string()),
+        );
         props.insert("path".to_string(), serde_json::Value::String(relative_path));
-        props.insert("repository".to_string(), serde_json::Value::String(repository_url));
+        props.insert(
+            "repository".to_string(),
+            serde_json::Value::String(repository_url),
+        );
         props.insert("branch".to_string(), serde_json::Value::String(branch));
-        
+
         Document {
             data: content,
             format: Some(crate::domain::context::CandleContentFormat::Text),
@@ -1331,7 +1352,7 @@ impl CandleContext<CandleGithub> {
         if let Some(token) = auth_token {
             // Inject token into HTTPS URL: https://github.com -> https://TOKEN@github.com
             if repo_url.starts_with("https://") {
-                repo_url.replace("https://", &format!("https://{}@", token))
+                repo_url.replace("https://", &format!("https://{token}@"))
             } else {
                 // For non-HTTPS URLs, return as-is (SSH, git://, etc.)
                 repo_url.to_string()
@@ -1364,7 +1385,11 @@ impl CandleContext<CandleGithub> {
     }
 
     /// Update existing repository
-    async fn update_repo(repo_path: &Path, branch: &str, _auth_token: Option<&String>) -> Result<PathBuf, GitGixError> {
+    async fn update_repo(
+        repo_path: &Path,
+        branch: &str,
+        _auth_token: Option<&String>,
+    ) -> Result<PathBuf, GitGixError> {
         // Open repository
         let repo_handle = open_repo(repo_path)
             .await
@@ -1379,7 +1404,7 @@ impl CandleContext<CandleGithub> {
             .map_err(|e| GitGixError::Gix(Box::new(e)))?;
 
         // Merge remote branch (gitgix automatically does fast-forward if possible)
-        let remote_branch = format!("origin/{}", branch);
+        let remote_branch = format!("origin/{branch}");
         let merge_opts = MergeOpts::new(remote_branch);
         merge(repo_handle, merge_opts)
             .await
@@ -1390,15 +1415,20 @@ impl CandleContext<CandleGithub> {
     }
 
     /// Clone fresh repository
-    async fn clone_repo(repo_url: &str, branch: &str, auth_token: Option<&String>, repo_path: &Path, cache_dir: &Path) -> Result<PathBuf, GitGixError> {
+    async fn clone_repo(
+        repo_url: &str,
+        branch: &str,
+        auth_token: Option<&String>,
+        repo_path: &Path,
+        cache_dir: &Path,
+    ) -> Result<PathBuf, GitGixError> {
         std::fs::create_dir_all(cache_dir).ok();
 
         // Build authenticated URL
         let auth_url = Self::build_auth_url(repo_url, auth_token);
 
         // Create clone options
-        let opts = CloneOpts::new(auth_url, repo_path)
-            .branch(branch);
+        let opts = CloneOpts::new(auth_url, repo_path).branch(branch);
 
         // Execute clone
         let _repo_handle = gitgix_clone(opts)
@@ -1412,7 +1442,6 @@ impl CandleContext<CandleGithub> {
     /// Load documents asynchronously with streaming - returns unwrapped values
     #[inline]
     pub fn load(self) -> AsyncStream<Document> {
-
         AsyncStream::with_channel(move |sender| {
             spawn_task(async move || {
                 match self.source {
@@ -1436,14 +1465,13 @@ impl CandleContext<CandleGithub> {
                             &github_context.branch,
                             github_context.auth_token.as_ref(),
                             &cache_dir,
-                        ).await {
+                        )
+                        .await
+                        {
                             Ok(repo_path) => {
                                 // Build glob pattern for files in repository
-                                let glob_pattern = format!(
-                                    "{}/{}",
-                                    repo_path.display(),
-                                    github_context.pattern
-                                );
+                                let glob_pattern =
+                                    format!("{}/{}", repo_path.display(), github_context.pattern);
 
                                 // Match files using glob pattern
                                 match glob::glob(&glob_pattern) {
@@ -1502,7 +1530,6 @@ impl CandleContext<CandleGithub> {
     }
 }
 
-
 // ============================================================================
 // UNIT TESTS
 // ============================================================================
@@ -1511,10 +1538,10 @@ impl CandleContext<CandleGithub> {
 mod tests {
     use super::*;
     use crate::domain::context::{CandleContentFormat, CandleDocumentMediaType};
+    use base64::engine::general_purpose;
     use std::io::Write;
     use std::time::SystemTime;
     use tempfile::{NamedTempFile, TempDir};
-    use base64::engine::general_purpose;
 
     /// Helper function to create a test file context
     fn create_test_context(path: String) -> CandleImmutableFileContext {
@@ -1531,7 +1558,9 @@ mod tests {
     fn test_load_text_file() {
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
         let test_content = "Hello, this is a test text file!";
-        temp_file.write_all(test_content.as_bytes()).expect("Failed to write");
+        temp_file
+            .write_all(test_content.as_bytes())
+            .expect("Failed to write");
         temp_file.flush().expect("Failed to flush");
 
         let path = temp_file.path().to_string_lossy().to_string();
@@ -1545,9 +1574,12 @@ mod tests {
 
     #[test]
     fn test_load_json_file() {
-        let mut temp_file = NamedTempFile::with_suffix(".json").expect("Failed to create temp file");
+        let mut temp_file =
+            NamedTempFile::with_suffix(".json").expect("Failed to create temp file");
         let test_content = r#"{"key": "value", "number": 42}"#;
-        temp_file.write_all(test_content.as_bytes()).expect("Failed to write");
+        temp_file
+            .write_all(test_content.as_bytes())
+            .expect("Failed to write");
         temp_file.flush().expect("Failed to flush");
 
         let path = temp_file.path().to_string_lossy().to_string();
@@ -1556,15 +1588,21 @@ mod tests {
 
         assert_eq!(document.data, test_content);
         assert!(matches!(document.format, Some(CandleContentFormat::Json)));
-        assert!(matches!(document.media_type, Some(CandleDocumentMediaType::Json)));
+        assert!(matches!(
+            document.media_type,
+            Some(CandleDocumentMediaType::Json)
+        ));
         assert!(document.error().is_none());
     }
 
     #[test]
     fn test_load_html_file() {
-        let mut temp_file = NamedTempFile::with_suffix(".html").expect("Failed to create temp file");
+        let mut temp_file =
+            NamedTempFile::with_suffix(".html").expect("Failed to create temp file");
         let test_content = "<html><body><h1>Test</h1></body></html>";
-        temp_file.write_all(test_content.as_bytes()).expect("Failed to write");
+        temp_file
+            .write_all(test_content.as_bytes())
+            .expect("Failed to write");
         temp_file.flush().expect("Failed to flush");
 
         let path = temp_file.path().to_string_lossy().to_string();
@@ -1573,7 +1611,10 @@ mod tests {
 
         assert_eq!(document.data, test_content);
         assert!(matches!(document.format, Some(CandleContentFormat::Html)));
-        assert!(matches!(document.media_type, Some(CandleDocumentMediaType::Html)));
+        assert!(matches!(
+            document.media_type,
+            Some(CandleDocumentMediaType::Html)
+        ));
         assert!(document.error().is_none());
     }
 
@@ -1581,7 +1622,9 @@ mod tests {
     fn test_load_markdown_file() {
         let mut temp_file = NamedTempFile::with_suffix(".md").expect("Failed to create temp file");
         let test_content = "# Heading\n\nThis is **markdown** content.";
-        temp_file.write_all(test_content.as_bytes()).expect("Failed to write");
+        temp_file
+            .write_all(test_content.as_bytes())
+            .expect("Failed to write");
         temp_file.flush().expect("Failed to flush");
 
         let path = temp_file.path().to_string_lossy().to_string();
@@ -1589,8 +1632,14 @@ mod tests {
         let document = CandleStreamingContextProcessor::load_file_document(&context);
 
         assert_eq!(document.data, test_content);
-        assert!(matches!(document.format, Some(CandleContentFormat::Markdown)));
-        assert!(matches!(document.media_type, Some(CandleDocumentMediaType::Markdown)));
+        assert!(matches!(
+            document.format,
+            Some(CandleContentFormat::Markdown)
+        ));
+        assert!(matches!(
+            document.media_type,
+            Some(CandleDocumentMediaType::Markdown)
+        ));
         assert!(document.error().is_none());
     }
 
@@ -1608,7 +1657,10 @@ mod tests {
         let expected_base64 = general_purpose::STANDARD.encode(&binary_data);
         assert_eq!(document.data, expected_base64);
         assert!(matches!(document.format, Some(CandleContentFormat::Base64)));
-        assert!(matches!(document.media_type, Some(CandleDocumentMediaType::PDF)));
+        assert!(matches!(
+            document.media_type,
+            Some(CandleDocumentMediaType::PDF)
+        ));
         assert!(document.error().is_none());
     }
 
@@ -1651,9 +1703,12 @@ mod tests {
 
     #[test]
     fn test_extension_fallback() {
-        let mut temp_file = NamedTempFile::with_suffix(".custom").expect("Failed to create temp file");
+        let mut temp_file =
+            NamedTempFile::with_suffix(".custom").expect("Failed to create temp file");
         let test_content = "Custom file content";
-        temp_file.write_all(test_content.as_bytes()).expect("Failed to write");
+        temp_file
+            .write_all(test_content.as_bytes())
+            .expect("Failed to write");
         temp_file.flush().expect("Failed to flush");
 
         let path = temp_file.path().to_string_lossy().to_string();
@@ -1669,13 +1724,15 @@ mod tests {
     fn test_metadata_preservation() {
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
         let test_content = "Test content for metadata";
-        temp_file.write_all(test_content.as_bytes()).expect("Failed to write");
+        temp_file
+            .write_all(test_content.as_bytes())
+            .expect("Failed to write");
         temp_file.flush().expect("Failed to flush");
 
         let path = temp_file.path().to_string_lossy().to_string();
         let test_hash = "test_hash_456";
         let test_size = test_content.len() as u64;
-        
+
         let context = CandleImmutableFileContext {
             path: path.clone(),
             content_hash: test_hash.to_string(),
@@ -1690,14 +1747,16 @@ mod tests {
         assert!(document.additional_props.contains_key("hash"));
         assert!(document.additional_props.contains_key("size"));
         assert!(document.additional_props.contains_key("id"));
-        
-        if let Some(serde_json::Value::String(stored_path)) = document.additional_props.get("path") {
+
+        if let Some(serde_json::Value::String(stored_path)) = document.additional_props.get("path")
+        {
             assert_eq!(stored_path, &path);
         } else {
             panic!("Path not found in metadata");
         }
-        
-        if let Some(serde_json::Value::String(stored_hash)) = document.additional_props.get("hash") {
+
+        if let Some(serde_json::Value::String(stored_hash)) = document.additional_props.get("hash")
+        {
             assert_eq!(stored_hash, test_hash);
         } else {
             panic!("Hash not found in metadata");
@@ -1717,7 +1776,10 @@ mod tests {
 
         assert_eq!(document.data, test_content);
         assert!(matches!(document.format, Some(CandleContentFormat::Csv)));
-        assert!(matches!(document.media_type, Some(CandleDocumentMediaType::Csv)));
+        assert!(matches!(
+            document.media_type,
+            Some(CandleDocumentMediaType::Csv)
+        ));
         assert!(document.error().is_none());
         Ok(())
     }
@@ -1735,7 +1797,10 @@ mod tests {
 
         assert_eq!(document.data, test_content);
         assert!(matches!(document.format, Some(CandleContentFormat::Xml)));
-        assert!(matches!(document.media_type, Some(CandleDocumentMediaType::Xml)));
+        assert!(matches!(
+            document.media_type,
+            Some(CandleDocumentMediaType::Xml)
+        ));
         assert!(document.error().is_none());
         Ok(())
     }
@@ -1753,7 +1818,10 @@ mod tests {
 
         assert_eq!(document.data, test_content);
         assert!(matches!(document.format, Some(CandleContentFormat::Yaml)));
-        assert!(matches!(document.media_type, Some(CandleDocumentMediaType::Yaml)));
+        assert!(matches!(
+            document.media_type,
+            Some(CandleDocumentMediaType::Yaml)
+        ));
         assert!(document.error().is_none());
         Ok(())
     }
@@ -1772,7 +1840,10 @@ mod tests {
         let expected_base64 = general_purpose::STANDARD.encode(&png_header);
         assert_eq!(document.data, expected_base64);
         assert!(matches!(document.format, Some(CandleContentFormat::Base64)));
-        assert!(matches!(document.media_type, Some(CandleDocumentMediaType::Image)));
+        assert!(matches!(
+            document.media_type,
+            Some(CandleDocumentMediaType::Image)
+        ));
         assert!(document.error().is_none());
         Ok(())
     }

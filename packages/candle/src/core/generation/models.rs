@@ -319,8 +319,8 @@ impl CandleQuantizedMixFormerModel {
         device: Device,
     ) -> CandleResult<Self> {
         use candle_core::quantized::gguf_file;
-        use candle_transformers::quantized_var_builder::VarBuilder as QuantizedVarBuilder;
         use candle_transformers::models::mixformer::Config as MixFormerConfig;
+        use candle_transformers::quantized_var_builder::VarBuilder as QuantizedVarBuilder;
 
         // First, read GGUF file to extract metadata
         let mut file = std::fs::File::open(model_path.as_ref()).map_err(|e| {
@@ -397,7 +397,9 @@ impl CandleQuantizedMixFormerModel {
     }
 
     /// Get the underlying model weights mutably
-    pub fn model_weights_mut(&mut self) -> &mut quantized_mixformer::MixFormerSequentialForCausalLM {
+    pub fn model_weights_mut(
+        &mut self,
+    ) -> &mut quantized_mixformer::MixFormerSequentialForCausalLM {
         &mut self.model_weights
     }
 }

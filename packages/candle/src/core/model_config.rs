@@ -8,9 +8,9 @@ use std::path::PathBuf;
 
 use candle_core::DType;
 use candle_transformers::models::llama::Config as LlamaConfig;
-use candle_transformers::models::quantized_mixformer::Config as MixFormerConfig;
 #[cfg(test)]
 use candle_transformers::models::llama::LlamaEosToks;
+use candle_transformers::models::quantized_mixformer::Config as MixFormerConfig;
 use serde::{Deserialize, Serialize};
 
 /// Model-agnostic configuration that ANY model can provide to the core engine
@@ -181,7 +181,7 @@ impl ModelArchitecture {
                 },
             },
             ModelArchitecture::Phi(_config) => ArchitectureDefaults {
-                vocab_size: 51200, // Phi-4 vocab size (config.vocab_size is private)
+                vocab_size: 51200,     // Phi-4 vocab size (config.vocab_size is private)
                 context_length: 16384, // Phi-4 context length
                 special_tokens: SpecialTokenIds {
                     bos_token_id: None,

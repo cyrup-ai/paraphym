@@ -4,9 +4,8 @@
 
 use std::borrow::Cow;
 
-
-use serde::{Deserialize, Serialize};
 use cyrup_sugars::prelude::MessageChunk;
+use serde::{Deserialize, Serialize};
 
 use crate::domain::model::usage::CandleUsage;
 

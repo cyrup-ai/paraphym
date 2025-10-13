@@ -180,52 +180,52 @@ pub struct CandleModelInfo {
     // === EMBEDDING MODELS ===
     /// Output dimension for embedding models
     pub embedding_dimension: Option<u32>,
-    
+
     /// Vocabulary size for tokenizer
     pub vocab_size: Option<u32>,
-    
+
     // === VISION MODELS ===
     /// Input image size (e.g., 336 for `LLaVA`, CLIP)
     pub image_size: Option<u32>,
-    
+
     /// Image normalization mean (`ImageNet`: [0.485, 0.456, 0.406])
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image_mean: Option<[f32; 3]>,
-    
+
     /// Image normalization std (`ImageNet`: [0.229, 0.224, 0.225])
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image_std: Option<[f32; 3]>,
-    
+
     // === GENERATION DEFAULTS ===
     /// Default sampling temperature
     pub default_temperature: Option<f64>,
-    
+
     /// Default top-k sampling
     pub default_top_k: Option<u32>,
-    
+
     /// Default top-p (nucleus) sampling
     pub default_top_p: Option<f64>,
-    
+
     // === OPTIMIZATION FLAGS ===
     /// Whether model supports KV caching
     #[serde(default)]
     pub supports_kv_cache: bool,
-    
+
     /// Whether model supports flash attention
     #[serde(default)]
     pub supports_flash_attention: bool,
-    
+
     /// Whether model should use BF16 precision
     #[serde(default)]
     pub use_bf16: bool,
-    
+
     // === DIFFUSION MODELS ===
     /// Default number of diffusion steps
     pub default_steps: Option<u32>,
-    
+
     /// Default guidance scale for classifier-free guidance
     pub default_guidance_scale: Option<f64>,
-    
+
     /// Time shift parameter for diffusion
     pub time_shift: Option<f64>,
 
@@ -333,7 +333,6 @@ impl CandleModelInfo {
         self.model_id
     }
 
-
     /// Get the model's quantization format
     #[inline]
     #[must_use]
@@ -364,9 +363,9 @@ impl CandleModelInfo {
     #[must_use]
     pub fn to_capabilities(&self) -> crate::domain::model::capabilities::CandleModelCapabilities {
         use crate::domain::model::capabilities::ModelCapabilityFlags;
-        
+
         let mut flags = ModelCapabilityFlags::empty();
-        
+
         // Set flags based on model info
         if self.supports_vision {
             flags |= ModelCapabilityFlags::VISION | ModelCapabilityFlags::MULTIMODAL;
@@ -383,18 +382,21 @@ impl CandleModelInfo {
         if self.supports_embeddings {
             flags |= ModelCapabilityFlags::EMBEDDING;
         }
-        
+
         // Assume all models support these common capabilities
         flags |= ModelCapabilityFlags::CHAT
             | ModelCapabilityFlags::INSTRUCTION_FOLLOWING
             | ModelCapabilityFlags::FEW_SHOT_LEARNING
             | ModelCapabilityFlags::ZERO_SHOT_LEARNING;
-        
+
         // Check for long context window
-        if self.max_input_tokens.is_some_and(|tokens| tokens.get() > 32000) {
+        if self
+            .max_input_tokens
+            .is_some_and(|tokens| tokens.get() > 32000)
+        {
             flags |= ModelCapabilityFlags::LONG_CONTEXT;
         }
-        
+
         crate::domain::model::capabilities::CandleModelCapabilities { flags }
     }
 

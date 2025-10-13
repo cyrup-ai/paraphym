@@ -5,8 +5,8 @@
 
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
-use serde::{Deserialize, Serialize};
 use cyrup_sugars::prelude::MessageChunk;
+use serde::{Deserialize, Serialize};
 
 use super::commands::{CommandExecutionResult, ImmutableChatCommand, OutputType};
 use super::metadata::ResourceUsage;

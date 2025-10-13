@@ -131,7 +131,9 @@ impl VectorRepository {
             .get(name)
             .map(|handle| handle.metadata.clone())
             .ok_or_else(|| {
-                crate::memory::utils::error::Error::NotFound(format!("Collection '{name}' not found"))
+                crate::memory::utils::error::Error::NotFound(format!(
+                    "Collection '{name}' not found"
+                ))
             })
     }
 
@@ -294,16 +296,13 @@ mod tests {
             .await?;
 
         // Search
-        let results = repo
-            .search("test_collection", &[1.0, 0.0, 0.0], 1)
-            .await?;
+        let results = repo.search("test_collection", &[1.0, 0.0, 0.0], 1).await?;
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0, id);
 
         // Delete collection
-        repo.delete_collection("test_collection")
-            .await?;
+        repo.delete_collection("test_collection").await?;
 
         // Verify deletion
         assert!(repo.get_collection("test_collection").await.is_err());

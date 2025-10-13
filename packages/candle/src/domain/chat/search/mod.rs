@@ -158,10 +158,7 @@ impl ChatSearcher {
     }
 
     /// Apply multiple sorting options (Relevance, DateDesc/Asc, UserDesc/Asc)
-    fn apply_sorting(
-        mut results: Vec<SearchResult>,
-        sort_order: &SortOrder,
-    ) -> Vec<SearchResult> {
+    fn apply_sorting(mut results: Vec<SearchResult>, sort_order: &SortOrder) -> Vec<SearchResult> {
         match sort_order {
             SortOrder::Relevance => {
                 // Sort by relevance score (highest first)
@@ -251,7 +248,10 @@ impl ChatSearcher {
 
     /// Add message to search index (streaming)
     #[must_use]
-    pub fn add_message_stream(&self, message: SearchChatMessage) -> AsyncStream<index::IndexResult> {
+    pub fn add_message_stream(
+        &self,
+        message: SearchChatMessage,
+    ) -> AsyncStream<index::IndexResult> {
         self.index.add_message_stream(message)
     }
 

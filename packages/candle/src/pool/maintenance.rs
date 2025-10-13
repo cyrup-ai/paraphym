@@ -1,11 +1,10 @@
 use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tracing::{info, warn, debug, instrument};
+use tracing::{debug, info, instrument, warn};
 
 use crate::pool::capabilities::{
-    image_embedding_pool, text_embedding_pool, text_to_image_pool, text_to_text_pool,
-    vision_pool,
+    image_embedding_pool, text_embedding_pool, text_to_image_pool, text_to_text_pool, vision_pool,
 };
 use crate::pool::core::Pool;
 
@@ -15,9 +14,12 @@ use crate::pool::core::Pool;
 /// - It has no pending requests (pending_requests == 0)
 /// - It hasn't been used for at least idle_threshold_secs seconds
 /// - It's in an evictable state (Ready or Idle, not Loading or Processing)
-fn all_workers_idle<W: crate::pool::core::types::PoolWorkerHandle>(workers: &[W], idle_threshold_secs: u64) -> bool {
+fn all_workers_idle<W: crate::pool::core::types::PoolWorkerHandle>(
+    workers: &[W],
+    idle_threshold_secs: u64,
+) -> bool {
     use crate::pool::core::worker_state::WorkerState;
-    
+
     if workers.is_empty() {
         return false;
     }
@@ -31,10 +33,13 @@ fn all_workers_idle<W: crate::pool::core::types::PoolWorkerHandle>(workers: &[W]
         let core = w.core();
         // CRITICAL: Don't evict workers that are Loading or Processing!
         let state = core.get_state();
-        if matches!(state, WorkerState::Loading | WorkerState::Processing | WorkerState::Spawning) {
+        if matches!(
+            state,
+            WorkerState::Loading | WorkerState::Processing | WorkerState::Spawning
+        ) {
             return false; // Not evictable
         }
-        
+
         let pending = core.pending_requests.load(Ordering::Acquire);
         let last_used = core.last_used.load(Ordering::Acquire);
         let idle_duration = now.saturating_sub(last_used);
@@ -59,15 +64,15 @@ fn find_lru_worker<W: crate::pool::core::types::PoolWorkerHandle>(workers: &[W])
 #[instrument(skip(pool))]
 fn cleanup_dead_workers<W: crate::pool::core::types::PoolWorkerHandle>(pool: &Pool<W>) {
     use crate::pool::core::worker_state::WorkerState;
-    
+
     for entry in pool.workers().iter() {
         let registry_key = entry.key();
         let mut removed_count = 0;
-        
+
         if let Some(mut workers) = pool.workers().get_mut(registry_key) {
             workers.retain(|worker| {
                 let state = worker.core().get_state();
-                
+
                 if matches!(state, WorkerState::Dead | WorkerState::Failed) {
                     warn!(
                         worker_id = worker.core().worker_id,
@@ -75,10 +80,10 @@ fn cleanup_dead_workers<W: crate::pool::core::types::PoolWorkerHandle>(pool: &Po
                         state = ?state,
                         "Removing dead worker"
                     );
-                    
+
                     // Clean up memory
                     pool.remove_memory(worker.core().per_worker_mb);
-                    
+
                     removed_count += 1;
                     false // Remove from vector
                 } else {
@@ -86,9 +91,11 @@ fn cleanup_dead_workers<W: crate::pool::core::types::PoolWorkerHandle>(pool: &Po
                 }
             });
         }
-        
+
         if removed_count > 0 {
-            pool.metrics().workers_evicted.fetch_add(removed_count, Ordering::Release);
+            pool.metrics()
+                .workers_evicted
+                .fetch_add(removed_count, Ordering::Release);
         }
     }
 }
@@ -146,7 +153,9 @@ fn evict_worker<W: crate::pool::core::types::PoolWorkerHandle>(
     pool.remove_memory(per_worker_mb);
 
     // Update metrics
-    pool.metrics().workers_evicted.fetch_add(1, Ordering::Release);
+    pool.metrics()
+        .workers_evicted
+        .fetch_add(1, Ordering::Release);
 
     info!(
         worker_id = worker.core().worker_id,
@@ -169,7 +178,7 @@ fn validate_pool_health<T: crate::pool::core::types::PoolWorkerHandle>(
     for entry in pool.workers().iter() {
         let registry_key = entry.key();
         let removed = pool.validate_workers(registry_key);
-        
+
         if removed > 0 {
             warn!(
                 pool_name = %pool_name,
@@ -192,7 +201,7 @@ fn process_pool_maintenance<W: crate::pool::core::types::PoolWorkerHandle>(
 ) {
     // FIRST: Clean up dead/failed workers
     cleanup_dead_workers(pool);
-    
+
     // Collect models that need eviction (to avoid holding locks)
     let mut models_to_evict = Vec::new();
 
@@ -246,11 +255,8 @@ fn log_memory_usage() {
     let vision_mb = vision_pool().total_memory_mb();
     let text_to_image_mb = text_to_image_pool().total_memory_mb();
 
-    let total_mb = text_embedding_mb
-        + text_to_text_mb
-        + image_embedding_mb
-        + vision_mb
-        + text_to_image_mb;
+    let total_mb =
+        text_embedding_mb + text_to_text_mb + image_embedding_mb + vision_mb + text_to_image_mb;
 
     debug!(
         total_mb = total_mb,
@@ -311,11 +317,7 @@ pub fn start_maintenance_thread() -> Result<thread::JoinHandle<()>, String> {
                 // Process each pool (evict idle workers)
                 process_pool_maintenance(text_embedding_pool(), idle_threshold, "TextEmbedding");
                 process_pool_maintenance(text_to_text_pool(), idle_threshold, "TextToText");
-                process_pool_maintenance(
-                    image_embedding_pool(),
-                    idle_threshold,
-                    "ImageEmbedding",
-                );
+                process_pool_maintenance(image_embedding_pool(), idle_threshold, "ImageEmbedding");
                 process_pool_maintenance(vision_pool(), idle_threshold, "Vision");
                 process_pool_maintenance(text_to_image_pool(), idle_threshold, "TextToImage");
 

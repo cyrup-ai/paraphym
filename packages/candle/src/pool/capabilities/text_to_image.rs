@@ -1,17 +1,17 @@
-use crossbeam::channel::{bounded, Receiver, Sender};
+use candle_core::Device;
+use crossbeam::channel::{Receiver, Sender, bounded};
 use crossbeam::select;
 use once_cell::sync::Lazy;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, AtomicU64, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use ystream::{AsyncStream, spawn_stream};
-use candle_core::Device;
 
-use crate::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
-use crate::pool::core::types::{HealthPing, HealthPong, select_worker_power_of_two};
-use crate::pool::core::memory_governor::AllocationGuard;
 use crate::capability::traits::TextToImageCapable;
 use crate::domain::image_generation::{ImageGenerationChunk, ImageGenerationConfig};
+use crate::pool::core::memory_governor::AllocationGuard;
+use crate::pool::core::types::{HealthPing, HealthPong, select_worker_power_of_two};
+use crate::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
 
 /// Request for generate_image() operation (streaming response)
 pub struct GenerateImageRequest {
@@ -26,18 +26,18 @@ pub struct TextToImageWorkerHandle {
     pub core: WorkerHandle,
     pub generate_image_tx: Sender<GenerateImageRequest>,
     pub shutdown_tx: Sender<()>,
-    pub registry_key: String,  // Added to enable cleanup on drop
+    pub registry_key: String, // Added to enable cleanup on drop
 }
 
 impl crate::pool::core::types::PoolWorkerHandle for TextToImageWorkerHandle {
     fn core(&self) -> &crate::pool::core::WorkerHandle {
         &self.core
     }
-    
+
     fn core_mut(&mut self) -> &mut crate::pool::core::WorkerHandle {
         &mut self.core
     }
-    
+
     fn registry_key(&self) -> &str {
         &self.registry_key
     }
@@ -45,7 +45,7 @@ impl crate::pool::core::types::PoolWorkerHandle for TextToImageWorkerHandle {
 
 impl std::ops::Deref for TextToImageWorkerHandle {
     type Target = WorkerHandle;
-    
+
     fn deref(&self) -> &Self::Target {
         &self.core
     }
@@ -65,33 +65,36 @@ pub fn text_to_image_worker<T: TextToImageCapable>(
     worker_id: usize,
     state: Arc<AtomicU32>,
 ) {
-    use std::time::{Duration, SystemTime};
     use crate::pool::core::worker_state::WorkerState;
-    
+    use std::time::{Duration, SystemTime};
+
     // Track last activity for idle detection
     let mut last_activity = SystemTime::now();
     let idle_threshold = Duration::from_secs(300); // 5 minutes
-    
+
     loop {
         // Check for idle timeout (Ready → Idle after 5 minutes of inactivity)
-        if let Ok(elapsed) = last_activity.elapsed() {
-            if elapsed > idle_threshold {
-                let current_state = WorkerState::from(state.load(std::sync::atomic::Ordering::Acquire));
-                if matches!(current_state, WorkerState::Ready) {
-                    state.store(WorkerState::Idle as u32, std::sync::atomic::Ordering::Release);
-                }
+        if let Ok(elapsed) = last_activity.elapsed()
+            && elapsed > idle_threshold
+        {
+            let current_state = WorkerState::from(state.load(std::sync::atomic::Ordering::Acquire));
+            if matches!(current_state, WorkerState::Ready) {
+                state.store(
+                    WorkerState::Idle as u32,
+                    std::sync::atomic::Ordering::Release,
+                );
             }
         }
-        
+
         select! {
             recv(generate_image_rx) -> req => {
                 if let Ok(req) = req {
                     // Transition: Ready/Idle → Processing
                     state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
-                    
+
                     let stream = model.generate_image(&req.prompt, &req.config, &req.device);
                     let _ = req.response.send(Ok(stream));
-                    
+
                     // Transition: Processing → Ready
                     state.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
                     last_activity = SystemTime::now();
@@ -103,13 +106,13 @@ pub fn text_to_image_worker<T: TextToImageCapable>(
                         .duration_since(UNIX_EPOCH)
                         .map(|d| d.as_secs())
                         .unwrap_or(0);
-                    
+
                     let pong = HealthPong {
                         worker_id,
                         timestamp: now,
                         queue_depth: generate_image_rx.len(),
                     };
-                    
+
                     let _ = health_tx.send(pong);
                 }
             }
@@ -124,9 +127,8 @@ pub fn text_to_image_worker<T: TextToImageCapable>(
 }
 
 /// Global TextToImage pool instance
-static TEXT_TO_IMAGE_POOL: Lazy<Pool<TextToImageWorkerHandle>> = Lazy::new(|| {
-    Pool::new(PoolConfig::default())
-});
+static TEXT_TO_IMAGE_POOL: Lazy<Pool<TextToImageWorkerHandle>> =
+    Lazy::new(|| Pool::new(PoolConfig::default()));
 
 /// Access global TextToImage pool
 pub fn text_to_image_pool() -> &'static Pool<TextToImageWorkerHandle> {
@@ -146,9 +148,9 @@ impl Pool<TextToImageWorkerHandle> {
         T: TextToImageCapable + Send + 'static,
         F: FnOnce() -> Result<T, PoolError> + Send + 'static,
     {
-
         // Create BOUNDED channels (prevent OOM)
-        let (generate_image_tx, generate_image_rx) = bounded(self.config().image_gen_queue_capacity);
+        let (generate_image_tx, generate_image_rx) =
+            bounded(self.config().image_gen_queue_capacity);
         let (shutdown_tx, shutdown_rx) = bounded(1);
         let (health_tx_worker, health_rx_worker) = bounded::<HealthPing>(1);
         let (health_tx_main, health_rx_main) = bounded::<HealthPong>(1);
@@ -161,7 +163,7 @@ impl Pool<TextToImageWorkerHandle> {
         let health_rx_worker_clone = health_rx_worker.clone();
         let health_tx_main_clone = health_tx_main.clone();
         let per_worker_mb_clone = per_worker_mb;
-        
+
         // Create state before spawning thread so we can clone it
         use std::sync::atomic::AtomicU32;
         let state = Arc::new(AtomicU32::new(0)); // Spawning state
@@ -170,29 +172,42 @@ impl Pool<TextToImageWorkerHandle> {
         // Spawn worker thread
         std::thread::spawn(move || {
             use crate::pool::core::worker_state::WorkerState;
-            
+
             // Guard held by worker thread - will drop on exit
             let _memory_guard = allocation_guard;
-            
+
             // Transition: Spawning → Loading
-            state_clone.store(WorkerState::Loading as u32, std::sync::atomic::Ordering::Release);
-            
+            state_clone.store(
+                WorkerState::Loading as u32,
+                std::sync::atomic::Ordering::Release,
+            );
+
             let model = match model_loader() {
                 Ok(m) => {
                     log::info!("TextToImage worker {} ready", worker_id);
                     // Transition: Loading → Ready
-                    state_clone.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
+                    state_clone.store(
+                        WorkerState::Ready as u32,
+                        std::sync::atomic::Ordering::Release,
+                    );
                     m
                 }
                 Err(e) => {
-                    log::error!("TextToImage worker {} model loading failed: {}", worker_id, e);
+                    log::error!(
+                        "TextToImage worker {} model loading failed: {}",
+                        worker_id,
+                        e
+                    );
                     // Transition: Loading → Failed
-                    state_clone.store(WorkerState::Failed as u32, std::sync::atomic::Ordering::Release);
-                    
+                    state_clone.store(
+                        WorkerState::Failed as u32,
+                        std::sync::atomic::Ordering::Release,
+                    );
+
                     // Clean up memory tracking (CRITICAL FIX)
                     // This prevents memory leak when model loading fails
                     text_to_image_pool().remove_memory(per_worker_mb_clone);
-                    
+
                     return;
                 }
             };
@@ -206,9 +221,12 @@ impl Pool<TextToImageWorkerHandle> {
                 worker_id,
                 Arc::clone(&state_clone),
             );
-            
+
             // Transition: Ready → Dead (when worker loop exits)
-            state_clone.store(WorkerState::Dead as u32, std::sync::atomic::Ordering::Release);
+            state_clone.store(
+                WorkerState::Dead as u32,
+                std::sync::atomic::Ordering::Release,
+            );
         });
 
         // Create handles (state already created above before spawning)
@@ -216,10 +234,10 @@ impl Pool<TextToImageWorkerHandle> {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        
+
         let pending_requests = Arc::new(AtomicUsize::new(0));
         let last_used = Arc::new(AtomicU64::new(now));
-        
+
         // Store capability-specific handle
         let full_handle = TextToImageWorkerHandle {
             core: WorkerHandle {
@@ -265,22 +283,29 @@ impl Pool<TextToImageWorkerHandle> {
         spawn_stream(move |sender| {
             // Check shutdown
             if is_shutting_down {
-                ystream::emit!(sender, ImageGenerationChunk::Error(
-                    "Pool shutting down".to_string()
-                ));
+                ystream::emit!(
+                    sender,
+                    ImageGenerationChunk::Error("Pool shutting down".to_string())
+                );
                 return;
             }
 
             // Get circuit breaker for this model and check state
             let pool = text_to_image_pool();
             let circuit = pool.get_circuit_breaker(&registry_key);
-            
+
             if !circuit.can_request() {
-                ystream::emit!(sender, ImageGenerationChunk::Error(
-                    format!("Circuit breaker open for {}", registry_key)
-                ));
+                ystream::emit!(
+                    sender,
+                    ImageGenerationChunk::Error(format!(
+                        "Circuit breaker open for {}",
+                        registry_key
+                    ))
+                );
                 // Update metrics
-                pool.metrics().circuit_rejections.fetch_add(1, Ordering::Relaxed);
+                pool.metrics()
+                    .circuit_rejections
+                    .fetch_add(1, Ordering::Relaxed);
                 return;
             }
 
@@ -288,17 +313,19 @@ impl Pool<TextToImageWorkerHandle> {
             let workers = match pool.workers().get(&registry_key) {
                 Some(w) => w,
                 None => {
-                    ystream::emit!(sender, ImageGenerationChunk::Error(
-                        format!("No workers for {}", registry_key)
-                    ));
+                    ystream::emit!(
+                        sender,
+                        ImageGenerationChunk::Error(format!("No workers for {}", registry_key))
+                    );
                     return;
                 }
             };
 
             if workers.is_empty() {
-                ystream::emit!(sender, ImageGenerationChunk::Error(
-                    "No workers available".to_string()
-                ));
+                ystream::emit!(
+                    sender,
+                    ImageGenerationChunk::Error("No workers available".to_string())
+                );
                 return;
             }
 
@@ -307,9 +334,13 @@ impl Pool<TextToImageWorkerHandle> {
             let worker = match select_worker_power_of_two(&alive_workers, |w| &w.core) {
                 Some(w) => w,
                 None => {
-                    ystream::emit!(sender, ImageGenerationChunk::Error(
-                        format!("No alive workers for {}", registry_key)
-                    ));
+                    ystream::emit!(
+                        sender,
+                        ImageGenerationChunk::Error(format!(
+                            "No alive workers for {}",
+                            registry_key
+                        ))
+                    );
                     return;
                 }
             };
@@ -326,9 +357,10 @@ impl Pool<TextToImageWorkerHandle> {
                 device,
                 response: response_tx,
             }) {
-                ystream::emit!(sender, ImageGenerationChunk::Error(
-                    format!("Failed to send request: {}", e)
-                ));
+                ystream::emit!(
+                    sender,
+                    ImageGenerationChunk::Error(format!("Failed to send request: {}", e))
+                );
                 worker.core.pending_requests.fetch_sub(1, Ordering::Release);
                 return;
             }
@@ -345,21 +377,25 @@ impl Pool<TextToImageWorkerHandle> {
                     // Record failure on circuit breaker
                     circuit.record_failure();
                     pool.metrics().total_errors.fetch_add(1, Ordering::Relaxed);
-                    
-                    ystream::emit!(sender, ImageGenerationChunk::Error(
-                        format!("Worker error: {}", e)
-                    ));
+
+                    ystream::emit!(
+                        sender,
+                        ImageGenerationChunk::Error(format!("Worker error: {}", e))
+                    );
                     worker.core.pending_requests.fetch_sub(1, Ordering::Release);
                     return;
                 }
                 Err(e) => {
                     // Record timeout as failure
                     circuit.record_failure();
-                    pool.metrics().total_timeouts.fetch_add(1, Ordering::Relaxed);
-                    
-                    ystream::emit!(sender, ImageGenerationChunk::Error(
-                        format!("Request timeout: {}", e)
-                    ));
+                    pool.metrics()
+                        .total_timeouts
+                        .fetch_add(1, Ordering::Relaxed);
+
+                    ystream::emit!(
+                        sender,
+                        ImageGenerationChunk::Error(format!("Request timeout: {}", e))
+                    );
                     worker.core.pending_requests.fetch_sub(1, Ordering::Release);
                     return;
                 }
@@ -371,10 +407,8 @@ impl Pool<TextToImageWorkerHandle> {
             for chunk in worker_stream {
                 ystream::emit!(sender, chunk);
             }
-            
+
             worker.core.pending_requests.fetch_sub(1, Ordering::Release);
         })
     }
 }
-
-

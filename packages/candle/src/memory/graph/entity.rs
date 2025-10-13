@@ -31,10 +31,15 @@ impl PendingEntity {
 impl std::future::Future for PendingEntity {
     type Output = Result<Box<dyn Entity>>;
 
-    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
         match std::pin::Pin::new(&mut self.rx).poll(cx) {
             std::task::Poll::Ready(Ok(result)) => std::task::Poll::Ready(result),
-            std::task::Poll::Ready(Err(_)) => std::task::Poll::Ready(Err(GraphError::Other("Channel closed".to_string()))),
+            std::task::Poll::Ready(Err(_)) => {
+                std::task::Poll::Ready(Err(GraphError::Other("Channel closed".to_string())))
+            }
             std::task::Poll::Pending => std::task::Poll::Pending,
         }
     }
@@ -54,10 +59,15 @@ impl PendingEntityOption {
 impl std::future::Future for PendingEntityOption {
     type Output = Result<Option<Box<dyn Entity>>>;
 
-    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
         match std::pin::Pin::new(&mut self.rx).poll(cx) {
             std::task::Poll::Ready(Ok(result)) => std::task::Poll::Ready(result),
-            std::task::Poll::Ready(Err(_)) => std::task::Poll::Ready(Err(GraphError::Other("Channel closed".to_string()))),
+            std::task::Poll::Ready(Err(_)) => {
+                std::task::Poll::Ready(Err(GraphError::Other("Channel closed".to_string())))
+            }
             std::task::Poll::Pending => std::task::Poll::Pending,
         }
     }
@@ -77,10 +87,15 @@ impl PendingEntityList {
 impl std::future::Future for PendingEntityList {
     type Output = Result<Vec<Box<dyn Entity>>>;
 
-    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
         match std::pin::Pin::new(&mut self.rx).poll(cx) {
             std::task::Poll::Ready(Ok(result)) => std::task::Poll::Ready(result),
-            std::task::Poll::Ready(Err(_)) => std::task::Poll::Ready(Err(GraphError::Other("Channel closed".to_string()))),
+            std::task::Poll::Ready(Err(_)) => {
+                std::task::Poll::Ready(Err(GraphError::Other("Channel closed".to_string())))
+            }
             std::task::Poll::Pending => std::task::Poll::Pending,
         }
     }
@@ -100,10 +115,15 @@ impl PendingEntityCount {
 impl std::future::Future for PendingEntityCount {
     type Output = Result<usize>;
 
-    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
         match std::pin::Pin::new(&mut self.rx).poll(cx) {
             std::task::Poll::Ready(Ok(result)) => std::task::Poll::Ready(result),
-            std::task::Poll::Ready(Err(_)) => std::task::Poll::Ready(Err(GraphError::Other("Channel closed".to_string()))),
+            std::task::Poll::Ready(Err(_)) => {
+                std::task::Poll::Ready(Err(GraphError::Other("Channel closed".to_string())))
+            }
             std::task::Poll::Pending => std::task::Poll::Pending,
         }
     }
@@ -123,10 +143,15 @@ impl PendingUnit {
 impl std::future::Future for PendingUnit {
     type Output = Result<()>;
 
-    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
         match std::pin::Pin::new(&mut self.rx).poll(cx) {
             std::task::Poll::Ready(Ok(result)) => std::task::Poll::Ready(result),
-            std::task::Poll::Ready(Err(_)) => std::task::Poll::Ready(Err(GraphError::Other("Channel closed".to_string()))),
+            std::task::Poll::Ready(Err(_)) => {
+                std::task::Poll::Ready(Err(GraphError::Other("Channel closed".to_string())))
+            }
             std::task::Poll::Pending => std::task::Poll::Pending,
         }
     }
@@ -273,7 +298,7 @@ impl Entity for BaseEntity {
                 .unwrap_or_else(|_| serde_json::Value::String(format!("{:?}", value)));
             properties.insert(key.clone(), json_value);
         }
-        
+
         properties.insert("id".to_string(), serde_json::Value::String(self.id.clone()));
         properties.insert(
             "entity_type".to_string(),
@@ -514,12 +539,12 @@ impl<E: Entity + Clone + 'static> SurrealEntityRepository<E> {
 impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E> {
     fn create_entity(&self, entity: Box<dyn Entity>) -> PendingEntity {
         // Validate synchronously
-        if let Some(validator) = &self.validator {
-            if let Err(e) = validator(entity.as_ref()) {
-                let (tx, rx) = oneshot::channel();
-                let _ = tx.send(Err(e));
-                return PendingEntity::new(rx);
-            }
+        if let Some(validator) = &self.validator
+            && let Err(e) = validator(entity.as_ref())
+        {
+            let (tx, rx) = oneshot::channel();
+            let _ = tx.send(Err(e));
+            return PendingEntity::new(rx);
         }
 
         if let Err(e) = entity.validate() {
@@ -533,7 +558,9 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
         let (tx, rx) = oneshot::channel();
 
         tokio::spawn(async move {
-            let result = db.create_node(node.properties).await
+            let result = db
+                .create_node(node.properties)
+                .await
                 .map_err(|e| GraphError::DatabaseError(e.to_string()))
                 .map(|_| entity);
             let _ = tx.send(result);
@@ -548,12 +575,16 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
         let (tx, rx) = oneshot::channel();
 
         tokio::spawn(async move {
-            let result = db.get_node(&id).await
+            let result = db
+                .get_node(&id)
+                .await
                 .map_err(|e| GraphError::DatabaseError(e.to_string()))
-                .and_then(|opt| {
-                    Ok(opt.and_then(|node| {
-                        E::from_node(node).ok().map(|entity| Box::new(entity) as Box<dyn Entity>)
-                    }))
+                .map(|opt| {
+                    opt.and_then(|node| {
+                        E::from_node(node)
+                            .ok()
+                            .map(|entity| Box::new(entity) as Box<dyn Entity>)
+                    })
                 });
             let _ = tx.send(result);
         });
@@ -563,12 +594,12 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
 
     fn update_entity(&self, entity: Box<dyn Entity>) -> PendingEntity {
         // Validate synchronously
-        if let Some(validator) = &self.validator {
-            if let Err(e) = validator(entity.as_ref()) {
-                let (tx, rx) = oneshot::channel();
-                let _ = tx.send(Err(e));
-                return PendingEntity::new(rx);
-            }
+        if let Some(validator) = &self.validator
+            && let Err(e) = validator(entity.as_ref())
+        {
+            let (tx, rx) = oneshot::channel();
+            let _ = tx.send(Err(e));
+            return PendingEntity::new(rx);
         }
 
         if let Err(e) = entity.validate() {
@@ -583,7 +614,9 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
         let (tx, rx) = oneshot::channel();
 
         tokio::spawn(async move {
-            let result = db.update_node(&entity_id, node.properties).await
+            let result = db
+                .update_node(&entity_id, node.properties)
+                .await
                 .map_err(|e| GraphError::DatabaseError(e.to_string()))
                 .map(|_| entity);
             let _ = tx.send(result);
@@ -598,7 +631,9 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
         let (tx, rx) = oneshot::channel();
 
         tokio::spawn(async move {
-            let result = db.delete_node(&id).await
+            let result = db
+                .delete_node(&id)
+                .await
                 .map_err(|e| GraphError::DatabaseError(e.to_string()));
             let _ = tx.send(result);
         });
@@ -670,7 +705,10 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
         let json_value = match serde_json::to_value(&attribute_value) {
             Ok(v) => v,
             Err(e) => {
-                let _ = tx.send(Err(GraphError::ConversionError(format!("Failed to convert attribute value: {}", e))));
+                let _ = tx.send(Err(GraphError::ConversionError(format!(
+                    "Failed to convert attribute value: {}",
+                    e
+                ))));
                 return PendingEntityList::new(rx);
             }
         };
@@ -679,7 +717,10 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
             use crate::memory::graph::graph_db::GraphQueryOptions;
             use futures_util::StreamExt;
 
-            let query = format!("SELECT * FROM {} WHERE {} = $value", table_name, attribute_name);
+            let query = format!(
+                "SELECT * FROM {} WHERE {} = $value",
+                table_name, attribute_name
+            );
             let options = GraphQueryOptions {
                 limit,
                 offset,
@@ -687,7 +728,7 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
                     let mut filters = std::collections::HashMap::new();
                     filters.insert("value".to_string(), json_value);
                     filters
-                }
+                },
             };
 
             let node_stream = db.query(&query, Some(options));
@@ -696,9 +737,10 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
 
             while let Some(node_result) = stream.next().await {
                 if let Ok(node) = node_result
-                    && let Ok(entity) = E::from_node(node) {
-                        entities.push(Box::new(entity) as Box<dyn Entity>);
-                    }
+                    && let Ok(entity) = E::from_node(node)
+                {
+                    entities.push(Box::new(entity) as Box<dyn Entity>);
+                }
             }
 
             let _ = tx.send(Ok(entities));
@@ -722,9 +764,10 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
             let mut count = 0;
 
             if let Some(Ok(node)) = stream.next().await
-                && let Some(count_value) = node.properties.get("count") {
-                    count = count_value.as_u64().unwrap_or(0) as usize;
-                }
+                && let Some(count_value) = node.properties.get("count")
+            {
+                count = count_value.as_u64().unwrap_or(0) as usize;
+            }
 
             let _ = tx.send(Ok(count));
         });
@@ -732,18 +775,15 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
         PendingEntityCount::new(rx)
     }
 
-    fn batch_create_entities(
-        &self,
-        entities: Vec<Box<dyn Entity>>,
-    ) -> PendingEntityList {
+    fn batch_create_entities(&self, entities: Vec<Box<dyn Entity>>) -> PendingEntityList {
         // Validate all entities first
         for entity in &entities {
-            if let Some(validator) = &self.validator {
-                if let Err(e) = validator(entity.as_ref()) {
-                    let (tx, rx) = oneshot::channel();
-                    let _ = tx.send(Err(e));
-                    return PendingEntityList::new(rx);
-                }
+            if let Some(validator) = &self.validator
+                && let Err(e) = validator(entity.as_ref())
+            {
+                let (tx, rx) = oneshot::channel();
+                let _ = tx.send(Err(e));
+                return PendingEntityList::new(rx);
             }
             if let Err(e) = entity.validate() {
                 let (tx, rx) = oneshot::channel();
@@ -772,7 +812,9 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
         let (tx, rx) = oneshot::channel();
 
         tokio::spawn(async move {
-            let result = db.batch_query(&query, serde_json::json!({ "items": create_items })).await
+            let result = db
+                .batch_query(&query, serde_json::json!({ "items": create_items }))
+                .await
                 .map_err(|e| GraphError::DatabaseError(e.to_string()))
                 .and_then(|nodes| {
                     let mut results = Vec::with_capacity(nodes.len());
@@ -790,18 +832,15 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
         PendingEntityList::new(rx)
     }
 
-    fn batch_update_entities(
-        &self,
-        entities: Vec<Box<dyn Entity>>,
-    ) -> PendingEntityList {
+    fn batch_update_entities(&self, entities: Vec<Box<dyn Entity>>) -> PendingEntityList {
         // Validate all entities first
         for entity in &entities {
-            if let Some(validator) = &self.validator {
-                if let Err(e) = validator(entity.as_ref()) {
-                    let (tx, rx) = oneshot::channel();
-                    let _ = tx.send(Err(e));
-                    return PendingEntityList::new(rx);
-                }
+            if let Some(validator) = &self.validator
+                && let Err(e) = validator(entity.as_ref())
+            {
+                let (tx, rx) = oneshot::channel();
+                let _ = tx.send(Err(e));
+                return PendingEntityList::new(rx);
             }
             if let Err(e) = entity.validate() {
                 let (tx, rx) = oneshot::channel();
@@ -828,7 +867,9 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
         let (tx, rx) = oneshot::channel();
 
         tokio::spawn(async move {
-            let result = db.batch_query(&query, serde_json::json!({ "items": update_items })).await
+            let result = db
+                .batch_query(&query, serde_json::json!({ "items": update_items }))
+                .await
                 .map_err(|e| GraphError::DatabaseError(e.to_string()))
                 .and_then(|nodes| {
                     let mut results = Vec::with_capacity(nodes.len());
@@ -848,13 +889,16 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
 
     fn batch_delete_entities(&self, ids: Vec<&str>) -> PendingUnit {
         let id_array: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
-        let query = "BEGIN TRANSACTION; FOR $id IN $ids { DELETE $id; }; COMMIT TRANSACTION;".to_string();
+        let query =
+            "BEGIN TRANSACTION; FOR $id IN $ids { DELETE $id; }; COMMIT TRANSACTION;".to_string();
 
         let db = self.db.clone();
         let (tx, rx) = oneshot::channel();
 
         tokio::spawn(async move {
-            let result = db.batch_query(&query, serde_json::json!({ "ids": id_array })).await
+            let result = db
+                .batch_query(&query, serde_json::json!({ "ids": id_array }))
+                .await
                 .map_err(|e| GraphError::DatabaseError(e.to_string()))
                 .map(|_| ());
             let _ = tx.send(result);

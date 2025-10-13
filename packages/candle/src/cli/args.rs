@@ -55,8 +55,8 @@ impl Default for CliArgs {
             agent_role: "CYRUP.ai".to_string(),
             system_prompt: None,
             documents: Vec::new(),
-            temperature: 0.0, // Task specifies 0.0, not 0.7
-            max_tokens: None, // Let model decide based on TextToTextCapability
+            temperature: 0.0,          // Task specifies 0.0, not 0.7
+            max_tokens: None,          // Let model decide based on TextToTextCapability
             memory_read_timeout: 5000, // 5 seconds
             tools: Vec::new(),
             embedding_model: None, // Uses EmbeddingConfig::default() if not provided
@@ -114,21 +114,24 @@ impl CliArgs {
                 "-t" | "--temperature" => {
                     i += 1;
                     if i < args.len()
-                        && let Ok(temp) = args[i].parse::<f64>() {
+                        && let Ok(temp) = args[i].parse::<f64>()
+                    {
                         cli_args.temperature = temp;
                     }
                 }
                 "--max-tokens" => {
                     i += 1;
                     if i < args.len()
-                        && let Ok(tokens) = args[i].parse::<u64>() {
+                        && let Ok(tokens) = args[i].parse::<u64>()
+                    {
                         cli_args.max_tokens = Some(tokens);
                     }
                 }
                 "--memory-read-timeout" => {
                     i += 1;
                     if i < args.len()
-                        && let Ok(timeout) = args[i].parse::<u64>() {
+                        && let Ok(timeout) = args[i].parse::<u64>()
+                    {
                         cli_args.memory_read_timeout = timeout;
                     }
                 }
@@ -179,11 +182,15 @@ impl CliArgs {
     /// Validate arguments
     pub fn validate(&self) -> Result<(), String> {
         if !(0.0..=2.0).contains(&self.temperature) {
-            return Err(format!("Temperature must be between 0.0 and 2.0, got {}", self.temperature));
+            return Err(format!(
+                "Temperature must be between 0.0 and 2.0, got {}",
+                self.temperature
+            ));
         }
 
         if let Some(tokens) = self.max_tokens
-            && tokens == 0 {
+            && tokens == 0
+        {
             return Err("Max tokens must be greater than 0".to_string());
         }
 
@@ -234,11 +241,7 @@ mod tests {
 
     #[test]
     fn test_parse_temperature() {
-        let args = vec![
-            "program".to_string(),
-            "-t".to_string(),
-            "0.5".to_string(),
-        ];
+        let args = vec!["program".to_string(), "-t".to_string(), "0.5".to_string()];
         let cli_args = CliArgs::from_args(&args);
         assert_eq!(cli_args.temperature, 0.5);
     }

@@ -3,9 +3,9 @@
 //! This module provides a unified interface for both text and image embeddings,
 //! enabling cross-modal similarity operations between text and images.
 
+use crate::capability::registry::{ImageEmbeddingModel, TextEmbeddingModel};
 use crate::capability::traits::{ImageEmbeddingCapable, TextEmbeddingCapable};
-use crate::capability::registry::{TextEmbeddingModel, ImageEmbeddingModel};
-use crate::memory::core::manager::surreal::{PendingEmbedding, PendingBatchEmbedding};
+use crate::memory::core::manager::surreal::{PendingBatchEmbedding, PendingEmbedding};
 use crate::memory::utils::error::Result;
 use paraphym_simd::cosine_similarity;
 
@@ -49,9 +49,9 @@ impl MultimodalEmbeddingService {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         tokio::spawn(async move {
-            let result = text_model
-                .embed(&text, task)
-                .map_err(|e| crate::memory::utils::error::Error::Other(format!("Text embedding failed: {}", e)));
+            let result = text_model.embed(&text, task).map_err(|e| {
+                crate::memory::utils::error::Error::Other(format!("Text embedding failed: {}", e))
+            });
             let _ = tx.send(result);
         });
 
@@ -70,9 +70,12 @@ impl MultimodalEmbeddingService {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         tokio::spawn(async move {
-            let result = text_model
-                .batch_embed(&texts, task)
-                .map_err(|e| crate::memory::utils::error::Error::Other(format!("Batch text embedding failed: {}", e)));
+            let result = text_model.batch_embed(&texts, task).map_err(|e| {
+                crate::memory::utils::error::Error::Other(format!(
+                    "Batch text embedding failed: {}",
+                    e
+                ))
+            });
             let _ = tx.send(result);
         });
 
@@ -85,21 +88,14 @@ impl MultimodalEmbeddingService {
         let vision_model = self.vision_model.clone();
         let (tx, rx) = tokio::sync::oneshot::channel();
 
-        std::thread::spawn(move || {
-            let Some(rt) = crate::runtime::shared_runtime() else {
-                log::error!("Shared runtime unavailable for image embedding");
-                let _ = tx.send(Err(crate::memory::utils::error::Error::Other(
-                    "Runtime unavailable".to_string()
-                )));
-                return;
-            };
-                
-            rt.block_on(async move {
-                let result = vision_model
-                    .embed_image(&image_path).await
-                    .map_err(|e| crate::memory::utils::error::Error::Other(format!("Failed to embed image: {}", e)));
-                let _ = tx.send(result);
+        tokio::spawn(async move {
+            let result = vision_model.embed_image(&image_path).await.map_err(|e| {
+                crate::memory::utils::error::Error::Other(format!(
+                    "Failed to embed image: {}",
+                    e
+                ))
             });
+            let _ = tx.send(result);
         });
 
         PendingEmbedding::new(rx)
@@ -112,21 +108,24 @@ impl MultimodalEmbeddingService {
         let vision_model = self.vision_model.clone();
         let (tx, rx) = tokio::sync::oneshot::channel();
 
-        std::thread::spawn(move || {
-            let Some(rt) = crate::runtime::shared_runtime() else {
-                log::error!("Shared runtime unavailable for image URL embedding");
-                let _ = tx.send(Err(crate::memory::utils::error::Error::Other(
-                    "Runtime unavailable".to_string()
-                )));
-                return;
-            };
-            
-            rt.block_on(async move {
-                let result = vision_model
-                    .embed_image_url(&url).await
-                    .map_err(|e| crate::memory::utils::error::Error::Other(format!("Failed to embed image from URL: {}", e)));
-                let _ = tx.send(result);
+        tokio::spawn(async move {
+            let result = vision_model.embed_image_url(&url).await.map_err(|e| {
+                crate::memory::utils::error::Error::Other(format!(
+                    "Failed to embed image from URL: {}",
+                    e
+                ))
             });
+            let _ = tx.send(result);
+        });
+
+        PendingEmbedding::new(rx)
+    }_url(&url).await.map_err(|e| {
+                crate::memory::utils::error::Error::Other(format!(
+                    "Failed to embed image from URL: {}",
+                    e
+                ))
+            });
+            let _ = tx.send(result);
         });
 
         PendingEmbedding::new(rx)
@@ -139,21 +138,17 @@ impl MultimodalEmbeddingService {
         let vision_model = self.vision_model.clone();
         let (tx, rx) = tokio::sync::oneshot::channel();
 
-        std::thread::spawn(move || {
-            let Some(rt) = crate::runtime::shared_runtime() else {
-                log::error!("Shared runtime unavailable for base64 image embedding");
-                let _ = tx.send(Err(crate::memory::utils::error::Error::Other(
-                    "Runtime unavailable".to_string()
-                )));
-                return;
-            };
-            
-            rt.block_on(async move {
-                let result = vision_model
-                    .embed_image_base64(&base64_data).await
-                    .map_err(|e| crate::memory::utils::error::Error::Other(format!("Failed to embed image from base64: {}", e)));
-                let _ = tx.send(result);
-            });
+        tokio::spawn(async move {
+            let result = vision_model
+                .embed_image_base64(&base64_data)
+                .await
+                .map_err(|e| {
+                    crate::memory::utils::error::Error::Other(format!(
+                        "Failed to embed base64 image: {}",
+                        e
+                    ))
+                });
+            let _ = tx.send(result);
         });
 
         PendingEmbedding::new(rx)
@@ -166,22 +161,15 @@ impl MultimodalEmbeddingService {
         let vision_model = self.vision_model.clone();
         let (tx, rx) = tokio::sync::oneshot::channel();
 
-        std::thread::spawn(move || {
-            let Some(rt) = crate::runtime::shared_runtime() else {
-                log::error!("Shared runtime unavailable for batch image embedding");
-                let _ = tx.send(Err(crate::memory::utils::error::Error::Other(
-                    "Runtime unavailable".to_string()
-                )));
-                return;
-            };
-            
-            rt.block_on(async move {
-                let paths: Vec<&str> = image_paths.iter().map(|s| s.as_str()).collect();
-                let result = vision_model
-                    .batch_embed_images(paths).await
-                    .map_err(|e| crate::memory::utils::error::Error::Other(format!("Failed to batch embed images: {}", e)));
-                let _ = tx.send(result);
+        tokio::spawn(async move {
+            let paths: Vec<&str> = image_paths.iter().map(|s| s.as_str()).collect();
+            let result = vision_model.batch_embed_images(paths).await.map_err(|e| {
+                crate::memory::utils::error::Error::Other(format!(
+                    "Failed to batch embed images: {}",
+                    e
+                ))
             });
+            let _ = tx.send(result);
         });
 
         PendingBatchEmbedding::new(rx)

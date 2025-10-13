@@ -1,7 +1,7 @@
 //! Search result export functionality
 
-use ystream::AsyncStream;
 use serde_json;
+use ystream::AsyncStream;
 
 use super::types::{ExportFormat, ExportOptions, SearchError, SearchResult};
 use crate::domain::context::chunk::CandleJsonChunk;
@@ -47,10 +47,12 @@ impl SearchExporter {
 
         AsyncStream::with_channel(move |sender| {
             if let ExportFormat::Json = export_options.format {
-                if let Ok(json) = SearchExporter::export_json_sync(&limited_results, &export_options)
-                    && let Ok(value) = serde_json::from_str(&json) {
-                        let _ = sender.send(CandleJsonChunk(value));
-                    }
+                if let Ok(json) =
+                    SearchExporter::export_json_sync(&limited_results, &export_options)
+                    && let Ok(value) = serde_json::from_str(&json)
+                {
+                    let _ = sender.send(CandleJsonChunk(value));
+                }
             } else {
                 // Other formats not implemented in simplified version
                 let error_value = serde_json::json!({"error": "Export format not supported"});

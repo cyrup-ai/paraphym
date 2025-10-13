@@ -45,7 +45,6 @@ surrealdb = { path = "../../forks/surrealdb/crates/sdk", features = ["http", "pr
 # Async runtime (from memory package)
 futures = { version = "0.3.31" }
 async-channel = { version = "2.5.0" }
-async-trait = { version = "0.1" }
 
 # Error handling (from memory package)
 anyhow = { version = "1.0.100" }

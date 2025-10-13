@@ -60,7 +60,9 @@ impl CliConfig {
 
     /// Load config from file
     pub fn load(path: Option<&Path>) -> Result<Self, String> {
-        let config_path = path.map(|p| p.to_path_buf()).unwrap_or_else(Self::default_path);
+        let config_path = path
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(Self::default_path);
 
         if !config_path.exists() {
             return Ok(Self::default());
@@ -69,13 +71,14 @@ impl CliConfig {
         let contents = fs::read_to_string(&config_path)
             .map_err(|e| format!("Failed to read config file: {}", e))?;
 
-        serde_json::from_str(&contents)
-            .map_err(|e| format!("Failed to parse config file: {}", e))
+        serde_json::from_str(&contents).map_err(|e| format!("Failed to parse config file: {}", e))
     }
 
     /// Save config to file
     pub fn save(&self, path: Option<&Path>) -> Result<(), String> {
-        let config_path = path.map(|p| p.to_path_buf()).unwrap_or_else(Self::default_path);
+        let config_path = path
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(Self::default_path);
 
         // Ensure parent directory exists
         if let Some(parent) = config_path.parent() {
@@ -86,8 +89,7 @@ impl CliConfig {
         let contents = serde_json::to_string_pretty(self)
             .map_err(|e| format!("Failed to serialize config: {}", e))?;
 
-        fs::write(&config_path, contents)
-            .map_err(|e| format!("Failed to write config file: {}", e))
+        fs::write(&config_path, contents).map_err(|e| format!("Failed to write config file: {}", e))
     }
 
     /// Add message to history
@@ -127,8 +129,8 @@ impl CliConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
     use std::env;
+    use std::fs;
 
     #[test]
     fn test_default_config() {

@@ -34,12 +34,15 @@ pub fn detect_best_device() -> candle_core::Result<Device> {
                     return Ok(device);
                 }
                 Err(e) => {
-                    warn!("CUDA available but failed to initialize: {}. Falling back to next option.", e);
+                    warn!(
+                        "CUDA available but failed to initialize: {}. Falling back to next option.",
+                        e
+                    );
                 }
             }
         }
     }
-    
+
     #[cfg(feature = "metal")]
     {
         if metal_is_available() {
@@ -49,12 +52,15 @@ pub fn detect_best_device() -> candle_core::Result<Device> {
                     return Ok(device);
                 }
                 Err(e) => {
-                    warn!("Metal available but failed to initialize: {}. Falling back to CPU.", e);
+                    warn!(
+                        "Metal available but failed to initialize: {}. Falling back to CPU.",
+                        e
+                    );
                 }
             }
         }
     }
-    
+
     info!("Using CPU for inference (no GPU available or GPU initialization failed)");
     Ok(Device::Cpu)
 }

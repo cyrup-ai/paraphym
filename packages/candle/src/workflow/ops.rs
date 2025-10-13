@@ -6,8 +6,8 @@
 
 use std::marker::PhantomData;
 
-use ystream::AsyncStream;
 use cyrup_sugars::prelude::MessageChunk;
+use ystream::AsyncStream;
 
 /// Object-safe operation trait for dynamic dispatch in N-way parallelism
 ///
@@ -204,7 +204,9 @@ where
                 // Forward all outputs from second operation
                 while let Some(output) = second_stream.try_next() {
                     if sender.send(output).is_err() {
-                        log::debug!("Stream receiver dropped during sequential operation - execution terminated");
+                        log::debug!(
+                            "Stream receiver dropped during sequential operation - execution terminated"
+                        );
                         return; // Receiver dropped, exit gracefully
                     }
                 }

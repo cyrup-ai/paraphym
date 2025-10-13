@@ -56,61 +56,54 @@
 //! - `get_image_embedding_runtime()` / `get_text_to_image_runtime()` to retrieve them
 
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, RwLock, OnceLock};
+use std::sync::{Arc, LazyLock, OnceLock, RwLock};
 
-use crate::domain::model::traits::CandleModel;
 use crate::domain::model::CandleModelInfo;
+use crate::domain::model::traits::CandleModel;
 
 // Import capability traits
 use crate::capability::traits::{
-    TextToTextCapable, TextEmbeddingCapable, ImageEmbeddingCapable,
-    VisionCapable, TextToImageCapable,
+    ImageEmbeddingCapable, TextEmbeddingCapable, TextToImageCapable, TextToTextCapable,
+    VisionCapable,
 };
 
 // Import all model types
-use crate::capability::text_to_text::{
-    CandleKimiK2Model, 
-    CandleQwen3CoderModel,
-    CandlePhi4ReasoningModel,
-};
-use crate::capability::text_embedding::{
-    StellaEmbeddingModel, CandleBertEmbeddingModel, CandleGteQwenEmbeddingModel,
-    CandleJinaBertEmbeddingModel, CandleNvEmbedEmbeddingModel,
-};
 use crate::capability::image_embedding::ClipVisionEmbeddingModel;
+use crate::capability::text_embedding::{
+    CandleBertEmbeddingModel, CandleGteQwenEmbeddingModel, CandleJinaBertEmbeddingModel,
+    CandleNvEmbedEmbeddingModel, StellaEmbeddingModel,
+};
 use crate::capability::text_to_image::{FluxSchnell, StableDiffusion35Turbo};
+use crate::capability::text_to_text::{
+    CandleKimiK2Model, CandlePhi4ReasoningModel, CandleQwen3CoderModel,
+};
 use crate::capability::vision::LLaVAModel;
 
 // Import types needed for capability trait implementations
-use crate::domain::prompt::CandlePrompt;
-use crate::domain::completion::types::CandleCompletionParams;
 use crate::domain::completion::CandleCompletionChunk;
-use crate::domain::image_generation::{ImageGenerationConfig, ImageGenerationChunk};
+use crate::domain::completion::types::CandleCompletionParams;
 use crate::domain::context::chunk::CandleStringChunk;
+use crate::domain::image_generation::{ImageGenerationChunk, ImageGenerationConfig};
+use crate::domain::prompt::CandlePrompt;
 use candle_core::Device;
 use ystream::{AsyncStream, spawn_stream};
 
 // Pool imports
 use crate::pool::capabilities::{
-    text_embedding_pool, image_embedding_pool, text_to_image_pool, 
-    text_to_text_pool, vision_pool
+    image_embedding_pool, text_embedding_pool, text_to_image_pool, text_to_text_pool, vision_pool,
 };
 use crate::pool::core::{PoolError, ensure_workers_spawned_adaptive};
 
 // LoadedModel imports
 use crate::capability::text_embedding::{
-    gte_qwen::LoadedGteQwenModel,
-    jina_bert::LoadedJinaBertModel,
-    nvembed::LoadedNvEmbedModel,
-    stella::LoadedStellaModel,
-    bert::LoadedBertModel,
+    bert::LoadedBertModel, gte_qwen::LoadedGteQwenModel, jina_bert::LoadedJinaBertModel,
+    nvembed::LoadedNvEmbedModel, stella::LoadedStellaModel,
+};
+use crate::capability::text_to_text::{
+    kimi_k2::LoadedKimiK2Model, phi4_reasoning::LoadedPhi4ReasoningModel,
+    qwen3_coder::LoadedQwen3CoderModel,
 };
 use crate::capability::vision::llava::LoadedLLaVAModel;
-use crate::capability::text_to_text::{
-    kimi_k2::LoadedKimiK2Model,
-    qwen3_coder::LoadedQwen3CoderModel,
-    phi4_reasoning::LoadedPhi4ReasoningModel,
-};
 
 //==============================================================================
 // CAPABILITY ENUMS
@@ -252,12 +245,14 @@ impl TextToTextCapable for TextToTextModel {
                         let m_clone = m.clone();
                         pool.spawn_text_to_text_worker(
                             registry_key,
-                            move || LoadedKimiK2Model::load(&m_clone)
-                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
+                            move || {
+                                LoadedKimiK2Model::load(&m_clone)
+                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
+                            },
                             per_worker_mb,
                             allocation_guard,
                         )
-                    }
+                    },
                 ) {
                     return spawn_stream(move |sender| {
                         ystream::emit!(sender, CandleCompletionChunk::Error(e.to_string()));
@@ -282,12 +277,14 @@ impl TextToTextCapable for TextToTextModel {
                         let m_clone = m.clone();
                         pool.spawn_text_to_text_worker(
                             registry_key,
-                            move || LoadedQwen3CoderModel::load(&m_clone)
-                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
+                            move || {
+                                LoadedQwen3CoderModel::load(&m_clone)
+                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
+                            },
                             per_worker_mb,
                             allocation_guard,
                         )
-                    }
+                    },
                 ) {
                     return spawn_stream(move |sender| {
                         ystream::emit!(sender, CandleCompletionChunk::Error(e.to_string()));
@@ -312,12 +309,14 @@ impl TextToTextCapable for TextToTextModel {
                         let m_clone = m.clone();
                         pool.spawn_text_to_text_worker(
                             registry_key,
-                            move || LoadedPhi4ReasoningModel::load(&m_clone)
-                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
+                            move || {
+                                LoadedPhi4ReasoningModel::load(&m_clone)
+                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
+                            },
                             per_worker_mb,
                             allocation_guard,
                         )
-                    }
+                    },
                 ) {
                     return spawn_stream(move |sender| {
                         ystream::emit!(sender, CandleCompletionChunk::Error(e.to_string()));
@@ -332,8 +331,11 @@ impl TextToTextCapable for TextToTextModel {
 }
 
 impl TextEmbeddingCapable for TextEmbeddingModel {
-    fn embed(&self, text: &str, task: Option<String>)
-        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
+    fn embed(
+        &self,
+        text: &str,
+        task: Option<String>,
+    ) -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
         match self {
             Self::GteQwen(m) => {
                 let registry_key = m.info().registry_key;
@@ -350,24 +352,27 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || LoadedGteQwenModel::load(&m_clone)
-                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
+                            move || {
+                                LoadedGteQwenModel::load(&m_clone)
+                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
+                            },
                             per_worker_mb,
                             allocation_guard,
                         )
-                    }
-                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+                    },
+                )
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
                 // Route through pool
                 pool.embed_text(registry_key, text, task)
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
             }
-            
+
             Self::JinaBert(m) => {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
                 let per_worker_mb = m.info().est_memory_allocation_mb;
-                
+
                 // Cold start: spawn workers if needed
                 ensure_workers_spawned_adaptive(
                     pool,
@@ -378,23 +383,26 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || LoadedJinaBertModel::load(&m_clone)
-                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
+                            move || {
+                                LoadedJinaBertModel::load(&m_clone)
+                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
+                            },
                             per_worker_mb,
                             allocation_guard,
                         )
-                    }
-                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
-                
+                    },
+                )
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+
                 pool.embed_text(registry_key, text, task)
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
             }
-            
+
             Self::NvEmbed(m) => {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
                 let per_worker_mb = m.info().est_memory_allocation_mb;
-                
+
                 // Cold start: spawn workers if needed
                 ensure_workers_spawned_adaptive(
                     pool,
@@ -405,23 +413,26 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || LoadedNvEmbedModel::load(&m_clone)
-                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
+                            move || {
+                                LoadedNvEmbedModel::load(&m_clone)
+                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
+                            },
                             per_worker_mb,
                             allocation_guard,
                         )
-                    }
-                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
-                
+                    },
+                )
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+
                 pool.embed_text(registry_key, text, task)
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
             }
-            
+
             Self::Stella(m) => {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
                 let per_worker_mb = m.info().est_memory_allocation_mb;
-                
+
                 // Cold start: spawn workers if needed
                 ensure_workers_spawned_adaptive(
                     pool,
@@ -432,23 +443,26 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || LoadedStellaModel::load(&m_clone)
-                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
+                            move || {
+                                LoadedStellaModel::load(&m_clone)
+                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
+                            },
                             per_worker_mb,
                             allocation_guard,
                         )
-                    }
-                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
-                
+                    },
+                )
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+
                 pool.embed_text(registry_key, text, task)
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
             }
-            
+
             Self::Bert(m) => {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
                 let per_worker_mb = m.info().est_memory_allocation_mb;
-                
+
                 // Cold start: spawn workers if needed
                 ensure_workers_spawned_adaptive(
                     pool,
@@ -459,28 +473,34 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || LoadedBertModel::load(&m_clone)
-                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
+                            move || {
+                                LoadedBertModel::load(&m_clone)
+                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
+                            },
                             per_worker_mb,
                             allocation_guard,
                         )
-                    }
-                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
-                
+                    },
+                )
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+
                 pool.embed_text(registry_key, text, task)
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
             }
         }
     }
 
-    fn batch_embed(&self, texts: &[String], task: Option<String>)
-        -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> {
+    fn batch_embed(
+        &self,
+        texts: &[String],
+        task: Option<String>,
+    ) -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> {
         match self {
             Self::GteQwen(m) => {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
                 let per_worker_mb = m.info().est_memory_allocation_mb;
-                
+
                 // Cold start: spawn workers if needed
                 ensure_workers_spawned_adaptive(
                     pool,
@@ -491,14 +511,17 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || LoadedGteQwenModel::load(&m_clone)
-                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
+                            move || {
+                                LoadedGteQwenModel::load(&m_clone)
+                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
+                            },
                             per_worker_mb,
                             allocation_guard,
                         )
-                    }
-                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
-                
+                    },
+                )
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+
                 pool.batch_embed_text(registry_key, texts, task)
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
             }
@@ -506,7 +529,7 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
                 let per_worker_mb = m.info().est_memory_allocation_mb;
-                
+
                 // Cold start: spawn workers if needed
                 ensure_workers_spawned_adaptive(
                     pool,
@@ -517,14 +540,17 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || LoadedJinaBertModel::load(&m_clone)
-                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
+                            move || {
+                                LoadedJinaBertModel::load(&m_clone)
+                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
+                            },
                             per_worker_mb,
                             allocation_guard,
                         )
-                    }
-                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
-                
+                    },
+                )
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+
                 pool.batch_embed_text(registry_key, texts, task)
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
             }
@@ -532,7 +558,7 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
                 let per_worker_mb = m.info().est_memory_allocation_mb;
-                
+
                 // Cold start: spawn workers if needed
                 ensure_workers_spawned_adaptive(
                     pool,
@@ -543,14 +569,17 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || LoadedNvEmbedModel::load(&m_clone)
-                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
+                            move || {
+                                LoadedNvEmbedModel::load(&m_clone)
+                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
+                            },
                             per_worker_mb,
                             allocation_guard,
                         )
-                    }
-                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
-                
+                    },
+                )
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+
                 pool.batch_embed_text(registry_key, texts, task)
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
             }
@@ -558,7 +587,7 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
                 let per_worker_mb = m.info().est_memory_allocation_mb;
-                
+
                 // Cold start: spawn workers if needed
                 ensure_workers_spawned_adaptive(
                     pool,
@@ -569,14 +598,17 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || LoadedStellaModel::load(&m_clone)
-                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
+                            move || {
+                                LoadedStellaModel::load(&m_clone)
+                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
+                            },
                             per_worker_mb,
                             allocation_guard,
                         )
-                    }
-                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
-                
+                    },
+                )
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+
                 pool.batch_embed_text(registry_key, texts, task)
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
             }
@@ -584,7 +616,7 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
                 let per_worker_mb = m.info().est_memory_allocation_mb;
-                
+
                 // Cold start: spawn workers if needed
                 ensure_workers_spawned_adaptive(
                     pool,
@@ -595,20 +627,23 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || LoadedBertModel::load(&m_clone)
-                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
+                            move || {
+                                LoadedBertModel::load(&m_clone)
+                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
+                            },
                             per_worker_mb,
                             allocation_guard,
                         )
-                    }
-                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
-                
+                    },
+                )
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+
                 pool.batch_embed_text(registry_key, texts, task)
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
             }
         }
     }
-    
+
     fn embedding_dimension(&self) -> usize {
         match self {
             Self::Stella(m) => m.embedding_dimension(),
@@ -620,136 +655,167 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
     }
 }
 
-#[async_trait::async_trait(?Send)]
 impl ImageEmbeddingCapable for ImageEmbeddingModel {
-    async fn embed_image(&self, image_path: &str)
-        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
+    fn embed_image(
+        &self,
+        image_path: &str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
         match self {
             Self::ClipVision(m) => {
                 let registry_key = m.info().registry_key;
-                let pool = image_embedding_pool();
                 let per_worker_mb = m.info().est_memory_allocation_mb;
+                let image_path = image_path.to_string();
+                let m_clone = m.clone();
 
-                // Cold start: spawn workers if needed
-                ensure_workers_spawned_adaptive(
-                    pool,
-                    registry_key,
-                    per_worker_mb,
-                    pool.config().max_workers_per_model,
-                    |_, allocation_guard| {
-                        // Clone the model (Arc clone is cheap)
-                        let model = (**m).clone();
-                        pool.spawn_image_embedding_worker(
-                            registry_key,
-                            move || Ok(model),
-                            per_worker_mb,
-                            allocation_guard,
-                        )
-                    }
-                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+                Box::pin(async move {
+                    let pool = image_embedding_pool();
 
-                // Route through pool
-                pool.embed_image(registry_key, image_path)
-                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+                    // Cold start: spawn workers if needed
+                    ensure_workers_spawned_adaptive(
+                        pool,
+                        registry_key,
+                        per_worker_mb,
+                        pool.config().max_workers_per_model,
+                        |_, allocation_guard| {
+                            // Use Arc clone for worker
+                            let model = (*m_clone).clone();
+                            pool.spawn_image_embedding_worker(
+                                registry_key,
+                                move || Ok(model),
+                                per_worker_mb,
+                                allocation_guard,
+                            )
+                        },
+                    )
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+
+                    // Route through pool
+                    pool.embed_image(registry_key, &image_path)
+                        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+                })
             }
         }
     }
 
-    async fn embed_image_url(&self, url: &str)
-        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
+    fn embed_image_url(
+        &self,
+        url: &str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
         match self {
             Self::ClipVision(m) => {
                 let registry_key = m.info().registry_key;
-                let pool = image_embedding_pool();
                 let per_worker_mb = m.info().est_memory_allocation_mb;
+                let url = url.to_string();
+                let m_clone = m.clone();
 
-                // Cold start: spawn workers if needed
-                ensure_workers_spawned_adaptive(
-                    pool,
-                    registry_key,
-                    per_worker_mb,
-                    pool.config().max_workers_per_model,
-                    |_, allocation_guard| {
-                        // Clone the model (Arc clone is cheap)
-                        let model = (**m).clone();
-                        pool.spawn_image_embedding_worker(
-                            registry_key,
-                            move || Ok(model),
-                            per_worker_mb,
-                            allocation_guard,
-                        )
-                    }
-                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+                Box::pin(async move {
+                    let pool = image_embedding_pool();
 
-                // Route through pool
-                pool.embed_image_url(registry_key, url)
-                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+                    // Cold start: spawn workers if needed
+                    ensure_workers_spawned_adaptive(
+                        pool,
+                        registry_key,
+                        per_worker_mb,
+                        pool.config().max_workers_per_model,
+                        |_, allocation_guard| {
+                            // Use Arc clone for worker
+                            let model = (*m_clone).clone();
+                            pool.spawn_image_embedding_worker(
+                                registry_key,
+                                move || Ok(model),
+                                per_worker_mb,
+                                allocation_guard,
+                            )
+                        },
+                    )
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+
+                    // Route through pool
+                    pool.embed_image_url(registry_key, &url)
+                        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+                })
             }
         }
     }
 
-    async fn embed_image_base64(&self, base64_data: &str)
-        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
+    fn embed_image_base64(
+        &self,
+        base64_data: &str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
         match self {
             Self::ClipVision(m) => {
                 let registry_key = m.info().registry_key;
-                let pool = image_embedding_pool();
                 let per_worker_mb = m.info().est_memory_allocation_mb;
+                let base64_data = base64_data.to_string();
+                let m_clone = m.clone();
 
-                // Cold start: spawn workers if needed
-                ensure_workers_spawned_adaptive(
-                    pool,
-                    registry_key,
-                    per_worker_mb,
-                    pool.config().max_workers_per_model,
-                    |_, allocation_guard| {
-                        // Clone the model (Arc clone is cheap)
-                        let model = (**m).clone();
-                        pool.spawn_image_embedding_worker(
-                            registry_key,
-                            move || Ok(model),
-                            per_worker_mb,
-                            allocation_guard,
-                        )
-                    }
-                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+                Box::pin(async move {
+                    let pool = image_embedding_pool();
 
-                // Route through pool
-                pool.embed_image_base64(registry_key, base64_data)
-                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+                    // Cold start: spawn workers if needed
+                    ensure_workers_spawned_adaptive(
+                        pool,
+                        registry_key,
+                        per_worker_mb,
+                        pool.config().max_workers_per_model,
+                        |_, allocation_guard| {
+                            // Use Arc clone for worker
+                            let model = (*m_clone).clone();
+                            pool.spawn_image_embedding_worker(
+                                registry_key,
+                                move || Ok(model),
+                                per_worker_mb,
+                                allocation_guard,
+                            )
+                        },
+                    )
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+
+                    // Route through pool
+                    pool.embed_image_base64(registry_key, &base64_data)
+                        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+                })
             }
         }
     }
 
-    async fn batch_embed_images(&self, image_paths: Vec<&str>)
-        -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> {
+    fn batch_embed_images(
+        &self,
+        image_paths: Vec<&str>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
         match self {
             Self::ClipVision(m) => {
                 let registry_key = m.info().registry_key;
-                let pool = image_embedding_pool();
                 let per_worker_mb = m.info().est_memory_allocation_mb;
+                let paths: Vec<String> = image_paths.iter().map(|s| s.to_string()).collect();
+                let m_clone = m.clone();
 
-                // Cold start: spawn workers if needed
-                ensure_workers_spawned_adaptive(
-                    pool,
-                    registry_key,
-                    per_worker_mb,
-                    pool.config().max_workers_per_model,
-                    |_, allocation_guard| {
-                        // Clone the model (Arc clone is cheap)
-                        let model = (**m).clone();
-                        pool.spawn_image_embedding_worker(
-                            registry_key,
-                            move || Ok(model),
-                            per_worker_mb,
-                            allocation_guard,
-                        )
-                    }
-                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+                Box::pin(async move {
+                    let pool = image_embedding_pool();
 
-                // Route through pool
-                pool.batch_embed_images(registry_key, &image_paths.iter().map(|s| s.to_string()).collect::<Vec<_>>())
-                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+                    // Cold start: spawn workers if needed
+                    ensure_workers_spawned_adaptive(
+                        pool,
+                        registry_key,
+                        per_worker_mb,
+                        pool.config().max_workers_per_model,
+                        |_, allocation_guard| {
+                            // Use Arc clone for worker
+                            let model = (*m_clone).clone();
+                            pool.spawn_image_embedding_worker(
+                                registry_key,
+                                move || Ok(model),
+                                per_worker_mb,
+                                allocation_guard,
+                            )
+                        },
+                    )
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+
+                    // Route through pool
+                    pool.batch_embed_images(registry_key, &paths)
+                        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+                })
             }
         }
     }
@@ -762,8 +828,7 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
 }
 
 impl VisionCapable for VisionModel {
-    fn describe_image(&self, image_path: &str, query: &str)
-        -> AsyncStream<CandleStringChunk> {
+    fn describe_image(&self, image_path: &str, query: &str) -> AsyncStream<CandleStringChunk> {
         match self {
             Self::LLaVA(m) => {
                 let registry_key = m.info().registry_key;
@@ -780,12 +845,14 @@ impl VisionCapable for VisionModel {
                         let m_clone = m.clone();
                         pool.spawn_vision_worker(
                             registry_key,
-                            move || LoadedLLaVAModel::load(&m_clone)
-                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
+                            move || {
+                                LoadedLLaVAModel::load(&m_clone)
+                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
+                            },
                             per_worker_mb,
                             allocation_guard,
                         )
-                    }
+                    },
                 ) {
                     return AsyncStream::with_channel(move |tx| {
                         let _ = tx.send(CandleStringChunk(format!("Error: {}", e)));
@@ -798,8 +865,7 @@ impl VisionCapable for VisionModel {
         }
     }
 
-    fn describe_url(&self, url: &str, query: &str)
-        -> AsyncStream<CandleStringChunk> {
+    fn describe_url(&self, url: &str, query: &str) -> AsyncStream<CandleStringChunk> {
         match self {
             Self::LLaVA(m) => {
                 let registry_key = m.info().registry_key;
@@ -816,12 +882,14 @@ impl VisionCapable for VisionModel {
                         let m_clone = m.clone();
                         pool.spawn_vision_worker(
                             registry_key,
-                            move || LoadedLLaVAModel::load(&m_clone)
-                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
+                            move || {
+                                LoadedLLaVAModel::load(&m_clone)
+                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
+                            },
                             per_worker_mb,
                             allocation_guard,
                         )
-                    }
+                    },
                 ) {
                     return AsyncStream::with_channel(move |tx| {
                         let _ = tx.send(CandleStringChunk(format!("Error: {}", e)));
@@ -862,7 +930,7 @@ impl TextToImageCapable for TextToImageModel {
                             per_worker_mb,
                             allocation_guard,
                         )
-                    }
+                    },
                 ) {
                     return AsyncStream::with_channel(move |sender| {
                         let _ = sender.send(ImageGenerationChunk::Error(e.to_string()));
@@ -891,7 +959,7 @@ impl TextToImageCapable for TextToImageModel {
                             per_worker_mb,
                             allocation_guard,
                         )
-                    }
+                    },
                 ) {
                     return AsyncStream::with_channel(move |sender| {
                         let _ = sender.send(ImageGenerationChunk::Error(e.to_string()));
@@ -903,7 +971,7 @@ impl TextToImageCapable for TextToImageModel {
             }
         }
     }
-    
+
     fn registry_key(&self) -> &str {
         match self {
             Self::FluxSchnell(m) => m.registry_key(),
@@ -916,58 +984,59 @@ impl TextToImageCapable for TextToImageModel {
 // REGISTRY STORAGE
 //==============================================================================
 
-static TEXT_TO_TEXT_REGISTRY: LazyLock<HashMap<&'static str, TextToTextModel>> = 
+static TEXT_TO_TEXT_REGISTRY: LazyLock<HashMap<&'static str, TextToTextModel>> =
     LazyLock::new(|| {
         let mut map = HashMap::new();
-        
+
         let model = Arc::new(CandleKimiK2Model::default());
         let key = model.info().registry_key;
         map.insert(key, TextToTextModel::KimiK2(model));
-        
+
         let model = Arc::new(CandlePhi4ReasoningModel::default());
         let key = model.info().registry_key;
         map.insert(key, TextToTextModel::Phi4Reasoning(model));
-        
+
         map
     });
 
-static TEXT_EMBEDDING_REGISTRY: LazyLock<HashMap<&'static str, TextEmbeddingModel>> = 
+static TEXT_EMBEDDING_REGISTRY: LazyLock<HashMap<&'static str, TextEmbeddingModel>> =
     LazyLock::new(|| {
         let mut map = HashMap::new();
-        
+
         let model = Arc::new(StellaEmbeddingModel::default());
         let key = model.info().registry_key;
         map.insert(key, TextEmbeddingModel::Stella(model));
-        
+
         let model = Arc::new(CandleBertEmbeddingModel::default());
         let key = model.info().registry_key;
         map.insert(key, TextEmbeddingModel::Bert(model));
-        
+
         let model = Arc::new(CandleGteQwenEmbeddingModel::default());
         let key = model.info().registry_key;
         map.insert(key, TextEmbeddingModel::GteQwen(model));
-        
+
         let model = Arc::new(CandleJinaBertEmbeddingModel::default());
         let key = model.info().registry_key;
         map.insert(key, TextEmbeddingModel::JinaBert(model));
-        
+
         let model = Arc::new(CandleNvEmbedEmbeddingModel::default());
         let key = model.info().registry_key;
         map.insert(key, TextEmbeddingModel::NvEmbed(model));
-        
+
         map
     });
 
 // IMAGE_EMBEDDING_REGISTRY: Empty because ClipVision requires local model files, not HF downloads
 // Use runtime registration after downloading weights manually
-static IMAGE_EMBEDDING_REGISTRY: LazyLock<HashMap<&'static str, ImageEmbeddingModel>> = 
+static IMAGE_EMBEDDING_REGISTRY: LazyLock<HashMap<&'static str, ImageEmbeddingModel>> =
     LazyLock::new(HashMap::new);
 
-static IMAGE_EMBEDDING_RUNTIME: OnceLock<RwLock<HashMap<String, ImageEmbeddingModel>>> = OnceLock::new();
+static IMAGE_EMBEDDING_RUNTIME: OnceLock<RwLock<HashMap<String, ImageEmbeddingModel>>> =
+    OnceLock::new();
 
-// TEXT_TO_IMAGE_REGISTRY: Empty because Flux/SD require local model files, not HF downloads  
+// TEXT_TO_IMAGE_REGISTRY: Empty because Flux/SD require local model files, not HF downloads
 // Use runtime registration after downloading weights manually
-static TEXT_TO_IMAGE_REGISTRY: LazyLock<HashMap<&'static str, TextToImageModel>> = 
+static TEXT_TO_IMAGE_REGISTRY: LazyLock<HashMap<&'static str, TextToImageModel>> =
     LazyLock::new(HashMap::new);
 
 static TEXT_TO_IMAGE_RUNTIME: OnceLock<RwLock<HashMap<String, TextToImageModel>>> = OnceLock::new();
@@ -976,44 +1045,42 @@ static TEXT_TO_IMAGE_RUNTIME: OnceLock<RwLock<HashMap<String, TextToImageModel>>
 // Use runtime registration after async model creation
 static TEXT_TO_TEXT_RUNTIME: OnceLock<RwLock<HashMap<String, TextToTextModel>>> = OnceLock::new();
 
-static VISION_REGISTRY: LazyLock<HashMap<&'static str, VisionModel>> = 
-    LazyLock::new(|| {
-        let mut map = HashMap::new();
-        
-        let model = Arc::new(LLaVAModel::default());
-        let key = model.info().registry_key;
-        map.insert(key, VisionModel::LLaVA(model));
-        
-        map
-    });
+static VISION_REGISTRY: LazyLock<HashMap<&'static str, VisionModel>> = LazyLock::new(|| {
+    let mut map = HashMap::new();
 
-static MODEL_REGISTRY: LazyLock<HashMap<&'static str, AnyModel>> = 
-    LazyLock::new(|| {
-        let mut map = HashMap::new();
-        
-        // Populate from all capability registries
-        for (key, model) in TEXT_TO_TEXT_REGISTRY.iter() {
-            map.insert(*key, AnyModel::TextToText(model.clone()));
-        }
-        
-        for (key, model) in TEXT_EMBEDDING_REGISTRY.iter() {
-            map.insert(*key, AnyModel::TextEmbedding(model.clone()));
-        }
-        
-        for (key, model) in IMAGE_EMBEDDING_REGISTRY.iter() {
-            map.insert(*key, AnyModel::ImageEmbedding(model.clone()));
-        }
-        
-        for (key, model) in TEXT_TO_IMAGE_REGISTRY.iter() {
-            map.insert(*key, AnyModel::TextToImage(model.clone()));
-        }
-        
-        for (key, model) in VISION_REGISTRY.iter() {
-            map.insert(*key, AnyModel::Vision(model.clone()));
-        }
-        
-        map
-    });
+    let model = Arc::new(LLaVAModel::default());
+    let key = model.info().registry_key;
+    map.insert(key, VisionModel::LLaVA(model));
+
+    map
+});
+
+static MODEL_REGISTRY: LazyLock<HashMap<&'static str, AnyModel>> = LazyLock::new(|| {
+    let mut map = HashMap::new();
+
+    // Populate from all capability registries
+    for (key, model) in TEXT_TO_TEXT_REGISTRY.iter() {
+        map.insert(*key, AnyModel::TextToText(model.clone()));
+    }
+
+    for (key, model) in TEXT_EMBEDDING_REGISTRY.iter() {
+        map.insert(*key, AnyModel::TextEmbedding(model.clone()));
+    }
+
+    for (key, model) in IMAGE_EMBEDDING_REGISTRY.iter() {
+        map.insert(*key, AnyModel::ImageEmbedding(model.clone()));
+    }
+
+    for (key, model) in TEXT_TO_IMAGE_REGISTRY.iter() {
+        map.insert(*key, AnyModel::TextToImage(model.clone()));
+    }
+
+    for (key, model) in VISION_REGISTRY.iter() {
+        map.insert(*key, AnyModel::Vision(model.clone()));
+    }
+
+    map
+});
 
 //==============================================================================
 // PUBLIC API
@@ -1151,7 +1218,8 @@ pub fn get_model(registry_key: &str) -> Option<impl CandleModel> {
 /// }
 /// ```
 pub fn get_by_provider_and_name(provider: &str, name: &str) -> Option<AnyModel> {
-    MODEL_REGISTRY.iter()
+    MODEL_REGISTRY
+        .iter()
         .find(|(_, model)| {
             let info = model.info();
             info.provider_str() == provider && info.name() == name
@@ -1165,12 +1233,12 @@ pub fn get_by_provider_and_name(provider: &str, name: &str) -> Option<AnyModel> 
 /// Useful for determining default provider based on model availability.
 pub fn count_models_by_provider() -> Vec<(&'static str, usize)> {
     let mut counts = std::collections::HashMap::new();
-    
+
     for (_key, model) in MODEL_REGISTRY.iter() {
         let provider = model.info().provider_str();
         *counts.entry(provider).or_insert(0) += 1;
     }
-    
+
     counts.into_iter().collect()
 }
 
@@ -1187,7 +1255,7 @@ pub fn count_models_by_provider() -> Vec<(&'static str, usize)> {
 /// }
 /// ```
 pub fn all_registry_keys() -> Vec<&'static str> {
-    MODEL_REGISTRY.keys().map(|key| *key).collect()
+    MODEL_REGISTRY.keys().copied().collect()
 }
 
 /// Check if a registry_key is registered
@@ -1261,7 +1329,7 @@ pub fn register_text_to_image(key: impl Into<String>, model: TextToImageModel) {
 ///
 /// // Inside async context:
 /// let model = CandleQwen3CoderModel::new().await?;
-/// registry::register_text_to_text("unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF", 
+/// registry::register_text_to_text("unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
 ///     TextToTextModel::Qwen3Coder(Arc::new(model)));
 /// ```
 pub fn register_text_to_text(key: impl Into<String>, model: TextToTextModel) {
@@ -1282,7 +1350,7 @@ pub fn get_image_embedding_runtime(key: &str) -> Option<ImageEmbeddingModel> {
     {
         return Some(model.clone());
     }
-    
+
     // Fall back to static registry
     IMAGE_EMBEDDING_REGISTRY.get(key).cloned()
 }
@@ -1298,7 +1366,7 @@ pub fn get_text_to_image_runtime(key: &str) -> Option<TextToImageModel> {
     {
         return Some(model.clone());
     }
-    
+
     // Fall back to static registry
     TEXT_TO_IMAGE_REGISTRY.get(key).cloned()
 }
@@ -1315,7 +1383,7 @@ pub fn get_text_to_text_runtime(key: &str) -> Option<TextToTextModel> {
     {
         return Some(model.clone());
     }
-    
+
     // Fall back to static registry
     TEXT_TO_TEXT_REGISTRY.get(key).cloned()
 }

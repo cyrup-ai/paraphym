@@ -6,9 +6,9 @@
 // Removed paraphym_http3::async_task import - not needed for streams-only architecture
 use std::collections::HashMap;
 
+use cyrup_sugars::prelude::MessageChunk;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use cyrup_sugars::prelude::MessageChunk;
 
 // Use the local DocumentMediaType instead of importing from non-existent module
 // DocumentMediaType is defined locally as CandleDocumentMediaType
@@ -116,8 +116,6 @@ pub enum CandleDocumentMediaType {
 // Builder implementations moved to paraphym/src/builders/document.rs
 
 impl CandleDocument {
-
-
     /// Extract the text content from the document
     #[must_use]
     pub fn content(&self) -> String {

@@ -1,7 +1,7 @@
 //! Data validation for migrations
 
-use serde::Serialize;
 use jsonschema::{Draft, Validator};
+use serde::Serialize;
 
 use crate::memory::migration::{MigrationError, Result};
 
@@ -145,18 +145,21 @@ impl SchemaValidator {
         let compiled = Validator::options()
             .with_draft(Draft::Draft7)
             .build(&schema)
-            .map_err(|e| MigrationError::ValidationFailed(format!("Failed to build schema: {e}")))?;
+            .map_err(|e| {
+                MigrationError::ValidationFailed(format!("Failed to build schema: {e}"))
+            })?;
 
         Ok(Self { schema, compiled })
     }
 
     /// Validate against schema
     pub fn validate(&self, data: &serde_json::Value) -> Result<()> {
-        let error_messages: Vec<String> = self.compiled
+        let error_messages: Vec<String> = self
+            .compiled
             .iter_errors(data)
             .map(|e| format!("{}", e))
             .collect();
-        
+
         if error_messages.is_empty() {
             Ok(())
         } else {

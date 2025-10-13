@@ -92,7 +92,7 @@ impl PooledMemoryNode<'_> {
         if !self.taken {
             // Reset the node to the requested type (reuses allocations)
             let _ = self.node.reset(memory_type);
-            
+
             // Set the content efficiently (reusing String allocation if already Text variant)
             match &mut self.node.base_memory.content {
                 MemoryContent::Text(s) => {
@@ -103,7 +103,7 @@ impl PooledMemoryNode<'_> {
                     self.node.base_memory.content = MemoryContent::text(content);
                 }
             }
-            
+
             // Set importance based on memory type
             let importance = memory_type.base_importance();
             let _ = self.node.set_importance(importance);
@@ -121,11 +121,7 @@ impl PooledMemoryNode<'_> {
     /// Get immutable reference to the inner node
     #[inline]
     pub fn as_ref(&self) -> Option<&MemoryNode> {
-        if self.taken {
-            None
-        } else {
-            Some(&self.node)
-        }
+        if self.taken { None } else { Some(&self.node) }
     }
 
     /// Get mutable reference to the inner node

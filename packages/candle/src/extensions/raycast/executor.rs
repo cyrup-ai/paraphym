@@ -1,8 +1,8 @@
-use std::path::Path;
-use tokio::process::Command;
-use tokio::time::{timeout, Duration};
-use std::process::Stdio;
 use crate::extensions::common::types::{ExtensionError, Result};
+use std::path::Path;
+use std::process::Stdio;
+use tokio::process::Command;
+use tokio::time::{Duration, timeout};
 
 #[derive(Debug, Clone)]
 pub struct CommandOutput {
@@ -21,12 +21,9 @@ pub async fn execute_script_command(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-    
-    let result = timeout(
-        Duration::from_secs(timeout_secs),
-        child.wait_with_output()
-    ).await;
-    
+
+    let result = timeout(Duration::from_secs(timeout_secs), child.wait_with_output()).await;
+
     match result {
         Ok(Ok(output)) => Ok(CommandOutput {
             stdout: String::from_utf8_lossy(&output.stdout).to_string(),

@@ -5,9 +5,9 @@
 //! lock-free data structures for blazing-fast performance.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::sync::RwLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
@@ -17,14 +17,13 @@ use atomic_counter::{AtomicCounter, ConsistentCounter};
 use crossbeam_queue::SegQueue;
 use crossbeam_skiplist::SkipMap;
 use dashmap::DashMap;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
-
-use ystream::{handle_error, AsyncStream};
-use uuid::Uuid;
 use cyrup_sugars::prelude::MessageChunk;
+use uuid::Uuid;
+use ystream::{AsyncStream, handle_error};
 
-use crate::domain::chat::commands::{ImmutableChatCommand, execute_candle_command, CommandEvent};
+use crate::domain::chat::commands::{CommandEvent, ImmutableChatCommand, execute_candle_command};
 use crate::domain::chat::conversation::CandleStreamingConversation;
 // Removed unused import: crate::chat::formatting::MessageContent
 
@@ -118,7 +117,7 @@ pub enum MacroPlaybackState {
 enum CondToken {
     /// Literal value (identifier, number, or string)
     Value(String),
-    
+
     // Comparison operators (precedence 80)
     /// Equality operator ==
     Eq,
@@ -132,15 +131,15 @@ enum CondToken {
     Leq,
     /// Greater than or equal >=
     Geq,
-    
+
     // Logical operators
     /// Logical AND &&
-    And,    // precedence 75
+    And, // precedence 75
     /// Logical OR ||
-    Or,     // precedence 70
+    Or, // precedence 70
     /// Logical NOT !
-    Not,    // precedence 110
-    
+    Not, // precedence 110
+
     // Grouping
     /// Left parenthesis (
     LParen,
@@ -178,16 +177,16 @@ impl CondValue {
             "false" => return CondValue::Boolean(false),
             _ => {}
         }
-        
+
         // Try to parse as number
         if let Ok(num) = s.parse::<f64>() {
             return CondValue::Number(num);
         }
-        
+
         // Default to string
         CondValue::String(s.to_string())
     }
-    
+
     /// Convert value to boolean for logical operations
     fn as_bool(&self) -> bool {
         match self {
@@ -196,14 +195,12 @@ impl CondValue {
             CondValue::String(s) => !s.is_empty(),
         }
     }
-    
+
     /// Test equality with type-aware comparison
     fn equals(&self, other: &Self) -> bool {
         match (self, other) {
             // Both numbers: numeric comparison with epsilon
-            (CondValue::Number(a), CondValue::Number(b)) => {
-                (a - b).abs() < f64::EPSILON
-            }
+            (CondValue::Number(a), CondValue::Number(b)) => (a - b).abs() < f64::EPSILON,
             // Both booleans: boolean comparison
             (CondValue::Boolean(a), CondValue::Boolean(b)) => a == b,
             // Both strings: string comparison
@@ -212,22 +209,16 @@ impl CondValue {
             _ => self.to_string() == other.to_string(),
         }
     }
-    
+
     /// Compare values with type checking
     fn compare(&self, other: &Self) -> Option<std::cmp::Ordering> {
         match (self, other) {
             // Numeric comparison
-            (CondValue::Number(a), CondValue::Number(b)) => {
-                a.partial_cmp(b)
-            }
+            (CondValue::Number(a), CondValue::Number(b)) => a.partial_cmp(b),
             // String comparison
-            (CondValue::String(a), CondValue::String(b)) => {
-                Some(a.cmp(b))
-            }
+            (CondValue::String(a), CondValue::String(b)) => Some(a.cmp(b)),
             // Boolean comparison (false < true)
-            (CondValue::Boolean(a), CondValue::Boolean(b)) => {
-                Some(a.cmp(b))
-            }
+            (CondValue::Boolean(a), CondValue::Boolean(b)) => Some(a.cmp(b)),
             // Mixed types: cannot compare
             _ => None,
         }
@@ -284,14 +275,14 @@ fn parse_identifier(chars: &mut std::iter::Peekable<std::str::Chars>) -> String 
 fn tokenize_condition(input: &str) -> Vec<CondToken> {
     let mut tokens = Vec::new();
     let mut chars = input.chars().peekable();
-    
+
     while let Some(&ch) = chars.peek() {
         match ch {
             // Skip whitespace
             ' ' | '\t' | '\n' | '\r' => {
                 chars.next();
             }
-            
+
             // Parentheses
             '(' => {
                 tokens.push(CondToken::LParen);
@@ -301,7 +292,7 @@ fn tokenize_condition(input: &str) -> Vec<CondToken> {
                 tokens.push(CondToken::RParen);
                 chars.next();
             }
-            
+
             // NOT operator or inequality
             '!' => {
                 chars.next();
@@ -312,7 +303,7 @@ fn tokenize_condition(input: &str) -> Vec<CondToken> {
                     tokens.push(CondToken::Not);
                 }
             }
-            
+
             // Equality operator
             '=' => {
                 chars.next();
@@ -324,7 +315,7 @@ fn tokenize_condition(input: &str) -> Vec<CondToken> {
                     tokens.push(CondToken::Eq);
                 }
             }
-            
+
             // Less than or less-equal
             '<' => {
                 chars.next();
@@ -335,7 +326,7 @@ fn tokenize_condition(input: &str) -> Vec<CondToken> {
                     tokens.push(CondToken::Lt);
                 }
             }
-            
+
             // Greater than or greater-equal
             '>' => {
                 chars.next();
@@ -346,7 +337,7 @@ fn tokenize_condition(input: &str) -> Vec<CondToken> {
                     tokens.push(CondToken::Gt);
                 }
             }
-            
+
             // AND operator
             '&' => {
                 chars.next();
@@ -356,7 +347,7 @@ fn tokenize_condition(input: &str) -> Vec<CondToken> {
                 }
                 // Single & is invalid, skip
             }
-            
+
             // OR operator
             '|' => {
                 chars.next();
@@ -366,14 +357,14 @@ fn tokenize_condition(input: &str) -> Vec<CondToken> {
                 }
                 // Single | is invalid, skip
             }
-            
+
             // String literal with double quotes
             '"' => {
                 chars.next();
                 let value = parse_string_literal(&mut chars);
                 tokens.push(CondToken::Value(value));
             }
-            
+
             // Identifier, number, or unquoted string
             _ => {
                 let value = parse_identifier(&mut chars);
@@ -383,7 +374,7 @@ fn tokenize_condition(input: &str) -> Vec<CondToken> {
             }
         }
     }
-    
+
     tokens
 }
 
@@ -398,67 +389,68 @@ impl CondParser {
     fn new(tokens: Vec<CondToken>) -> Self {
         Self { tokens, pos: 0 }
     }
-    
+
     /// Get current token without consuming
     fn current(&self) -> Option<&CondToken> {
         self.tokens.get(self.pos)
     }
-    
+
     /// Advance to next token
     fn advance(&mut self) {
         if self.pos < self.tokens.len() {
             self.pos += 1;
         }
     }
-    
+
     /// Check if current token matches and consume if so
     fn match_token(&mut self, expected: &CondToken) -> bool {
         if let Some(token) = self.current()
-            && std::mem::discriminant(token) == std::mem::discriminant(expected) {
-                self.advance();
-                return true;
-            }
+            && std::mem::discriminant(token) == std::mem::discriminant(expected)
+        {
+            self.advance();
+            return true;
+        }
         false
     }
-    
+
     /// Parse OR expression (lowest precedence: 70)
     fn parse_or(&mut self) -> CondValue {
         let mut left = self.parse_and();
-        
+
         while self.match_token(&CondToken::Or) {
             let right = self.parse_and();
             left = CondValue::Boolean(left.as_bool() || right.as_bool());
         }
-        
+
         left
     }
-    
+
     /// Parse AND expression (precedence: 75)
     fn parse_and(&mut self) -> CondValue {
         let mut left = self.parse_not();
-        
+
         while self.match_token(&CondToken::And) {
             let right = self.parse_not();
             left = CondValue::Boolean(left.as_bool() && right.as_bool());
         }
-        
+
         left
     }
-    
+
     /// Parse NOT expression (precedence: 110)
     fn parse_not(&mut self) -> CondValue {
         if self.match_token(&CondToken::Not) {
             let value = self.parse_not(); // Right-associative
             return CondValue::Boolean(!value.as_bool());
         }
-        
+
         self.parse_comparison()
     }
-    
+
     /// Parse comparison expression (precedence: 80)
     fn parse_comparison(&mut self) -> CondValue {
         let left = self.parse_primary();
-        
+
         // Check for comparison operator
         if let Some(token) = self.current() {
             match token {
@@ -507,11 +499,11 @@ impl CondParser {
                 _ => {}
             }
         }
-        
+
         // No comparison operator, return value as-is
         left
     }
-    
+
     /// Parse primary expression (values and parentheses)
     fn parse_primary(&mut self) -> CondValue {
         // Handle parentheses
@@ -520,14 +512,14 @@ impl CondParser {
             self.match_token(&CondToken::RParen); // Consume closing paren (optional)
             return value;
         }
-        
+
         // Handle values
         if let Some(CondToken::Value(s)) = self.current() {
             let s = s.clone();
             self.advance();
             return CondValue::parse(&s);
         }
-        
+
         // Error case: unexpected token or end
         CondValue::Boolean(false)
     }
@@ -572,13 +564,13 @@ fn send_message_to_conversation(
     let mut conv = conversation
         .write()
         .map_err(|e| format!("Failed to acquire conversation lock: {e}"))?;
-    
+
     let result = match message_type.to_lowercase().as_str() {
         "assistant" => conv.add_assistant_message(content),
         "system" => conv.add_system_message(content),
         _ => conv.add_user_message(content), // Default to user (includes "user" case)
     };
-    
+
     result
         .map(|_| ())
         .map_err(|e| format!("Failed to add message to conversation: {e}"))
@@ -859,7 +851,11 @@ impl MacroSystem {
     }
 
     /// Record a macro action
-    pub fn record_action(&self, session_id: Uuid, action: MacroAction) -> AsyncStream<MacroActionResult> {
+    pub fn record_action(
+        &self,
+        session_id: Uuid,
+        action: MacroAction,
+    ) -> AsyncStream<MacroActionResult> {
         // Get a reference to the session without cloning the entire DashMap
         if let Some(session) = self.recording_sessions.get(&session_id) {
             // Check if we're still recording
@@ -1094,33 +1090,39 @@ impl MacroSystem {
                     ..
                 } => {
                     let resolved_content = resolve_variables_sync(content, &context_vars);
-                    
+
                     // Send message to conversation if available
                     if let Some(ref conversation) = ctx.conversation {
-                        match send_message_to_conversation(conversation, resolved_content.clone(), message_type) {
-                            Ok(()) => {
-                                Ok::<ActionExecutionResult, MacroSystemError>(ActionExecutionResult::Success)
-                            }
-                            Err(e) => {
-                                Ok::<ActionExecutionResult, MacroSystemError>(
-                                    ActionExecutionResult::Error(format!("Message send failed: {e}"))
-                                )
-                            }
+                        match send_message_to_conversation(
+                            conversation,
+                            resolved_content.clone(),
+                            message_type,
+                        ) {
+                            Ok(()) => Ok::<ActionExecutionResult, MacroSystemError>(
+                                ActionExecutionResult::Success,
+                            ),
+                            Err(e) => Ok::<ActionExecutionResult, MacroSystemError>(
+                                ActionExecutionResult::Error(format!("Message send failed: {e}")),
+                            ),
                         }
                     } else {
                         // No conversation available - log warning and continue
-                        warn!("No conversation available for SendMessage action. Message: {resolved_content}");
-                        Ok::<ActionExecutionResult, MacroSystemError>(ActionExecutionResult::Success)
+                        warn!(
+                            "No conversation available for SendMessage action. Message: {resolved_content}"
+                        );
+                        Ok::<ActionExecutionResult, MacroSystemError>(
+                            ActionExecutionResult::Success,
+                        )
                     }
                 }
                 MacroAction::ExecuteCommand { command, .. } => {
                     // Execute command using existing infrastructure
                     let event_stream = execute_candle_command(command.clone());
-                    
+
                     // Collect events synchronously
                     let mut command_output = String::new();
                     let mut result = ActionExecutionResult::Success;
-                    
+
                     while let Some(event) = event_stream.try_next() {
                         match event {
                             CommandEvent::Output { content, .. } => {
@@ -1133,23 +1135,29 @@ impl MacroSystem {
                             }
                             CommandEvent::Failed { error, .. } => {
                                 // Command failed - capture error
-                                result = ActionExecutionResult::Error(format!("Command execution failed: {error}"));
+                                result = ActionExecutionResult::Error(format!(
+                                    "Command execution failed: {error}"
+                                ));
                                 break; // Exit early on failure
                             }
                             CommandEvent::Cancelled { reason, .. } => {
                                 // Command was cancelled
-                                result = ActionExecutionResult::Error(format!("Command cancelled: {reason}"));
+                                result = ActionExecutionResult::Error(format!(
+                                    "Command cancelled: {reason}"
+                                ));
                                 break;
                             }
                             _ => {} // Ignore other events (Started, Progress, Warning, ResourceAlert)
                         }
                     }
-                    
+
                     // Log output if command succeeded and produced output
-                    if !command_output.is_empty() && matches!(result, ActionExecutionResult::Success) {
+                    if !command_output.is_empty()
+                        && matches!(result, ActionExecutionResult::Success)
+                    {
                         log::debug!("Command output: {command_output}");
                     }
-                    
+
                     Ok::<ActionExecutionResult, MacroSystemError>(result)
                 }
                 MacroAction::Wait { duration, .. } => Ok(ActionExecutionResult::Wait(*duration)),
@@ -1185,7 +1193,7 @@ impl MacroSystem {
                             Err(e) => {
                                 handle_error!(e, "Action execution failed");
                             }
-                            _ => {},
+                            _ => {}
                         }
                     }
 
@@ -1217,7 +1225,7 @@ impl MacroSystem {
                                     ctx.loop_stack.pop();
                                     handle_error!(e, "Loop action execution failed");
                                 }
-                                _ => {},
+                                _ => {}
                             }
                         }
                     }
@@ -1256,22 +1264,22 @@ impl MacroSystem {
         if condition.trim().is_empty() {
             return false;
         }
-        
+
         // Resolve variables in condition
         let resolved = Self::_resolve_variables(condition, variables);
-        
+
         // Tokenize the resolved condition
         let tokens = tokenize_condition(&resolved);
-        
+
         // Handle empty token stream
         if tokens.is_empty() {
             return false;
         }
-        
+
         // Parse and evaluate expression
         let mut parser = CondParser::new(tokens);
         let result = parser.parse_or();
-        
+
         // Convert result to boolean
         result.as_bool()
     }
@@ -1312,7 +1320,7 @@ impl MessageChunk for ActionExecutionResult {
     fn bad_chunk(error: String) -> Self {
         ActionExecutionResult::Error(error)
     }
-    
+
     fn error(&self) -> Option<&str> {
         match self {
             ActionExecutionResult::Error(msg) => Some(msg),
@@ -1493,7 +1501,7 @@ impl MessageChunk for MacroExecutionResult {
             metadata: MacroExecutionMetadata::default(),
         }
     }
-    
+
     fn error(&self) -> Option<&str> {
         if self.success {
             None
@@ -1675,10 +1683,13 @@ impl MacroProcessor {
                 };
 
                 let mut performance = MacroPerformanceMetrics::default();
-                let (success, actions_executed, error_message) = 
+                let (success, actions_executed, error_message) =
                     Self::execute_macro_actions(&macro_def, &mut context, &mut performance);
 
-                let execution_duration = Utc::now().signed_duration_since(start_time).to_std().unwrap_or_default();
+                let execution_duration = Utc::now()
+                    .signed_duration_since(start_time)
+                    .to_std()
+                    .unwrap_or_default();
                 let completed_at = Duration::from_secs(
                     std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
@@ -1744,9 +1755,8 @@ impl MacroProcessor {
                 }
                 Ok(ActionExecutionResult::Error(error)) => {
                     error_message = Some(format!(
-                        "Action {} failed: {}", 
-                        context.current_action, 
-                        error
+                        "Action {} failed: {}",
+                        context.current_action, error
                     ));
                     if let Some(ref msg) = error_message {
                         error!("Macro execution error: {msg}");
@@ -1755,9 +1765,8 @@ impl MacroProcessor {
                 }
                 Err(e) => {
                     error_message = Some(format!(
-                        "System error at action {}: {}", 
-                        context.current_action, 
-                        e
+                        "System error at action {}: {}",
+                        context.current_action, e
                     ));
                     if let Some(ref msg) = error_message {
                         error!("Macro system error: {msg}");
@@ -1826,11 +1835,7 @@ impl MacroProcessor {
     /// # Errors
     ///
     /// Returns `MacroSystemError` if lock on variables cannot be acquired
-    pub fn set_global_variable(
-        &self,
-        name: String,
-        value: String,
-    ) -> Result<(), MacroSystemError> {
+    pub fn set_global_variable(&self, name: String, value: String) -> Result<(), MacroSystemError> {
         match self.variables.write() {
             Ok(mut vars) => {
                 vars.insert(name, value);
@@ -1890,29 +1895,35 @@ fn execute_action_sync(
             ..
         } => {
             let resolved_content = resolve_variables_sync(content, &context.variables);
-            
+
             // Send message to conversation if available
             if let Some(ref conversation) = context.conversation {
-                match send_message_to_conversation(conversation, resolved_content.clone(), message_type) {
+                match send_message_to_conversation(
+                    conversation,
+                    resolved_content.clone(),
+                    message_type,
+                ) {
                     Ok(()) => Ok(ActionExecutionResult::Success),
-                    Err(e) => {
-                        Ok(ActionExecutionResult::Error(format!("Message send failed: {e}")))
-                    }
+                    Err(e) => Ok(ActionExecutionResult::Error(format!(
+                        "Message send failed: {e}"
+                    ))),
                 }
             } else {
                 // No conversation available - log warning and continue
-                warn!("No conversation available for SendMessage action. Message: {resolved_content}");
+                warn!(
+                    "No conversation available for SendMessage action. Message: {resolved_content}"
+                );
                 Ok(ActionExecutionResult::Success)
             }
         }
         MacroAction::ExecuteCommand { command, .. } => {
             // Execute command using existing infrastructure
             let event_stream = execute_candle_command(command.clone());
-            
+
             // Collect events synchronously
             let mut command_output = String::new();
             let mut result = ActionExecutionResult::Success;
-            
+
             while let Some(event) = event_stream.try_next() {
                 match event {
                     CommandEvent::Output { content, .. } => {
@@ -1925,23 +1936,26 @@ fn execute_action_sync(
                     }
                     CommandEvent::Failed { error, .. } => {
                         // Command failed - capture error
-                        result = ActionExecutionResult::Error(format!("Command execution failed: {error}"));
+                        result = ActionExecutionResult::Error(format!(
+                            "Command execution failed: {error}"
+                        ));
                         break; // Exit early on failure
                     }
                     CommandEvent::Cancelled { reason, .. } => {
                         // Command was cancelled
-                        result = ActionExecutionResult::Error(format!("Command cancelled: {reason}"));
+                        result =
+                            ActionExecutionResult::Error(format!("Command cancelled: {reason}"));
                         break;
                     }
                     _ => {} // Ignore other events (Started, Progress, Warning, ResourceAlert)
                 }
             }
-            
+
             // Log output if command succeeded and produced output
             if !command_output.is_empty() && matches!(result, ActionExecutionResult::Success) {
                 log::debug!("Command output: {command_output}");
             }
-            
+
             Ok(result)
         }
         MacroAction::Wait { duration, .. } => Ok(ActionExecutionResult::Wait(*duration)),
@@ -2020,22 +2034,22 @@ fn evaluate_condition_sync(condition: &str, variables: &HashMap<String, String>)
     if condition.trim().is_empty() {
         return false;
     }
-    
+
     // Resolve variables in condition
     let resolved = resolve_variables_sync(condition, variables);
-    
+
     // Tokenize the resolved condition
     let tokens = tokenize_condition(&resolved);
-    
+
     // Handle empty token stream
     if tokens.is_empty() {
         return false;
     }
-    
+
     // Parse and evaluate expression
     let mut parser = CondParser::new(tokens);
     let result = parser.parse_or();
-    
+
     // Convert result to boolean
     result.as_bool()
 }

@@ -1,8 +1,8 @@
-use tokio::process::Command;
-use tokio::time::{timeout, Duration};
-use std::process::Stdio;
 use crate::extensions::alfred::discovery::ScriptType;
 use crate::extensions::common::types::{ExtensionError, Result};
+use std::process::Stdio;
+use tokio::process::Command;
+use tokio::time::{Duration, timeout};
 
 pub async fn execute_script_filter(
     script: &str,
@@ -19,7 +19,7 @@ pub async fn execute_script_filter(
         ScriptType::AppleScript => "osascript",
         ScriptType::Other(cmd) => cmd.as_str(),
     };
-    
+
     let child = Command::new(interpreter)
         .arg("-c")
         .arg(script)
@@ -27,12 +27,9 @@ pub async fn execute_script_filter(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-    
-    let result = timeout(
-        Duration::from_secs(timeout_secs),
-        child.wait_with_output()
-    ).await;
-    
+
+    let result = timeout(Duration::from_secs(timeout_secs), child.wait_with_output()).await;
+
     match result {
         Ok(Ok(output)) => Ok(String::from_utf8_lossy(&output.stdout).to_string()),
         Ok(Err(e)) => Err(ExtensionError::ProcessError(e)),

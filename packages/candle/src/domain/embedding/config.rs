@@ -289,7 +289,9 @@ impl EmbeddingConfig {
         if let Some(ref model) = self.model
             && model.trim().is_empty()
         {
-            return Err(crate::memory::utils::error::Error::Config("Model name cannot be empty".to_string()));
+            return Err(crate::memory::utils::error::Error::Config(
+                "Model name cannot be empty".to_string(),
+            ));
         }
 
         Ok(())

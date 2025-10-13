@@ -104,7 +104,10 @@ impl Ord for TokenProb {
     fn cmp(&self, other: &Self) -> Ordering {
         // Reverse order: higher probability sorts first
         // Direct comparison to avoid infinite recursion
-        other.prob.partial_cmp(&self.prob).unwrap_or(Ordering::Equal)
+        other
+            .prob
+            .partial_cmp(&self.prob)
+            .unwrap_or(Ordering::Equal)
     }
 }
 /// Token history management for repetition penalty calculation

@@ -3,10 +3,10 @@
 //! Handles proper sectioning of prompts to distinguish memories from static context,
 //! following LLM best practices for attention patterns and information clarity.
 
-use cyrup_sugars::ZeroOneOrMany;
 use crate::domain::chat::message::types::CandleMessage as ChatMessage;
 use crate::domain::context::CandleDocument as Document;
 use crate::memory::core::ops::retrieval::RetrievalResult;
+use cyrup_sugars::ZeroOneOrMany;
 
 /// Prompt formatter that creates sectioned prompts distinguishing memories from context
 #[derive(Debug, Clone)]
@@ -76,7 +76,7 @@ impl PromptFormatter {
     #[must_use]
     pub fn format_prompt(
         &self,
-        system_prompt: Option<&str>,  // Added system prompt parameter
+        system_prompt: Option<&str>, // Added system prompt parameter
         memories: &ZeroOneOrMany<RetrievalResult>,
         documents: &ZeroOneOrMany<Document>,
         chat_history: &ZeroOneOrMany<ChatMessage>,
@@ -116,7 +116,10 @@ impl PromptFormatter {
 
     /// Format memory section with retrieved memories
     #[must_use]
-    pub fn format_memory_section(&self, memories: &ZeroOneOrMany<RetrievalResult>) -> Option<String> {
+    pub fn format_memory_section(
+        &self,
+        memories: &ZeroOneOrMany<RetrievalResult>,
+    ) -> Option<String> {
         let memory_items = match memories {
             ZeroOneOrMany::None => return None,
             ZeroOneOrMany::One(memory) => vec![memory],
@@ -139,12 +142,13 @@ impl PromptFormatter {
 
             // Check length limit
             if let Some(max_len) = self.max_memory_length
-                && section.len() + memory_text.len() > max_len {
-                    if self.include_headers {
-                        section.push_str("[Additional memories truncated due to length limit]\n");
-                    }
-                    break;
+                && section.len() + memory_text.len() > max_len
+            {
+                if self.include_headers {
+                    section.push_str("[Additional memories truncated due to length limit]\n");
                 }
+                break;
+            }
 
             section.push_str(&memory_text);
             section.push('\n');
@@ -155,15 +159,15 @@ impl PromptFormatter {
 
     /// Format a single memory entry
     fn format_single_memory(memory: &RetrievalResult, index: usize) -> String {
-        let content = memory.metadata.get("content")
+        let content = memory
+            .metadata
+            .get("content")
             .and_then(|v| v.as_str())
             .unwrap_or("[No content available]");
-        
+
         format!(
             "Memory {}: {} (relevance: {:.2})",
-            index,
-            content,
-            memory.score
+            index, content, memory.score
         )
     }
 
@@ -191,12 +195,13 @@ impl PromptFormatter {
 
             // Check length limit
             if let Some(max_len) = self.max_context_length
-                && section.len() + doc_text.len() > max_len {
-                    if self.include_headers {
-                        section.push_str("[Additional documents truncated due to length limit]\n");
-                    }
-                    break;
+                && section.len() + doc_text.len() > max_len
+            {
+                if self.include_headers {
+                    section.push_str("[Additional documents truncated due to length limit]\n");
                 }
+                break;
+            }
 
             section.push_str(&doc_text);
             section.push('\n');
@@ -209,7 +214,9 @@ impl PromptFormatter {
     fn format_single_document(document: &Document, index: usize) -> String {
         let content = &document.data;
         let default_title = format!("Document {index}");
-        let title = document.additional_props.get("title")
+        let title = document
+            .additional_props
+            .get("title")
             .and_then(|v| v.as_str())
             .unwrap_or(&default_title);
 
@@ -261,14 +268,20 @@ mod tests {
             method: crate::memory::core::ops::retrieval::RetrievalMethod::Semantic,
             metadata: {
                 let mut meta = HashMap::new();
-                meta.insert("content".to_string(), serde_json::Value::String("User prefers coffee over tea".to_string()));
+                meta.insert(
+                    "content".to_string(),
+                    serde_json::Value::String("User prefers coffee over tea".to_string()),
+                );
                 meta
             },
         };
 
         // Create test document
         let mut doc_metadata = HashMap::new();
-        doc_metadata.insert("title".to_string(), serde_json::Value::String("User Guide".to_string()));
+        doc_metadata.insert(
+            "title".to_string(),
+            serde_json::Value::String("User Guide".to_string()),
+        );
         let document = Document {
             data: "This is a user guide for the application".to_string(),
             format: None,
@@ -285,7 +298,7 @@ mod tests {
             &memories,
             &documents,
             &chat_history,
-            "What drink should I have?"
+            "What drink should I have?",
         );
 
         // Verify sectioning
@@ -296,11 +309,14 @@ mod tests {
         assert!(result.contains("User: What drink should I have?"));
 
         // Verify order (memories first, then context, then user message)
-        let memory_pos = result.find("RELEVANT MEMORIES")
+        let memory_pos = result
+            .find("RELEVANT MEMORIES")
             .ok_or("Formatted prompt should contain 'RELEVANT MEMORIES' section")?;
-        let context_pos = result.find("CONTEXT DOCUMENTS")
+        let context_pos = result
+            .find("CONTEXT DOCUMENTS")
             .ok_or("Formatted prompt should contain 'CONTEXT DOCUMENTS' section")?;
-        let user_pos = result.find("User: What drink")
+        let user_pos = result
+            .find("User: What drink")
             .ok_or("Formatted prompt should contain user message")?;
 
         assert!(memory_pos < context_pos);

@@ -3,7 +3,7 @@
 //! Contains pure data structures for audio processing.
 //! Builder implementations are in the paraphym package.
 
-use base64::{engine::general_purpose, Engine as _};
+use base64::{Engine as _, engine::general_purpose};
 use serde::{Deserialize, Serialize};
 
 /// Represents audio data with format and media type information
@@ -116,4 +116,3 @@ impl Audio {
         }
     }
 }
-

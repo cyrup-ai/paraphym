@@ -8,9 +8,9 @@ use std::task::{Context, Poll};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use surrealdb::engine::any::Any;
 use surrealdb::Surreal;
-use tokio::sync::{oneshot, RwLock};
+use surrealdb::engine::any::Any;
+use tokio::sync::{RwLock, oneshot};
 
 use crate::memory::vector::vector_store::VectorStore;
 
@@ -171,7 +171,7 @@ impl ComponentChecker for DatabaseHealthChecker {
     fn check(&self) -> PendingComponentHealth {
         let (tx, rx) = oneshot::channel();
         let name = self.name().to_string();
-        
+
         // Clone database references before moving into async block
         let db_conn = self.database.clone();
         let db_query = self.database.clone();
@@ -193,12 +193,11 @@ impl ComponentChecker for DatabaseHealthChecker {
             let connection_test = async move {
                 // Test basic connectivity with SurrealDB health check
                 tokio::time::timeout(std::time::Duration::from_millis(5000), async move {
-                    db_conn.health()
-                        .await
-                        .map_err(|e| {
-                            let err_msg = e.to_string();
-                            Box::new(std::io::Error::other(err_msg)) as Box<dyn std::error::Error + Send + Sync>
-                        })
+                    db_conn.health().await.map_err(|e| {
+                        let err_msg = e.to_string();
+                        Box::new(std::io::Error::other(err_msg))
+                            as Box<dyn std::error::Error + Send + Sync>
+                    })
                 })
                 .await
             };
@@ -216,7 +215,7 @@ impl ComponentChecker for DatabaseHealthChecker {
                 // SurrealDB SDK does not expose connection pool metrics
                 // Best effort: verify database is responsive with INFO query
                 let result = db_pool.query("INFO FOR DB").await;
-                
+
                 match result {
                     Ok(_) => {
                         // Connection is active and working
@@ -343,7 +342,7 @@ impl ComponentChecker for VectorStoreHealthChecker {
     fn check(&self) -> PendingComponentHealth {
         let (tx, rx) = oneshot::channel();
         let name = "vector_store".to_string();
-        
+
         // Clone vector store references before moving into async block
         let vs_conn = self.vector_store.clone();
         let vs_idx = self.vector_store.clone();
@@ -385,29 +384,31 @@ impl ComponentChecker for VectorStoreHealthChecker {
                 })
                 .await
                 .unwrap_or(0) as u64;
-                
+
                 // Dimensions and index quality require trait extension or type-specific methods
                 // For now, use sensible defaults or get from config
                 let dimensions = embedding_dims as u32;
                 let index_quality = 100.0f32; // Assume healthy if count() succeeds
-                
+
                 (vector_count, dimensions, index_quality)
             };
 
             let search_performance_test = async move {
                 let search_start = std::time::Instant::now();
-                
+
                 // Execute real search with sample vector
                 let (duration, results_count) = tokio::task::spawn_blocking(move || {
                     let vs = vs_search.blocking_read();
                     let sample_vector = vec![0.0f32; embedding_dims]; // Zero vector for health check
-                    let results = vs.search(&sample_vector, Some(10), None).unwrap_or_default();
+                    let results = vs
+                        .search(&sample_vector, Some(10), None)
+                        .unwrap_or_default();
                     let count = results.len() as u32;
                     (search_start.elapsed(), count)
                 })
                 .await
                 .unwrap_or((search_start.elapsed(), 0));
-                
+
                 (duration, results_count)
             };
 
@@ -419,12 +420,12 @@ impl ComponentChecker for VectorStoreHealthChecker {
                 })
                 .await
                 .unwrap_or(0);
-                
+
                 // Rough estimate: embedding dimensions * 4 bytes per f32
                 let estimated_mb = (count * embedding_dims * 4) / (1024 * 1024);
                 let used_memory_mb = estimated_mb as u64;
                 let total_memory_mb = (estimated_mb * 2) as u64; // Assume 50% utilization
-                
+
                 (used_memory_mb, total_memory_mb)
             };
 

@@ -53,7 +53,8 @@ impl CognitiveState {
             confidence_level: 0.5,
         }
     }
-}/// Semantic context for cognitive processing
+}
+/// Semantic context for cognitive processing
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SemanticContext {
     pub domain: String,

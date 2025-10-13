@@ -222,9 +222,10 @@ impl DataExporter {
 
             // Periodic flush for large datasets to prevent memory buildup
             if batch_count % 10 == 0
-                && let Err(e) = csv_writer.flush() {
-                    return Err(MigrationError::IoError(e));
-                }
+                && let Err(e) = csv_writer.flush()
+            {
+                return Err(MigrationError::IoError(e));
+            }
         }
 
         // Final flush and finalization

@@ -38,7 +38,8 @@ impl Default for TemporalContext {
             decay_factor: 0.1,
         }
     }
-}/// Temporal type for quantum operations
+}
+/// Temporal type for quantum operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TemporalType {
     Past,
@@ -51,13 +52,13 @@ pub enum TemporalType {
 pub enum CognitiveError {
     #[error("Invalid quantum state: {0}")]
     InvalidQuantumState(String),
-    
+
     #[error("Processing error: {0}")]
     ProcessingError(String),
-    
+
     #[error("Routing error: {0}")]
     RoutingError(String),
-    
+
     #[error("Measurement error: {0}")]
     MeasurementError(String),
 }

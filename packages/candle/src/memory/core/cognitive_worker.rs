@@ -3,17 +3,13 @@ use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tokio::time::timeout;
 
-use crate::memory::core::cognitive_queue::{CognitiveProcessingQueue, CognitiveTaskType};
-use crate::memory::core::manager::surreal::{SurrealDBMemoryManager, MemoryManager};
-use crate::memory::cognitive::committee::ModelCommitteeEvaluator;
 use crate::domain::memory::cognitive::types::{
-    CognitiveMemory,
-    CognitiveMemoryConfig,
-    CognitiveState,
-    AlignedActivationPattern,
+    AlignedActivationPattern, CausalLink, CognitiveMemory, CognitiveMemoryConfig, CognitiveState,
     EntanglementType,
-    CausalLink,
 };
+use crate::memory::cognitive::committee::ModelCommitteeEvaluator;
+use crate::memory::core::cognitive_queue::{CognitiveProcessingQueue, CognitiveTaskType};
+use crate::memory::core::manager::surreal::{MemoryManager, SurrealDBMemoryManager};
 use crate::memory::monitoring::operations::{OperationTracker, OperationType};
 
 /// Background worker for processing cognitive tasks
@@ -64,13 +60,13 @@ impl CognitiveWorker {
     /*
     async fn maintain_temporal_context(&self) -> Result<()> {
         let cognitive_mem = self.cognitive_memory.read().await;
-        
+
         // NOTE: Requires RwLock wrapper on temporal_context first
         // let mut temporal_ctx = cognitive_mem.state().temporal_context.write().await;
         // temporal_ctx.slide_window();
-        
+
         log::debug!("Applied temporal decay via window sliding");
-        
+
         Ok(())
     }
     */
@@ -139,7 +135,7 @@ impl CognitiveWorker {
     //
     // - Window sliding is O(n) where n = history_embedding.len()
     //   * 384 dims: ~100ns
-    //   * 1024 dims: ~250ns  
+    //   * 1024 dims: ~250ns
     //   * 4096 dims: ~1μs
     //
     // - Batching strategy:
@@ -200,20 +196,20 @@ impl CognitiveWorker {
             queue,
             memory_manager,
             committee_evaluator,
-            _cognitive_memory: Arc::new(RwLock::new(
-                CognitiveMemory::new(CognitiveMemoryConfig::default())
-            )),
+            _cognitive_memory: Arc::new(RwLock::new(CognitiveMemory::new(
+                CognitiveMemoryConfig::default(),
+            ))),
             operation_tracker: Arc::new(OperationTracker::new(10_000)),
         }
     }
 
-    /// Main worker loop - processes tasks from queue
-    pub fn run(&self) {
+    /// Main worker loop - processes tasks from queue (async, yields)
+    pub async fn run(&self) {
         log::info!("Cognitive worker started, waiting for tasks...");
-        
+
         loop {
-            // Blocking dequeue - thread efficiently parks until work arrives
-            match self.queue.dequeue() {
+            // Async dequeue - yields until work arrives
+            match self.queue.dequeue().await {
                 Ok(task) => {
                     log::debug!(
                         "Task dequeued: type={:?}, memory_id={}, priority={}",
@@ -221,19 +217,19 @@ impl CognitiveWorker {
                         task.memory_id,
                         task.priority
                     );
-                    
+
                     match task.task_type {
                         CognitiveTaskType::CommitteeEvaluation => {
-                            self.process_committee_evaluation(&task.memory_id);
+                            self.process_committee_evaluation(&task.memory_id).await;
                         }
                         CognitiveTaskType::EntanglementDiscovery => {
-                            self.process_entanglement_discovery(&task.memory_id);
+                            self.process_entanglement_discovery(&task.memory_id).await;
                         }
                         CognitiveTaskType::QuantumRouting => {
                             log::debug!("QuantumRouting task deferred to COGMEM_6");
                         }
                         CognitiveTaskType::BatchProcessing(memory_ids) => {
-                            self.process_batch_evaluation(memory_ids);
+                            self.process_batch_evaluation(memory_ids).await;
                         }
                     }
                 }
@@ -244,7 +240,7 @@ impl CognitiveWorker {
                 }
             }
         }
-        
+
         log::info!("Cognitive worker stopped");
     }
 
@@ -259,477 +255,500 @@ impl CognitiveWorker {
     }
 
     /// Process committee evaluation using real LLM with timeout, retry, and metrics
-    fn process_committee_evaluation(&self, memory_id: &str) {
+    async fn process_committee_evaluation(&self, memory_id: &str) {
         let memory_id = memory_id.to_string();
         let manager = self.memory_manager.clone();
         let evaluator = self.committee_evaluator.clone();
         let tracker = self.operation_tracker.clone();
-        
+
         // Start operation tracking
         let op_id = tracker.start_operation(OperationType::CommitteeEvaluation, None);
-        
-        // Spawn thread to handle !Sync AsyncStream - use shared runtime
-        std::thread::spawn(move || {
-            let Some(rt) = crate::runtime::shared_runtime() else {
-                log::error!("Shared runtime unavailable for committee evaluation");
-                tracker.fail_operation(op_id, "Runtime unavailable".to_string());
+
+        let start_time = Instant::now();
+
+        // Get memory from database
+        let mut memory = match manager.get_memory(&memory_id).await {
+            Ok(Some(mem)) => mem,
+            Ok(None) => {
+                log::warn!("Memory {} not found", memory_id);
+                tracker.fail_operation(op_id, "Memory not found".to_string());
                 return;
-            };
-                
-            rt.block_on(async move {
-                let start_time = Instant::now();
-                    
-                // Get memory from database
-                let mut memory = match manager.get_memory(&memory_id).await {
-                    Ok(Some(mem)) => mem,
-                    Ok(None) => {
-                        log::warn!("Memory {} not found", memory_id);
-                        tracker.fail_operation(op_id, "Memory not found".to_string());
-                        return;
-                    }
-                    Err(e) => {
-                        log::error!("Failed to fetch memory {}: {:?}", memory_id, e);
-                        tracker.fail_operation(op_id, format!("Fetch error: {:?}", e));
-                        return;
-                    }
-                };
-                
-                // Evaluate with timeout + retry
-                match Self::evaluate_with_timeout_and_retry(&evaluator, &memory.content.text, 2).await {
-                    Ok(score) => {
-                        // Store quality score
-                        memory.metadata.set_custom("quality_score", score).ok();
-                        memory.metadata.set_custom("evaluation_status", "Success").ok();
-                        
-                        // Update memory in database
-                        if let Err(e) = manager.update_memory(memory).await {
-                            log::error!("Failed to update memory {}: {:?}", memory_id, e);
-                            tracker.fail_operation(op_id, format!("Update error: {:?}", e));
-                        } else {
-                            log::info!("Committee evaluation completed: {} (score: {:.2})", memory_id, score);
-                            tracker.complete_operation(op_id);
-                        }
-                    }
-                    Err(e) => {
-                        // Evaluation failed after retries
-                        log::error!("Committee evaluation exhausted retries for {}: {}", memory_id, e);
-                        
-                        memory.metadata.set_custom("quality_score", 0.5).ok();
-                        memory.metadata.set_custom("evaluation_status", "Failed").ok();
-                        memory.metadata.set_custom("error_message", e.clone()).ok();
-                        
-                        manager.update_memory(memory).await.ok();
-                        tracker.fail_operation(op_id, e);
-                    }
+            }
+            Err(e) => {
+                log::error!("Failed to fetch memory {}: {:?}", memory_id, e);
+                tracker.fail_operation(op_id, format!("Fetch error: {:?}", e));
+                return;
+            }
+        };
+
+        // Evaluate with timeout + retry
+        match Self::evaluate_with_timeout_and_retry(&evaluator, &memory.content.text, 2).await {
+            Ok(score) => {
+                // Store quality score
+                memory.metadata.set_custom("quality_score", score).ok();
+                memory
+                    .metadata
+                    .set_custom("evaluation_status", "Success")
+                    .ok();
+
+                // Update memory in database
+                if let Err(e) = manager.update_memory(memory).await {
+                    log::error!("Failed to update memory {}: {:?}", memory_id, e);
+                    tracker.fail_operation(op_id, format!("Update error: {:?}", e));
+                } else {
+                    log::info!(
+                        "Committee evaluation completed: {} (score: {:.2})",
+                        memory_id,
+                        score
+                    );
+                    tracker.complete_operation(op_id);
                 }
-                
-                let duration = start_time.elapsed();
-                log::debug!("Committee evaluation took {:?} for {}", duration, memory_id);
-            });
-        });
+            }
+            Err(e) => {
+                // Evaluation failed after retries
+                log::error!(
+                    "Committee evaluation exhausted retries for {}: {}",
+                    memory_id,
+                    e
+                );
+
+                memory.metadata.set_custom("quality_score", 0.5).ok();
+                memory
+                    .metadata
+                    .set_custom("evaluation_status", "Failed")
+                    .ok();
+                memory.metadata.set_custom("error_message", e.clone()).ok();
+
+                manager.update_memory(memory).await.ok();
+                tracker.fail_operation(op_id, e);
+            }
+        }
+
+        let duration = start_time.elapsed();
+        log::debug!("Committee evaluation took {:?} for {}", duration, memory_id);
     }
 
     /// Process entanglement discovery for a memory
-    fn process_entanglement_discovery(&self, memory_id: &str) {
+    async fn process_entanglement_discovery(&self, memory_id: &str) {
         let memory_id = memory_id.to_string();
         let manager = self.memory_manager.clone();
         let tracker = self.operation_tracker.clone();
-        
+
         // Start operation tracking
         let op_id = tracker.start_operation(OperationType::EntanglementDiscovery, None);
 
-        // Spawn async task
-        tokio::spawn(async move {
-            use futures_util::StreamExt;
-                    
-                    // Get source memory
-                    let memory = match manager.get_memory(&memory_id).await {
-                        Ok(Some(mem)) => mem,
-                        Ok(None) => {
-                            log::warn!("Memory {} not found for entanglement discovery", memory_id);
-                            tracker.fail_operation(op_id, "Memory not found".to_string());
-                            return;
-                        }
-                        Err(e) => {
-                            log::error!("Failed to retrieve memory {}: {:?}", memory_id, e);
-                            tracker.fail_operation(op_id, format!("Failed to retrieve: {:?}", e));
-                            return;
-                        }
-                    };
+        use futures_util::StreamExt;
 
-                    // Load existing quantum signature if available (cached bonds)
-                    // Note: Primary edges are in entangled RELATION table, this is denormalized cache
-                    let existing_signature = match manager.get_quantum_signature(&memory_id).await {
-                        Ok(Some(state)) => {
-                            log::debug!(
-                                "Loaded existing quantum signature for {} with {} cached bonds",
-                                memory_id,
-                                state.quantum_entanglement_bond_count()
-                            );
-                            Some(state)
-                        }
-                        Ok(None) => {
-                            log::debug!("No existing quantum signature cache for {}", memory_id);
-                            None
-                        }
-                        Err(e) => {
-                            log::warn!(
-                                "Failed to load quantum signature for {}: {:?}",
-                                memory_id,
-                                e
-                            );
-                            None
-                        }
-                    };
+        // Get source memory
+        let memory = match manager.get_memory(&memory_id).await {
+            Ok(Some(mem)) => mem,
+            Ok(None) => {
+                log::warn!("Memory {} not found for entanglement discovery", memory_id);
+                tracker.fail_operation(op_id, "Memory not found".to_string());
+                return;
+            }
+            Err(e) => {
+                log::error!("Failed to retrieve memory {}: {:?}", memory_id, e);
+                tracker.fail_operation(op_id, format!("Failed to retrieve: {:?}", e));
+                return;
+            }
+        };
 
-                    // Get embedding for similarity search
-                    let embedding_vec = match &memory.embedding {
-                        Some(emb) => emb.clone(),
-                        None => {
-                            log::warn!("Memory {} has no embedding, cannot discover entanglement", memory_id);
-                            tracker.fail_operation(op_id, "No embedding".to_string());
-                            return;
-                        }
-                    };
+        // Load existing quantum signature if available (cached bonds)
+        // Note: Primary edges are in entangled RELATION table, this is denormalized cache
+        let existing_signature = match manager.get_quantum_signature(&memory_id).await {
+            Ok(Some(state)) => {
+                log::debug!(
+                    "Loaded existing quantum signature for {} with {} cached bonds",
+                    memory_id,
+                    state.quantum_entanglement_bond_count()
+                );
+                Some(state)
+            }
+            Ok(None) => {
+                log::debug!("No existing quantum signature cache for {}", memory_id);
+                None
+            }
+            Err(e) => {
+                log::warn!(
+                    "Failed to load quantum signature for {}: {:?}",
+                    memory_id,
+                    e
+                );
+                None
+            }
+        };
 
-                    // Convert to SIMD-aligned activation pattern for vectorized operations
-                    let activation_pattern = AlignedActivationPattern::new(embedding_vec.clone());
+        // Get embedding for similarity search
+        let embedding_vec = match &memory.embedding {
+            Some(emb) => emb.clone(),
+            None => {
+                log::warn!(
+                    "Memory {} has no embedding, cannot discover entanglement",
+                    memory_id
+                );
+                tracker.fail_operation(op_id, "No embedding".to_string());
+                return;
+            }
+        };
 
+        // Convert to SIMD-aligned activation pattern for vectorized operations
+        let activation_pattern = AlignedActivationPattern::new(embedding_vec.clone());
+
+        log::debug!(
+            "Created SIMD-aligned activation pattern for {}: dimension={}, timestamp={:?}",
+            memory_id,
+            activation_pattern.dimension,
+            activation_pattern.last_update
+        );
+
+        // Use existing signature cache if available, otherwise create new
+        let state_a = if let Some(existing) = existing_signature {
+            log::debug!(
+                "Using existing quantum state for {} (preserving {} cached bonds)",
+                memory_id,
+                existing.quantum_entanglement_bond_count()
+            );
+            existing
+        } else {
+            match CognitiveState::with_quantum_coherence(
+                embedding_vec.clone(),
+                vec![0.0; embedding_vec.len()], // Zero phases = amplitude-only state
+            ) {
+                Ok(state) => {
                     log::debug!(
-                        "Created SIMD-aligned activation pattern for {}: dimension={}, timestamp={:?}",
+                        "Created new quantum coherent state for {} with {} dimensions",
                         memory_id,
-                        activation_pattern.dimension,
-                        activation_pattern.last_update
+                        embedding_vec.len()
                     );
+                    state
+                }
+                Err(e) => {
+                    log::warn!(
+                        "Failed to create quantum coherent state for {}: {}",
+                        memory_id,
+                        e
+                    );
+                    tracker.fail_operation(op_id, format!("Quantum state creation failed: {}", e));
+                    return;
+                }
+            }
+        };
 
-                    // Use existing signature cache if available, otherwise create new
-                    let state_a = if let Some(existing) = existing_signature {
-                        log::debug!(
-                            "Using existing quantum state for {} (preserving {} cached bonds)",
-                            memory_id,
-                            existing.quantum_entanglement_bond_count()
-                        );
-                        existing
-                    } else {
-                        match CognitiveState::with_quantum_coherence(
-                            embedding_vec.clone(),
-                            vec![0.0; embedding_vec.len()]  // Zero phases = amplitude-only state
-                        ) {
-                            Ok(state) => {
-                                log::debug!(
-                                    "Created new quantum coherent state for {} with {} dimensions",
-                                    memory_id,
-                                    embedding_vec.len()
-                                );
-                                state
-                            }
-                            Err(e) => {
-                                log::warn!("Failed to create quantum coherent state for {}: {}", memory_id, e);
-                                tracker.fail_operation(op_id, format!("Quantum state creation failed: {}", e));
-                                return;
-                            }
-                        }
-                    };
+        // Search for similar memories
+        let memory_stream = manager.search_by_vector(embedding_vec.clone(), 10);
+        let memories: Vec<_> = memory_stream.collect().await;
 
-                    // Search for similar memories
-                    let memory_stream = manager.search_by_vector(embedding_vec.clone(), 10);
-                    let memories: Vec<_> = memory_stream.collect().await;
-                    
-                    let mut entangled_count = 0;
+        let mut entangled_count = 0;
 
-                    // Process each similar memory
-                    for memory_result in memories {
-                        let related_memory = match memory_result {
-                            Ok(mem) => mem,
-                            Err(e) => {
-                                log::error!("Error in similarity search: {:?}", e);
-                                continue;
-                            }
-                        };
+        // Process each similar memory
+        for memory_result in memories {
+            let related_memory = match memory_result {
+                Ok(mem) => mem,
+                Err(e) => {
+                    log::error!("Error in similarity search: {:?}", e);
+                    continue;
+                }
+            };
 
-                        // Skip self
-                        if related_memory.id == memory_id {
-                            continue;
-                        }
+            // Skip self
+            if related_memory.id == memory_id {
+                continue;
+            }
 
-                        // Extract related memory embedding
-                        let related_embedding_vec = match &related_memory.embedding {
-                            Some(emb) => emb.clone(),
-                            None => {
-                                log::debug!("Related memory {} has no embedding, skipping", related_memory.id);
-                                continue;
-                            }
-                        };
+            // Extract related memory embedding
+            let related_embedding_vec = match &related_memory.embedding {
+                Some(emb) => emb.clone(),
+                None => {
+                    log::debug!(
+                        "Related memory {} has no embedding, skipping",
+                        related_memory.id
+                    );
+                    continue;
+                }
+            };
 
-                        // Convert related embedding to SIMD-aligned pattern
-                        let related_activation = AlignedActivationPattern::new(related_embedding_vec.clone());
+            // Convert related embedding to SIMD-aligned pattern
+            let related_activation = AlignedActivationPattern::new(related_embedding_vec.clone());
 
-                        log::debug!(
-                            "Created SIMD-aligned pattern for related memory {}: dimension={}",
-                            related_memory.id,
-                            related_activation.dimension
-                        );
+            log::debug!(
+                "Created SIMD-aligned pattern for related memory {}: dimension={}",
+                related_memory.id,
+                related_activation.dimension
+            );
 
-                        // Create quantum state for related memory
-                        let state_b = match CognitiveState::with_quantum_coherence(
-                            related_embedding_vec.clone(),
-                            vec![0.0; related_embedding_vec.len()]
-                        ) {
-                            Ok(state) => state,
-                            Err(e) => {
-                                log::warn!("Failed to create quantum state for related memory {}: {}", related_memory.id, e);
-                                continue;
-                            }
-                        };
+            // Create quantum state for related memory
+            let state_b = match CognitiveState::with_quantum_coherence(
+                related_embedding_vec.clone(),
+                vec![0.0; related_embedding_vec.len()],
+            ) {
+                Ok(state) => state,
+                Err(e) => {
+                    log::warn!(
+                        "Failed to create quantum state for related memory {}: {}",
+                        related_memory.id,
+                        e
+                    );
+                    continue;
+                }
+            };
 
-                        // Measure quantum entanglement between states
-                        let entanglement_strength = match state_a.measure_quantum_entanglement(&state_b) {
-                            Some(strength) => strength,
-                            None => {
-                                log::warn!(
-                                    "Dimension mismatch measuring entanglement between {} and {}", 
-                                    memory.id, 
-                                    related_memory.id
-                                );
-                                continue;
-                            }
-                        };
+            // Measure quantum entanglement between states
+            let entanglement_strength = match state_a.measure_quantum_entanglement(&state_b) {
+                Some(strength) => strength,
+                None => {
+                    log::warn!(
+                        "Dimension mismatch measuring entanglement between {} and {}",
+                        memory.id,
+                        related_memory.id
+                    );
+                    continue;
+                }
+            };
 
-                        log::debug!(
-                            "Quantum entanglement strength between {} and {}: {:.4}",
-                            memory.id,
-                            related_memory.id,
-                            entanglement_strength
-                        );
+            log::debug!(
+                "Quantum entanglement strength between {} and {}: {:.4}",
+                memory.id,
+                related_memory.id,
+                entanglement_strength
+            );
 
-                        // Calculate temporal distance between memories (milliseconds)
-                        // 
-                        // Temporal semantics:
-                        // - Positive value: related_memory is NEWER → potential effect (cause → effect)
-                        // - Negative value: related_memory is OLDER → retrospective link (looking back)
-                        // - None: Overflow (extremely rare, only if years+ time difference)
-                        let temporal_distance_ms: Option<i64> = {
-                            // MemoryNode.created_at is DateTime<Utc> (always present, never Option)
-                            let created_at = memory.created_at;
-                            let related_created_at = related_memory.created_at;
-                            
-                            // Calculate signed duration (positive if related is newer, negative if older)
-                            let duration = related_created_at.signed_duration_since(created_at);
-                            
-                            // Convert to milliseconds with overflow protection
-                            match duration.num_milliseconds().checked_abs() {
-                                Some(abs_ms) => {
-                                    // Preserve sign for causal direction analysis
-                                    if duration.num_milliseconds() < 0 {
-                                        Some(-abs_ms)  // related_memory is OLDER
-                                    } else {
-                                        Some(abs_ms)   // related_memory is NEWER
-                                    }
-                                }
-                                None => {
-                                    // Overflow: time difference too large for i64 milliseconds
-                                    // This would require ~292 million years - practically impossible
-                                    log::warn!(
-                                        "Temporal distance overflow between {} and {}: duration exceeds i64::MAX milliseconds",
-                                        memory.id,
-                                        related_memory.id
-                                    );
-                                    None
-                                }
-                            }
-                        };
+            // Calculate temporal distance between memories (milliseconds)
+            //
+            // Temporal semantics:
+            // - Positive value: related_memory is NEWER → potential effect (cause → effect)
+            // - Negative value: related_memory is OLDER → retrospective link (looking back)
+            // - None: Overflow (extremely rare, only if years+ time difference)
+            let temporal_distance_ms: Option<i64> = {
+                // MemoryNode.created_at is DateTime<Utc> (always present, never Option)
+                let created_at = memory.created_at;
+                let related_created_at = related_memory.created_at;
 
-                        // Log temporal distance for debugging
-                        log::trace!(
-                            "Temporal distance {} → {}: {:?}ms {}",
-                            memory.id,
-                            related_memory.id,
-                            temporal_distance_ms,
-                            match temporal_distance_ms {
-                                Some(ms) if ms > 0 => "(newer)",
-                                Some(ms) if ms < 0 => "(older)",
-                                Some(_) => "(simultaneous)",
-                                None => "(overflow)",
-                            }
-                        );
+                // Calculate signed duration (positive if related is newer, negative if older)
+                let duration = related_created_at.signed_duration_since(created_at);
 
-                        // Create classified entanglement bond if strength is significant
-                        if entanglement_strength > 0.7 {
-                            // Quantum Entanglement Type Classification
-                            // 
-                            // Based on quantum correlation strength, we classify entanglement into types
-                            // that correspond to quantum mechanical states:
-                            //
-                            // - EntanglementType::BellPair    : >0.95  - Maximal entanglement (Bell pair state |Φ⁺⟩)
-                            // - EntanglementType::Bell        : 0.85-0.95 - High entanglement (Bell state)
-                            // - EntanglementType::Semantic    : 0.7-0.85 - Meaning-based similarity (moderate)
-                            // - EntanglementType::Temporal    : Future (QCOG_4) - Time-ordered sequences
-                            // - EntanglementType::Causal      : Future (QCOG_4) - Cause-effect relationships
-                            // - EntanglementType::Emergent    : Future - Pattern emergence via ML detection
-                            // - EntanglementType::Werner      : Future - Mixed quantum states
-                            // - EntanglementType::Weak        : Future - Low entanglement (0.5-0.7 range)
-                            //
-                            // The thresholds are based on standard quantum information theory where:
-                            // - Maximal entanglement approaches 1.0 (perfect correlation)
-                            // - Bell states show strong but not perfect entanglement
-                            // - Semantic similarity indicates moderate quantum correlation
-
-                            // Determine entanglement type based on temporal context AND semantic strength
-                            let entanglement_type = if let Some(temp_dist) = temporal_distance_ms {
-                                let abs_dist = temp_dist.abs();
-                                
-                                if abs_dist < 1000 {
-                                    // Within 1 second - likely causal relationship
-                                    EntanglementType::Causal
-                                } else if abs_dist < 60_000 {
-                                    // Within 1 minute - temporal sequence
-                                    EntanglementType::Temporal
-                                } else if entanglement_strength > 0.95 {
-                                    EntanglementType::BellPair  // Maximal semantic (time-independent)
-                                } else if entanglement_strength > 0.85 {
-                                    EntanglementType::Bell  // High semantic (time-independent)
-                                } else {
-                                    EntanglementType::Semantic  // Meaning-based (time-independent)
-                                }
-                            } else {
-                                // No temporal info - fall back to strength-based semantic classification
-                                if entanglement_strength > 0.95 {
-                                    EntanglementType::BellPair
-                                } else if entanglement_strength > 0.85 {
-                                    EntanglementType::Bell
-                                } else {
-                                    EntanglementType::Semantic
-                                }
-                            };
-
-                            // Parse memory IDs from String to Uuid for quantum signature
-                            let related_id_uuid = match uuid::Uuid::parse_str(&related_memory.id) {
-                                Ok(uuid) => uuid,
-                                Err(e) => {
-                                    log::warn!(
-                                        "Failed to parse UUID for memory {}: {}", 
-                                        related_memory.id, 
-                                        e
-                                    );
-                                    continue;
-                                }
-                            };
-
-                            // Create causal link with temporal data if available
-                            if let Some(temporal_dist) = temporal_distance_ms {
-                                // Parse source memory UUID (related UUID already parsed above as related_id_uuid)
-                                if let Ok(source_uuid) = uuid::Uuid::parse_str(&memory.id) {
-                                    // Create causal link instance
-                                    let causal_link = CausalLink::new(
-                                        source_uuid,
-                                        related_id_uuid,
-                                        entanglement_strength,
-                                        temporal_dist
-                                    );
-
-                                    log::info!(
-                                        "Causal link: {} -> {} (strength: {:.3}, temporal: {}ms, direction: {})",
-                                        memory.id,
-                                        related_memory.id,
-                                        causal_link.strength,
-                                        causal_link.temporal_distance,
-                                        if temporal_dist > 0 { "forward" } 
-                                        else if temporal_dist < 0 { "backward" } 
-                                        else { "simultaneous" }
-                                    );
-                                }
-                            }
-
-                            // Add quantum entanglement bond to cognitive state
-                            let bond_created = state_a.add_quantum_entanglement_bond(
-                                related_id_uuid,
-                                entanglement_strength,
-                                entanglement_type
-                            );
-
-                            if bond_created {
-                                log::info!(
-                                    "Created {:?} entanglement bond: {} <-> {} (strength: {:.4}, temporal_dist: {:?}ms)",
-                                    entanglement_type,
-                                    memory.id,
-                                    related_memory.id,
-                                    entanglement_strength,
-                                    temporal_distance_ms
-                                );
-
-                                // Use RELATE to create graph-optimized edge in entangled RELATION table
-                                // This creates automatic IN/OUT pointers for O(1) traversal
-                                if let Err(e) = manager.create_entanglement_edge(
-                                    &memory.id,
-                                    &related_memory.id,
-                                    entanglement_strength,
-                                    entanglement_type,
-                                ).await {
-                                    log::error!(
-                                        "Failed to create entanglement edge {} -> {}: {:?}",
-                                        memory.id,
-                                        related_memory.id,
-                                        e
-                                    );
-                                } else {
-                                    log::debug!(
-                                        "Created entanglement edge: {} ->entangled-> {} (strength: {:.3}, type: {:?})",
-                                        memory.id, 
-                                        related_memory.id, 
-                                        entanglement_strength, 
-                                        entanglement_type
-                                    );
-                                    
-                                    // Update quantum signature cache (denormalized)
-                                    if let Err(e) = manager.update_quantum_signature(&memory.id, &state_a).await {
-                                        log::error!(
-                                            "Failed to persist quantum signature for {}: {:?}", 
-                                            memory.id, 
-                                            e
-                                        );
-                                    } else {
-                                        log::debug!(
-                                            "Persisted quantum signature for {} (bond count: {})",
-                                            memory.id,
-                                            state_a.quantum_entanglement_bond_count()
-                                        );
-                                    }
-                                    
-                                    entangled_count += 1;
-                                }
-                            } else {
-                                log::warn!(
-                                    "Failed to create entanglement bond to {} (invalid strength or target)",
-                                    related_memory.id
-                                );
-                            }
+                // Convert to milliseconds with overflow protection
+                match duration.num_milliseconds().checked_abs() {
+                    Some(abs_ms) => {
+                        // Preserve sign for causal direction analysis
+                        if duration.num_milliseconds() < 0 {
+                            Some(-abs_ms) // related_memory is OLDER
+                        } else {
+                            Some(abs_ms) // related_memory is NEWER
                         }
                     }
+                    None => {
+                        // Overflow: time difference too large for i64 milliseconds
+                        // This would require ~292 million years - practically impossible
+                        log::warn!(
+                            "Temporal distance overflow between {} and {}: duration exceeds i64::MAX milliseconds",
+                            memory.id,
+                            related_memory.id
+                        );
+                        None
+                    }
+                }
+            };
 
-                    // Persist final quantum signature with all bonds (cache update)
-                    // Primary edges are already in entangled RELATION table via RELATE
-                    if entangled_count > 0 {
-                        if let Err(e) = manager.update_quantum_signature(&memory_id, &state_a).await {
+            // Log temporal distance for debugging
+            log::trace!(
+                "Temporal distance {} → {}: {:?}ms {}",
+                memory.id,
+                related_memory.id,
+                temporal_distance_ms,
+                match temporal_distance_ms {
+                    Some(ms) if ms > 0 => "(newer)",
+                    Some(ms) if ms < 0 => "(older)",
+                    Some(_) => "(simultaneous)",
+                    None => "(overflow)",
+                }
+            );
+
+            // Create classified entanglement bond if strength is significant
+            if entanglement_strength > 0.7 {
+                // Quantum Entanglement Type Classification
+                //
+                // Based on quantum correlation strength, we classify entanglement into types
+                // that correspond to quantum mechanical states:
+                //
+                // - EntanglementType::BellPair    : >0.95  - Maximal entanglement (Bell pair state |Φ⁺⟩)
+                // - EntanglementType::Bell        : 0.85-0.95 - High entanglement (Bell state)
+                // - EntanglementType::Semantic    : 0.7-0.85 - Meaning-based similarity (moderate)
+                // - EntanglementType::Temporal    : Future (QCOG_4) - Time-ordered sequences
+                // - EntanglementType::Causal      : Future (QCOG_4) - Cause-effect relationships
+                // - EntanglementType::Emergent    : Future - Pattern emergence via ML detection
+                // - EntanglementType::Werner      : Future - Mixed quantum states
+                // - EntanglementType::Weak        : Future - Low entanglement (0.5-0.7 range)
+                //
+                // The thresholds are based on standard quantum information theory where:
+                // - Maximal entanglement approaches 1.0 (perfect correlation)
+                // - Bell states show strong but not perfect entanglement
+                // - Semantic similarity indicates moderate quantum correlation
+
+                // Determine entanglement type based on temporal context AND semantic strength
+                let entanglement_type = if let Some(temp_dist) = temporal_distance_ms {
+                    let abs_dist = temp_dist.abs();
+
+                    if abs_dist < 1000 {
+                        // Within 1 second - likely causal relationship
+                        EntanglementType::Causal
+                    } else if abs_dist < 60_000 {
+                        // Within 1 minute - temporal sequence
+                        EntanglementType::Temporal
+                    } else if entanglement_strength > 0.95 {
+                        EntanglementType::BellPair // Maximal semantic (time-independent)
+                    } else if entanglement_strength > 0.85 {
+                        EntanglementType::Bell // High semantic (time-independent)
+                    } else {
+                        EntanglementType::Semantic // Meaning-based (time-independent)
+                    }
+                } else {
+                    // No temporal info - fall back to strength-based semantic classification
+                    if entanglement_strength > 0.95 {
+                        EntanglementType::BellPair
+                    } else if entanglement_strength > 0.85 {
+                        EntanglementType::Bell
+                    } else {
+                        EntanglementType::Semantic
+                    }
+                };
+
+                // Parse memory IDs from String to Uuid for quantum signature
+                let related_id_uuid = match uuid::Uuid::parse_str(&related_memory.id) {
+                    Ok(uuid) => uuid,
+                    Err(e) => {
+                        log::warn!(
+                            "Failed to parse UUID for memory {}: {}",
+                            related_memory.id,
+                            e
+                        );
+                        continue;
+                    }
+                };
+
+                // Create causal link with temporal data if available
+                if let Some(temporal_dist) = temporal_distance_ms {
+                    // Parse source memory UUID (related UUID already parsed above as related_id_uuid)
+                    if let Ok(source_uuid) = uuid::Uuid::parse_str(&memory.id) {
+                        // Create causal link instance
+                        let causal_link = CausalLink::new(
+                            source_uuid,
+                            related_id_uuid,
+                            entanglement_strength,
+                            temporal_dist,
+                        );
+
+                        log::info!(
+                            "Causal link: {} -> {} (strength: {:.3}, temporal: {}ms, direction: {})",
+                            memory.id,
+                            related_memory.id,
+                            causal_link.strength,
+                            causal_link.temporal_distance,
+                            if temporal_dist > 0 {
+                                "forward"
+                            } else if temporal_dist < 0 {
+                                "backward"
+                            } else {
+                                "simultaneous"
+                            }
+                        );
+                    }
+                }
+
+                // Add quantum entanglement bond to cognitive state
+                let bond_created = state_a.add_quantum_entanglement_bond(
+                    related_id_uuid,
+                    entanglement_strength,
+                    entanglement_type,
+                );
+
+                if bond_created {
+                    log::info!(
+                        "Created {:?} entanglement bond: {} <-> {} (strength: {:.4}, temporal_dist: {:?}ms)",
+                        entanglement_type,
+                        memory.id,
+                        related_memory.id,
+                        entanglement_strength,
+                        temporal_distance_ms
+                    );
+
+                    // Use RELATE to create graph-optimized edge in entangled RELATION table
+                    // This creates automatic IN/OUT pointers for O(1) traversal
+                    if let Err(e) = manager
+                        .create_entanglement_edge(
+                            &memory.id,
+                            &related_memory.id,
+                            entanglement_strength,
+                            entanglement_type,
+                        )
+                        .await
+                    {
+                        log::error!(
+                            "Failed to create entanglement edge {} -> {}: {:?}",
+                            memory.id,
+                            related_memory.id,
+                            e
+                        );
+                    } else {
+                        log::debug!(
+                            "Created entanglement edge: {} ->entangled-> {} (strength: {:.3}, type: {:?})",
+                            memory.id,
+                            related_memory.id,
+                            entanglement_strength,
+                            entanglement_type
+                        );
+
+                        // Update quantum signature cache (denormalized)
+                        if let Err(e) = manager.update_quantum_signature(&memory.id, &state_a).await
+                        {
                             log::error!(
-                                "Failed to persist final quantum signature for {}: {:?}",
-                                memory_id,
+                                "Failed to persist quantum signature for {}: {:?}",
+                                memory.id,
                                 e
                             );
                         } else {
-                            log::info!(
-                                "Persisted quantum signature for {} with {} entanglement bonds (cached)",
-                                memory_id,
+                            log::debug!(
+                                "Persisted quantum signature for {} (bond count: {})",
+                                memory.id,
                                 state_a.quantum_entanglement_bond_count()
                             );
                         }
-                    }
 
-                    log::info!(
-                        "Entanglement discovery complete for {}: {} links created in RELATION table",
-                        memory_id, entangled_count
+                        entangled_count += 1;
+                    }
+                } else {
+                    log::warn!(
+                        "Failed to create entanglement bond to {} (invalid strength or target)",
+                        related_memory.id
                     );
-                    tracker.complete_operation(op_id);
-        });
+                }
+            }
+        }
+
+        // Persist final quantum signature with all bonds (cache update)
+        // Primary edges are already in entangled RELATION table via RELATE
+        if entangled_count > 0 {
+            if let Err(e) = manager.update_quantum_signature(&memory_id, &state_a).await {
+                log::error!(
+                    "Failed to persist final quantum signature for {}: {:?}",
+                    memory_id,
+                    e
+                );
+            } else {
+                log::info!(
+                    "Persisted quantum signature for {} with {} entanglement bonds (cached)",
+                    memory_id,
+                    state_a.quantum_entanglement_bond_count()
+                );
+            }
+        }
+
+        log::info!(
+            "Entanglement discovery complete for {}: {} links created in RELATION table",
+            memory_id,
+            entangled_count
+        );
+        tracker.complete_operation(op_id);
     }
 
     /// Evaluate with timeout and retry for transient failures
@@ -740,7 +759,7 @@ impl CognitiveWorker {
     ) -> Result<f64, String> {
         let mut attempt = 0;
         let mut backoff_ms = 100u64;
-        
+
         loop {
             // Wrap evaluation in 10-second timeout
             let eval_future = evaluator.evaluate(content);
@@ -754,143 +773,166 @@ impl CognitiveWorker {
                     attempt += 1;
                     log::warn!(
                         "Evaluation attempt {}/{} failed: {:?}, retrying in {}ms",
-                        attempt, max_retries + 1, e, backoff_ms
+                        attempt,
+                        max_retries + 1,
+                        e,
+                        backoff_ms
                     );
                     tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
                     backoff_ms *= 2; // Exponential backoff
                 }
                 Ok(Err(e)) => {
                     // Max retries exceeded
-                    return Err(format!("Evaluation failed after {} attempts: {:?}", attempt + 1, e));
+                    return Err(format!(
+                        "Evaluation failed after {} attempts: {:?}",
+                        attempt + 1,
+                        e
+                    ));
                 }
                 Err(_) if attempt < max_retries => {
                     // Timeout - retry
                     attempt += 1;
                     log::warn!(
                         "Evaluation timeout on attempt {}/{}, retrying in {}ms",
-                        attempt, max_retries + 1, backoff_ms
+                        attempt,
+                        max_retries + 1,
+                        backoff_ms
                     );
                     tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
                     backoff_ms *= 2;
                 }
                 Err(_) => {
-                    return Err(format!("Evaluation timed out after {} attempts", attempt + 1));
+                    return Err(format!(
+                        "Evaluation timed out after {} attempts",
+                        attempt + 1
+                    ));
                 }
             }
         }
     }
 
     /// Process batch of memories for committee evaluation
-    fn process_batch_evaluation(&self, memory_ids: Vec<String>) {
+    async fn process_batch_evaluation(&self, memory_ids: Vec<String>) {
         let manager = self.memory_manager.clone();
         let evaluator = self.committee_evaluator.clone();
 
-        // Spawn thread to handle !Sync AsyncStream - use shared runtime
-        std::thread::spawn(move || {
-            let Some(rt) = crate::runtime::shared_runtime() else {
-                log::error!("Shared runtime unavailable for batch evaluation");
-                return;
-            };
-                
-            rt.block_on(async move {
-                log::info!("Processing batch evaluation for {} memories", memory_ids.len());
+        log::info!(
+            "Processing batch evaluation for {} memories",
+            memory_ids.len()
+        );
 
-                // Collect memory contents
-                let mut memories = Vec::new();
-                for id in &memory_ids {
-                    match manager.get_memory(id).await {
-                        Ok(Some(memory)) => {
-                            memories.push((id.clone(), memory.content.text.clone()));
-                        }
-                        Ok(None) => {
-                            log::warn!("Memory {} not found for batch evaluation", id);
-                        }
-                        Err(e) => {
-                            log::error!("Failed to retrieve memory {}: {:?}", id, e);
-                        }
-                    }
+        // Collect memory contents
+        let mut memories = Vec::new();
+        for id in &memory_ids {
+            match manager.get_memory(id).await {
+                Ok(Some(memory)) => {
+                    memories.push((id.clone(), memory.content.text.clone()));
                 }
-
-                if memories.is_empty() {
-                    log::warn!("No memories to evaluate in batch");
-                    return;
+                Ok(None) => {
+                    log::warn!("Memory {} not found for batch evaluation", id);
                 }
+                Err(e) => {
+                    log::error!("Failed to retrieve memory {}: {:?}", id, e);
+                }
+            }
+        }
 
-                // Evaluate batch
-                match evaluator.evaluate_batch(&memories).await {
-                    Ok(results) => {
-                        log::info!("Batch evaluation successful: {} scores returned", results.len());
+        if memories.is_empty() {
+            log::warn!("No memories to evaluate in batch");
+            return;
+        }
 
-                        // Update each memory with its score
-                        for (id, score) in results {
-                            match manager.get_memory(&id).await {
-                                Ok(Some(mut memory)) => {
-                                    // Update quality score in metadata
-                                    memory.metadata.set_custom("quality_score", score).ok();
-                                    memory.metadata.set_custom("evaluation_status", "Success").ok();
-                                    memory.metadata.set_custom("evaluated_at", chrono::Utc::now().to_rfc3339()).ok();
-                                    memory.metadata.set_custom("evaluation_method", "batch_committee").ok();
+        // Evaluate batch
+        match evaluator.evaluate_batch(&memories).await {
+            Ok(results) => {
+                log::info!(
+                    "Batch evaluation successful: {} scores returned",
+                    results.len()
+                );
 
-                                    // Update memory
-                                    match manager.update_memory(memory).await {
-                                        Ok(_) => {
-                                            log::debug!("Updated memory {} with score {:.3}", id, score);
-                                        }
-                                        Err(e) => {
-                                            log::error!("Failed to update memory {}: {:?}", id, e);
-                                        }
-                                    }
-                                }
-                                Ok(None) => {
-                                    log::warn!("Memory {} disappeared during batch processing", id);
+                // Update each memory with its score
+                for (id, score) in results {
+                    match manager.get_memory(&id).await {
+                        Ok(Some(mut memory)) => {
+                            // Update quality score in metadata
+                            memory.metadata.set_custom("quality_score", score).ok();
+                            memory
+                                .metadata
+                                .set_custom("evaluation_status", "Success")
+                                .ok();
+                            memory
+                                .metadata
+                                .set_custom("evaluated_at", chrono::Utc::now().to_rfc3339())
+                                .ok();
+                            memory
+                                .metadata
+                                .set_custom("evaluation_method", "batch_committee")
+                                .ok();
+
+                            // Update memory
+                            match manager.update_memory(memory).await {
+                                Ok(_) => {
+                                    log::debug!("Updated memory {} with score {:.3}", id, score);
                                 }
                                 Err(e) => {
-                                    log::error!("Failed to retrieve memory {} for update: {:?}", id, e);
+                                    log::error!("Failed to update memory {}: {:?}", id, e);
                                 }
                             }
                         }
-                    }
-                    Err(e) => {
-                        log::error!("Batch evaluation failed: {:?}", e);
-                        
-                        // Mark all memories as failed
-                        for id in &memory_ids {
-                            if let Ok(Some(mut memory)) = manager.get_memory(id).await {
-                                memory.metadata.set_custom("evaluation_status", "Failed").ok();
-                                memory.metadata.set_custom("error_message", e.to_string()).ok();
-                                let _ = manager.update_memory(memory).await;
-                            }
+                        Ok(None) => {
+                            log::warn!("Memory {} disappeared during batch processing", id);
+                        }
+                        Err(e) => {
+                            log::error!("Failed to retrieve memory {} for update: {:?}", id, e);
                         }
                     }
                 }
-            });
-        });
+            }
+            Err(e) => {
+                log::error!("Batch evaluation failed: {:?}", e);
+
+                // Mark all memories as failed
+                for id in &memory_ids {
+                    if let Ok(Some(mut memory)) = manager.get_memory(id).await {
+                        memory
+                            .metadata
+                            .set_custom("evaluation_status", "Failed")
+                            .ok();
+                        memory
+                            .metadata
+                            .set_custom("error_message", e.to_string())
+                            .ok();
+                        let _ = manager.update_memory(memory).await;
+                    }
+                }
+            }
+        }
     }
 
     /// Maintains temporal context by applying decay via window sliding.
-    /// 
+    ///
     /// # Mathematical Model
-    /// 
+    ///
     /// Implements discrete exponential decay:
     /// - V(n+1) = V(n) * (1 - decay_rate)
     /// - Equivalent continuous form: V(t) = V₀ * e^(-λt) where λ = -ln(1-decay_rate)
     /// - Default decay_rate: 0.1 → λ ≈ 0.105
     /// - Half-life: ~6.58 window durations (default: ~6.58 hours)
-    /// 
+    ///
     /// # Architecture Constraint
-    /// 
+    ///
     /// **BLOCKER:** Current TemporalContext is `Arc<CachePadded<TemporalContext>>` without
     /// interior mutability. slide_window() requires `&mut self`, which cannot be obtained
     /// through Arc without RwLock wrapper.
-    /// 
+    ///
     /// **Required change before activation:**
     /// ```rust
     /// // In CognitiveState (domain/memory/cognitive/types.rs:42)
     /// temporal_context: Arc<RwLock<TemporalContext>>  // Add RwLock
     /// ```
-    /// 
+    ///
     /// # Future Integration
-    /// 
+    ///
     /// This method should be called periodically to:
     /// - Apply temporal decay to memory history embedding
     /// - Maintain relevance weighting of recent vs. old memories  
@@ -905,26 +947,26 @@ impl CognitiveWorker {
     ///        self.maintain_temporal_context().await?;
     ///    }
     ///    ```
-    /// 
+    ///
     /// 2. **Threshold-based:** After M new memories added (default: 100)
     ///    ```rust
     ///    if self.memory_count_since_last_slide() >= 100 {
     ///        self.maintain_temporal_context().await?;
     ///    }
     ///    ```
-    /// 
+    ///
     /// 3. **Hybrid (recommended):** Whichever comes first
     ///    - Ensures regular decay even during idle periods
     ///    - Responds to high-activity bursts
-    /// 
+    ///
     /// # Performance
-    /// 
+    ///
     /// - **Complexity:** O(n) where n = history_embedding.len() (typically 384-1024)
     /// - **Execution time:** <1μs for 1024 dimensions with SIMD
     /// - **Lock contention:** Minimal (write lock held <1μs)
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns error if:
     /// - Temporal context lock cannot be acquired (future: when RwLock added)
     /// - System time moves backwards (handled with Duration::ZERO fallback)
@@ -932,30 +974,29 @@ impl CognitiveWorker {
     #[allow(dead_code)]
     async fn maintain_temporal_context(&self) -> Result<(), String> {
         // ARCHITECTURE NOTE: This is a placeholder until temporal_context has RwLock wrapper
-        // 
+        //
         // Future implementation (after adding RwLock):
         //
         // let cognitive_mem = self.cognitive_memory.read().await;
         // let state = cognitive_mem.state();
-        // 
+        //
         // // Acquire write lock on temporal context
         // let mut temporal_ctx = state.temporal_context.write().await;
-        // 
+        //
         // // Apply exponential decay to history embedding
         // temporal_ctx.slide_window();
-        // 
+        //
         // log::debug!(
         //     "Applied temporal decay: window_start={:?}, decay_rate={}, history_dim={}",
         //     temporal_ctx.window_start,
         //     temporal_ctx.temporal_decay,
         //     temporal_ctx.history_embedding.len()
         // );
-        
+
         log::debug!(
             "Temporal decay maintenance placeholder - awaiting RwLock wrapper on temporal_context"
         );
-        
+
         Ok(())
     }
-
 }

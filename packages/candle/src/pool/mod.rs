@@ -216,19 +216,15 @@
 //!   maintenance.rs            - Background eviction thread
 //! ```
 
-pub mod core;
 pub mod capabilities;
+pub mod core;
 pub mod maintenance;
 pub mod shutdown;
 
-pub use core::{Pool, PoolConfig, PoolError, WorkerHandle, WorkerState};
 pub use capabilities::{
-    image_embedding_pool,
-    text_embedding_pool,
-    text_to_image_pool,
-    text_to_text_pool,
-    vision_pool,
+    image_embedding_pool, text_embedding_pool, text_to_image_pool, text_to_text_pool, vision_pool,
 };
+pub use core::{Pool, PoolConfig, PoolError, WorkerHandle, WorkerState};
 pub use maintenance::start_maintenance_thread;
 pub use shutdown::begin_shutdown;
 
@@ -244,8 +240,8 @@ use std::thread::JoinHandle;
 /// - **Start**: On first call to `init_maintenance()`
 /// - **Run**: Every 60 seconds (configurable via `PoolConfig.maintenance_interval_secs`)
 /// - **Stop**: When all pools signal shutdown via `begin_shutdown()`
-static MAINTENANCE_THREAD: Lazy<Option<JoinHandle<()>>> = Lazy::new(|| {
-    match start_maintenance_thread() {
+static MAINTENANCE_THREAD: Lazy<Option<JoinHandle<()>>> =
+    Lazy::new(|| match start_maintenance_thread() {
         Ok(handle) => {
             log::info!("Pool maintenance thread started");
             Some(handle)
@@ -254,8 +250,7 @@ static MAINTENANCE_THREAD: Lazy<Option<JoinHandle<()>>> = Lazy::new(|| {
             log::error!("Failed to start maintenance thread: {}", e);
             None
         }
-    }
-});
+    });
 
 /// Initialize pool maintenance thread
 ///

@@ -157,7 +157,7 @@ impl CandleModelCapabilities {
         let flag = Self::capability_to_flag(capability);
         self.flags.set(flag, enabled);
     }
-    
+
     /// Convert capability enum to flag
     const fn capability_to_flag(capability: CandleCapability) -> ModelCapabilityFlags {
         match capability {
@@ -205,7 +205,12 @@ impl CandleModelCapabilities {
 
     /// Get an iterator over all enabled capabilities
     pub fn enabled_capabilities(&self) -> impl Iterator<Item = CandleCapability> + '_ {
-        use CandleCapability::{Vision, FunctionCalling, Streaming, FineTuning, BatchProcessing, Realtime, Multimodal, Thinking, Embedding, CodeCompletion, Chat, InstructionFollowing, FewShotLearning, ZeroShotLearning, LongContext, LowLatency, HighThroughput, Quantization, Distillation, Pruning};
+        use CandleCapability::{
+            BatchProcessing, Chat, CodeCompletion, Distillation, Embedding, FewShotLearning,
+            FineTuning, FunctionCalling, HighThroughput, InstructionFollowing, LongContext,
+            LowLatency, Multimodal, Pruning, Quantization, Realtime, Streaming, Thinking, Vision,
+            ZeroShotLearning,
+        };
         [
             Vision,
             FunctionCalling,

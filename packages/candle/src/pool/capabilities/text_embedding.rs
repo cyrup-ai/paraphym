@@ -1,15 +1,15 @@
-use crossbeam::channel::{Sender, Receiver, bounded};
+use crossbeam::channel::{Receiver, Sender, bounded};
 use crossbeam::select;
 use once_cell::sync::Lazy;
-use std::time::Duration;
-use std::sync::atomic::{Ordering, AtomicU32};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::Duration;
 
-use crate::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
-use crate::pool::core::types::{select_worker_power_of_two, HealthPing, HealthPong};
-use crate::pool::core::memory_governor::AllocationGuard;
-use crate::pool::WorkerState;
 use crate::capability::traits::TextEmbeddingCapable;
+use crate::pool::WorkerState;
+use crate::pool::core::memory_governor::AllocationGuard;
+use crate::pool::core::types::{HealthPing, HealthPong, select_worker_power_of_two};
+use crate::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
 
 /// Request for embed() operation
 pub struct EmbedRequest {
@@ -32,18 +32,18 @@ pub struct TextEmbeddingWorkerHandle {
     pub embed_tx: Sender<EmbedRequest>,
     pub batch_embed_tx: Sender<BatchEmbedRequest>,
     pub shutdown_tx: Sender<()>,
-    pub registry_key: String,  // Added to enable cleanup on drop
+    pub registry_key: String, // Added to enable cleanup on drop
 }
 
 impl crate::pool::core::types::PoolWorkerHandle for TextEmbeddingWorkerHandle {
     fn core(&self) -> &crate::pool::core::WorkerHandle {
         &self.core
     }
-    
+
     fn core_mut(&mut self) -> &mut crate::pool::core::WorkerHandle {
         &mut self.core
     }
-    
+
     fn registry_key(&self) -> &str {
         &self.registry_key
     }
@@ -51,10 +51,26 @@ impl crate::pool::core::types::PoolWorkerHandle for TextEmbeddingWorkerHandle {
 
 impl std::ops::Deref for TextEmbeddingWorkerHandle {
     type Target = WorkerHandle;
-    
+
     fn deref(&self) -> &Self::Target {
         &self.core
     }
+}
+
+/// Channels used by text embedding worker
+pub struct TextEmbeddingWorkerChannels {
+    pub embed_rx: Receiver<EmbedRequest>,
+    pub batch_embed_rx: Receiver<BatchEmbedRequest>,
+    pub shutdown_rx: Receiver<()>,
+    pub health_rx: Receiver<HealthPing>,
+    pub health_tx: Sender<HealthPong>,
+}
+
+/// Context for text embedding worker
+pub struct TextEmbeddingWorkerContext {
+    pub worker_id: usize,
+    pub registry_key: String,
+    pub state: Arc<AtomicU32>,
 }
 
 /// Worker loop for TextEmbedding models
@@ -66,43 +82,54 @@ impl std::ops::Deref for TextEmbeddingWorkerHandle {
 /// Worker owns model exclusively, processes requests until shutdown.
 pub fn text_embedding_worker<T: TextEmbeddingCapable>(
     model: T,
-    embed_rx: Receiver<EmbedRequest>,
-    batch_embed_rx: Receiver<BatchEmbedRequest>,
-    shutdown_rx: Receiver<()>,
-    health_rx: Receiver<HealthPing>,
-    health_tx: Sender<HealthPong>,
-    worker_id: usize,
-    _registry_key: String,
-    state: Arc<AtomicU32>,
+    channels: TextEmbeddingWorkerChannels,
+    context: TextEmbeddingWorkerContext,
 ) {
-    use std::time::{SystemTime, UNIX_EPOCH, Duration};
     use crate::pool::core::worker_state::WorkerState;
-    
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    // Destructure channels and context
+    let TextEmbeddingWorkerChannels {
+        embed_rx,
+        batch_embed_rx,
+        shutdown_rx,
+        health_rx,
+        health_tx,
+    } = channels;
+    let TextEmbeddingWorkerContext {
+        worker_id,
+        registry_key: _registry_key,
+        state,
+    } = context;
+
     // Track last activity for idle detection
     let mut last_activity = SystemTime::now();
     let idle_threshold = Duration::from_secs(300); // 5 minutes
-    
+
     loop {
         // Check for idle timeout (Ready → Idle after 5 minutes of inactivity)
-        if let Ok(elapsed) = last_activity.elapsed() {
-            if elapsed > idle_threshold {
-                let current_state = WorkerState::from(state.load(std::sync::atomic::Ordering::Acquire));
-                if matches!(current_state, WorkerState::Ready) {
-                    state.store(WorkerState::Idle as u32, std::sync::atomic::Ordering::Release);
-                }
+        if let Ok(elapsed) = last_activity.elapsed()
+            && elapsed > idle_threshold
+        {
+            let current_state = WorkerState::from(state.load(std::sync::atomic::Ordering::Acquire));
+            if matches!(current_state, WorkerState::Ready) {
+                state.store(
+                    WorkerState::Idle as u32,
+                    std::sync::atomic::Ordering::Release,
+                );
             }
         }
-        
+
         select! {
             recv(embed_rx) -> req => {
                 if let Ok(req) = req {
                     // Transition: Ready/Idle → Processing
                     state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
-                    
+
                     let result = model.embed(&req.text, req.task)
                         .map_err(|e| PoolError::ModelError(e.to_string()));
                     let _ = req.response.send(result);
-                    
+
                     // Transition: Processing → Ready
                     state.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
                     last_activity = SystemTime::now();
@@ -112,11 +139,11 @@ pub fn text_embedding_worker<T: TextEmbeddingCapable>(
                 if let Ok(req) = req {
                     // Transition: Ready/Idle → Processing
                     state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
-                    
+
                     let result = model.batch_embed(&req.texts, req.task)
                         .map_err(|e| PoolError::ModelError(e.to_string()));
                     let _ = req.response.send(result);
-                    
+
                     // Transition: Processing → Ready
                     state.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
                     last_activity = SystemTime::now();
@@ -128,13 +155,13 @@ pub fn text_embedding_worker<T: TextEmbeddingCapable>(
                         .duration_since(UNIX_EPOCH)
                         .map(|d| d.as_secs())
                         .unwrap_or(0);
-                    
+
                     let pong = HealthPong {
                         worker_id,
                         timestamp: now,
                         queue_depth: embed_rx.len() + batch_embed_rx.len(),
                     };
-                    
+
                     let _ = health_tx.send(pong);
                 }
             }
@@ -149,9 +176,8 @@ pub fn text_embedding_worker<T: TextEmbeddingCapable>(
 }
 
 /// Global TextEmbedding pool instance  
-static TEXT_EMBEDDING_POOL: Lazy<Pool<TextEmbeddingWorkerHandle>> = Lazy::new(|| {
-    Pool::new(PoolConfig::default())
-});
+static TEXT_EMBEDDING_POOL: Lazy<Pool<TextEmbeddingWorkerHandle>> =
+    Lazy::new(|| Pool::new(PoolConfig::default()));
 
 /// Access global TextEmbedding pool
 pub fn text_embedding_pool() -> &'static Pool<TextEmbeddingWorkerHandle> {
@@ -171,7 +197,6 @@ impl Pool<TextEmbeddingWorkerHandle> {
         T: TextEmbeddingCapable + Send + 'static,
         F: FnOnce() -> Result<T, PoolError> + Send + 'static,
     {
-
         // Create BOUNDED channels (prevent OOM)
         let (embed_tx, embed_rx) = bounded(self.config().embed_queue_capacity);
         let (batch_embed_tx, batch_embed_rx) = bounded(self.config().batch_queue_capacity);
@@ -190,7 +215,7 @@ impl Pool<TextEmbeddingWorkerHandle> {
         let health_rx_worker_clone = health_rx_worker.clone();
         let health_tx_main_clone = health_tx_main.clone();
         let per_worker_mb_clone = per_worker_mb;
-        
+
         // Create state before spawning thread so we can clone it
         use std::sync::atomic::AtomicU32;
         let state = Arc::new(AtomicU32::new(0)); // Spawning state
@@ -200,61 +225,77 @@ impl Pool<TextEmbeddingWorkerHandle> {
         std::thread::spawn(move || {
             // Guard held by worker thread - will drop on exit
             let _memory_guard = allocation_guard;
-            
+
             // Transition: Spawning → Loading
-            state_clone.store(WorkerState::Loading as u32, std::sync::atomic::Ordering::Release);
-            
+            state_clone.store(
+                WorkerState::Loading as u32,
+                std::sync::atomic::Ordering::Release,
+            );
+
             // Load model
             let model = match model_loader() {
                 Ok(m) => {
                     log::info!("TextEmbedding worker {} ready", worker_id);
                     // Transition: Loading → Ready
-                    state_clone.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
+                    state_clone.store(
+                        WorkerState::Ready as u32,
+                        std::sync::atomic::Ordering::Release,
+                    );
                     m
                 }
                 Err(e) => {
                     log::error!("TextEmbedding worker {} failed: {}", worker_id, e);
                     // Transition: Loading → Failed
-                    state_clone.store(WorkerState::Failed as u32, std::sync::atomic::Ordering::Release);
-                    
+                    state_clone.store(
+                        WorkerState::Failed as u32,
+                        std::sync::atomic::Ordering::Release,
+                    );
+
                     // Clean up memory tracking
                     // This prevents memory leak when model loading fails
                     text_embedding_pool().remove_memory(per_worker_mb_clone);
-                    
+
                     return; // Exit thread without running worker loop
                 }
             };
 
             text_embedding_worker(
                 model,
-                embed_rx,
-                batch_embed_rx,
-                shutdown_rx,
-                health_rx_worker_clone,
-                health_tx_main_clone,
-                worker_id,
-                registry_key_clone.clone(),
-                Arc::clone(&state_clone),
+                TextEmbeddingWorkerChannels {
+                    embed_rx,
+                    batch_embed_rx,
+                    shutdown_rx,
+                    health_rx: health_rx_worker_clone,
+                    health_tx: health_tx_main_clone,
+                },
+                TextEmbeddingWorkerContext {
+                    worker_id,
+                    registry_key: registry_key_clone.clone(),
+                    state: Arc::clone(&state_clone),
+                },
             );
-            
+
             // Transition: Ready → Dead (when worker loop exits)
-            state_clone.store(WorkerState::Dead as u32, std::sync::atomic::Ordering::Release);
+            state_clone.store(
+                WorkerState::Dead as u32,
+                std::sync::atomic::Ordering::Release,
+            );
         });
 
         // Register worker handles
         // Create shared Arc values for worker handle
-        use std::sync::atomic::AtomicUsize;
         use std::sync::atomic::AtomicU64;
+        use std::sync::atomic::AtomicUsize;
         use std::time::{SystemTime, UNIX_EPOCH};
-        
+
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        
+
         let pending_requests = Arc::new(AtomicUsize::new(0));
         let last_used = Arc::new(AtomicU64::new(now));
-        
+
         // Create full handle with channels
         let full_handle = TextEmbeddingWorkerHandle {
             core: WorkerHandle {
@@ -296,16 +337,21 @@ impl Pool<TextEmbeddingWorkerHandle> {
 
         // Get circuit breaker for this model and check state
         let circuit = self.get_circuit_breaker(registry_key);
-        
+
         if !circuit.can_request() {
-            self.metrics().circuit_rejections.fetch_add(1, Ordering::Relaxed);
+            self.metrics()
+                .circuit_rejections
+                .fetch_add(1, Ordering::Relaxed);
             return Err(PoolError::CircuitOpen(format!(
-                "Circuit breaker open for {}", registry_key
+                "Circuit breaker open for {}",
+                registry_key
             )));
         }
 
         // Get workers from pool
-        let workers = self.workers().get(registry_key)
+        let workers = self
+            .workers()
+            .get(registry_key)
             .ok_or_else(|| PoolError::NoWorkers(format!("No workers for {}", registry_key)))?;
 
         if workers.is_empty() {
@@ -313,34 +359,36 @@ impl Pool<TextEmbeddingWorkerHandle> {
         }
 
         // Find alive worker with least load using Power of Two Choices (O(1))
-        let alive_workers: Vec<_> = workers
-            .iter()
-            .filter(|w| w.core.is_alive())
-            .collect();
-        
-        let worker = select_worker_power_of_two(&alive_workers, |w| &w.core)
-            .ok_or_else(|| PoolError::NoWorkers(format!("No alive workers for {}", registry_key)))?;
+        let alive_workers: Vec<_> = workers.iter().filter(|w| w.core.is_alive()).collect();
+
+        let worker = select_worker_power_of_two(&alive_workers, |w| &w.core).ok_or_else(|| {
+            PoolError::NoWorkers(format!("No alive workers for {}", registry_key))
+        })?;
 
         // Send request
         worker.core.pending_requests.fetch_add(1, Ordering::Release);
         worker.core.touch();
 
         let (response_tx, response_rx) = bounded(0);
-        worker.embed_tx.send(EmbedRequest {
-            text: text.to_string(),
-            task,
-            response: response_tx,
-        }).map_err(|e| PoolError::SendError(e.to_string()))?;
+        worker
+            .embed_tx
+            .send(EmbedRequest {
+                text: text.to_string(),
+                task,
+                response: response_tx,
+            })
+            .map_err(|e| PoolError::SendError(e.to_string()))?;
 
         // Wait for response with timeout
         let timeout = Duration::from_secs(self.config().request_timeout_secs);
-        let result = response_rx.recv_timeout(timeout)
-            .map_err(|e| {
-                // Record timeout as failure
-                circuit.record_failure();
-                self.metrics().total_timeouts.fetch_add(1, Ordering::Relaxed);
-                PoolError::Timeout(e.to_string())
-            })?;
+        let result = response_rx.recv_timeout(timeout).map_err(|e| {
+            // Record timeout as failure
+            circuit.record_failure();
+            self.metrics()
+                .total_timeouts
+                .fetch_add(1, Ordering::Relaxed);
+            PoolError::Timeout(e.to_string())
+        })?;
 
         worker.core.pending_requests.fetch_sub(1, Ordering::Release);
 
@@ -370,16 +418,21 @@ impl Pool<TextEmbeddingWorkerHandle> {
 
         // Get circuit breaker for this model and check state
         let circuit = self.get_circuit_breaker(registry_key);
-        
+
         if !circuit.can_request() {
-            self.metrics().circuit_rejections.fetch_add(1, Ordering::Relaxed);
+            self.metrics()
+                .circuit_rejections
+                .fetch_add(1, Ordering::Relaxed);
             return Err(PoolError::CircuitOpen(format!(
-                "Circuit breaker open for {}", registry_key
+                "Circuit breaker open for {}",
+                registry_key
             )));
         }
 
         // Get workers from pool
-        let workers = self.workers().get(registry_key)
+        let workers = self
+            .workers()
+            .get(registry_key)
             .ok_or_else(|| PoolError::NoWorkers(format!("No workers for {}", registry_key)))?;
 
         if workers.is_empty() {
@@ -387,34 +440,36 @@ impl Pool<TextEmbeddingWorkerHandle> {
         }
 
         // Find alive worker with least load using Power of Two Choices (O(1))
-        let alive_workers: Vec<_> = workers
-            .iter()
-            .filter(|w| w.core.is_alive())
-            .collect();
-        
-        let worker = select_worker_power_of_two(&alive_workers, |w| &w.core)
-            .ok_or_else(|| PoolError::NoWorkers(format!("No alive workers for {}", registry_key)))?;
+        let alive_workers: Vec<_> = workers.iter().filter(|w| w.core.is_alive()).collect();
+
+        let worker = select_worker_power_of_two(&alive_workers, |w| &w.core).ok_or_else(|| {
+            PoolError::NoWorkers(format!("No alive workers for {}", registry_key))
+        })?;
 
         // Send request
         worker.core.pending_requests.fetch_add(1, Ordering::Release);
         worker.core.touch();
 
         let (response_tx, response_rx) = bounded(0);
-        worker.batch_embed_tx.send(BatchEmbedRequest {
-            texts: texts.to_vec(),
-            task,
-            response: response_tx,
-        }).map_err(|e| PoolError::SendError(e.to_string()))?;
+        worker
+            .batch_embed_tx
+            .send(BatchEmbedRequest {
+                texts: texts.to_vec(),
+                task,
+                response: response_tx,
+            })
+            .map_err(|e| PoolError::SendError(e.to_string()))?;
 
         // Wait for response with timeout
         let timeout = Duration::from_secs(self.config().request_timeout_secs);
-        let result = response_rx.recv_timeout(timeout)
-            .map_err(|e| {
-                // Record timeout as failure
-                circuit.record_failure();
-                self.metrics().total_timeouts.fetch_add(1, Ordering::Relaxed);
-                PoolError::Timeout(e.to_string())
-            })?;
+        let result = response_rx.recv_timeout(timeout).map_err(|e| {
+            // Record timeout as failure
+            circuit.record_failure();
+            self.metrics()
+                .total_timeouts
+                .fetch_add(1, Ordering::Relaxed);
+            PoolError::Timeout(e.to_string())
+        })?;
 
         worker.core.pending_requests.fetch_sub(1, Ordering::Release);
 
@@ -430,5 +485,3 @@ impl Pool<TextEmbeddingWorkerHandle> {
         result
     }
 }
-
-

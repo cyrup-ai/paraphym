@@ -6,9 +6,9 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use ystream::AsyncStream;
-use serde::{Deserialize, Serialize};
 use cyrup_sugars::prelude::MessageChunk;
+use serde::{Deserialize, Serialize};
+use ystream::AsyncStream;
 
 /// `CandleContext` trait - mirrors `paraphym-domain::Context` exactly with Candle prefix
 ///
@@ -297,9 +297,10 @@ impl MessageChunk for CandleContextCapabilities {
 
     fn error(&self) -> Option<&str> {
         if let Some(perm) = self.required_permissions.first()
-            && perm.starts_with("ERROR: ") {
-                return Some(perm);
-            }
+            && perm.starts_with("ERROR: ")
+        {
+            return Some(perm);
+        }
         None
     }
 }
@@ -385,7 +386,9 @@ impl CandleContext for CandleFileContext {
     fn get_capabilities(&self) -> AsyncStream<CandleContextCapabilities> {
         AsyncStream::with_channel(move |sender| {
             let capabilities = CandleContextCapabilities {
-                flags: ContextCapabilityFlags::REALTIME_UPDATES | ContextCapabilityFlags::REFRESH | ContextCapabilityFlags::STREAMING,
+                flags: ContextCapabilityFlags::REALTIME_UPDATES
+                    | ContextCapabilityFlags::REFRESH
+                    | ContextCapabilityFlags::STREAMING,
                 max_content_size: Some(100 * 1024 * 1024), // 100MB
                 supported_content_types: vec![
                     CandleContextType::Text,

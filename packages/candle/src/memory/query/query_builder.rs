@@ -256,11 +256,7 @@ impl BuiltQuery {
             return Ok("1=1".to_string());
         }
 
-        let clause_sql: Result<Vec<String>> = self
-            .clauses
-            .iter()
-            .map(clause_to_sql)
-            .collect();
+        let clause_sql: Result<Vec<String>> = self.clauses.iter().map(clause_to_sql).collect();
 
         Ok(clause_sql?.join(" AND "))
     }

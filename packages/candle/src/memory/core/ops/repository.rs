@@ -47,7 +47,11 @@ impl MemoryRepository {
     }
 
     /// Create and add a memory to the repository
-    pub fn create(&mut self, id: &str, memory: &MemoryNode) -> crate::memory::utils::Result<MemoryNode> {
+    pub fn create(
+        &mut self,
+        id: &str,
+        memory: &MemoryNode,
+    ) -> crate::memory::utils::Result<MemoryNode> {
         // Create a new memory with the provided ID
         let mut new_memory = memory.clone();
         new_memory.id = id.to_string();
@@ -103,14 +107,14 @@ impl MemoryRepository {
     /// Get a memory by its ID
     pub fn get(&self, id: &str) -> Option<Arc<MemoryNode>> {
         let result = self.memories.get(id).cloned();
-        
+
         // Record cache performance metrics
         if result.is_some() {
             crate::domain::memory::ops::record_cache_hit();
         } else {
             crate::domain::memory::ops::record_cache_miss();
         }
-        
+
         result
     }
 
@@ -150,9 +154,10 @@ impl MemoryRepository {
 
         for id in initial_set {
             if let Some(memory) = self.memories.get(&id)
-                && filter.matches(memory) {
-                    results.push(memory.clone());
-                }
+                && filter.matches(memory)
+            {
+                results.push(memory.clone());
+            }
         }
 
         // Sort results if needed
@@ -220,15 +225,17 @@ impl MemoryRepository {
 
         // Remove from user index
         if let Some(user_id) = &memory.metadata.user_id
-            && let Some(user_ids) = self.user_index.get_mut(user_id) {
-                user_ids.remove(&memory.id);
-            }
+            && let Some(user_ids) = self.user_index.get_mut(user_id)
+        {
+            user_ids.remove(&memory.id);
+        }
 
         // Remove from agent index
         if let Some(agent_id) = &memory.metadata.agent_id
-            && let Some(agent_ids) = self.agent_index.get_mut(agent_id) {
-                agent_ids.remove(&memory.id);
-            }
+            && let Some(agent_ids) = self.agent_index.get_mut(agent_id)
+        {
+            agent_ids.remove(&memory.id);
+        }
 
         // Remove from tag index
         for tag in &memory.metadata.tags {

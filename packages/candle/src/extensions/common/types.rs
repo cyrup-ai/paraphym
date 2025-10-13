@@ -4,37 +4,37 @@ use std::path::PathBuf;
 pub enum ExtensionError {
     #[error("Home directory not found")]
     HomeDirectoryNotFound,
-    
+
     #[error("Extension directory not found: {0}")]
     ExtensionDirectoryNotFound(PathBuf),
-    
+
     #[error("Failed to parse metadata: {0}")]
     MetadataParseError(String),
-    
+
     #[error("Process execution failed: {0}")]
     ProcessError(#[from] std::io::Error),
-    
+
     #[error("Process timed out after {0} seconds")]
     Timeout(u64),
-    
+
     #[error("Failed to parse JSON output: {0}")]
     JsonParseError(#[from] serde_json::Error),
-    
+
     #[error("Failed to parse XML output: {0}")]
     XmlParseError(String),
-    
+
     #[error("Failed to parse plist: {0}")]
     PlistParseError(String),
-    
+
     #[error("Missing required parameter: {0}")]
     MissingParameter(&'static str),
-    
+
     #[error("Extension not found: {0}")]
     ExtensionNotFound(String),
-    
+
     #[error("Invalid UTF-8 in output")]
     InvalidUtf8,
-    
+
     #[error("Async join error: {0}")]
     JoinError(String),
 }

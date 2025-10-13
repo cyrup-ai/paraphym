@@ -11492,7 +11492,6 @@ dependencies = [
  "assert_approx_eq",
  "async-channel",
  "async-stream",
- "async-trait",
  "atomic",
  "atomic-counter",
  "axum 0.8.6",

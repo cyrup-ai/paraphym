@@ -20,7 +20,7 @@ impl EntanglementLink {
             coherence_time: 1.0,
         }
     }
-    
+
     pub fn measure_correlation(&self) -> f64 {
         self.entanglement_strength
     }

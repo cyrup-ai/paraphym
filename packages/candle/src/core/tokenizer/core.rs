@@ -439,12 +439,7 @@ pub mod utils {
         let mut split_pos = max_chars;
 
         // Look backward for whitespace
-        while split_pos > 0
-            && !text
-                .chars()
-                .nth(split_pos)
-                .is_some_and(char::is_whitespace)
-        {
+        while split_pos > 0 && !text.chars().nth(split_pos).is_some_and(char::is_whitespace) {
             split_pos -= 1;
         }
 

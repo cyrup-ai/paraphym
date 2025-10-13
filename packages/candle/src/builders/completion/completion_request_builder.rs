@@ -6,16 +6,15 @@ use thiserror::Error;
 use crate::domain::{
     chat::CandleMessage as ChatMessage,
     completion::{
-        types::{MAX_TOKENS, TEMPERATURE_RANGE},
         CandleCompletionRequest as CompletionRequest,
+        types::{MAX_TOKENS, TEMPERATURE_RANGE},
     },
     context::CandleDocument as Document,
-    model::{CandleValidationError as ValidationError},
-
+    model::CandleValidationError as ValidationError,
 };
 use crate::memory::core::ops::retrieval::RetrievalResult;
-use sweet_mcp_type::ToolInfo;
 use cyrup_sugars::ZeroOneOrMany;
+use sweet_mcp_type::ToolInfo;
 
 /// Builder for completion requests
 pub struct CompletionRequestBuilder {

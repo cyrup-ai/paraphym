@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::extensions::common::types::Result;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RaycastResult {
@@ -25,7 +25,7 @@ pub fn parse_json_output(output: &str) -> Result<Option<RaycastResult>> {
     if output.trim().is_empty() {
         return Ok(None);
     }
-    
+
     // Try to parse as JSON
     match serde_json::from_str::<RaycastResult>(output) {
         Ok(result) => Ok(Some(result)),
@@ -39,7 +39,8 @@ pub fn parse_json_output(output: &str) -> Result<Option<RaycastResult>> {
 /// Parse plain text output as a simple result
 pub fn parse_text_output(output: &str) -> RaycastResult {
     let lines: Vec<&str> = output.lines().collect();
-    let items = lines.into_iter()
+    let items = lines
+        .into_iter()
         .filter(|line| !line.trim().is_empty())
         .map(|line| RaycastItem {
             title: line.to_string(),
@@ -48,6 +49,6 @@ pub fn parse_text_output(output: &str) -> RaycastResult {
             icon: None,
         })
         .collect();
-    
+
     RaycastResult { items }
 }

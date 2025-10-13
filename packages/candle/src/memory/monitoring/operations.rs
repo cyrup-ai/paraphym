@@ -7,8 +7,8 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use moka::sync::Cache;
+use serde::{Deserialize, Serialize};
 /// High-performance lock-free counter for monitoring operations
 #[derive(Debug, Default)]
 pub struct RelaxedCounter {
@@ -56,7 +56,7 @@ pub enum OperationType {
     DeleteRelationship,
     /// Batch operation
     BatchOperation,
-    
+
     // Cognitive operation types:
     /// Committee-based LLM evaluation of memory quality
     CommitteeEvaluation,
@@ -66,7 +66,7 @@ pub enum OperationType {
     QuantumRouting,
     /// Batch processing of multiple cognitive tasks
     BatchCognitive,
-    
+
     /// Custom operation
     Custom(String),
 }
@@ -341,13 +341,15 @@ impl OperationTracker {
                 .unwrap_or(0),
             operation.id
         );
-        
+
         // Moka automatically evicts LRU entry if at capacity
         self.completed.insert(history_key, operation);
-        
+
         // Update metrics to reflect actual cache size
         let current_size = self.completed.entry_count();
-        self.metrics.history_count.store(current_size as usize, Ordering::Relaxed);
+        self.metrics
+            .history_count
+            .store(current_size as usize, Ordering::Relaxed);
     }
 
     /// Get active operations with zero allocation where possible

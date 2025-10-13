@@ -5,12 +5,15 @@
 
 use std::fmt;
 // Removed unused import: std::marker::PhantomData
-use std::sync::{atomic::{AtomicU64, Ordering}, LazyLock};
+use std::sync::{
+    LazyLock,
+    atomic::{AtomicU64, Ordering},
+};
 use std::time::{Duration, Instant};
 
 use atomic_counter::{AtomicCounter, RelaxedCounter};
 
-use crate::domain::util::{duration_to_nanos_u64, duration_to_millis_u64};
+use crate::domain::util::{duration_to_millis_u64, duration_to_nanos_u64};
 
 /// Maximum length for error messages to ensure zero allocation
 pub const MAX_ERROR_MESSAGE_LEN: usize = 256;
@@ -69,7 +72,7 @@ impl SimpleCircuitBreaker {
                 let now = duration_to_millis_u64(
                     std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
+                        .unwrap_or_default(),
                 );
                 let last_failure = self.last_failure_time.load(Ordering::Relaxed);
 
@@ -106,7 +109,7 @@ impl SimpleCircuitBreaker {
                     let now = duration_to_millis_u64(
                         std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
+                            .unwrap_or_default(),
                     );
                     self.last_failure_time.store(now, Ordering::Relaxed);
                 }
@@ -989,7 +992,9 @@ where
     fn with_error_metadata(self, key: &str, value: &str) -> Result<T, Box<ZeroAllocError>> {
         match self {
             Ok(value) => Ok(value),
-            Err(e) => Err(Box::new(e.into_zero_alloc_error().with_metadata(key, value))),
+            Err(e) => Err(Box::new(
+                e.into_zero_alloc_error().with_metadata(key, value),
+            )),
         }
     }
 

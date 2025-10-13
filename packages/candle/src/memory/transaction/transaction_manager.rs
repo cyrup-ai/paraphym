@@ -17,7 +17,7 @@ use crate::memory::transaction::{
 pub struct TransactionManager {
     /// Database connection
     db: Arc<Surreal<Any>>,
-    
+
     /// Active transactions
     active_transactions: Arc<RwLock<HashMap<String, Arc<Mutex<TransactionImpl>>>>>,
 
@@ -187,41 +187,58 @@ impl TransactionManager {
 
         // Execute operations and capture result
         let commit_result = async {
-            let sdk_tx = self.db.transaction().await
-                .map_err(|e| TransactionError::DatabaseError(format!("BEGIN failed: {:?}", e)))?;
+            let sdk_tx =
+                self.db.transaction().await.map_err(|e| {
+                    TransactionError::DatabaseError(format!("BEGIN failed: {:?}", e))
+                })?;
 
             for operation in &tx.operations {
                 match operation {
                     Operation::Insert { table, id, data } => {
-                        sdk_tx.create::<Option<serde_json::Value>>((table.as_str(), id.as_str()))
+                        sdk_tx
+                            .create::<Option<serde_json::Value>>((table.as_str(), id.as_str()))
                             .content(data.clone())
                             .await
-                            .map_err(|e| TransactionError::DatabaseError(format!("INSERT failed: {:?}", e)))?;
+                            .map_err(|e| {
+                                TransactionError::DatabaseError(format!("INSERT failed: {:?}", e))
+                            })?;
                     }
                     Operation::Update { table, id, data } => {
-                        sdk_tx.update::<Option<serde_json::Value>>((table.as_str(), id.as_str()))
+                        sdk_tx
+                            .update::<Option<serde_json::Value>>((table.as_str(), id.as_str()))
                             .content(data.clone())
                             .await
-                            .map_err(|e| TransactionError::DatabaseError(format!("UPDATE failed: {:?}", e)))?;
+                            .map_err(|e| {
+                                TransactionError::DatabaseError(format!("UPDATE failed: {:?}", e))
+                            })?;
                     }
                     Operation::Delete { table, id } => {
-                        sdk_tx.delete::<Option<serde_json::Value>>((table.as_str(), id.as_str()))
+                        sdk_tx
+                            .delete::<Option<serde_json::Value>>((table.as_str(), id.as_str()))
                             .await
-                            .map_err(|e| TransactionError::DatabaseError(format!("DELETE failed: {:?}", e)))?;
+                            .map_err(|e| {
+                                TransactionError::DatabaseError(format!("DELETE failed: {:?}", e))
+                            })?;
                     }
                 }
             }
 
-            sdk_tx.commit().await
+            sdk_tx
+                .commit()
+                .await
                 .map_err(|e| TransactionError::DatabaseError(format!("COMMIT failed: {:?}", e)))?;
-            
+
             Ok::<(), TransactionError>(())
-        }.await;
+        }
+        .await;
 
         // ALWAYS release locks regardless of success/failure
         let id_for_log = id.clone();
         for lock in &tx.locks {
-            let _ = self.lock_manager.release_lock(&lock.resource, id.clone()).await;
+            let _ = self
+                .lock_manager
+                .release_lock(&lock.resource, id.clone())
+                .await;
         }
 
         // Now handle the result
@@ -233,7 +250,8 @@ impl TransactionManager {
             }
             Err(e) => {
                 tx.state = TransactionState::Aborted;
-                self.log_action(id_for_log, TransactionAction::Rollback).await;
+                self.log_action(id_for_log, TransactionAction::Rollback)
+                    .await;
                 Err(e)
             }
         }
@@ -354,18 +372,20 @@ impl TransactionManager {
         id: String,
         data: serde_json::Value,
     ) -> Result<()> {
-        let transaction = self.get_transaction(transaction_id).await
+        let transaction = self
+            .get_transaction(transaction_id)
+            .await
             .ok_or_else(|| TransactionError::InvalidState("Transaction not found".to_string()))?;
-        
+
         let mut tx = transaction.lock().await;
-        
+
         if tx.state != TransactionState::Active {
             return Err(TransactionError::InvalidState(format!(
                 "Cannot add operation to transaction in state {:?}",
                 tx.state
             )));
         }
-        
+
         tx.operations.push(Operation::Insert { table, id, data });
         Ok(())
     }
@@ -378,41 +398,40 @@ impl TransactionManager {
         id: String,
         data: serde_json::Value,
     ) -> Result<()> {
-        let transaction = self.get_transaction(transaction_id).await
+        let transaction = self
+            .get_transaction(transaction_id)
+            .await
             .ok_or_else(|| TransactionError::InvalidState("Transaction not found".to_string()))?;
-        
+
         let mut tx = transaction.lock().await;
-        
+
         if tx.state != TransactionState::Active {
             return Err(TransactionError::InvalidState(format!(
                 "Cannot add operation to transaction in state {:?}",
                 tx.state
             )));
         }
-        
+
         tx.operations.push(Operation::Update { table, id, data });
         Ok(())
     }
 
     /// Add delete operation to transaction
-    pub async fn add_delete(
-        &self,
-        transaction_id: &str,
-        table: String,
-        id: String,
-    ) -> Result<()> {
-        let transaction = self.get_transaction(transaction_id).await
+    pub async fn add_delete(&self, transaction_id: &str, table: String, id: String) -> Result<()> {
+        let transaction = self
+            .get_transaction(transaction_id)
+            .await
             .ok_or_else(|| TransactionError::InvalidState("Transaction not found".to_string()))?;
-        
+
         let mut tx = transaction.lock().await;
-        
+
         if tx.state != TransactionState::Active {
             return Err(TransactionError::InvalidState(format!(
                 "Cannot add operation to transaction in state {:?}",
                 tx.state
             )));
         }
-        
+
         tx.operations.push(Operation::Delete { table, id });
         Ok(())
     }

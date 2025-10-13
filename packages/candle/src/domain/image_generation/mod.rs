@@ -5,8 +5,8 @@
 //! chunks, and the provider trait following paraphym's AsyncStream pattern.
 
 use candle_core::Tensor;
-use image::DynamicImage;
 use cyrup_sugars::prelude::MessageChunk;
+use image::DynamicImage;
 
 /// Configuration for image generation with diffusion models
 ///
@@ -33,10 +33,10 @@ pub struct ImageGenerationConfig {
 impl Default for ImageGenerationConfig {
     fn default() -> Self {
         Self {
-            width: 1024,           // SD3.5/FLUX native
-            height: 1024,          // SD3.5 native (FLUX uses 768)
-            steps: 4,              // SD3.5 Turbo / FLUX Schnell default
-            guidance_scale: 3.5,   // SD3.5 Turbo default
+            width: 1024,         // SD3.5/FLUX native
+            height: 1024,        // SD3.5 native (FLUX uses 768)
+            steps: 4,            // SD3.5 Turbo / FLUX Schnell default
+            guidance_scale: 3.5, // SD3.5 Turbo default
             negative_prompt: None,
             seed: None,
             use_flash_attn: false, // Opt-in optimization
@@ -80,7 +80,7 @@ impl MessageChunk for ImageGenerationChunk {
     fn bad_chunk(msg: String) -> Self {
         Self::Error(msg)
     }
-    
+
     fn error(&self) -> Option<&str> {
         match self {
             Self::Error(msg) => Some(msg.as_str()),
@@ -198,8 +198,12 @@ pub fn tensor_to_image(tensor: &Tensor) -> Result<DynamicImage, String> {
 
     // 5. Create RGB image from raw pixels
     let rgb = image::RgbImage::from_raw(
-        width.try_into().map_err(|_| "Image width exceeds u32::MAX")?,
-        height.try_into().map_err(|_| "Image height exceeds u32::MAX")?,
+        width
+            .try_into()
+            .map_err(|_| "Image width exceeds u32::MAX")?,
+        height
+            .try_into()
+            .map_err(|_| "Image height exceeds u32::MAX")?,
         pixels_u8,
     )
     .ok_or("Failed to create image from pixels")?;

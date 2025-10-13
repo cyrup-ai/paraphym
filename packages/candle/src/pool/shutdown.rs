@@ -4,8 +4,7 @@ use std::time::{Duration, Instant};
 use log::{info, warn};
 
 use crate::pool::capabilities::{
-    image_embedding_pool, text_embedding_pool, text_to_image_pool, text_to_text_pool,
-    vision_pool,
+    image_embedding_pool, text_embedding_pool, text_to_image_pool, text_to_text_pool, vision_pool,
 };
 use crate::pool::core::Pool;
 

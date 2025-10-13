@@ -89,7 +89,7 @@ impl ChangeType {
     /// Create from value
     pub fn from_value(value: &Value) -> Result<Self> {
         use surrealdb::value::from_value;
-        
+
         if let Ok(s) = from_value::<String>(value.clone()) {
             Self::parse_from_str(&s)
         } else {
@@ -251,18 +251,33 @@ impl MemoryVersion {
         let mut entity = BaseEntity::new(self.id.clone(), "memory_version".to_string());
 
         // Add basic attributes
-        entity = entity.with_attribute("memory_id", surrealdb::value::to_value(self.memory_id.clone()).unwrap_or_default());
-        entity = entity.with_attribute("version", surrealdb::value::to_value(self.version).unwrap_or_default());
+        entity = entity.with_attribute(
+            "memory_id",
+            surrealdb::value::to_value(self.memory_id.clone()).unwrap_or_default(),
+        );
+        entity = entity.with_attribute(
+            "version",
+            surrealdb::value::to_value(self.version).unwrap_or_default(),
+        );
         entity = entity.with_attribute("change_type", self.change_type.to_value());
-        entity = entity.with_attribute("timestamp", surrealdb::value::to_value(self.timestamp).unwrap_or_default());
+        entity = entity.with_attribute(
+            "timestamp",
+            surrealdb::value::to_value(self.timestamp).unwrap_or_default(),
+        );
 
         // Add optional attributes
         if let Some(ref user_id) = self.user_id {
-            entity = entity.with_attribute("user_id", surrealdb::value::to_value(user_id.clone()).unwrap_or_default());
+            entity = entity.with_attribute(
+                "user_id",
+                surrealdb::value::to_value(user_id.clone()).unwrap_or_default(),
+            );
         }
 
         if let Some(ref content) = self.content {
-            entity = entity.with_attribute("content", surrealdb::value::to_value(content.clone()).unwrap_or_default());
+            entity = entity.with_attribute(
+                "content",
+                surrealdb::value::to_value(content.clone()).unwrap_or_default(),
+            );
         }
 
         if let Some(ref previous_version_id) = self.previous_version_id {
@@ -273,7 +288,10 @@ impl MemoryVersion {
         }
 
         if !self.related_version_ids.is_empty() {
-            entity = entity.with_attribute("related_version_ids", surrealdb::value::to_value(self.related_version_ids.clone()).unwrap_or_default());
+            entity = entity.with_attribute(
+                "related_version_ids",
+                surrealdb::value::to_value(self.related_version_ids.clone()).unwrap_or_default(),
+            );
         }
 
         if let Some(ref change_summary) = self.change_summary {
@@ -284,7 +302,10 @@ impl MemoryVersion {
         }
 
         if let Some(ref diff) = self.diff {
-            entity = entity.with_attribute("diff", surrealdb::value::to_value(diff.clone()).unwrap_or_default());
+            entity = entity.with_attribute(
+                "diff",
+                surrealdb::value::to_value(diff.clone()).unwrap_or_default(),
+            );
         }
 
         // Add metadata
@@ -301,9 +322,8 @@ impl MemoryVersion {
 
         let memory_id = if let Some(value) = entity.get_attribute("memory_id") {
             use surrealdb::value::from_value;
-            from_value::<String>(value.clone()).map_err(|_| Error::ConversionError(
-                "Invalid memory_id attribute".to_string(),
-            ))?
+            from_value::<String>(value.clone())
+                .map_err(|_| Error::ConversionError("Invalid memory_id attribute".to_string()))?
         } else {
             return Err(Error::ConversionError(
                 "Missing memory_id attribute".to_string(),
@@ -312,9 +332,8 @@ impl MemoryVersion {
 
         let version = if let Some(value) = entity.get_attribute("version") {
             use surrealdb::value::from_value;
-            from_value::<u32>(value.clone()).map_err(|_| Error::ConversionError(
-                "Invalid version attribute".to_string(),
-            ))?
+            from_value::<u32>(value.clone())
+                .map_err(|_| Error::ConversionError("Invalid version attribute".to_string()))?
         } else {
             return Err(Error::ConversionError(
                 "Missing version attribute".to_string(),
@@ -331,9 +350,9 @@ impl MemoryVersion {
 
         let timestamp = if let Some(value) = entity.get_attribute("timestamp") {
             use surrealdb::value::from_value;
-            from_value::<DateTime<Utc>>(value.clone()).map_err(|e| Error::ConversionError(
-                format!("Invalid timestamp attribute: {}", e)
-            ))?
+            from_value::<DateTime<Utc>>(value.clone()).map_err(|e| {
+                Error::ConversionError(format!("Invalid timestamp attribute: {}", e))
+            })?
         } else {
             return Err(Error::ConversionError(
                 "Missing timestamp attribute".to_string(),

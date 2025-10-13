@@ -84,8 +84,7 @@ impl CommandRegistry {
 
         // Register aliases
         for alias in &info.aliases {
-            self.aliases
-                .insert(alias.clone(), command_name.clone());
+            self.aliases.insert(alias.clone(), command_name.clone());
         }
 
         // Update category index

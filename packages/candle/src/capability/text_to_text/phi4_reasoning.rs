@@ -11,9 +11,7 @@ use ystream::AsyncStream;
 use crate::core::Engine;
 use crate::domain::model::{info::CandleModelInfo, traits::CandleModel};
 use crate::domain::{
-    completion::CandleCompletionParams,
-    context::chunk::CandleCompletionChunk,
-    prompt::CandlePrompt,
+    completion::CandleCompletionParams, context::chunk::CandleCompletionChunk, prompt::CandlePrompt,
 };
 
 /// Chat template constant for Phi-4-reasoning
@@ -115,7 +113,10 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
         params: &CandleCompletionParams,
     ) -> AsyncStream<CandleCompletionChunk> {
         // Get file paths before the closure
-        let gguf_path = match self.huggingface_file(self.info().quantization_url.unwrap(), "phi-4-reasoning-Q4_K_M.gguf") {
+        let gguf_path = match self.huggingface_file(
+            self.info().quantization_url.unwrap(),
+            "phi-4-reasoning-Q4_K_M.gguf",
+        ) {
             Ok(path) => path,
             Err(e) => {
                 return AsyncStream::with_channel(move |sender| {
@@ -127,7 +128,8 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
             }
         };
 
-        let tokenizer_path = match self.huggingface_file(self.info().registry_key, "tokenizer.json") {
+        let tokenizer_path = match self.huggingface_file(self.info().registry_key, "tokenizer.json")
+        {
             Ok(path) => path,
             Err(e) => {
                 return AsyncStream::with_channel(move |sender| {
@@ -181,8 +183,8 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
         // Use Engine's coordinate_generation for automatic metrics and stream conversion
         engine.coordinate_generation(move || {
             use crate::core::generation::{
-                generator::TextGenerator, models::CandleQuantizedMixFormerModel,
-                tokens::SpecialTokens, SamplingConfig,
+                SamplingConfig, generator::TextGenerator, models::CandleQuantizedMixFormerModel,
+                tokens::SpecialTokens,
             };
             use crate::domain::context::chunk::CandleStringChunk;
             use candle_core::Device;
@@ -208,20 +210,18 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
             };
 
             // Load the quantized MixFormer model
-            let quantized_model = match CandleQuantizedMixFormerModel::from_gguf_path(
-                &gguf_path,
-                device.clone(),
-            ) {
-                Ok(model) => model,
-                Err(e) => {
-                    return AsyncStream::with_channel(move |sender| {
-                        let _ = sender.send(CandleStringChunk(format!(
-                            "ERROR: Failed to load quantized model: {}",
-                            e
-                        )));
-                    });
-                }
-            };
+            let quantized_model =
+                match CandleQuantizedMixFormerModel::from_gguf_path(&gguf_path, device.clone()) {
+                    Ok(model) => model,
+                    Err(e) => {
+                        return AsyncStream::with_channel(move |sender| {
+                            let _ = sender.send(CandleStringChunk(format!(
+                                "ERROR: Failed to load quantized model: {}",
+                                e
+                            )));
+                        });
+                    }
+                };
 
             // Build sampling config with extracted parameters
             let mut sampling_config = SamplingConfig::new(temperature as f32);
@@ -316,7 +316,6 @@ impl CandleModel for CandlePhi4ReasoningModel {
     }
 }
 
-
 /// Loaded Phi-4-Reasoning model that keeps resources in memory for worker threads
 ///
 /// This model pre-loads the tokenizer and device configuration, avoiding
@@ -334,27 +333,39 @@ impl LoadedPhi4ReasoningModel {
     ///
     /// This method loads the tokenizer and detects the device once,
     /// storing them for reuse across multiple requests.
-    pub fn load(base: &CandlePhi4ReasoningModel) 
-        -> Result<Self, Box<dyn std::error::Error + Send + Sync>> 
-    {
+    pub fn load(
+        base: &CandlePhi4ReasoningModel,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Get file paths
-        let gguf_file_path = base.huggingface_file(base.info().quantization_url.unwrap(), "phi-4-reasoning-Q4_K_M.gguf")
-            .map_err(|e| Box::from(format!("Failed to get GGUF file: {}", e)) as Box<dyn std::error::Error + Send + Sync>)?;
-        
-        let tokenizer_path = base.huggingface_file(base.info().registry_key, "tokenizer.json")
-            .map_err(|e| Box::from(format!("Failed to get tokenizer file: {}", e)) as Box<dyn std::error::Error + Send + Sync>)?;
-        
+        let gguf_file_path = base
+            .huggingface_file(
+                base.info().quantization_url.unwrap(),
+                "phi-4-reasoning-Q4_K_M.gguf",
+            )
+            .map_err(|e| {
+                Box::from(format!("Failed to get GGUF file: {}", e))
+                    as Box<dyn std::error::Error + Send + Sync>
+            })?;
+
+        let tokenizer_path = base
+            .huggingface_file(base.info().registry_key, "tokenizer.json")
+            .map_err(|e| {
+                Box::from(format!("Failed to get tokenizer file: {}", e))
+                    as Box<dyn std::error::Error + Send + Sync>
+            })?;
+
         // Load device (prefer GPU if available)
-        let device = crate::core::device_util::detect_best_device()
-            .unwrap_or_else(|e| {
-                log::warn!("Device detection failed: {}. Using CPU.", e);
-                candle_core::Device::Cpu
-            });
-        
+        let device = crate::core::device_util::detect_best_device().unwrap_or_else(|e| {
+            log::warn!("Device detection failed: {}. Using CPU.", e);
+            candle_core::Device::Cpu
+        });
+
         // Load tokenizer
-        let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer_path)
-            .map_err(|e| Box::from(format!("Failed to load tokenizer: {}", e)) as Box<dyn std::error::Error + Send + Sync>)?;
-        
+        let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer_path).map_err(|e| {
+            Box::from(format!("Failed to load tokenizer: {}", e))
+                as Box<dyn std::error::Error + Send + Sync>
+        })?;
+
         Ok(Self {
             tokenizer,
             gguf_file_path,
@@ -374,7 +385,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedPhi4ReasoningModel {
         let engine = self.engine.clone();
         let gguf_path = self.gguf_file_path.clone();
         let device = self.device.clone();
-        let tokenizer = self.tokenizer.clone();  // ✅ Clone pre-loaded tokenizer
+        let tokenizer = self.tokenizer.clone(); // ✅ Clone pre-loaded tokenizer
 
         // Build sampling config
         let temperature = if params.temperature != 1.0 {
@@ -415,26 +426,24 @@ impl crate::capability::traits::TextToTextCapable for LoadedPhi4ReasoningModel {
         // Use Engine's coordinate_generation for automatic metrics and stream conversion
         engine.coordinate_generation(move || {
             use crate::core::generation::{
-                generator::TextGenerator, models::CandleQuantizedMixFormerModel,
-                tokens::SpecialTokens, SamplingConfig,
+                SamplingConfig, generator::TextGenerator, models::CandleQuantizedMixFormerModel,
+                tokens::SpecialTokens,
             };
             use crate::domain::context::chunk::CandleStringChunk;
 
             // Load the quantized MixFormer model
-            let quantized_model = match CandleQuantizedMixFormerModel::from_gguf_path(
-                &gguf_path,
-                device.clone(),
-            ) {
-                Ok(model) => model,
-                Err(e) => {
-                    return AsyncStream::with_channel(move |sender| {
-                        let _ = sender.send(CandleStringChunk(format!(
-                            "ERROR: Failed to load quantized model: {}",
-                            e
-                        )));
-                    });
-                }
-            };
+            let quantized_model =
+                match CandleQuantizedMixFormerModel::from_gguf_path(&gguf_path, device.clone()) {
+                    Ok(model) => model,
+                    Err(e) => {
+                        return AsyncStream::with_channel(move |sender| {
+                            let _ = sender.send(CandleStringChunk(format!(
+                                "ERROR: Failed to load quantized model: {}",
+                                e
+                            )));
+                        });
+                    }
+                };
 
             // Build sampling config with extracted parameters
             let mut sampling_config = SamplingConfig::new(temperature as f32);
@@ -454,7 +463,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedPhi4ReasoningModel {
             // Create TextGenerator with real model and pre-loaded tokenizer
             let text_generator = TextGenerator::new(
                 Box::new(quantized_model),
-                tokenizer,  // ✅ Use pre-loaded tokenizer (no disk I/O)
+                tokenizer, // ✅ Use pre-loaded tokenizer (no disk I/O)
                 device,
                 sampling_config,
             );
@@ -481,7 +490,6 @@ impl crate::capability::traits::TextToTextCapable for LoadedPhi4ReasoningModel {
         })
     }
 }
-
 
 impl CandleModel for LoadedPhi4ReasoningModel {
     #[inline]

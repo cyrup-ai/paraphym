@@ -133,38 +133,44 @@ impl MemoryFilter {
     pub fn matches(&self, memory: &crate::memory::primitives::MemoryNode) -> bool {
         // Check memory type filter
         if let Some(ref types) = self.memory_types
-            && !types.contains(&memory.memory_type) {
-                return false;
-            }
+            && !types.contains(&memory.memory_type)
+        {
+            return false;
+        }
 
         // Check user ID filter
         if let Some(ref user_id) = self.user_id
-            && memory.metadata.user_id.as_ref() != Some(user_id) {
-                return false;
-            }
+            && memory.metadata.user_id.as_ref() != Some(user_id)
+        {
+            return false;
+        }
 
         // Check agent ID filter
         if let Some(ref agent_id) = self.agent_id
-            && memory.metadata.agent_id.as_ref() != Some(agent_id) {
-                return false;
-            }
+            && memory.metadata.agent_id.as_ref() != Some(agent_id)
+        {
+            return false;
+        }
 
         // Check tags filter
         if let Some(ref tags) = self.tags
-            && !tags.iter().any(|tag| memory.metadata.tags.contains(tag)) {
-                return false;
-            }
+            && !tags.iter().any(|tag| memory.metadata.tags.contains(tag))
+        {
+            return false;
+        }
 
         // Check time range filter
         if let Some(ref time_range) = self.time_range {
             if let Some(start) = time_range.start
-                && memory.created_at < start {
-                    return false;
-                }
+                && memory.created_at < start
+            {
+                return false;
+            }
             if let Some(end) = time_range.end
-                && memory.created_at >= end {
-                    return false;
-                }
+                && memory.created_at >= end
+            {
+                return false;
+            }
         }
 
         // Check importance range filter

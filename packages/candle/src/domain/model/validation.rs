@@ -63,10 +63,7 @@ impl std::fmt::Display for ValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ValidationError::MissingField { field, model } => {
-                write!(
-                    f,
-                    "Missing required field '{field}' for model '{model}'"
-                )
+                write!(f, "Missing required field '{field}' for model '{model}'")
             }
             ValidationError::InvalidRange {
                 field,

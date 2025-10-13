@@ -1,9 +1,9 @@
-use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
-use crossbeam::channel::{Sender, Receiver};
+use crossbeam::channel::{Receiver, Sender};
 use dashmap::DashMap;
 use serde::Serialize;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::time::Duration;
 use tracing::debug;
 
 /// Health check ping sent to worker
@@ -26,14 +26,14 @@ pub struct PoolConfig {
     pub maintenance_interval_secs: u64, // Default: 60 (1 minute)
     pub cooldown_idle_minutes: u64,     // Default: 1
     pub max_workers_per_model: usize,   // Default: 4 (adaptive scaling limit)
-    
+
     // Channel capacities (bounded to prevent OOM)
-    pub embed_queue_capacity: usize,          // Default: 100
-    pub batch_queue_capacity: usize,          // Default: 50
-    pub prompt_queue_capacity: usize,         // Default: 100 (text_to_text)
-    pub image_gen_queue_capacity: usize,      // Default: 20  (text_to_image)
-    pub vision_queue_capacity: usize,         // Default: 50  (vision)
-    pub image_embed_queue_capacity: usize,    // Default: 50  (image_embedding)
+    pub embed_queue_capacity: usize,       // Default: 100
+    pub batch_queue_capacity: usize,       // Default: 50
+    pub prompt_queue_capacity: usize,      // Default: 100 (text_to_text)
+    pub image_gen_queue_capacity: usize,   // Default: 20  (text_to_image)
+    pub vision_queue_capacity: usize,      // Default: 50  (vision)
+    pub image_embed_queue_capacity: usize, // Default: 50  (image_embedding)
 }
 
 impl Default for PoolConfig {
@@ -44,12 +44,12 @@ impl Default for PoolConfig {
             maintenance_interval_secs: 60,
             cooldown_idle_minutes: 1,
             max_workers_per_model: 4,
-            
+
             // Channel capacities (bounded to prevent OOM)
             embed_queue_capacity: 100,
             batch_queue_capacity: 50,
             prompt_queue_capacity: 100,
-            image_gen_queue_capacity: 20,  // Image gen is slower, smaller queue
+            image_gen_queue_capacity: 20, // Image gen is slower, smaller queue
             vision_queue_capacity: 50,
             image_embed_queue_capacity: 50,
         }
@@ -59,10 +59,10 @@ impl Default for PoolConfig {
 /// Per-model latency metrics (thread-safe atomic tracking)
 #[derive(Debug, Default)]
 pub struct ModelLatencyMetrics {
-    pub latency_sum_ms: AtomicU64,  // Sum for avg calculation
-    pub latency_count: AtomicU64,    // Request count for avg
-    pub latency_max_ms: AtomicU64,   // Peak latency
-    pub latency_min_ms: AtomicU64,   // Minimum latency (init to u64::MAX)
+    pub latency_sum_ms: AtomicU64, // Sum for avg calculation
+    pub latency_count: AtomicU64,  // Request count for avg
+    pub latency_max_ms: AtomicU64, // Peak latency
+    pub latency_min_ms: AtomicU64, // Minimum latency (init to u64::MAX)
 }
 
 impl ModelLatencyMetrics {
@@ -85,7 +85,7 @@ pub struct PoolMetrics {
     pub workers_spawned: AtomicUsize,
     pub workers_evicted: AtomicUsize,
     pub circuit_rejections: AtomicUsize,
-    
+
     // Per-model latency tracking
     pub per_model_latency: DashMap<String, ModelLatencyMetrics>,
 }
@@ -98,20 +98,23 @@ impl PoolMetrics {
     pub fn record_request(&self, registry_key: &str, duration: Duration, success: bool) {
         // Update global counter
         self.total_requests.fetch_add(1, Ordering::Release);
-        
+
         if !success {
             self.total_errors.fetch_add(1, Ordering::Release);
         }
-        
+
         // Update per-model latency metrics
         let latency_ms = duration.as_millis() as u64;
-        let metrics = self.per_model_latency
+        let metrics = self
+            .per_model_latency
             .entry(registry_key.to_string())
-            .or_insert_with(ModelLatencyMetrics::new);
-        
-        metrics.latency_sum_ms.fetch_add(latency_ms, Ordering::Relaxed);
+            .or_default();
+
+        metrics
+            .latency_sum_ms
+            .fetch_add(latency_ms, Ordering::Relaxed);
         metrics.latency_count.fetch_add(1, Ordering::Relaxed);
-        
+
         // Update max latency (CAS loop for atomicity)
         let mut current_max = metrics.latency_max_ms.load(Ordering::Relaxed);
         while latency_ms > current_max {
@@ -126,7 +129,7 @@ impl PoolMetrics {
             }
         }
     }
-    
+
     /// Get average latency for a model
     ///
     /// Returns None if no requests processed yet.
@@ -141,60 +144,60 @@ impl PoolMetrics {
             }
         })
     }
-    
+
     /// Export all metrics in Prometheus text format
     ///
     /// Returns metrics formatted for Prometheus scraping.
     /// Call this from HTTP /metrics endpoint handler.
-    pub fn get_prometheus_metrics<W>(&self, pool: &crate::pool::core::Pool<W>) -> String 
+    pub fn get_prometheus_metrics<W>(&self, pool: &crate::pool::core::Pool<W>) -> String
     where
         W: PoolWorkerHandle,
     {
         let mut output = String::with_capacity(4096);
-        
+
         // Global metrics
         output.push_str("# HELP pool_requests_total Total requests across all models\n");
         output.push_str("# TYPE pool_requests_total counter\n");
         output.push_str(&format!(
-            "pool_requests_total {}\n", 
+            "pool_requests_total {}\n",
             self.total_requests.load(Ordering::Acquire)
         ));
-        
+
         output.push_str("# HELP pool_errors_total Total errors (timeouts + failures)\n");
         output.push_str("# TYPE pool_errors_total counter\n");
         output.push_str(&format!(
             "pool_errors_total {}\n",
             self.total_errors.load(Ordering::Acquire)
         ));
-        
+
         output.push_str("# HELP pool_timeouts_total Total request timeouts\n");
         output.push_str("# TYPE pool_timeouts_total counter\n");
         output.push_str(&format!(
             "pool_timeouts_total {}\n",
             self.total_timeouts.load(Ordering::Acquire)
         ));
-        
+
         output.push_str("# HELP pool_workers_spawned_total Total workers spawned\n");
         output.push_str("# TYPE pool_workers_spawned_total counter\n");
         output.push_str(&format!(
             "pool_workers_spawned_total {}\n",
             self.workers_spawned.load(Ordering::Acquire)
         ));
-        
+
         output.push_str("# HELP pool_workers_evicted_total Total workers evicted\n");
         output.push_str("# TYPE pool_workers_evicted_total counter\n");
         output.push_str(&format!(
             "pool_workers_evicted_total {}\n",
             self.workers_evicted.load(Ordering::Acquire)
         ));
-        
+
         output.push_str("# HELP pool_circuit_rejections_total Total circuit breaker rejections\n");
         output.push_str("# TYPE pool_circuit_rejections_total counter\n");
         output.push_str(&format!(
             "pool_circuit_rejections_total {}\n",
             self.circuit_rejections.load(Ordering::Acquire)
         ));
-        
+
         // Per-model metrics
         output.push_str("# HELP pool_model_requests_total Requests per model\n");
         output.push_str("# TYPE pool_model_requests_total counter\n");
@@ -206,7 +209,7 @@ impl PoolMetrics {
                 model, count
             ));
         }
-        
+
         output.push_str("# HELP pool_model_latency_avg_ms Average latency per model\n");
         output.push_str("# TYPE pool_model_latency_avg_ms gauge\n");
         for entry in self.per_model_latency.iter() {
@@ -216,11 +219,12 @@ impl PoolMetrics {
             if count > 0 {
                 output.push_str(&format!(
                     "pool_model_latency_avg_ms{{model=\"{}\"}} {:.2}\n",
-                    model, (sum as f64) / (count as f64)
+                    model,
+                    (sum as f64) / (count as f64)
                 ));
             }
         }
-        
+
         output.push_str("# HELP pool_model_latency_max_ms Peak latency per model\n");
         output.push_str("# TYPE pool_model_latency_max_ms gauge\n");
         for entry in self.per_model_latency.iter() {
@@ -231,17 +235,18 @@ impl PoolMetrics {
                 model, max_ms
             ));
         }
-        
+
         output.push_str("# HELP pool_model_workers Active workers per model\n");
         output.push_str("# TYPE pool_model_workers gauge\n");
         for entry in pool.workers().iter() {
             let (model, workers) = (entry.key(), entry.value());
             output.push_str(&format!(
                 "pool_model_workers{{model=\"{}\"}} {}\n",
-                model, workers.len()
+                model,
+                workers.len()
             ));
         }
-        
+
         // Memory metrics
         let memory_stats = pool.memory_governor.get_stats();
         output.push_str("# HELP pool_memory_used_mb Memory used by workers\n");
@@ -250,14 +255,11 @@ impl PoolMetrics {
             "pool_memory_used_mb {}\n",
             memory_stats.allocated_mb
         ));
-        
+
         output.push_str("# HELP pool_memory_limit_mb Memory limit\n");
         output.push_str("# TYPE pool_memory_limit_mb gauge\n");
-        output.push_str(&format!(
-            "pool_memory_limit_mb {}\n",
-            memory_stats.limit_mb
-        ));
-        
+        output.push_str(&format!("pool_memory_limit_mb {}\n", memory_stats.limit_mb));
+
         output.push_str("# HELP pool_memory_pressure Memory pressure level (0-3)\n");
         output.push_str("# TYPE pool_memory_pressure gauge\n");
         let pressure_value = match memory_stats.pressure {
@@ -267,7 +269,7 @@ impl PoolMetrics {
             crate::pool::core::memory_governor::MemoryPressure::Critical => 3,
         };
         output.push_str(&format!("pool_memory_pressure {}\n", pressure_value));
-        
+
         output
     }
 }
@@ -282,9 +284,9 @@ pub struct WorkerHandle {
     pub per_worker_mb: usize,
     pub health_tx: Sender<HealthPing>,
     pub health_rx: Receiver<HealthPong>,
-    
+
     // NEW: Add state tracking
-    pub state: Arc<AtomicU32>,  // WorkerState as u32
+    pub state: Arc<AtomicU32>, // WorkerState as u32
 }
 
 impl WorkerHandle {
@@ -319,7 +321,8 @@ impl WorkerHandle {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        self.last_used.store(now, std::sync::atomic::Ordering::Release);
+        self.last_used
+            .store(now, std::sync::atomic::Ordering::Release);
     }
 
     /// Check if worker is alive by sending health ping
@@ -328,7 +331,7 @@ impl WorkerHandle {
     /// False indicates worker thread is dead, stuck, or channel broken.
     pub fn is_alive(&self) -> bool {
         use std::time::Duration;
-        
+
         // Try to send ping
         if self.health_tx.send(HealthPing).is_err() {
             // Channel broken = worker dead
@@ -339,7 +342,8 @@ impl WorkerHandle {
         match self.health_rx.recv_timeout(Duration::from_millis(100)) {
             Ok(pong) => {
                 // Update last health check timestamp
-                self.last_used.store(pong.timestamp, std::sync::atomic::Ordering::Release);
+                self.last_used
+                    .store(pong.timestamp, std::sync::atomic::Ordering::Release);
                 true
             }
             Err(_) => {
@@ -348,19 +352,19 @@ impl WorkerHandle {
             }
         }
     }
-    
+
     /// Get current worker state
     pub fn get_state(&self) -> crate::pool::core::worker_state::WorkerState {
         use crate::pool::core::worker_state::WorkerState;
         let state_val = self.state.load(Ordering::Acquire);
         WorkerState::from(state_val)
     }
-    
+
     /// Set worker state (atomic)
     pub fn set_state(&self, new_state: crate::pool::core::worker_state::WorkerState) {
         self.state.store(new_state as u32, Ordering::Release);
     }
-    
+
     /// Check if worker can accept requests
     pub fn can_accept_requests(&self) -> bool {
         use crate::pool::core::worker_state::WorkerState;
@@ -369,14 +373,11 @@ impl WorkerHandle {
             WorkerState::Ready | WorkerState::Processing | WorkerState::Idle
         )
     }
-    
+
     /// Check if worker should be evicted
     pub fn is_evictable(&self) -> bool {
         use crate::pool::core::worker_state::WorkerState;
-        matches!(
-            self.get_state(),
-            WorkerState::Ready | WorkerState::Idle
-        )
+        matches!(self.get_state(), WorkerState::Ready | WorkerState::Idle)
     }
 }
 
@@ -411,33 +412,33 @@ where
             // Sample 2 random indices
             let idx1 = fastrand::usize(..len);
             let mut idx2 = fastrand::usize(..len);
-            
+
             // Ensure idx2 != idx1 (unlikely but possible)
             while idx2 == idx1 && len > 1 {
                 idx2 = fastrand::usize(..len);
             }
-            
+
             let w1 = &workers[idx1];
             let w2 = &workers[idx2];
-            
+
             // Compare pending requests (only 2 atomic loads!)
             let core1 = get_core(w1);
             let core2 = get_core(w2);
-            let load1 = core1.pending_requests.load(std::sync::atomic::Ordering::Acquire);
-            let load2 = core2.pending_requests.load(std::sync::atomic::Ordering::Acquire);
-            
+            let load1 = core1
+                .pending_requests
+                .load(std::sync::atomic::Ordering::Acquire);
+            let load2 = core2
+                .pending_requests
+                .load(std::sync::atomic::Ordering::Acquire);
+
             // Return least loaded
-            if load1 <= load2 {
-                Some(w1)
-            } else {
-                Some(w2)
-            }
+            if load1 <= load2 { Some(w1) } else { Some(w2) }
         }
     }
 }
 
 /// RAII guard that prevents duplicate worker spawning
-/// 
+///
 /// Automatically releases spawn lock when dropped, even if panic occurs.
 /// Only one thread can hold a SpawnGuard for a given registry_key at a time.
 pub struct SpawnGuard {
@@ -460,16 +461,16 @@ impl Drop for SpawnGuard {
 }
 
 /// Trait for capability-specific worker handles
-/// 
+///
 /// All worker handles (TextEmbeddingWorkerHandle, TextToTextWorkerHandle, etc.)
 /// implement this trait to provide unified access to core WorkerHandle fields.
 pub trait PoolWorkerHandle: Send + Sync + 'static {
     /// Access core WorkerHandle (pending_requests, last_used, etc.)
     fn core(&self) -> &WorkerHandle;
-    
+
     /// Mutable access to core WorkerHandle
     fn core_mut(&mut self) -> &mut WorkerHandle;
-    
+
     /// Registry key for this worker (model identifier)
     fn registry_key(&self) -> &str;
 }
@@ -486,9 +487,9 @@ pub struct PoolHealth {
 /// Health status levels
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 pub enum HealthStatusLevel {
-    Healthy,    // All models operational
-    Degraded,   // Some models at capacity or high load  
-    Unhealthy,  // Models down or critical errors
+    Healthy,   // All models operational
+    Degraded,  // Some models at capacity or high load
+    Unhealthy, // Models down or critical errors
 }
 
 /// Per-model health information

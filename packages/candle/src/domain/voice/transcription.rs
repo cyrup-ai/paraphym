@@ -112,4 +112,3 @@ impl<T> TranscriptionResponse<T> {
         }
     }
 }
-

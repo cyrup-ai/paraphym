@@ -4,8 +4,8 @@
 //! SIMD-optimized sampling methods, and pure SIMD delegation without scalar fallbacks.
 
 use candle_core::{Device, Tensor};
-use ystream::{emit, handle_error, AsyncStream};
 use tokenizers::Tokenizer;
+use ystream::{AsyncStream, emit, handle_error};
 
 use crate::domain::context::chunk::CandleStringChunk;
 use paraphym_simd::logits::LogitsProcessor as LogitsProcessorTrait;
@@ -127,12 +127,12 @@ impl TextGenerator {
             };
             all_tokens.push(next_token);
             self.token_history.push(next_token);
-            
+
             // Update constraint state after token sampling
             if let Err(e) = self.update_constraint_state(next_token) {
                 log::warn!("Failed to update constraint state: {}", e);
             }
-            
+
             position += 1;
 
             // Check termination before decoding
@@ -179,12 +179,12 @@ impl TextGenerator {
                 };
                 all_tokens.push(next_token);
                 self.token_history.push(next_token);
-                
+
                 // Update constraint state after token sampling
                 if let Err(e) = self.update_constraint_state(next_token) {
                     log::warn!("Failed to update constraint state: {}", e);
                 }
-                
+
                 position += 1;
 
                 // Check termination before decoding
@@ -207,8 +207,7 @@ impl TextGenerator {
     /// SIMD-optimized token sampling with comprehensive acceleration
     pub fn sample_token(&mut self, logits: &[f32], _context: &[u32]) -> CandleResult<u32> {
         use paraphym_simd::{
-            argmax, prepare_nucleus_sampling_simd, scale_temperature,
-            softmax, topk_filtering_simd,
+            argmax, prepare_nucleus_sampling_simd, scale_temperature, softmax, topk_filtering_simd,
         };
 
         let mut logits = logits.to_vec();
@@ -268,7 +267,8 @@ impl TextGenerator {
             presence_penalty: self.config.presence_penalty,
         };
 
-        let mut processor = paraphym_simd::logits::constraints::ConstrainedLogitsProcessor::new(processor_config);
+        let mut processor =
+            paraphym_simd::logits::constraints::ConstrainedLogitsProcessor::new(processor_config);
         processor.process(&mut logits, &context).map_err(|e| {
             crate::domain::model::error::CandleModelError::OperationNotSupported(
                 e.to_string().into(),
@@ -328,7 +328,10 @@ impl TextGenerator {
     }
 
     /// Set JSON constraint for structured generation
-    pub fn set_json_constraint(&mut self, constraint: JsonConstraint<'static>) -> anyhow::Result<()> {
+    pub fn set_json_constraint(
+        &mut self,
+        constraint: JsonConstraint<'static>,
+    ) -> anyhow::Result<()> {
         let initial_state = constraint.new_state();
         self.constraint = Some(constraint);
         self.constraint_state = Some(initial_state);

@@ -100,7 +100,9 @@ impl ChatSearchIndex {
                             self_clone
                                 .inverted_index()
                                 .get(&**term)
-                                .is_some_and(|entries| entries.value().iter().any(|e| e.doc_id == doc_id))
+                                .is_some_and(|entries| {
+                                    entries.value().iter().any(|e| e.doc_id == doc_id)
+                                })
                         })
                         .cloned()
                         .collect();
@@ -113,7 +115,10 @@ impl ChatSearchIndex {
                         highlighted_content: None,
                         tags: Vec::new(),
                         context: Vec::new(),
-                        match_positions: Self::find_match_positions(&terms_clone, &message.value().message.content),
+                        match_positions: Self::find_match_positions(
+                            &terms_clone,
+                            &message.value().message.content,
+                        ),
                         metadata: Some(SearchResultMetadata {
                             query_time_ms: 0.0,
                             index_version: 1,
@@ -132,14 +137,15 @@ impl ChatSearchIndex {
 
         for term in terms {
             if let Some(tf_entry) = self.term_frequencies.get(&**term)
-                && let Some(entries) = self.inverted_index().get(&**term) {
-                    for entry in entries.value() {
-                        if entry.doc_id == *doc_id {
-                            score += tf_entry.value().calculate_tfidf();
-                            break;
-                        }
+                && let Some(entries) = self.inverted_index().get(&**term)
+            {
+                for entry in entries.value() {
+                    if entry.doc_id == *doc_id {
+                        score += tf_entry.value().calculate_tfidf();
+                        break;
                     }
                 }
+            }
         }
 
         #[allow(clippy::cast_precision_loss)]
@@ -340,10 +346,7 @@ impl ChatSearchIndex {
         for (i, token) in tokens.iter().enumerate() {
             for term in terms {
                 if token.to_lowercase() == term.to_lowercase() {
-                    term_positions
-                        .entry(term.clone())
-                        .or_default()
-                        .push(i);
+                    term_positions.entry(term.clone()).or_default().push(i);
                 }
             }
         }
@@ -363,7 +366,11 @@ impl ChatSearchIndex {
                 let mut found_within_distance = false;
                 for &pos1 in positions1 {
                     for &pos2 in positions2 {
-                        if (i32::try_from(pos1).unwrap_or(i32::MAX) - i32::try_from(pos2).unwrap_or(i32::MAX)).abs() <= i32::try_from(distance).unwrap_or(i32::MAX) {
+                        if (i32::try_from(pos1).unwrap_or(i32::MAX)
+                            - i32::try_from(pos2).unwrap_or(i32::MAX))
+                        .abs()
+                            <= i32::try_from(distance).unwrap_or(i32::MAX)
+                        {
                             found_within_distance = true;
                             break;
                         }
@@ -383,11 +390,7 @@ impl ChatSearchIndex {
     }
 
     /// Calculate proximity-based relevance score
-    fn calculate_proximity_score(
-        terms: &[String],
-        tokens: &[String],
-        distance: u32,
-    ) -> f32 {
+    fn calculate_proximity_score(terms: &[String], tokens: &[String], distance: u32) -> f32 {
         let mut min_distance = distance as usize;
         let mut term_positions: std::collections::HashMap<String, Vec<usize>> =
             std::collections::HashMap::new();
@@ -396,10 +399,7 @@ impl ChatSearchIndex {
         for (i, token) in tokens.iter().enumerate() {
             for term in terms {
                 if token.to_lowercase() == term.to_lowercase() {
-                    term_positions
-                        .entry(term.clone())
-                        .or_default()
-                        .push(i);
+                    term_positions.entry(term.clone()).or_default().push(i);
                 }
             }
         }

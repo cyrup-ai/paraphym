@@ -3,9 +3,9 @@
 //! Provides comprehensive input validation with zero-allocation patterns and blazing-fast
 //! validation algorithms for production-ready security and error handling.
 
+use regex::Regex;
 use std::collections::HashMap;
 use std::sync::LazyLock;
-use regex::Regex;
 
 use super::types::ImmutableChatCommand;
 
@@ -13,19 +13,16 @@ use super::types::ImmutableChatCommand;
 // Returns None if pattern compilation fails
 
 /// Regex for detecting command injection patterns: `[;&|$()]` including backtick
-static COMMAND_INJECTION_REGEX: LazyLock<Option<Regex>> = LazyLock::new(|| {
-    Regex::new(r"[;&|`$()]").ok()
-});
+static COMMAND_INJECTION_REGEX: LazyLock<Option<Regex>> =
+    LazyLock::new(|| Regex::new(r"[;&|`$()]").ok());
 
 /// Regex for detecting path traversal patterns: ../
-static PATH_TRAVERSAL_REGEX: LazyLock<Option<Regex>> = LazyLock::new(|| {
-    Regex::new(r"\.\.[\\/]").ok()
-});
+static PATH_TRAVERSAL_REGEX: LazyLock<Option<Regex>> =
+    LazyLock::new(|| Regex::new(r"\.\.[\\/]").ok());
 
 /// Regex for detecting script injection patterns: <script>
-static SCRIPT_INJECTION_REGEX: LazyLock<Option<Regex>> = LazyLock::new(|| {
-    Regex::new(r"<script[^>]*>").ok()
-});
+static SCRIPT_INJECTION_REGEX: LazyLock<Option<Regex>> =
+    LazyLock::new(|| Regex::new(r"<script[^>]*>").ok());
 
 /// Command validator with comprehensive validation rules
 #[derive(Debug, Clone)]
@@ -87,35 +84,78 @@ impl CommandValidator {
     #[inline]
     pub fn validate_command(&self, command: &ImmutableChatCommand) -> Result<(), ValidationError> {
         match command {
-            ImmutableChatCommand::Help { command, .. } => self.validate_help_command(command.as_ref()),
-            ImmutableChatCommand::Clear { keep_last, .. } => Self::validate_clear_command(keep_last.as_ref()),
-            ImmutableChatCommand::Export { format, output, .. } => self.validate_export_command(format, output.as_ref()),
-            ImmutableChatCommand::Config { key, value, .. } => self.validate_config_command(key.as_deref(), value.as_deref()),
-            ImmutableChatCommand::Search { query, limit, .. } => self.validate_search_command(query, *limit),
-            ImmutableChatCommand::Template { name, content, variables, .. } => {
-                self.validate_template_command(name.as_deref(), content.as_deref(), variables)
+            ImmutableChatCommand::Help { command, .. } => {
+                self.validate_help_command(command.as_ref())
             }
-            ImmutableChatCommand::Macro { name, commands, .. } => self.validate_macro_command(name.as_deref(), commands),
-            ImmutableChatCommand::Branch { name, source, .. } => self.validate_branch_command(name.as_deref(), source.as_deref()),
-            ImmutableChatCommand::Session { name, .. } => self.validate_session_command(name.as_deref()),
-            ImmutableChatCommand::Tool { name, args, .. } => self.validate_tool_command(name.as_deref(), args),
-            ImmutableChatCommand::Stats { period, .. } => Self::validate_stats_command(period.as_deref()),
-            ImmutableChatCommand::Theme { name, properties, .. } => self.validate_theme_command(name.as_deref(), properties),
-            ImmutableChatCommand::Debug { level, .. } => Self::validate_debug_command(level.as_deref()),
-            ImmutableChatCommand::History { filter, .. } => self.validate_history_command(filter.as_deref()),
-            ImmutableChatCommand::Save { name, location, .. } => self.validate_save_command(name.as_deref(), location.as_deref()),
-            ImmutableChatCommand::Load { name, location, .. } => self.validate_load_command(name, location.as_deref()),
+            ImmutableChatCommand::Clear { keep_last, .. } => {
+                Self::validate_clear_command(keep_last.as_ref())
+            }
+            ImmutableChatCommand::Export { format, output, .. } => {
+                self.validate_export_command(format, output.as_ref())
+            }
+            ImmutableChatCommand::Config { key, value, .. } => {
+                self.validate_config_command(key.as_deref(), value.as_deref())
+            }
+            ImmutableChatCommand::Search { query, limit, .. } => {
+                self.validate_search_command(query, *limit)
+            }
+            ImmutableChatCommand::Template {
+                name,
+                content,
+                variables,
+                ..
+            } => self.validate_template_command(name.as_deref(), content.as_deref(), variables),
+            ImmutableChatCommand::Macro { name, commands, .. } => {
+                self.validate_macro_command(name.as_deref(), commands)
+            }
+            ImmutableChatCommand::Branch { name, source, .. } => {
+                self.validate_branch_command(name.as_deref(), source.as_deref())
+            }
+            ImmutableChatCommand::Session { name, .. } => {
+                self.validate_session_command(name.as_deref())
+            }
+            ImmutableChatCommand::Tool { name, args, .. } => {
+                self.validate_tool_command(name.as_deref(), args)
+            }
+            ImmutableChatCommand::Stats { period, .. } => {
+                Self::validate_stats_command(period.as_deref())
+            }
+            ImmutableChatCommand::Theme {
+                name, properties, ..
+            } => self.validate_theme_command(name.as_deref(), properties),
+            ImmutableChatCommand::Debug { level, .. } => {
+                Self::validate_debug_command(level.as_deref())
+            }
+            ImmutableChatCommand::History { filter, .. } => {
+                self.validate_history_command(filter.as_deref())
+            }
+            ImmutableChatCommand::Save { name, location, .. } => {
+                self.validate_save_command(name.as_deref(), location.as_deref())
+            }
+            ImmutableChatCommand::Load { name, location, .. } => {
+                self.validate_load_command(name, location.as_deref())
+            }
             ImmutableChatCommand::Import { source, .. } => self.validate_import_command(source),
-            ImmutableChatCommand::Settings { key, value, .. } => self.validate_settings_command(key.as_deref(), value.as_deref()),
-            ImmutableChatCommand::Custom { name, args, .. } => self.validate_custom_command(name, args),
-            ImmutableChatCommand::Copy { message_id, content, .. } => {
-                self.validate_copy_command(message_id.as_deref(), content.as_deref())
+            ImmutableChatCommand::Settings { key, value, .. } => {
+                self.validate_settings_command(key.as_deref(), value.as_deref())
             }
-            ImmutableChatCommand::Retry { command, attempts, .. } => self.validate_retry_command(command.as_deref(), *attempts),
+            ImmutableChatCommand::Custom { name, args, .. } => {
+                self.validate_custom_command(name, args)
+            }
+            ImmutableChatCommand::Copy {
+                message_id,
+                content,
+                ..
+            } => self.validate_copy_command(message_id.as_deref(), content.as_deref()),
+            ImmutableChatCommand::Retry {
+                command, attempts, ..
+            } => self.validate_retry_command(command.as_deref(), *attempts),
             ImmutableChatCommand::Undo { count, .. } => Self::validate_undo_command(*count),
-            ImmutableChatCommand::Chat { message, context, priority } => {
-                self.validate_chat_command(message, context.as_deref(), *priority)
-            }
+            ImmutableChatCommand::Chat {
+                message,
+                context,
+                priority,
+            } => self.validate_chat_command(message, context.as_deref(), *priority),
         }
     }
 
@@ -132,14 +172,23 @@ impl CommandValidator {
     #[inline]
     fn validate_clear_command(keep_last: Option<&usize>) -> Result<(), ValidationError> {
         if let Some(n) = keep_last {
-            Self::validate_integer_parameter("keep_last", i64::try_from(*n).unwrap_or(i64::MAX), Some(1), Some(1000))?;
+            Self::validate_integer_parameter(
+                "keep_last",
+                i64::try_from(*n).unwrap_or(i64::MAX),
+                Some(1),
+                Some(1000),
+            )?;
         }
         Ok(())
     }
 
     /// Validate Export command - checks format enum and output path
     #[inline]
-    fn validate_export_command(&self, format: &str, output: Option<&String>) -> Result<(), ValidationError> {
+    fn validate_export_command(
+        &self,
+        format: &str,
+        output: Option<&String>,
+    ) -> Result<(), ValidationError> {
         Self::validate_enum_parameter("format", format, &["json", "markdown", "pdf", "html"])?;
         if let Some(path) = output {
             self.validate_path_parameter("output", path)?;
@@ -149,7 +198,11 @@ impl CommandValidator {
 
     /// Validate Config command - checks key/value format
     #[inline]
-    fn validate_config_command(&self, key: Option<&str>, value: Option<&str>) -> Result<(), ValidationError> {
+    fn validate_config_command(
+        &self,
+        key: Option<&str>,
+        value: Option<&str>,
+    ) -> Result<(), ValidationError> {
         if let Some(k) = key {
             self.validate_config_key(k)?;
         }
@@ -161,10 +214,19 @@ impl CommandValidator {
 
     /// Validate Search command - checks query and limit
     #[inline]
-    fn validate_search_command(&self, query: &str, limit: Option<usize>) -> Result<(), ValidationError> {
+    fn validate_search_command(
+        &self,
+        query: &str,
+        limit: Option<usize>,
+    ) -> Result<(), ValidationError> {
         self.validate_string_parameter("query", query, false)?;
         if let Some(n) = limit {
-            Self::validate_integer_parameter("limit", i64::try_from(n).unwrap_or(i64::MAX), Some(1), Some(100))?;
+            Self::validate_integer_parameter(
+                "limit",
+                i64::try_from(n).unwrap_or(i64::MAX),
+                Some(1),
+                Some(100),
+            )?;
         }
         Ok(())
     }
@@ -189,7 +251,11 @@ impl CommandValidator {
 
     /// Validate Macro command - checks name and commands list
     #[inline]
-    fn validate_macro_command(&self, name: Option<&str>, commands: &[String]) -> Result<(), ValidationError> {
+    fn validate_macro_command(
+        &self,
+        name: Option<&str>,
+        commands: &[String],
+    ) -> Result<(), ValidationError> {
         if let Some(n) = name {
             self.validate_name_parameter("name", n)?;
         }
@@ -201,7 +267,11 @@ impl CommandValidator {
 
     /// Validate Branch command - checks name and source
     #[inline]
-    fn validate_branch_command(&self, name: Option<&str>, source: Option<&str>) -> Result<(), ValidationError> {
+    fn validate_branch_command(
+        &self,
+        name: Option<&str>,
+        source: Option<&str>,
+    ) -> Result<(), ValidationError> {
         if let Some(n) = name {
             self.validate_name_parameter("name", n)?;
         }
@@ -222,7 +292,11 @@ impl CommandValidator {
 
     /// Validate Tool command - checks name and args
     #[inline]
-    fn validate_tool_command(&self, name: Option<&str>, args: &HashMap<String, String>) -> Result<(), ValidationError> {
+    fn validate_tool_command(
+        &self,
+        name: Option<&str>,
+        args: &HashMap<String, String>,
+    ) -> Result<(), ValidationError> {
         if let Some(n) = name {
             self.validate_name_parameter("name", n)?;
         }
@@ -257,7 +331,11 @@ impl CommandValidator {
     #[inline]
     fn validate_debug_command(level: Option<&str>) -> Result<(), ValidationError> {
         if let Some(l) = level {
-            Self::validate_enum_parameter("level", l, &["trace", "debug", "info", "warn", "error"])?;
+            Self::validate_enum_parameter(
+                "level",
+                l,
+                &["trace", "debug", "info", "warn", "error"],
+            )?;
         }
         Ok(())
     }
@@ -273,7 +351,11 @@ impl CommandValidator {
 
     /// Validate Save command - checks name and location
     #[inline]
-    fn validate_save_command(&self, name: Option<&str>, location: Option<&str>) -> Result<(), ValidationError> {
+    fn validate_save_command(
+        &self,
+        name: Option<&str>,
+        location: Option<&str>,
+    ) -> Result<(), ValidationError> {
         if let Some(n) = name {
             self.validate_name_parameter("name", n)?;
         }
@@ -285,7 +367,11 @@ impl CommandValidator {
 
     /// Validate Load command - checks required name and optional location
     #[inline]
-    fn validate_load_command(&self, name: &str, location: Option<&str>) -> Result<(), ValidationError> {
+    fn validate_load_command(
+        &self,
+        name: &str,
+        location: Option<&str>,
+    ) -> Result<(), ValidationError> {
         self.validate_string_parameter("name", name, false)?;
         if let Some(l) = location {
             self.validate_path_parameter("location", l)?;
@@ -302,7 +388,11 @@ impl CommandValidator {
 
     /// Validate Settings command - checks key and value
     #[inline]
-    fn validate_settings_command(&self, key: Option<&str>, value: Option<&str>) -> Result<(), ValidationError> {
+    fn validate_settings_command(
+        &self,
+        key: Option<&str>,
+        value: Option<&str>,
+    ) -> Result<(), ValidationError> {
         if let Some(k) = key {
             self.validate_string_parameter("key", k, false)?;
         }
@@ -314,7 +404,11 @@ impl CommandValidator {
 
     /// Validate Custom command - checks name and all args
     #[inline]
-    fn validate_custom_command(&self, name: &str, args: &HashMap<String, String>) -> Result<(), ValidationError> {
+    fn validate_custom_command(
+        &self,
+        name: &str,
+        args: &HashMap<String, String>,
+    ) -> Result<(), ValidationError> {
         self.validate_name_parameter("name", name)?;
         for (k, v) in args {
             self.validate_string_parameter(&format!("arg_{k}"), v, true)?;
@@ -324,7 +418,11 @@ impl CommandValidator {
 
     /// Validate Copy command - checks `message_id` and content
     #[inline]
-    fn validate_copy_command(&self, message_id: Option<&str>, content: Option<&str>) -> Result<(), ValidationError> {
+    fn validate_copy_command(
+        &self,
+        message_id: Option<&str>,
+        content: Option<&str>,
+    ) -> Result<(), ValidationError> {
         if let Some(msg_id) = message_id {
             self.validate_string_parameter("message_id", msg_id, false)?;
         }
@@ -336,7 +434,11 @@ impl CommandValidator {
 
     /// Validate Retry command - checks command string and attempts range
     #[inline]
-    fn validate_retry_command(&self, command: Option<&str>, attempts: Option<u32>) -> Result<(), ValidationError> {
+    fn validate_retry_command(
+        &self,
+        command: Option<&str>,
+        attempts: Option<u32>,
+    ) -> Result<(), ValidationError> {
         if let Some(cmd) = command {
             self.validate_string_parameter("command", cmd, false)?;
         }
@@ -369,7 +471,12 @@ impl CommandValidator {
 
     /// Validate Chat command - checks message, context, and priority
     #[inline]
-    fn validate_chat_command(&self, message: &str, context: Option<&str>, priority: u8) -> Result<(), ValidationError> {
+    fn validate_chat_command(
+        &self,
+        message: &str,
+        context: Option<&str>,
+        priority: u8,
+    ) -> Result<(), ValidationError> {
         self.validate_string_parameter("message", message, false)?;
         if let Some(ctx) = context {
             self.validate_string_parameter("context", ctx, true)?;
@@ -503,8 +610,8 @@ impl CommandValidator {
         self.validate_string_parameter("key", key, false)?;
 
         // Config keys should be alphanumeric with dots and underscores
-        let config_key_regex = Regex::new(r"^[a-zA-Z0-9._-]+$")
-            .map_err(|e| ValidationError::SecurityViolation {
+        let config_key_regex =
+            Regex::new(r"^[a-zA-Z0-9._-]+$").map_err(|e| ValidationError::SecurityViolation {
                 parameter: "key".to_string(),
                 detail: format!("Regex compilation error: {e}"),
             })?;
@@ -530,8 +637,8 @@ impl CommandValidator {
         self.validate_string_parameter(param_name, name, false)?;
 
         // Names should be alphanumeric with underscores and hyphens
-        let name_regex = Regex::new(r"^[a-zA-Z0-9_-]+$")
-            .map_err(|e| ValidationError::SecurityViolation {
+        let name_regex =
+            Regex::new(r"^[a-zA-Z0-9_-]+$").map_err(|e| ValidationError::SecurityViolation {
                 parameter: param_name.to_string(),
                 detail: format!("Regex compilation error: {e}"),
             })?;
@@ -558,11 +665,12 @@ impl CommandValidator {
         }
 
         // Check for script injection attempts
-        let script_regex = Regex::new(r"<script[^>]*>.*?</script>")
-            .map_err(|e| ValidationError::SecurityViolation {
+        let script_regex = Regex::new(r"<script[^>]*>.*?</script>").map_err(|e| {
+            ValidationError::SecurityViolation {
                 parameter: name.to_string(),
                 detail: format!("Regex compilation error: {e}"),
-            })?;
+            }
+        })?;
         if script_regex.is_match(content) {
             return Err(ValidationError::SecurityViolation {
                 parameter: name.to_string(),

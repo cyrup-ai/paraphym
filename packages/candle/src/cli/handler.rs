@@ -56,9 +56,7 @@ pub struct InputHandler {
 impl InputHandler {
     /// Create new input handler
     pub fn new(config: CliConfig) -> Self {
-        Self {
-            config,
-        }
+        Self { config }
     }
 
     /// Process user input and return action to take
@@ -148,10 +146,9 @@ Chat Commands:
 
         match fs::write(filename, content) {
             Ok(_) => InputHandlerResult::Command(CommandResult::SavedToFile(filename.clone())),
-            Err(e) => InputHandlerResult::Command(CommandResult::Error(format!(
-                "Failed to save: {}",
-                e
-            ))),
+            Err(e) => {
+                InputHandlerResult::Command(CommandResult::Error(format!("Failed to save: {}", e)))
+            }
         }
     }
 
@@ -216,7 +213,7 @@ Chat Commands:
         self.config.default_system_prompt = Some(prompt.clone());
 
         InputHandlerResult::Command(CommandResult::ConfigChanged(
-            "System prompt updated".to_string()
+            "System prompt updated".to_string(),
         ))
     }
 
@@ -266,10 +263,9 @@ Chat Commands:
             Ok(_) => InputHandlerResult::Command(CommandResult::Error(
                 "Max tokens must be greater than 0".to_string(),
             )),
-            Err(e) => InputHandlerResult::Command(CommandResult::Error(format!(
-                "Invalid number: {}",
-                e
-            ))),
+            Err(e) => {
+                InputHandlerResult::Command(CommandResult::Error(format!("Invalid number: {}", e)))
+            }
         }
     }
 
@@ -284,10 +280,9 @@ Chat Commands:
         let path = Path::new(&args[0]);
         match self.config.save(Some(path)) {
             Ok(_) => InputHandlerResult::Command(CommandResult::SavedToFile(args[0].clone())),
-            Err(e) => InputHandlerResult::Command(CommandResult::Error(format!(
-                "Export failed: {}",
-                e
-            ))),
+            Err(e) => {
+                InputHandlerResult::Command(CommandResult::Error(format!("Export failed: {}", e)))
+            }
         }
     }
 
@@ -307,10 +302,9 @@ Chat Commands:
                     "Configuration imported".to_string(),
                 ))
             }
-            Err(e) => InputHandlerResult::Command(CommandResult::Error(format!(
-                "Import failed: {}",
-                e
-            ))),
+            Err(e) => {
+                InputHandlerResult::Command(CommandResult::Error(format!("Import failed: {}", e)))
+            }
         }
     }
 

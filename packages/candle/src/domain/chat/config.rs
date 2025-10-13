@@ -5,26 +5,26 @@
 //! lock-free operations for blazing-fast performance.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::sync::RwLock;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
 
 use crossbeam_queue::SegQueue;
-use ystream::{emit, AsyncStream};
 #[cfg(feature = "rkyv")]
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use tokio::sync::broadcast;
+use ystream::{AsyncStream, emit};
 
 use crate::domain::util::unix_timestamp_nanos;
 use uuid::Uuid;
 
 /// Duration serialization helper
 mod duration_secs {
-    use super::{Serializer, Duration, Deserializer, Deserialize};
+    use super::{Deserialize, Deserializer, Duration, Serializer};
 
     pub fn serialize<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -41,22 +41,6 @@ mod duration_secs {
         Ok(Duration::from_secs(secs))
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 /// Candle model configuration for chat interactions
 ///
@@ -275,7 +259,6 @@ pub struct CandleChatConfig {
     pub behavior: CandleBehaviorConfig,
     /// Candle UI configuration
     pub ui: CandleUIConfig,
-
 }
 
 /// Candle personality configuration for AI behavior
@@ -350,8 +333,6 @@ pub struct CandleUIConfig {
     pub animations: String,
 }
 
-
-
 impl Default for CandlePersonalityConfig {
     fn default() -> Self {
         Self {
@@ -400,8 +381,6 @@ impl Default for CandleUIConfig {
         }
     }
 }
-
-
 
 /// Candle configuration change event with zero-allocation patterns
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -630,9 +609,7 @@ impl Clone for CandleConfigurationManager {
             validation_rules: Arc::clone(&self.validation_rules),
             persistence: Arc::clone(&self.persistence),
             change_counter: Arc::new(AtomicUsize::new(0)), // Fresh counter
-            last_persistence: Arc::new(AtomicU64::new(
-                unix_timestamp_nanos()
-            )),
+            last_persistence: Arc::new(AtomicU64::new(unix_timestamp_nanos())),
             version_counter: Arc::new(AtomicUsize::new(1)), // Fresh version counter
             configuration_locks: Arc::clone(&self.configuration_locks),
         }
@@ -852,8 +829,6 @@ impl CandleConfigurationValidator for CandleUIValidator {
     }
 }
 
-
-
 impl CandleConfigurationManager {
     /// Create a new Candle configuration manager
     #[must_use]
@@ -867,9 +842,7 @@ impl CandleConfigurationManager {
             validation_rules: Arc::new(RwLock::new(HashMap::new())),
             persistence: Arc::new(RwLock::new(CandleConfigurationPersistence::default())),
             change_counter: Arc::new(AtomicUsize::new(0)),
-            last_persistence: Arc::new(AtomicU64::new(
-                unix_timestamp_nanos()
-            )),
+            last_persistence: Arc::new(AtomicU64::new(unix_timestamp_nanos())),
             version_counter: Arc::new(AtomicUsize::new(1)),
             configuration_locks: Arc::new(RwLock::new(HashMap::new())),
         };
@@ -883,7 +856,6 @@ impl CandleConfigurationManager {
             rules.insert("personality".into(), Arc::new(CandlePersonalityValidator));
             rules.insert("behavior".into(), Arc::new(CandleBehaviorValidator));
             rules.insert("ui".into(), Arc::new(CandleUIValidator));
-
         });
 
         manager
@@ -895,7 +867,10 @@ impl CandleConfigurationManager {
     }
 
     /// Update Candle configuration atomically
-    pub fn update_config(&self, new_config: CandleChatConfig) -> AsyncStream<crate::domain::context::chunk::CandleUnit> {
+    pub fn update_config(
+        &self,
+        new_config: CandleChatConfig,
+    ) -> AsyncStream<crate::domain::context::chunk::CandleUnit> {
         let manager = self.clone();
 
         AsyncStream::with_channel(move |sender| {
@@ -943,7 +918,11 @@ impl CandleConfigurationManager {
     }
 
     /// Update specific Candle configuration section
-    pub fn update_section<F>(&self, section: &str, updater: F) -> AsyncStream<crate::domain::context::chunk::CandleUnit>
+    pub fn update_section<F>(
+        &self,
+        section: &str,
+        updater: F,
+    ) -> AsyncStream<crate::domain::context::chunk::CandleUnit>
     where
         F: FnOnce(&mut CandleChatConfig) + Send + 'static,
     {
@@ -1107,7 +1086,8 @@ impl CandleConfigurationManager {
                 let elapsed_secs = (now_nanos - last_save_nanos) / 1_000_000_000;
 
                 // Access persistence to get actual auto_save_interval
-                let persistence = manager.persistence
+                let persistence = manager
+                    .persistence
                     .read()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
                 let auto_save_interval = persistence.auto_save_interval;
@@ -1173,12 +1153,13 @@ impl CandleConfigurationManager {
     /// Synchronous implementation of `save_to_file` for streams-only architecture
     fn save_to_file_sync(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let config = self.get_config();
-        
+
         // Access persistence configuration synchronously
-        let persistence = self.persistence
+        let persistence = self
+            .persistence
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        
+
         let format = persistence.format.as_str();
         let compression = persistence.compression;
         let config_file_path = persistence.config_file_path.as_str();
@@ -1465,7 +1446,8 @@ impl Default for CandleConfigUpdate {
 }
 
 impl MessageChunk for CandlePersistenceEvent {
-    fn bad_chunk(_error: String) -> Self { // Error parameter reserved for future use
+    fn bad_chunk(_error: String) -> Self {
+        // Error parameter reserved for future use
         Self {
             timestamp_nanos: 0,
             previous_timestamp_nanos: 0,

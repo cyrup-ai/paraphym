@@ -32,14 +32,13 @@ pub struct CandleKimiK2Model {
     engine: Arc<Engine>,
 }
 
-
-
 impl CandleKimiK2Model {
     /// Create new Kimi K2 provider
     #[inline]
     pub fn new() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Get configuration from ModelInfo
-        let max_context = KIMI_K2_MODEL_INFO.max_input_tokens
+        let max_context = KIMI_K2_MODEL_INFO
+            .max_input_tokens
             .map(|t| t.get())
             .unwrap_or(131072);
         let vocab_size = KIMI_K2_MODEL_INFO.vocab_size.unwrap_or(32000);
@@ -90,45 +89,50 @@ impl crate::capability::traits::TextToTextCapable for CandleKimiK2Model {
             Ok(p) => p,
             Err(e) => {
                 return AsyncStream::with_channel(move |sender| {
-                    let _ = sender.send(CandleCompletionChunk::Error(
-                        format!("Failed to get GGUF file: {}", e)
-                    ));
+                    let _ = sender.send(CandleCompletionChunk::Error(format!(
+                        "Failed to get GGUF file: {}",
+                        e
+                    )));
                 });
             }
         };
-        
-        let tokenizer_path = match self.huggingface_file(self.info().registry_key, "tokenizer.json") {
+
+        let tokenizer_path = match self.huggingface_file(self.info().registry_key, "tokenizer.json")
+        {
             Ok(p) => p,
             Err(e) => {
                 return AsyncStream::with_channel(move |sender| {
-                    let _ = sender.send(CandleCompletionChunk::Error(
-                        format!("Failed to get tokenizer file: {}", e)
-                    ));
+                    let _ = sender.send(CandleCompletionChunk::Error(format!(
+                        "Failed to get tokenizer file: {}",
+                        e
+                    )));
                 });
             }
         };
-        
+
         // Extract model directory from tokenizer path
         let model_path = match tokenizer_path.parent() {
             Some(p) => p.to_string_lossy().to_string(),
             None => {
                 return AsyncStream::with_channel(move |sender| {
                     let _ = sender.send(CandleCompletionChunk::Error(
-                        "Failed to determine model directory".to_string()
+                        "Failed to determine model directory".to_string(),
                     ));
                 });
             }
         };
-        
+
         // Convert gguf_file_path to string
         let gguf_file_path = gguf_file_path.to_string_lossy().to_string();
-        
+
         // Clone data needed for the generation closure
         let engine = Arc::clone(&self.engine);
         let model_config = self.model_config.clone();
 
         // Get configuration from ModelInfo
-        let max_context = self.info().max_input_tokens
+        let max_context = self
+            .info()
+            .max_input_tokens
             .map(|t| t.get())
             .unwrap_or(131072);
         let _use_kv_cache = self.info().supports_kv_cache;
@@ -366,7 +370,6 @@ impl Default for CandleKimiK2Model {
     }
 }
 
-
 /// Loaded Kimi K2 model that keeps resources in memory for worker threads
 ///
 /// This model pre-loads the tokenizer and device configuration, avoiding
@@ -387,36 +390,51 @@ impl LoadedKimiK2Model {
     ///
     /// This method loads the tokenizer and detects the device once,
     /// storing them for reuse across multiple requests.
-    pub fn load(base: &CandleKimiK2Model) 
-        -> Result<Self, Box<dyn std::error::Error + Send + Sync>> 
-    {
+    pub fn load(
+        base: &CandleKimiK2Model,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Get file paths
-        let gguf_file_path = base.huggingface_file(base.info().registry_key, "*.gguf")
-            .map_err(|e| Box::from(format!("Failed to get GGUF file: {}", e)) as Box<dyn std::error::Error + Send + Sync>)?;
-        
-        let tokenizer_path = base.huggingface_file(base.info().registry_key, "tokenizer.json")
-            .map_err(|e| Box::from(format!("Failed to get tokenizer file: {}", e)) as Box<dyn std::error::Error + Send + Sync>)?;
-        
-        let model_path = tokenizer_path.parent()
-            .ok_or_else(|| Box::from("Failed to determine model directory") as Box<dyn std::error::Error + Send + Sync>)?
+        let gguf_file_path = base
+            .huggingface_file(base.info().registry_key, "*.gguf")
+            .map_err(|e| {
+                Box::from(format!("Failed to get GGUF file: {}", e))
+                    as Box<dyn std::error::Error + Send + Sync>
+            })?;
+
+        let tokenizer_path = base
+            .huggingface_file(base.info().registry_key, "tokenizer.json")
+            .map_err(|e| {
+                Box::from(format!("Failed to get tokenizer file: {}", e))
+                    as Box<dyn std::error::Error + Send + Sync>
+            })?;
+
+        let model_path = tokenizer_path
+            .parent()
+            .ok_or_else(|| {
+                Box::from("Failed to determine model directory")
+                    as Box<dyn std::error::Error + Send + Sync>
+            })?
             .to_string_lossy()
             .to_string();
-        
+
         // Load device (prefer GPU if available)
-        let device = crate::core::device_util::detect_best_device()
-            .unwrap_or_else(|e| {
-                log::warn!("Device detection failed: {}. Using CPU.", e);
-                candle_core::Device::Cpu
-            });
-        
+        let device = crate::core::device_util::detect_best_device().unwrap_or_else(|e| {
+            log::warn!("Device detection failed: {}. Using CPU.", e);
+            candle_core::Device::Cpu
+        });
+
         // Load tokenizer
-        let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer_path)
-            .map_err(|e| Box::from(format!("Failed to load tokenizer: {}", e)) as Box<dyn std::error::Error + Send + Sync>)?;
-        
-        let max_context = base.info().max_input_tokens
+        let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer_path).map_err(|e| {
+            Box::from(format!("Failed to load tokenizer: {}", e))
+                as Box<dyn std::error::Error + Send + Sync>
+        })?;
+
+        let max_context = base
+            .info()
+            .max_input_tokens
             .map(|t| t.get() as u64)
             .unwrap_or(131072);
-        
+
         Ok(Self {
             tokenizer,
             gguf_file_path: gguf_file_path.to_string_lossy().to_string(),
@@ -429,7 +447,6 @@ impl LoadedKimiK2Model {
     }
 }
 
-
 impl crate::capability::traits::TextToTextCapable for LoadedKimiK2Model {
     fn prompt(
         &self,
@@ -441,7 +458,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedKimiK2Model {
         let gguf_file_path = self.gguf_file_path.clone();
         let model_path = self.model_path.clone();
         let device = self.device.clone();
-        let tokenizer = self.tokenizer.clone();  // ✅ Clone pre-loaded tokenizer
+        let tokenizer = self.tokenizer.clone(); // ✅ Clone pre-loaded tokenizer
         let model_config = self.model_config.clone();
         let max_context = self.max_context;
 
@@ -542,7 +559,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedKimiK2Model {
             // Create TextGenerator with real model and pre-loaded tokenizer
             let text_generator = TextGenerator::new(
                 Box::new(quantized_model),
-                tokenizer,  // ✅ Use pre-loaded tokenizer (no disk I/O)
+                tokenizer, // ✅ Use pre-loaded tokenizer (no disk I/O)
                 device,
                 sampling_config,
             );
@@ -572,7 +589,6 @@ impl crate::capability::traits::TextToTextCapable for LoadedKimiK2Model {
         })
     }
 }
-
 
 impl CandleModel for LoadedKimiK2Model {
     #[inline]

@@ -1,23 +1,23 @@
 // worker_state.rs - Complete worker lifecycle management with state machine
 
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use crossbeam::channel::{Receiver, Sender};
+use prometheus::{Counter, HistogramVec, IntGauge};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use crossbeam::channel::{Sender, Receiver};
-use prometheus::{IntGauge, HistogramVec, Counter};
 
 /// Worker lifecycle states with atomic transitions
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkerState {
-    Spawning = 0,     // Thread created, model loading
-    Loading = 1,      // Model weights loading from disk
-    Ready = 2,        // Ready to process requests  
-    Processing = 3,   // Currently processing request
-    Idle = 4,         // No requests for idle_threshold
-    Evicting = 5,     // Shutdown signal sent
-    Dead = 6,         // Thread terminated
-    Failed = 7,       // Load or runtime failure
+    Spawning = 0,   // Thread created, model loading
+    Loading = 1,    // Model weights loading from disk
+    Ready = 2,      // Ready to process requests
+    Processing = 3, // Currently processing request
+    Idle = 4,       // No requests for idle_threshold
+    Evicting = 5,   // Shutdown signal sent
+    Dead = 6,       // Thread terminated
+    Failed = 7,     // Load or runtime failure
 }
 
 impl From<u32> for WorkerState {
@@ -49,21 +49,21 @@ pub struct UnifiedWorkerHandle<Req, Resp> {
     pub spawn_time: Instant,
     pub memory_mb: usize,
     pub cpu_cores: Option<Vec<usize>>, // CPU affinity
-    
+
     // Channels
     pub request_tx: Sender<Req>,
     pub response_rx: Receiver<Resp>,
-    pub priority_tx: Sender<Req>,      // High-priority queue
+    pub priority_tx: Sender<Req>, // High-priority queue
     pub shutdown_tx: Sender<()>,
     pub health_tx: Sender<HealthCheck>,
     pub health_rx: Receiver<HealthStatus>,
-    
+
     // Metrics
     pub metrics: WorkerMetrics,
-    
+
     // Circuit breaker
     pub circuit_breaker: Arc<CircuitBreaker>,
-    
+
     // Work stealing
     pub steal_handle: Option<crossbeam_deque::Stealer<Req>>,
 }
@@ -72,9 +72,9 @@ pub struct UnifiedWorkerHandle<Req, Resp> {
 #[derive(Debug, Clone)]
 pub enum HealthCheck {
     Ping,
-    DeepCheck,      // Runs inference to verify model works
-    MemoryCheck,    // Checks memory usage
-    LatencyCheck,   // Checks p99 latency
+    DeepCheck,    // Runs inference to verify model works
+    MemoryCheck,  // Checks memory usage
+    LatencyCheck, // Checks p99 latency
 }
 
 /// Health status response
@@ -125,40 +125,45 @@ impl CircuitBreaker {
             config,
         }
     }
-    
+
     pub fn record_success(&self) {
         self.success_count.fetch_add(1, Ordering::Relaxed);
         let success = self.success_count.load(Ordering::Relaxed);
-        
+
         // Close circuit if enough successes in half-open state
-        if self.state.load(Ordering::Acquire) == 2 {
-            if success >= self.config.success_threshold {
-                self.state.store(0, Ordering::Release);
-                self.failure_count.store(0, Ordering::Release);
-            }
+        if self.state.load(Ordering::Acquire) == 2 && success >= self.config.success_threshold {
+            self.state.store(0, Ordering::Release);
+            self.failure_count.store(0, Ordering::Release);
         }
     }
-    
+
     pub fn record_failure(&self) {
         self.failure_count.fetch_add(1, Ordering::Relaxed);
         let failures = self.failure_count.load(Ordering::Relaxed);
-        
+
         if failures >= self.config.failure_threshold {
             self.state.store(1, Ordering::Release); // Open circuit
             self.last_failure.store(
-                SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
-                Ordering::Release
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+                Ordering::Release,
             );
         }
     }
-    
+
     pub fn can_request(&self) -> bool {
         match self.state.load(Ordering::Acquire) {
-            0 => true,  // Closed - allow all
-            1 => {      // Open - check timeout
-                let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+            0 => true, // Closed - allow all
+            1 => {
+                // Open - check timeout
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs();
                 let last = self.last_failure.load(Ordering::Relaxed);
-                
+
                 if now - last > self.config.timeout.as_secs() {
                     // Try half-open
                     self.state.store(2, Ordering::Release);
@@ -168,7 +173,8 @@ impl CircuitBreaker {
                     false
                 }
             }
-            2 => {      // Half-open - limited requests
+            2 => {
+                // Half-open - limited requests
                 self.success_count.load(Ordering::Relaxed) < self.config.half_open_requests
             }
             _ => false,
@@ -180,7 +186,7 @@ impl<Req, Resp> UnifiedWorkerHandle<Req, Resp> {
     /// Transition to new state with validation
     pub fn transition_state(&self, new_state: WorkerState) -> Result<(), String> {
         let current = WorkerState::from(self.state.load(Ordering::Acquire));
-        
+
         // Validate state transition
         let valid = match (current, new_state) {
             (WorkerState::Spawning, WorkerState::Loading) => true,
@@ -196,16 +202,19 @@ impl<Req, Resp> UnifiedWorkerHandle<Req, Resp> {
             (WorkerState::Failed, WorkerState::Dead) => true,
             _ => false,
         };
-        
+
         if valid {
             self.state.store(new_state as u32, Ordering::Release);
             self.update_activity();
             Ok(())
         } else {
-            Err(format!("Invalid transition: {:?} -> {:?}", current, new_state))
+            Err(format!(
+                "Invalid transition: {:?} -> {:?}",
+                current, new_state
+            ))
         }
     }
-    
+
     #[inline]
     pub fn update_activity(&self) {
         let now = SystemTime::now()
@@ -214,42 +223,45 @@ impl<Req, Resp> UnifiedWorkerHandle<Req, Resp> {
             .as_secs();
         self.last_activity.store(now, Ordering::Release);
     }
-    
+
     pub fn is_alive(&self) -> bool {
         let state = WorkerState::from(self.state.load(Ordering::Acquire));
-        !matches!(state, WorkerState::Dead | WorkerState::Failed | WorkerState::Evicting)
+        !matches!(
+            state,
+            WorkerState::Dead | WorkerState::Failed | WorkerState::Evicting
+        )
     }
-    
+
     pub fn can_accept_requests(&self) -> bool {
         let state = WorkerState::from(self.state.load(Ordering::Acquire));
         matches!(state, WorkerState::Ready | WorkerState::Processing)
             && self.circuit_breaker.can_request()
     }
-    
+
     pub fn get_load_score(&self) -> f64 {
         let pending = self.pending_requests.load(Ordering::Relaxed) as f64;
         let error_rate = self.calculate_error_rate();
         let latency = self.get_avg_latency_ms();
-        
+
         // Weighted load score (lower is better)
         pending * 1.0 + error_rate * 100.0 + latency * 0.1
     }
-    
+
     fn calculate_error_rate(&self) -> f64 {
         let total = self.processed_requests.load(Ordering::Relaxed);
         let failed = self.failed_requests.load(Ordering::Relaxed);
-        
+
         if total == 0 {
             0.0
         } else {
             (failed as f64) / (total as f64)
         }
     }
-    
+
     fn get_avg_latency_ms(&self) -> f64 {
         let total = self.processed_requests.load(Ordering::Relaxed);
         let latency_us = self.total_latency_us.load(Ordering::Relaxed);
-        
+
         if total == 0 {
             0.0
         } else {

@@ -3,12 +3,12 @@
 //! This module defines the core data structures for memory nodes.
 
 use chrono::{DateTime, Utc};
+use cyrup_sugars::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json;
-use cyrup_sugars::prelude::*;
 
 use super::metadata::MemoryMetadata;
-use super::types::{MemoryTypeEnum, MemoryContent};
+use super::types::{MemoryContent, MemoryTypeEnum};
 use crate::memory::monitoring::operations::OperationStatus;
 
 /// A memory node in the memory system
@@ -42,7 +42,7 @@ impl MemoryNode {
     pub fn new(memory_type: MemoryTypeEnum, content: MemoryContent) -> Self {
         let id = uuid::Uuid::new_v4().to_string();
         let now = Utc::now();
-        
+
         // Calculate content hash for deduplication
         let content_hash = crate::domain::memory::serialization::content_hash(&content.text);
 
@@ -63,7 +63,7 @@ impl MemoryNode {
     /// Create a new memory node with a specific ID
     pub fn with_id(id: String, memory_type: MemoryTypeEnum, content: MemoryContent) -> Self {
         let now = Utc::now();
-        
+
         // Calculate content hash for deduplication
         let content_hash = crate::domain::memory::serialization::content_hash(&content.text);
 
@@ -146,7 +146,7 @@ impl Default for MemoryNode {
         let now = Utc::now();
         let content = MemoryContent::default();
         let content_hash = crate::domain::memory::serialization::content_hash(&content.text);
-        
+
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             content,

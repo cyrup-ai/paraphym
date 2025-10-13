@@ -21,12 +21,12 @@ pub mod vector;
 pub use api::APIServer;
 
 // Re-export core memory submodules for backward compatibility
-pub use self::core::{
-    MemoryMetadata, MemoryNode, SurrealDBMemoryManager, MemoryRelationship,
-    manager::{MemoryManager, coordinator::MemoryCoordinator},
-    primitives, filter, repository, storage, ops,
-};
 pub use self::core::SurrealDBMemoryManager as SurrealMemoryManager;
+pub use self::core::{
+    MemoryMetadata, MemoryNode, MemoryRelationship, SurrealDBMemoryManager, filter,
+    manager::{MemoryManager, coordinator::MemoryCoordinator},
+    ops, primitives, repository, storage,
+};
 
 // Re-export manager module for compatibility
 pub use self::core::manager;
@@ -36,8 +36,6 @@ pub use self::core::primitives::types::MemoryType;
 pub use utils::config::APIConfig;
 pub use utils::config::MemoryConfig;
 pub use utils::error::Error;
-
-
 
 /// Initialize the traditional memory system with SurrealDB using a configuration object.
 /// This is a more robust approach than just a DB URL.

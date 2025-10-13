@@ -3,24 +3,24 @@
 //! This provider uses ClipModel.get_image_features() for encoding images to embeddings.
 //! Supports ViT-Base-Patch32 (224×224, 512-dim) and ViT-Large-Patch14 (336×336, 768-dim).
 
+use crate::builders::image::{ImageBuilder, ResizeFilter};
+use crate::domain::image::Image;
+use crate::domain::model::CandleModelInfo;
+use crate::domain::model::traits::CandleModel;
 use candle_core::{Device, Tensor};
 use candle_nn::VarBuilder;
-use candle_transformers::models::clip::{ClipModel, ClipConfig};
 use candle_transformers::models::clip::text_model::ClipTextConfig;
 use candle_transformers::models::clip::vision_model::ClipVisionConfig;
-use crate::domain::image::Image;
-use crate::builders::image::{ImageBuilder, ResizeFilter};
-use crate::domain::model::traits::CandleModel;
-use crate::domain::model::CandleModelInfo;
+use candle_transformers::models::clip::{ClipConfig, ClipModel};
 
 /// CLIP vision provider for image embeddings
-/// 
+///
 /// Uses ClipModel.get_image_features() for encoding images to embeddings.
 /// Supports ViT-Base-Patch32 (224×224, 512-dim) and ViT-Large-Patch14 (336×336, 768-dim).
-/// 
+///
 /// Uses lazy loading pattern - model loaded on-demand via huggingface_file().
 pub struct ClipVisionModel {
-    dimension: usize,  // 512 for Base, 768 for Large
+    dimension: usize, // 512 for Base, 768 for Large
 }
 
 impl std::fmt::Debug for ClipVisionModel {
@@ -33,33 +33,33 @@ impl std::fmt::Debug for ClipVisionModel {
 
 impl ClipVisionModel {
     /// Create new CLIP Vision model instance with specified dimension
-    /// 
+    ///
     /// # Arguments
     /// * `dimension` - Embedding dimension: 512 for ViT-Base-Patch32, 768 for ViT-Large-Patch14-336
-    /// 
+    ///
     /// Uses lazy loading - model loaded on-demand via huggingface_file()
     pub fn new(dimension: usize) -> Result<Self, String> {
         if dimension != 512 && dimension != 768 {
             return Err(format!(
-                "Unsupported dimension {}. CLIP supports 512 (Base) or 768 (Large)", 
+                "Unsupported dimension {}. CLIP supports 512 (Base) or 768 (Large)",
                 dimension
             ));
         }
         Ok(Self { dimension })
     }
-    
+
     /// Get CLIP configs for the specified dimension
-    /// 
+    ///
     /// Returns (text_config, vision_config, image_size) tuple.
     /// Note: text_config is required by ClipModel but unused for vision-only inference.
     fn get_configs_for_dimension(&self) -> (ClipTextConfig, ClipVisionConfig, usize) {
         use candle_transformers::models::clip::text_model::Activation;
-        
+
         match self.dimension {
             512 => (
                 ClipTextConfig::vit_base_patch32(),
                 ClipVisionConfig::vit_base_patch32(),
-                224,  // image_size for Base
+                224, // image_size for Base
             ),
             768 => (
                 // Manual ClipTextConfig for Large (unused in vision-only inference)
@@ -75,37 +75,44 @@ impl ClipVisionModel {
                     activation: Activation::QuickGelu,
                 },
                 ClipVisionConfig::clip_vit_large_patch14_336(),
-                336,  // image_size for Large
+                336, // image_size for Large
             ),
             _ => unreachable!("Dimension validated in constructor"),
         }
     }
-    
+
     /// Encode image from file path to embedding vector
-    /// 
+    ///
     /// Uses lazy loading pattern:
     /// - Gets config from ModelInfo (single source of truth)
     /// - Auto-detects device at runtime
     /// - Loads model on-demand via huggingface_file()
     /// - Uses correct CLIP normalization: normalize_unsigned() + normalize_with(mean, std)
-    /// 
+    ///
     /// Returns projected embeddings via model.get_image_features()
     pub async fn encode_image(&self, image_path: &str) -> Result<Tensor, String> {
         // 1. GET CONFIG FROM ModelInfo - Single source of truth
-        let image_size = self.info().image_size
+        let image_size = self
+            .info()
+            .image_size
             .ok_or("image_size missing from ModelInfo")? as usize;
-        let image_mean = self.info().image_mean
+        let image_mean = self
+            .info()
+            .image_mean
             .ok_or("image_mean missing from ModelInfo")?;
-        let image_std = self.info().image_std
+        let image_std = self
+            .info()
+            .image_std
             .ok_or("image_std missing from ModelInfo")?;
-        
+
         // 2. AUTO-DETECT DEVICE - Runtime decision
         let device = Device::cuda_if_available(0).unwrap_or(Device::Cpu);
-        
+
         // 3. LAZY MODEL LOADING - Load model file on-demand
-        let model_path = self.huggingface_file(self.info().registry_key, "model.safetensors")
+        let model_path = self
+            .huggingface_file(self.info().registry_key, "model.safetensors")
             .map_err(|e| format!("Failed to get model file: {}", e))?;
-        
+
         // 4. BUILD CLIP CONFIG - Select configs based on dimension
         let (text_config, vision_config, _) = self.get_configs_for_dimension();
         let config = ClipConfig {
@@ -114,50 +121,58 @@ impl ClipVisionModel {
             logit_scale_init_value: 2.6592,
             image_size,
         };
-        
+
         // 5. LOAD MODEL - From huggingface_file path
         let vb = unsafe {
             VarBuilder::from_mmaped_safetensors(&[model_path], candle_core::DType::F32, &device)
                 .map_err(|e| format!("Failed to load model: {}", e))?
         };
-        let model = ClipModel::new(vb, &config)
-            .map_err(|e| format!("Failed to create model: {}", e))?;
-        
+        let model =
+            ClipModel::new(vb, &config).map_err(|e| format!("Failed to create model: {}", e))?;
+
         // 6. PREPROCESS IMAGE - Use CORRECT normalization pipeline
         let image_tensor = Image::from_path(image_path)
             .resize(image_size, image_size, ResizeFilter::Triangle)
-            .normalize_unsigned()                       // Step 1: [0, 255] → [0, 1]
-            .normalize_with(image_mean, image_std)      // Step 2: (x - mean) / std
+            .normalize_unsigned() // Step 1: [0, 255] → [0, 1]
+            .normalize_with(image_mean, image_std) // Step 2: (x - mean) / std
             .to_tensor(&device)
             .await?;
-        
+
         // 7. ADD BATCH DIMENSION - (C,H,W) → (1,C,H,W)
         let batched = image_tensor
             .unsqueeze(0)
             .map_err(|e| format!("Failed to add batch dimension: {}", e))?;
-        
+
         // 8. ENCODE - Use get_image_features() for vision embedding
-        model.get_image_features(&batched)
+        model
+            .get_image_features(&batched)
             .map_err(|e| format!("CLIP encoding failed: {}", e))
     }
-    
+
     /// Encode image from URL
     pub async fn encode_url(&self, url: &str) -> Result<Tensor, String> {
         // 1. GET CONFIG FROM ModelInfo
-        let image_size = self.info().image_size
+        let image_size = self
+            .info()
+            .image_size
             .ok_or("image_size missing from ModelInfo")? as usize;
-        let image_mean = self.info().image_mean
+        let image_mean = self
+            .info()
+            .image_mean
             .ok_or("image_mean missing from ModelInfo")?;
-        let image_std = self.info().image_std
+        let image_std = self
+            .info()
+            .image_std
             .ok_or("image_std missing from ModelInfo")?;
-        
+
         // 2. AUTO-DETECT DEVICE
         let device = Device::cuda_if_available(0).unwrap_or(Device::Cpu);
-        
+
         // 3. LAZY MODEL LOADING
-        let model_path = self.huggingface_file(self.info().registry_key, "model.safetensors")
+        let model_path = self
+            .huggingface_file(self.info().registry_key, "model.safetensors")
             .map_err(|e| format!("Failed to get model file: {}", e))?;
-        
+
         // 4. BUILD CLIP CONFIG - Select configs based on dimension
         let (text_config, vision_config, _) = self.get_configs_for_dimension();
         let config = ClipConfig {
@@ -166,15 +181,15 @@ impl ClipVisionModel {
             logit_scale_init_value: 2.6592,
             image_size,
         };
-        
+
         // 5. LOAD MODEL
         let vb = unsafe {
             VarBuilder::from_mmaped_safetensors(&[model_path], candle_core::DType::F32, &device)
                 .map_err(|e| format!("Failed to load model: {}", e))?
         };
-        let model = ClipModel::new(vb, &config)
-            .map_err(|e| format!("Failed to create model: {}", e))?;
-        
+        let model =
+            ClipModel::new(vb, &config).map_err(|e| format!("Failed to create model: {}", e))?;
+
         // 6. PREPROCESS IMAGE - CORRECT normalization
         let image_tensor = Image::from_url(url)
             .resize(image_size, image_size, ResizeFilter::Triangle)
@@ -182,34 +197,42 @@ impl ClipVisionModel {
             .normalize_with(image_mean, image_std)
             .to_tensor(&device)
             .await?;
-        
+
         // 7. ADD BATCH DIMENSION
         let batched = image_tensor
             .unsqueeze(0)
             .map_err(|e| format!("Failed to add batch dimension: {}", e))?;
-        
+
         // 8. ENCODE
-        model.get_image_features(&batched)
+        model
+            .get_image_features(&batched)
             .map_err(|e| format!("CLIP encoding failed: {}", e))
     }
 
     /// Encode image from base64 data (for API usage)
     pub async fn encode_base64(&self, base64_data: &str) -> Result<Tensor, String> {
         // 1. GET CONFIG FROM ModelInfo
-        let image_size = self.info().image_size
+        let image_size = self
+            .info()
+            .image_size
             .ok_or("image_size missing from ModelInfo")? as usize;
-        let image_mean = self.info().image_mean
+        let image_mean = self
+            .info()
+            .image_mean
             .ok_or("image_mean missing from ModelInfo")?;
-        let image_std = self.info().image_std
+        let image_std = self
+            .info()
+            .image_std
             .ok_or("image_std missing from ModelInfo")?;
-        
+
         // 2. AUTO-DETECT DEVICE
         let device = Device::cuda_if_available(0).unwrap_or(Device::Cpu);
-        
+
         // 3. LAZY MODEL LOADING
-        let model_path = self.huggingface_file(self.info().registry_key, "model.safetensors")
+        let model_path = self
+            .huggingface_file(self.info().registry_key, "model.safetensors")
             .map_err(|e| format!("Failed to get model file: {}", e))?;
-        
+
         // 4. BUILD CLIP CONFIG - Select configs based on dimension
         let (text_config, vision_config, _) = self.get_configs_for_dimension();
         let config = ClipConfig {
@@ -218,15 +241,15 @@ impl ClipVisionModel {
             logit_scale_init_value: 2.6592,
             image_size,
         };
-        
+
         // 5. LOAD MODEL
         let vb = unsafe {
             VarBuilder::from_mmaped_safetensors(&[model_path], candle_core::DType::F32, &device)
                 .map_err(|e| format!("Failed to load model: {}", e))?
         };
-        let model = ClipModel::new(vb, &config)
-            .map_err(|e| format!("Failed to create model: {}", e))?;
-        
+        let model =
+            ClipModel::new(vb, &config).map_err(|e| format!("Failed to create model: {}", e))?;
+
         // 6. PREPROCESS IMAGE - CORRECT normalization
         let image_tensor = Image::from_base64(base64_data)
             .resize(image_size, image_size, ResizeFilter::Triangle)
@@ -234,34 +257,42 @@ impl ClipVisionModel {
             .normalize_with(image_mean, image_std)
             .to_tensor(&device)
             .await?;
-        
+
         // 7. ADD BATCH DIMENSION
         let batched = image_tensor
             .unsqueeze(0)
             .map_err(|e| format!("Failed to add batch dimension: {}", e))?;
-        
+
         // 8. ENCODE
-        model.get_image_features(&batched)
+        model
+            .get_image_features(&batched)
             .map_err(|e| format!("CLIP encoding failed: {}", e))
     }
-    
+
     /// Encode multiple images in batch
     pub async fn encode_batch(&self, image_paths: Vec<&str>) -> Result<Tensor, String> {
         // 1. GET CONFIG FROM ModelInfo
-        let image_size = self.info().image_size
+        let image_size = self
+            .info()
+            .image_size
             .ok_or("image_size missing from ModelInfo")? as usize;
-        let image_mean = self.info().image_mean
+        let image_mean = self
+            .info()
+            .image_mean
             .ok_or("image_mean missing from ModelInfo")?;
-        let image_std = self.info().image_std
+        let image_std = self
+            .info()
+            .image_std
             .ok_or("image_std missing from ModelInfo")?;
-        
+
         // 2. AUTO-DETECT DEVICE
         let device = Device::cuda_if_available(0).unwrap_or(Device::Cpu);
-        
+
         // 3. LAZY MODEL LOADING
-        let model_path = self.huggingface_file(self.info().registry_key, "model.safetensors")
+        let model_path = self
+            .huggingface_file(self.info().registry_key, "model.safetensors")
             .map_err(|e| format!("Failed to get model file: {}", e))?;
-        
+
         // 4. BUILD CLIP CONFIG - Select configs based on dimension
         let (text_config, vision_config, _) = self.get_configs_for_dimension();
         let config = ClipConfig {
@@ -270,15 +301,15 @@ impl ClipVisionModel {
             logit_scale_init_value: 2.6592,
             image_size,
         };
-        
+
         // 5. LOAD MODEL
         let vb = unsafe {
             VarBuilder::from_mmaped_safetensors(&[model_path], candle_core::DType::F32, &device)
                 .map_err(|e| format!("Failed to load model: {}", e))?
         };
-        let model = ClipModel::new(vb, &config)
-            .map_err(|e| format!("Failed to create model: {}", e))?;
-        
+        let model =
+            ClipModel::new(vb, &config).map_err(|e| format!("Failed to create model: {}", e))?;
+
         // 6. PREPROCESS ALL IMAGES - CORRECT normalization
         let mut tensors = Vec::new();
         for path in image_paths {
@@ -290,13 +321,14 @@ impl ClipVisionModel {
                 .await?;
             tensors.push(tensor);
         }
-        
+
         // 7. STACK INTO BATCH: [(C,H,W), (C,H,W), ...] → (N,C,H,W)
-        let batched = Tensor::stack(&tensors, 0)
-            .map_err(|e| format!("Failed to batch tensors: {}", e))?;
-        
+        let batched =
+            Tensor::stack(&tensors, 0).map_err(|e| format!("Failed to batch tensors: {}", e))?;
+
         // 8. ENCODE ENTIRE BATCH
-        model.get_image_features(&batched)
+        model
+            .get_image_features(&batched)
             .map_err(|e| format!("Batch encoding failed: {}", e))
     }
 }
@@ -391,68 +423,80 @@ impl CandleModel for ClipVisionModel {
     }
 }
 
-#[async_trait::async_trait(?Send)]
 impl crate::capability::traits::ImageEmbeddingCapable for ClipVisionModel {
-    async fn embed_image(&self, image_path: &str)
-        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>
-    {
-        // Encode image to tensor (1, embed_dim)
-        let tensor = self.encode_image(image_path).await
-            .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>)?;
+    fn embed_image(
+        &self,
+        image_path: &str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
+        let image_path = image_path.to_string();
+        Box::pin(async move {
+            // Encode image to tensor (1, embed_dim)
+            let tensor = self.encode_image(&image_path).await.map_err(|e| {
+                Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>
+            })?;
 
-        // Extract first batch element and convert to Vec<f32>
-        let embedding = tensor.get(0)
-            .map_err(|e| format!("Failed to extract embedding: {}", e))?
-            .to_vec1::<f32>()
-            .map_err(|e| format!("Failed to convert embedding to vec: {}", e))?;
+            // Convert to Vec<f32>
+            let embedding = tensor
+                .to_vec1::<f32>()
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
-        Ok(embedding)
+            Ok(embedding)
+        })
     }
 
-    async fn embed_image_url(&self, url: &str)
-        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>
-    {
-        // Encode image from URL to tensor (1, embed_dim)
-        let tensor = self.encode_url(url).await
-            .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>)?;
+    fn embed_image_url(
+        &self,
+        url: &str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
+        let url = url.to_string();
+        Box::pin(async move {
+            // Encode image from URL
+            let tensor = self.encode_url(&url).await.map_err(|e| {
+                Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>
+            })?;
 
-        // Extract first batch element and convert to Vec<f32>
-        let embedding = tensor.get(0)
-            .map_err(|e| format!("Failed to extract embedding: {}", e))?
-            .to_vec1::<f32>()
-            .map_err(|e| format!("Failed to convert embedding to vec: {}", e))?;
+            // Convert to Vec<f32>
+            let embedding = tensor
+                .to_vec1::<f32>()
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
-        Ok(embedding)
+            Ok(embedding)
+        })
     }
 
-    async fn embed_image_base64(&self, base64_data: &str)
-        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>
-    {
-        // Encode image from base64 to tensor (1, embed_dim)
-        let tensor = self.encode_base64(base64_data).await
-            .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>)?;
+    fn embed_image_base64(
+        &self,
+        base64_data: &str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
+        let base64_data = base64_data.to_string();
+        Box::pin(async move {
+            // Encode image from base64
+            let tensor = self.encode_base64(&base64_data).await.map_err(|e| {
+                Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>
+            })?;
 
-        // Extract first batch element and convert to Vec<f32>
-        let embedding = tensor.get(0)
-            .map_err(|e| format!("Failed to extract embedding: {}", e))?
-            .to_vec1::<f32>()
-            .map_err(|e| format!("Failed to convert embedding to vec: {}", e))?;
+            // Convert to Vec<f32>
+            let embedding = tensor
+                .to_vec1::<f32>()
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
-        Ok(embedding)
+            Ok(embedding)
+        })
     }
 
-    async fn batch_embed_images(&self, image_paths: Vec<&str>)
-        -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>>
-    {
-        // Encode batch to tensor (N, embed_dim)
-        let tensor = self.encode_batch(image_paths).await
-            .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>)?;
-
-        // Convert to Vec<Vec<f32>>
-        let embeddings = tensor.to_vec2::<f32>()
-            .map_err(|e| format!("Failed to convert batch embeddings to vec: {}", e))?;
-
-        Ok(embeddings)
+    fn batch_embed_images(
+        &self,
+        image_paths: Vec<&str>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
+        let paths: Vec<String> = image_paths.iter().map(|s| s.to_string()).collect();
+        Box::pin(async move {
+            let mut embeddings = Vec::with_capacity(paths.len());
+            for path in &paths {
+                let embedding = self.embed_image(path).await?;
+                embeddings.push(embedding);
+            }
+            Ok(embeddings)
+        })
     }
 
     fn embedding_dimension(&self) -> usize {

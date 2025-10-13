@@ -4,15 +4,15 @@
 //! data structures and high-performance SIMD-optimized operations.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::sync::RwLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use atomic_counter::{AtomicCounter, ConsistentCounter};
 use crossbeam_skiplist::SkipMap;
-use ystream::AsyncStream;
 use cyrup_sugars::prelude::MessageChunk;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use ystream::AsyncStream;
 
 use super::types::{IndexEntry, SearchError, SearchStatistics, TermFrequency};
 use crate::domain::chat::message::CandleSearchChatMessage as SearchChatMessage;
@@ -50,7 +50,7 @@ impl MessageChunk for IndexResult {
             error_message: Some(error),
         }
     }
-    
+
     fn error(&self) -> Option<&str> {
         if self.success {
             None
@@ -199,21 +199,21 @@ impl ChatSearchIndex {
                 self_clone.inverted_index.insert(term.clone(), entries);
 
                 // Update term frequencies
-                let mut tf_entry = self_clone
-                    .term_frequencies
-                    .get(&term)
-                    .map_or(TermFrequency {
+                let mut tf_entry = self_clone.term_frequencies.get(&term).map_or(
+                    TermFrequency {
                         tf: 0.0,
                         df: 0,
                         total_docs: 1,
-                    }, |e| e.value().clone());
+                    },
+                    |e| e.value().clone(),
+                );
                 tf_entry.tf += 1.0;
                 tf_entry.df = 1;
                 self_clone.term_frequencies.insert(term.clone(), tf_entry);
             }
 
             self_clone.index_update_counter.inc();
-            
+
             let result = IndexResult {
                 success: true,
                 doc_id: doc_id.clone(),
@@ -243,8 +243,7 @@ impl ChatSearchIndex {
     pub fn tokenize_with_simd(&self, text: &str) -> Vec<String> {
         text.split_whitespace()
             .map(|word| {
-                word
-                    .chars()
+                word.chars()
                     .filter(|c| c.is_alphanumeric())
                     .collect::<String>()
                     .to_lowercase()

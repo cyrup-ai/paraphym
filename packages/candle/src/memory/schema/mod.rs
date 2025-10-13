@@ -2,13 +2,13 @@
 
 pub mod graph_schema;
 pub mod memory_schema;
-pub mod relationship_schema;
 pub mod quantum_schema;
+pub mod relationship_schema;
 
 pub use graph_schema::*;
 pub use memory_schema::Memory;
-pub use relationship_schema::Relationship;
 pub use quantum_schema::*;
+pub use relationship_schema::Relationship;
 
 pub use crate::memory::MemoryType;
 
