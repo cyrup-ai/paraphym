@@ -85,11 +85,18 @@ impl MultimodalEmbeddingService {
         let vision_model = self.vision_model.clone();
         let (tx, rx) = tokio::sync::oneshot::channel();
 
-        tokio::spawn(async move {
-            let result = vision_model
-                .embed_image(&image_path).await
-                .map_err(|e| crate::memory::utils::error::Error::Other(format!("Failed to embed image: {}", e)));
-            let _ = tx.send(result);
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create runtime for image embedding");
+                
+            rt.block_on(async move {
+                let result = vision_model
+                    .embed_image(&image_path).await
+                    .map_err(|e| crate::memory::utils::error::Error::Other(format!("Failed to embed image: {}", e)));
+                let _ = tx.send(result);
+            });
         });
 
         PendingEmbedding::new(rx)
@@ -102,11 +109,18 @@ impl MultimodalEmbeddingService {
         let vision_model = self.vision_model.clone();
         let (tx, rx) = tokio::sync::oneshot::channel();
 
-        tokio::spawn(async move {
-            let result = vision_model
-                .embed_image_url(&url).await
-                .map_err(|e| crate::memory::utils::error::Error::Other(format!("Failed to embed image from URL: {}", e)));
-            let _ = tx.send(result);
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create runtime for image URL embedding");
+                
+            rt.block_on(async move {
+                let result = vision_model
+                    .embed_image_url(&url).await
+                    .map_err(|e| crate::memory::utils::error::Error::Other(format!("Failed to embed image from URL: {}", e)));
+                let _ = tx.send(result);
+            });
         });
 
         PendingEmbedding::new(rx)
@@ -119,11 +133,18 @@ impl MultimodalEmbeddingService {
         let vision_model = self.vision_model.clone();
         let (tx, rx) = tokio::sync::oneshot::channel();
 
-        tokio::spawn(async move {
-            let result = vision_model
-                .embed_image_base64(&base64_data).await
-                .map_err(|e| crate::memory::utils::error::Error::Other(format!("Failed to embed image from base64: {}", e)));
-            let _ = tx.send(result);
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create runtime for base64 image embedding");
+                
+            rt.block_on(async move {
+                let result = vision_model
+                    .embed_image_base64(&base64_data).await
+                    .map_err(|e| crate::memory::utils::error::Error::Other(format!("Failed to embed image from base64: {}", e)));
+                let _ = tx.send(result);
+            });
         });
 
         PendingEmbedding::new(rx)
@@ -136,12 +157,19 @@ impl MultimodalEmbeddingService {
         let vision_model = self.vision_model.clone();
         let (tx, rx) = tokio::sync::oneshot::channel();
 
-        tokio::spawn(async move {
-            let paths: Vec<&str> = image_paths.iter().map(|s| s.as_str()).collect();
-            let result = vision_model
-                .batch_embed_images(paths).await
-                .map_err(|e| crate::memory::utils::error::Error::Other(format!("Failed to batch embed images: {}", e)));
-            let _ = tx.send(result);
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create runtime for batch image embedding");
+                
+            rt.block_on(async move {
+                let paths: Vec<&str> = image_paths.iter().map(|s| s.as_str()).collect();
+                let result = vision_model
+                    .batch_embed_images(paths).await
+                    .map_err(|e| crate::memory::utils::error::Error::Other(format!("Failed to batch embed images: {}", e)));
+                let _ = tx.send(result);
+            });
         });
 
         PendingBatchEmbedding::new(rx)

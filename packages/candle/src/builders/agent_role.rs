@@ -26,7 +26,6 @@ use crate::domain::agent::role::CandleAgentConversation;
 
 // Memory types for explicit type annotations
 use crate::memory::core::manager::surreal::Result as MemoryResult;
-use crate::memory::primitives::node::MemoryNode;
 
 // Candle domain types - self-contained
 
