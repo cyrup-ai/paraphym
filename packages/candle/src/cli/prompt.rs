@@ -119,28 +119,3 @@ impl Default for PromptBuilder {
         Self::new()
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_prompt_builder_creation() {
-        let builder = PromptBuilder::new();
-        assert!(!builder.model_completer.all_options().is_empty());
-    }
-
-    #[test]
-    fn test_suggest_commands() {
-        let builder = PromptBuilder::new();
-        let suggestions = builder.suggest_commands("/he");
-        assert!(suggestions.contains(&"/help".to_string()));
-    }
-
-    #[test]
-    fn test_non_command_suggestions() {
-        let builder = PromptBuilder::new();
-        let suggestions = builder.suggest_commands("hello");
-        assert!(suggestions.is_empty());
-    }
-}

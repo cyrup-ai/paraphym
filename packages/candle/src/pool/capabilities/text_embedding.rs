@@ -1,9 +1,8 @@
-use crossbeam::channel::{Receiver, Sender, bounded};
-use crossbeam::select;
 use once_cell::sync::Lazy;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::capability::traits::TextEmbeddingCapable;
 use crate::pool::WorkerState;
@@ -15,23 +14,23 @@ use crate::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
 pub struct EmbedRequest {
     pub text: String,
     pub task: Option<String>,
-    pub response: Sender<Result<Vec<f32>, PoolError>>,
+    pub response: oneshot::Sender<Result<Vec<f32>, PoolError>>,
 }
 
 /// Request for batch_embed() operation
 pub struct BatchEmbedRequest {
     pub texts: Vec<String>,
     pub task: Option<String>,
-    pub response: Sender<Result<Vec<Vec<f32>>, PoolError>>,
+    pub response: oneshot::Sender<Result<Vec<Vec<f32>>, PoolError>>,
 }
 
 /// TextEmbedding-specific worker handle with channels
 #[derive(Clone)]
 pub struct TextEmbeddingWorkerHandle {
     pub core: WorkerHandle,
-    pub embed_tx: Sender<EmbedRequest>,
-    pub batch_embed_tx: Sender<BatchEmbedRequest>,
-    pub shutdown_tx: Sender<()>,
+    pub embed_tx: mpsc::UnboundedSender<EmbedRequest>,
+    pub batch_embed_tx: mpsc::UnboundedSender<BatchEmbedRequest>,
+    pub shutdown_tx: mpsc::UnboundedSender<()>,
     pub registry_key: String, // Added to enable cleanup on drop
 }
 
@@ -59,11 +58,11 @@ impl std::ops::Deref for TextEmbeddingWorkerHandle {
 
 /// Channels used by text embedding worker
 pub struct TextEmbeddingWorkerChannels {
-    pub embed_rx: Receiver<EmbedRequest>,
-    pub batch_embed_rx: Receiver<BatchEmbedRequest>,
-    pub shutdown_rx: Receiver<()>,
-    pub health_rx: Receiver<HealthPing>,
-    pub health_tx: Sender<HealthPong>,
+    pub embed_rx: mpsc::UnboundedReceiver<EmbedRequest>,
+    pub batch_embed_rx: mpsc::UnboundedReceiver<BatchEmbedRequest>,
+    pub shutdown_rx: mpsc::UnboundedReceiver<()>,
+    pub health_rx: mpsc::UnboundedReceiver<HealthPing>,
+    pub health_tx: mpsc::UnboundedSender<HealthPong>,
 }
 
 /// Context for text embedding worker
@@ -80,7 +79,7 @@ pub struct TextEmbeddingWorkerContext {
 /// - batch_embed_rx: Batch text embedding
 ///
 /// Worker owns model exclusively, processes requests until shutdown.
-pub fn text_embedding_worker<T: TextEmbeddingCapable>(
+pub async fn text_embedding_worker<T: TextEmbeddingCapable>(
     model: T,
     channels: TextEmbeddingWorkerChannels,
     context: TextEmbeddingWorkerContext,
@@ -90,10 +89,10 @@ pub fn text_embedding_worker<T: TextEmbeddingCapable>(
 
     // Destructure channels and context
     let TextEmbeddingWorkerChannels {
-        embed_rx,
-        batch_embed_rx,
-        shutdown_rx,
-        health_rx,
+        mut embed_rx,
+        mut batch_embed_rx,
+        mut shutdown_rx,
+        mut health_rx,
         health_tx,
     } = channels;
     let TextEmbeddingWorkerContext {
@@ -120,52 +119,46 @@ pub fn text_embedding_worker<T: TextEmbeddingCapable>(
             }
         }
 
-        select! {
-            recv(embed_rx) -> req => {
-                if let Ok(req) = req {
-                    // Transition: Ready/Idle → Processing
-                    state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
+        tokio::select! {
+            Some(req) = embed_rx.recv() => {
+                // Transition: Ready/Idle → Processing
+                state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
 
-                    let result = model.embed(&req.text, req.task)
-                        .map_err(|e| PoolError::ModelError(e.to_string()));
-                    let _ = req.response.send(result);
+                let result = model.embed(&req.text, req.task)
+                    .map_err(|e| PoolError::ModelError(e.to_string()));
+                let _ = req.response.send(result);
 
-                    // Transition: Processing → Ready
-                    state.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
-                    last_activity = SystemTime::now();
-                }
+                // Transition: Processing → Ready
+                state.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
+                last_activity = SystemTime::now();
             }
-            recv(batch_embed_rx) -> req => {
-                if let Ok(req) = req {
-                    // Transition: Ready/Idle → Processing
-                    state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
+            Some(req) = batch_embed_rx.recv() => {
+                // Transition: Ready/Idle → Processing
+                state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
 
-                    let result = model.batch_embed(&req.texts, req.task)
-                        .map_err(|e| PoolError::ModelError(e.to_string()));
-                    let _ = req.response.send(result);
+                let result = model.batch_embed(&req.texts, req.task)
+                    .map_err(|e| PoolError::ModelError(e.to_string()));
+                let _ = req.response.send(result);
 
-                    // Transition: Processing → Ready
-                    state.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
-                    last_activity = SystemTime::now();
-                }
+                // Transition: Processing → Ready
+                state.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
+                last_activity = SystemTime::now();
             }
-            recv(health_rx) -> ping => {
-                if ping.is_ok() {
-                    let now = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .map(|d| d.as_secs())
-                        .unwrap_or(0);
+            Some(_ping) = health_rx.recv() => {
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
 
-                    let pong = HealthPong {
-                        worker_id,
-                        timestamp: now,
-                        queue_depth: embed_rx.len() + batch_embed_rx.len(),
-                    };
+                let pong = HealthPong {
+                    worker_id,
+                    timestamp: now,
+                    queue_depth: 0, // Note: tokio mpsc doesn't expose len()
+                };
 
-                    let _ = health_tx.send(pong);
-                }
+                let _ = health_tx.send(pong);
             }
-            recv(shutdown_rx) -> _ => {
+            Some(_) = shutdown_rx.recv() => {
                 log::info!("TextEmbedding worker {} shutting down", worker_id);
                 // Transition: Ready/Idle → Evicting
                 state.store(WorkerState::Evicting as u32, std::sync::atomic::Ordering::Release);
@@ -197,23 +190,22 @@ impl Pool<TextEmbeddingWorkerHandle> {
         T: TextEmbeddingCapable + Send + 'static,
         F: FnOnce() -> Result<T, PoolError> + Send + 'static,
     {
-        // Create BOUNDED channels (prevent OOM)
-        let (embed_tx, embed_rx) = bounded(self.config().embed_queue_capacity);
-        let (batch_embed_tx, batch_embed_rx) = bounded(self.config().batch_queue_capacity);
-        let (shutdown_tx, shutdown_rx) = bounded(1);
-        let (health_tx_worker, health_rx_worker) = bounded::<HealthPing>(1);
-        let (health_tx_main, health_rx_main) = bounded::<HealthPong>(1);
+        // Create unbounded channels for worker communication
+        let (embed_tx, embed_rx) = mpsc::unbounded_channel();
+        let (batch_embed_tx, batch_embed_rx) = mpsc::unbounded_channel();
+        let (shutdown_tx, shutdown_rx) = mpsc::unbounded_channel();
+        let (health_tx_main, health_rx_worker) = mpsc::unbounded_channel();
+        let (health_tx_worker, health_rx_main) = mpsc::unbounded_channel();
 
-        // Get worker ID before moving into thread
+        // Get worker ID before moving into task
         let worker_id = self.next_worker_id();
         let registry_key_clone = registry_key.to_string();
         let registry_key_for_handle = registry_key_clone.clone(); // Clone for later use
 
         // Create state for worker
         use std::sync::Arc;
-        // Clone channels for worker thread
-        let health_rx_worker_clone = health_rx_worker.clone();
-        let health_tx_main_clone = health_tx_main.clone();
+        // Clone channels for worker task
+        let health_tx_worker_clone = health_tx_worker.clone();
         let per_worker_mb_clone = per_worker_mb;
 
         // Create state before spawning thread so we can clone it
@@ -221,9 +213,9 @@ impl Pool<TextEmbeddingWorkerHandle> {
         let state = Arc::new(AtomicU32::new(0)); // Spawning state
         let state_clone = Arc::clone(&state);
 
-        // Spawn worker thread
-        std::thread::spawn(move || {
-            // Guard held by worker thread - will drop on exit
+        // Spawn worker task
+        tokio::spawn(async move {
+            // Guard held by worker task - will drop on exit
             let _memory_guard = allocation_guard;
 
             // Transition: Spawning → Loading
@@ -265,15 +257,15 @@ impl Pool<TextEmbeddingWorkerHandle> {
                     embed_rx,
                     batch_embed_rx,
                     shutdown_rx,
-                    health_rx: health_rx_worker_clone,
-                    health_tx: health_tx_main_clone,
+                    health_rx: health_rx_worker,
+                    health_tx: health_tx_worker_clone,
                 },
                 TextEmbeddingWorkerContext {
                     worker_id,
                     registry_key: registry_key_clone.clone(),
                     state: Arc::clone(&state_clone),
                 },
-            );
+            ).await;
 
             // Transition: Ready → Dead (when worker loop exits)
             state_clone.store(
@@ -304,8 +296,8 @@ impl Pool<TextEmbeddingWorkerHandle> {
                 worker_id,
                 shutdown_tx: shutdown_tx.clone(),
                 per_worker_mb,
-                health_tx: health_tx_worker,
-                health_rx: health_rx_main,
+                health_tx: health_tx_main,
+                health_rx: Arc::new(tokio::sync::Mutex::new(health_rx_main)),
                 state,
             },
             embed_tx,
@@ -324,7 +316,7 @@ impl Pool<TextEmbeddingWorkerHandle> {
     }
 
     /// Embed text using pooled worker
-    pub fn embed_text(
+    pub async fn embed_text(
         &self,
         registry_key: &str,
         text: &str,
@@ -369,7 +361,7 @@ impl Pool<TextEmbeddingWorkerHandle> {
         worker.core.pending_requests.fetch_add(1, Ordering::Release);
         worker.core.touch();
 
-        let (response_tx, response_rx) = bounded(0);
+        let (response_tx, response_rx) = oneshot::channel();
         worker
             .embed_tx
             .send(EmbedRequest {
@@ -381,14 +373,17 @@ impl Pool<TextEmbeddingWorkerHandle> {
 
         // Wait for response with timeout
         let timeout = Duration::from_secs(self.config().request_timeout_secs);
-        let result = response_rx.recv_timeout(timeout).map_err(|e| {
-            // Record timeout as failure
-            circuit.record_failure();
-            self.metrics()
-                .total_timeouts
-                .fetch_add(1, Ordering::Relaxed);
-            PoolError::Timeout(e.to_string())
-        })?;
+        let result = tokio::time::timeout(timeout, response_rx)
+            .await
+            .map_err(|_| {
+                // Record timeout as failure
+                circuit.record_failure();
+                self.metrics()
+                    .total_timeouts
+                    .fetch_add(1, Ordering::Relaxed);
+                PoolError::Timeout("Request timed out".to_string())
+            })?
+            .map_err(|_| PoolError::RecvError("Response channel closed".to_string()))?;
 
         worker.core.pending_requests.fetch_sub(1, Ordering::Release);
 
@@ -405,7 +400,7 @@ impl Pool<TextEmbeddingWorkerHandle> {
     }
 
     /// Batch embed texts using pooled worker
-    pub fn batch_embed_text(
+    pub async fn batch_embed_text(
         &self,
         registry_key: &str,
         texts: &[String],
@@ -450,7 +445,7 @@ impl Pool<TextEmbeddingWorkerHandle> {
         worker.core.pending_requests.fetch_add(1, Ordering::Release);
         worker.core.touch();
 
-        let (response_tx, response_rx) = bounded(0);
+        let (response_tx, response_rx) = oneshot::channel();
         worker
             .batch_embed_tx
             .send(BatchEmbedRequest {
@@ -462,14 +457,17 @@ impl Pool<TextEmbeddingWorkerHandle> {
 
         // Wait for response with timeout
         let timeout = Duration::from_secs(self.config().request_timeout_secs);
-        let result = response_rx.recv_timeout(timeout).map_err(|e| {
-            // Record timeout as failure
-            circuit.record_failure();
-            self.metrics()
-                .total_timeouts
-                .fetch_add(1, Ordering::Relaxed);
-            PoolError::Timeout(e.to_string())
-        })?;
+        let result = tokio::time::timeout(timeout, response_rx)
+            .await
+            .map_err(|_| {
+                // Record timeout as failure
+                circuit.record_failure();
+                self.metrics()
+                    .total_timeouts
+                    .fetch_add(1, Ordering::Relaxed);
+                PoolError::Timeout("Request timed out".to_string())
+            })?
+            .map_err(|_| PoolError::RecvError("Response channel closed".to_string()))?;
 
         worker.core.pending_requests.fetch_sub(1, Ordering::Release);
 

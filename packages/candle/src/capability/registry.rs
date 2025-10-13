@@ -523,6 +523,7 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
                 pool.batch_embed_text(registry_key, texts, task)
+                    .await
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
             }
             Self::JinaBert(m) => {
@@ -552,6 +553,7 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
                 pool.batch_embed_text(registry_key, texts, task)
+                    .await
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
             }
             Self::NvEmbed(m) => {
@@ -581,6 +583,7 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
                 pool.batch_embed_text(registry_key, texts, task)
+                    .await
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
             }
             Self::Stella(m) => {
@@ -610,6 +613,7 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
                 pool.batch_embed_text(registry_key, texts, task)
+                    .await
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
             }
             Self::Bert(m) => {
@@ -639,6 +643,7 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
                 pool.batch_embed_text(registry_key, texts, task)
+                    .await
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
             }
         }
@@ -701,6 +706,7 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
 
                     // Route through pool
                     pool.embed_image(registry_key, &image_path)
+                        .await
                         .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
                 })
             }
@@ -752,6 +758,7 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
 
                     // Route through pool
                     pool.embed_image_url(registry_key, &url)
+                        .await
                         .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
                 })
             }
@@ -803,6 +810,7 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
 
                     // Route through pool
                     pool.embed_image_base64(registry_key, &base64_data)
+                        .await
                         .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
                 })
             }
@@ -854,6 +862,7 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
 
                     // Route through pool
                     pool.batch_embed_images(registry_key, &paths)
+                        .await
                         .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
                 })
             }
