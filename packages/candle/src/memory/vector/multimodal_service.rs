@@ -90,10 +90,7 @@ impl MultimodalEmbeddingService {
 
         tokio::spawn(async move {
             let result = vision_model.embed_image(&image_path).await.map_err(|e| {
-                crate::memory::utils::error::Error::Other(format!(
-                    "Failed to embed image: {}",
-                    e
-                ))
+                crate::memory::utils::error::Error::Other(format!("Failed to embed image: {}", e))
             });
             let _ = tx.send(result);
         });
@@ -110,16 +107,6 @@ impl MultimodalEmbeddingService {
 
         tokio::spawn(async move {
             let result = vision_model.embed_image_url(&url).await.map_err(|e| {
-                crate::memory::utils::error::Error::Other(format!(
-                    "Failed to embed image from URL: {}",
-                    e
-                ))
-            });
-            let _ = tx.send(result);
-        });
-
-        PendingEmbedding::new(rx)
-    }_url(&url).await.map_err(|e| {
                 crate::memory::utils::error::Error::Other(format!(
                     "Failed to embed image from URL: {}",
                     e

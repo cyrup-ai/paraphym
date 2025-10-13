@@ -81,8 +81,17 @@ pub fn text_to_text_worker<T: TextToTextCapable>(
     use std::time::Duration;
 
     // Destructure channels and context
-    let TextToTextWorkerChannels { prompt_rx, shutdown_rx, health_rx, health_tx } = channels;
-    let TextToTextWorkerContext { worker_id, registry_key: _registry_key, state } = context;
+    let TextToTextWorkerChannels {
+        prompt_rx,
+        shutdown_rx,
+        health_rx,
+        health_tx,
+    } = channels;
+    let TextToTextWorkerContext {
+        worker_id,
+        registry_key: _registry_key,
+        state,
+    } = context;
 
     // Track last activity for idle detection
     let mut last_activity = SystemTime::now();

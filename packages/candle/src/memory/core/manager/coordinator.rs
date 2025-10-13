@@ -263,10 +263,7 @@ impl MemoryCoordinator {
             });
         }
 
-        log::info!(
-            "Spawned {} cognitive worker tasks",
-            worker_count
-        );
+        log::info!("Spawned {} cognitive worker tasks", worker_count);
         Ok(worker_count)
     }
 

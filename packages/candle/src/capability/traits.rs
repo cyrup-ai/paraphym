@@ -185,25 +185,65 @@ pub trait ImageEmbeddingCapable: CandleModel {
     fn embed_image(
         &self,
         image_path: &str,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>>;
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<f32>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    >;
 
     /// Generate embedding for an image from URL
     fn embed_image_url(
         &self,
         url: &str,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>>;
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<f32>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    >;
 
     /// Generate embedding for an image from base64-encoded data
     fn embed_image_base64(
         &self,
         base64_data: &str,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>>;
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<f32>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    >;
 
     /// Generate embeddings for multiple images in batch
     fn batch_embed_images(
         &self,
         image_paths: Vec<&str>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>>;
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<Vec<f32>>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    >;
 
     /// Get the dimensionality of embeddings produced by this model
     fn embedding_dimension(&self) -> usize;

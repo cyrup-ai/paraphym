@@ -273,10 +273,7 @@ impl LLaVAModel {
                         use_kv_cache,
                     },
                 },
-                LLaVAThreadContext {
-                    request_rx,
-                    rt,
-                },
+                LLaVAThreadContext { request_rx, rt },
             );
         });
 
@@ -301,9 +298,14 @@ impl LLaVAModel {
         config: LLaVAModelConfig,
         context: LLaVAThreadContext,
     ) {
-        let LLaVAModelConfig { llava_config, device, image_config, gen_config } = config;
+        let LLaVAModelConfig {
+            llava_config,
+            device,
+            image_config,
+            gen_config,
+        } = config;
         let LLaVAThreadContext { request_rx, rt } = context;
-        
+
         while let Ok(request) = request_rx.recv() {
             match request {
                 LLaVARequest::Ask {
@@ -366,9 +368,17 @@ impl LLaVAModel {
         question: &str,
         configs: LLaVAConfigs,
     ) -> Result<String, String> {
-        let LLaVAModelRefs { model, tokenizer, llava_config, device } = refs;
-        let LLaVAConfigs { image_config, gen_config } = configs;
-        
+        let LLaVAModelRefs {
+            model,
+            tokenizer,
+            llava_config,
+            device,
+        } = refs;
+        let LLaVAConfigs {
+            image_config,
+            gen_config,
+        } = configs;
+
         let ImageProcessingConfig {
             image_size,
             image_mean,
@@ -480,9 +490,17 @@ impl LLaVAModel {
         question: &str,
         configs: LLaVAConfigs,
     ) -> Result<String, String> {
-        let LLaVAModelRefs { model, tokenizer, llava_config, device } = refs;
-        let LLaVAConfigs { image_config, gen_config } = configs;
-        
+        let LLaVAModelRefs {
+            model,
+            tokenizer,
+            llava_config,
+            device,
+        } = refs;
+        let LLaVAConfigs {
+            image_config,
+            gen_config,
+        } = configs;
+
         let ImageProcessingConfig {
             image_size,
             image_mean,

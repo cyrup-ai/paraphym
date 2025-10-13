@@ -659,7 +659,17 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
     fn embed_image(
         &self,
         image_path: &str,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<f32>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
         match self {
             Self::ClipVision(m) => {
                 let registry_key = m.info().registry_key;
@@ -700,7 +710,17 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
     fn embed_image_url(
         &self,
         url: &str,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<f32>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
         match self {
             Self::ClipVision(m) => {
                 let registry_key = m.info().registry_key;
@@ -741,7 +761,17 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
     fn embed_image_base64(
         &self,
         base64_data: &str,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<f32>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
         match self {
             Self::ClipVision(m) => {
                 let registry_key = m.info().registry_key;
@@ -782,7 +812,17 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
     fn batch_embed_images(
         &self,
         image_paths: Vec<&str>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<Vec<f32>>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
         match self {
             Self::ClipVision(m) => {
                 let registry_key = m.info().registry_key;

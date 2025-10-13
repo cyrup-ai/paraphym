@@ -209,7 +209,17 @@ impl crate::capability::traits::ImageEmbeddingCapable for ClipVisionEmbeddingMod
     fn embed_image(
         &self,
         image_path: &str,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<f32>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
         let image_path = image_path.to_string();
         Box::pin(async move {
             ClipVisionEmbeddingModel::embed_image(self, &image_path)
@@ -221,7 +231,17 @@ impl crate::capability::traits::ImageEmbeddingCapable for ClipVisionEmbeddingMod
     fn embed_image_url(
         &self,
         url: &str,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<f32>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
         let url = url.to_string();
         Box::pin(async move {
             ClipVisionEmbeddingModel::embed_image_url(self, &url)
@@ -233,7 +253,17 @@ impl crate::capability::traits::ImageEmbeddingCapable for ClipVisionEmbeddingMod
     fn embed_image_base64(
         &self,
         base64_data: &str,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<f32>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
         let base64_data = base64_data.to_string();
         Box::pin(async move {
             ClipVisionEmbeddingModel::embed_image_base64(self, &base64_data)
@@ -245,7 +275,17 @@ impl crate::capability::traits::ImageEmbeddingCapable for ClipVisionEmbeddingMod
     fn batch_embed_images(
         &self,
         image_paths: Vec<&str>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>>> + Send + '_>> {
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<Vec<f32>>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
         let paths: Vec<String> = image_paths.iter().map(|s| s.to_string()).collect();
         Box::pin(async move {
             let path_refs: Vec<&str> = paths.iter().map(|s| s.as_str()).collect();

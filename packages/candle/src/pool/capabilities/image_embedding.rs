@@ -103,7 +103,15 @@ pub fn image_embedding_worker<T: ImageEmbeddingCapable>(
     use std::time::{Duration, SystemTime};
 
     // Destructure channels and context
-    let ImageEmbeddingWorkerChannels { embed_image_rx, embed_image_url_rx, embed_image_base64_rx, batch_embed_images_rx, shutdown_rx, health_rx, health_tx } = channels;
+    let ImageEmbeddingWorkerChannels {
+        embed_image_rx,
+        embed_image_url_rx,
+        embed_image_base64_rx,
+        batch_embed_images_rx,
+        shutdown_rx,
+        health_rx,
+        health_tx,
+    } = channels;
     let ImageEmbeddingWorkerContext { worker_id, state } = context;
 
     // Track last activity for idle detection

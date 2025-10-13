@@ -107,7 +107,9 @@ pub trait ImageBuilder: Sized {
     fn to_tensor(
         self,
         device: &candle_core::Device,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<candle_core::Tensor, String>> + Send + '_>>;
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<candle_core::Tensor, String>> + Send + '_>,
+    >;
 
     /// Set error handler - EXACT syntax: .on_error(|error| { ... })
     /// Zero-allocation: uses generic function pointer instead of Box<dyn>
@@ -392,7 +394,9 @@ where
     fn to_tensor(
         self,
         device: &candle_core::Device,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<candle_core::Tensor, String>> + Send + '_>> {
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<candle_core::Tensor, String>> + Send + '_>,
+    > {
         // Clone device for move into async block
         let device = device.clone();
 

@@ -25,8 +25,7 @@ static SYNTAX_SET: std::sync::LazyLock<SyntaxSet> =
     std::sync::LazyLock::new(SyntaxSet::load_defaults_newlines);
 
 /// Global theme set for code highlighting (loaded once)  
-static THEME_SET: std::sync::LazyLock<ThemeSet> =
-    std::sync::LazyLock::new(ThemeSet::load_defaults);
+static THEME_SET: std::sync::LazyLock<ThemeSet> = std::sync::LazyLock::new(ThemeSet::load_defaults);
 
 /// Immutable message content with owned strings
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

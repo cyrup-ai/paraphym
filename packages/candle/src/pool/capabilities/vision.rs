@@ -86,7 +86,13 @@ pub fn vision_worker<T: VisionCapable>(
     use std::time::{Duration, SystemTime};
 
     // Destructure channels and context
-    let VisionWorkerChannels { describe_image_rx, describe_url_rx, shutdown_rx, health_rx, health_tx } = channels;
+    let VisionWorkerChannels {
+        describe_image_rx,
+        describe_url_rx,
+        shutdown_rx,
+        health_rx,
+        health_tx,
+    } = channels;
     let VisionWorkerContext { worker_id, state } = context;
 
     // Track last activity for idle detection
