@@ -271,8 +271,10 @@ mod tests {
 
     #[test]
     fn test_validate_temperature() {
-        let mut args = CliArgs::default();
-        args.temperature = 2.5;
+        let mut args = CliArgs {
+            temperature: 2.5,
+            ..Default::default()
+        };
         assert!(args.validate().is_err());
 
         args.temperature = 0.5;
@@ -281,8 +283,10 @@ mod tests {
 
     #[test]
     fn test_validate_memory_timeout() {
-        let mut args = CliArgs::default();
-        args.memory_read_timeout = 0;
+        let mut args = CliArgs {
+            memory_read_timeout: 0,
+            ..Default::default()
+        };
         assert!(args.validate().is_err());
 
         args.memory_read_timeout = 5000;

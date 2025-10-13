@@ -1,6 +1,10 @@
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use crossbeam::channel::{Sender, Receiver};
+use dashmap::DashMap;
+use serde::Serialize;
+use tracing::debug;
 
 /// Health check ping sent to worker
 #[derive(Debug, Clone, Copy)]
@@ -52,6 +56,26 @@ impl Default for PoolConfig {
     }
 }
 
+/// Per-model latency metrics (thread-safe atomic tracking)
+#[derive(Debug, Default)]
+pub struct ModelLatencyMetrics {
+    pub latency_sum_ms: AtomicU64,  // Sum for avg calculation
+    pub latency_count: AtomicU64,    // Request count for avg
+    pub latency_max_ms: AtomicU64,   // Peak latency
+    pub latency_min_ms: AtomicU64,   // Minimum latency (init to u64::MAX)
+}
+
+impl ModelLatencyMetrics {
+    pub fn new() -> Self {
+        Self {
+            latency_sum_ms: AtomicU64::new(0),
+            latency_count: AtomicU64::new(0),
+            latency_max_ms: AtomicU64::new(0),
+            latency_min_ms: AtomicU64::new(u64::MAX),
+        }
+    }
+}
+
 /// Metrics tracked per pool
 #[derive(Debug, Default)]
 pub struct PoolMetrics {
@@ -61,6 +85,191 @@ pub struct PoolMetrics {
     pub workers_spawned: AtomicUsize,
     pub workers_evicted: AtomicUsize,
     pub circuit_rejections: AtomicUsize,
+    
+    // Per-model latency tracking
+    pub per_model_latency: DashMap<String, ModelLatencyMetrics>,
+}
+
+impl PoolMetrics {
+    /// Record request completion for metrics tracking
+    ///
+    /// Updates both global and per-model metrics atomically.
+    /// Call this after every request completes (success or failure).
+    pub fn record_request(&self, registry_key: &str, duration: Duration, success: bool) {
+        // Update global counter
+        self.total_requests.fetch_add(1, Ordering::Release);
+        
+        if !success {
+            self.total_errors.fetch_add(1, Ordering::Release);
+        }
+        
+        // Update per-model latency metrics
+        let latency_ms = duration.as_millis() as u64;
+        let metrics = self.per_model_latency
+            .entry(registry_key.to_string())
+            .or_insert_with(ModelLatencyMetrics::new);
+        
+        metrics.latency_sum_ms.fetch_add(latency_ms, Ordering::Relaxed);
+        metrics.latency_count.fetch_add(1, Ordering::Relaxed);
+        
+        // Update max latency (CAS loop for atomicity)
+        let mut current_max = metrics.latency_max_ms.load(Ordering::Relaxed);
+        while latency_ms > current_max {
+            match metrics.latency_max_ms.compare_exchange_weak(
+                current_max,
+                latency_ms,
+                Ordering::Release,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(actual) => current_max = actual,
+            }
+        }
+    }
+    
+    /// Get average latency for a model
+    ///
+    /// Returns None if no requests processed yet.
+    pub fn get_avg_latency(&self, registry_key: &str) -> Option<f64> {
+        self.per_model_latency.get(registry_key).and_then(|m| {
+            let sum = m.latency_sum_ms.load(Ordering::Acquire);
+            let count = m.latency_count.load(Ordering::Acquire);
+            if count > 0 {
+                Some((sum as f64) / (count as f64))
+            } else {
+                None
+            }
+        })
+    }
+    
+    /// Export all metrics in Prometheus text format
+    ///
+    /// Returns metrics formatted for Prometheus scraping.
+    /// Call this from HTTP /metrics endpoint handler.
+    pub fn get_prometheus_metrics<W>(&self, pool: &crate::pool::core::Pool<W>) -> String 
+    where
+        W: PoolWorkerHandle,
+    {
+        let mut output = String::with_capacity(4096);
+        
+        // Global metrics
+        output.push_str("# HELP pool_requests_total Total requests across all models\n");
+        output.push_str("# TYPE pool_requests_total counter\n");
+        output.push_str(&format!(
+            "pool_requests_total {}\n", 
+            self.total_requests.load(Ordering::Acquire)
+        ));
+        
+        output.push_str("# HELP pool_errors_total Total errors (timeouts + failures)\n");
+        output.push_str("# TYPE pool_errors_total counter\n");
+        output.push_str(&format!(
+            "pool_errors_total {}\n",
+            self.total_errors.load(Ordering::Acquire)
+        ));
+        
+        output.push_str("# HELP pool_timeouts_total Total request timeouts\n");
+        output.push_str("# TYPE pool_timeouts_total counter\n");
+        output.push_str(&format!(
+            "pool_timeouts_total {}\n",
+            self.total_timeouts.load(Ordering::Acquire)
+        ));
+        
+        output.push_str("# HELP pool_workers_spawned_total Total workers spawned\n");
+        output.push_str("# TYPE pool_workers_spawned_total counter\n");
+        output.push_str(&format!(
+            "pool_workers_spawned_total {}\n",
+            self.workers_spawned.load(Ordering::Acquire)
+        ));
+        
+        output.push_str("# HELP pool_workers_evicted_total Total workers evicted\n");
+        output.push_str("# TYPE pool_workers_evicted_total counter\n");
+        output.push_str(&format!(
+            "pool_workers_evicted_total {}\n",
+            self.workers_evicted.load(Ordering::Acquire)
+        ));
+        
+        output.push_str("# HELP pool_circuit_rejections_total Total circuit breaker rejections\n");
+        output.push_str("# TYPE pool_circuit_rejections_total counter\n");
+        output.push_str(&format!(
+            "pool_circuit_rejections_total {}\n",
+            self.circuit_rejections.load(Ordering::Acquire)
+        ));
+        
+        // Per-model metrics
+        output.push_str("# HELP pool_model_requests_total Requests per model\n");
+        output.push_str("# TYPE pool_model_requests_total counter\n");
+        for entry in self.per_model_latency.iter() {
+            let (model, metrics) = (entry.key(), entry.value());
+            let count = metrics.latency_count.load(Ordering::Acquire);
+            output.push_str(&format!(
+                "pool_model_requests_total{{model=\"{}\"}} {}\n",
+                model, count
+            ));
+        }
+        
+        output.push_str("# HELP pool_model_latency_avg_ms Average latency per model\n");
+        output.push_str("# TYPE pool_model_latency_avg_ms gauge\n");
+        for entry in self.per_model_latency.iter() {
+            let (model, metrics) = (entry.key(), entry.value());
+            let sum = metrics.latency_sum_ms.load(Ordering::Acquire);
+            let count = metrics.latency_count.load(Ordering::Acquire);
+            if count > 0 {
+                output.push_str(&format!(
+                    "pool_model_latency_avg_ms{{model=\"{}\"}} {:.2}\n",
+                    model, (sum as f64) / (count as f64)
+                ));
+            }
+        }
+        
+        output.push_str("# HELP pool_model_latency_max_ms Peak latency per model\n");
+        output.push_str("# TYPE pool_model_latency_max_ms gauge\n");
+        for entry in self.per_model_latency.iter() {
+            let (model, metrics) = (entry.key(), entry.value());
+            let max_ms = metrics.latency_max_ms.load(Ordering::Acquire);
+            output.push_str(&format!(
+                "pool_model_latency_max_ms{{model=\"{}\"}} {}\n",
+                model, max_ms
+            ));
+        }
+        
+        output.push_str("# HELP pool_model_workers Active workers per model\n");
+        output.push_str("# TYPE pool_model_workers gauge\n");
+        for entry in pool.workers().iter() {
+            let (model, workers) = (entry.key(), entry.value());
+            output.push_str(&format!(
+                "pool_model_workers{{model=\"{}\"}} {}\n",
+                model, workers.len()
+            ));
+        }
+        
+        // Memory metrics
+        let memory_stats = pool.memory_governor.get_stats();
+        output.push_str("# HELP pool_memory_used_mb Memory used by workers\n");
+        output.push_str("# TYPE pool_memory_used_mb gauge\n");
+        output.push_str(&format!(
+            "pool_memory_used_mb {}\n",
+            memory_stats.allocated_mb
+        ));
+        
+        output.push_str("# HELP pool_memory_limit_mb Memory limit\n");
+        output.push_str("# TYPE pool_memory_limit_mb gauge\n");
+        output.push_str(&format!(
+            "pool_memory_limit_mb {}\n",
+            memory_stats.limit_mb
+        ));
+        
+        output.push_str("# HELP pool_memory_pressure Memory pressure level (0-3)\n");
+        output.push_str("# TYPE pool_memory_pressure gauge\n");
+        let pressure_value = match memory_stats.pressure {
+            crate::pool::core::memory_governor::MemoryPressure::Low => 0,
+            crate::pool::core::memory_governor::MemoryPressure::Normal => 1,
+            crate::pool::core::memory_governor::MemoryPressure::High => 2,
+            crate::pool::core::memory_governor::MemoryPressure::Critical => 3,
+        };
+        output.push_str(&format!("pool_memory_pressure {}\n", pressure_value));
+        
+        output
+    }
 }
 
 /// Handle to a worker thread (capability-specific channels defined in capabilities/)
@@ -246,7 +455,7 @@ impl Drop for SpawnGuard {
     fn drop(&mut self) {
         // Release spawn lock when guard is dropped
         self.flag.store(false, std::sync::atomic::Ordering::Release);
-        log::debug!("Released spawn lock for {}", self.registry_key);
+        debug!("Released spawn lock for {}", self.registry_key);
     }
 }
 
@@ -263,4 +472,49 @@ pub trait PoolWorkerHandle: Send + Sync + 'static {
     
     /// Registry key for this worker (model identifier)
     fn registry_key(&self) -> &str;
+}
+
+/// Pool-level health status for monitoring
+#[derive(Debug, Clone, Serialize)]
+pub struct PoolHealth {
+    pub status: HealthStatusLevel,
+    pub models: Vec<ModelHealth>,
+    pub memory: MemoryHealth,
+    pub timestamp: u64,
+}
+
+/// Health status levels
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+pub enum HealthStatusLevel {
+    Healthy,    // All models operational
+    Degraded,   // Some models at capacity or high load  
+    Unhealthy,  // Models down or critical errors
+}
+
+/// Per-model health information
+#[derive(Debug, Clone, Serialize)]
+pub struct ModelHealth {
+    pub registry_key: String,
+    pub status: HealthStatusLevel,
+    pub workers: WorkerHealthStats,
+    pub queue_depth: usize,
+    pub avg_latency_ms: Option<f64>,
+}
+
+/// Worker statistics for health check
+#[derive(Debug, Clone, Serialize)]
+pub struct WorkerHealthStats {
+    pub total: usize,
+    pub busy: usize,
+    pub idle: usize,
+}
+
+/// Memory health information
+#[derive(Debug, Clone, Serialize)]
+pub struct MemoryHealth {
+    pub used_mb: u64,
+    pub limit_mb: u64,
+    pub available_mb: u64,
+    pub pressure: String,
+    pub utilization: f64,
 }

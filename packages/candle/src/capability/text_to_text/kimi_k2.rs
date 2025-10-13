@@ -86,7 +86,7 @@ impl crate::capability::traits::TextToTextCapable for CandleKimiK2Model {
         params: &CandleCompletionParams,
     ) -> AsyncStream<CandleCompletionChunk> {
         // Get file paths BEFORE the closure (self is available here)
-        let gguf_file_path = match self.huggingface_file("*.gguf") {
+        let gguf_file_path = match self.huggingface_file(self.info().registry_key, "*.gguf") {
             Ok(p) => p,
             Err(e) => {
                 return AsyncStream::with_channel(move |sender| {
@@ -97,7 +97,7 @@ impl crate::capability::traits::TextToTextCapable for CandleKimiK2Model {
             }
         };
         
-        let tokenizer_path = match self.huggingface_file("tokenizer.json") {
+        let tokenizer_path = match self.huggingface_file(self.info().registry_key, "tokenizer.json") {
             Ok(p) => p,
             Err(e) => {
                 return AsyncStream::with_channel(move |sender| {
@@ -289,6 +289,7 @@ pub static KIMI_K2_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     provider: crate::domain::model::CandleProvider::Unsloth,
     name: "kimi-k2-instruct",
     registry_key: "unsloth/Kimi-K2-Instruct-GGUF",
+    quantization_url: None,
     max_input_tokens: NonZeroU32::new(131072), // 128K context
     max_output_tokens: NonZeroU32::new(8192),
     input_price: None, // Local model - no pricing
@@ -390,10 +391,10 @@ impl LoadedKimiK2Model {
         -> Result<Self, Box<dyn std::error::Error + Send + Sync>> 
     {
         // Get file paths
-        let gguf_file_path = base.huggingface_file("*.gguf")
+        let gguf_file_path = base.huggingface_file(base.info().registry_key, "*.gguf")
             .map_err(|e| Box::from(format!("Failed to get GGUF file: {}", e)) as Box<dyn std::error::Error + Send + Sync>)?;
         
-        let tokenizer_path = base.huggingface_file("tokenizer.json")
+        let tokenizer_path = base.huggingface_file(base.info().registry_key, "tokenizer.json")
             .map_err(|e| Box::from(format!("Failed to get tokenizer file: {}", e)) as Box<dyn std::error::Error + Send + Sync>)?;
         
         let model_path = tokenizer_path.parent()

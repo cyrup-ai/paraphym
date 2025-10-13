@@ -48,6 +48,7 @@ static CLIP_G_TOKENIZER_INFO: CandleModelInfo = CandleModelInfo {
     provider: crate::domain::model::CandleProvider::LAION,
     name: "clip-vit-bigg-14-laion-tokenizer",
     registry_key: "laion/CLIP-ViT-bigG-14-laion2B-39B-b160k",
+    quantization_url: None,
     max_input_tokens: None,
     max_output_tokens: None,
     input_price: None,

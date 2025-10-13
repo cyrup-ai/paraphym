@@ -555,14 +555,19 @@ impl PlatformInfo {
         use tokio::runtime::Runtime;
 
         // Measure actual DNS resolution time
-        // Create runtime for async measurement (this is initialization code, runs once)
-        let dns_resolution_ms = Runtime::new()
-            .ok()
-            .map(|rt| {
-                // Run async DNS measurement in blocking context
-                rt.block_on(Self::measure_dns_resolution())
-            })
-            .unwrap_or(100); // Fallback if runtime creation fails
+        // Create runtime in separate thread to avoid nested runtime issues
+        let dns_resolution_ms = std::thread::spawn(|| {
+            Runtime::new()
+                .ok()
+                .map(|rt| {
+                    // Run async DNS measurement in blocking context
+                    rt.block_on(Self::measure_dns_resolution())
+                })
+        })
+        .join()
+        .ok()
+        .flatten()
+        .unwrap_or(100); // Fallback if runtime creation fails
 
         NetworkCapabilities {
             raw_sockets: true,       // Assume available

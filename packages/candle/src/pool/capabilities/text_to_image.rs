@@ -1,7 +1,6 @@
 use crossbeam::channel::{bounded, Receiver, Sender};
 use crossbeam::select;
 use once_cell::sync::Lazy;
-use dashmap::DashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, AtomicU64, AtomicU32, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -161,6 +160,7 @@ impl Pool<TextToImageWorkerHandle> {
         // Clone channels for worker thread
         let health_rx_worker_clone = health_rx_worker.clone();
         let health_tx_main_clone = health_tx_main.clone();
+        let per_worker_mb_clone = per_worker_mb;
         
         // Create state before spawning thread so we can clone it
         use std::sync::atomic::AtomicU32;
@@ -188,6 +188,11 @@ impl Pool<TextToImageWorkerHandle> {
                     log::error!("TextToImage worker {} model loading failed: {}", worker_id, e);
                     // Transition: Loading → Failed
                     state_clone.store(WorkerState::Failed as u32, std::sync::atomic::Ordering::Release);
+                    
+                    // Clean up memory tracking (CRITICAL FIX)
+                    // This prevents memory leak when model loading fails
+                    text_to_image_pool().remove_memory(per_worker_mb_clone);
+                    
                     return;
                 }
             };
@@ -280,7 +285,7 @@ impl Pool<TextToImageWorkerHandle> {
             }
 
             // Get workers from pool
-            let workers = match pool.workers.get(&registry_key) {
+            let workers = match pool.workers().get(&registry_key) {
                 Some(w) => w,
                 None => {
                     ystream::emit!(sender, ImageGenerationChunk::Error(

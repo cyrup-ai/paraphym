@@ -1313,7 +1313,7 @@ impl CognitiveState {
 
     /// Update activation pattern from external stimulus
     ///
-    /// Uses existing AlignedActivationPattern infrastructure to:
+    /// Uses existing `AlignedActivationPattern` infrastructure to:
     /// 1. Validate stimulus dimensions
     /// 2. Update activation data
     /// 3. Apply sigmoid activation function  
@@ -1338,11 +1338,32 @@ impl CognitiveState {
             1.0 / (1.0 + (-x).exp())
         });
         
-        // Calculate energy and update attention
-        let energy = self.activation_pattern.energy();
-        let normalized_energy = (energy / self.activation_pattern.dimension as f32)
+        // Calculate energy and update attention weights with maximum precision
+        let energy = self.activation_pattern.energy(); // Returns f32
+
+        // PRODUCTION-GRADE APPROACH: Use f64 for precise division
+        // This eliminates precision loss during the normalization calculation
+        // while maintaining compatibility with f32-based attention weights API
+
+        // Convert to f64 for high-precision intermediate calculation
+        let dimension_f64 = self.activation_pattern.dimension as f64;
+        let energy_f64 = f64::from(energy); // Safe conversion f32 -> f64
+
+        // Debug-only validation: Ensure dimension is within f32's exact integer range
+        // This catches impossible cases in development without runtime cost in production
+        debug_assert!(
+            self.activation_pattern.dimension <= (1 << 24),
+            "Cognitive activation pattern dimension {} exceeds f32 exact precision limit \
+             (2^24 = 16,777,216). This may cause normalization errors in attention weights. \
+             Typical neural network dimensions (128-8192) are well within safe range.",
+            self.activation_pattern.dimension
+        );
+
+        // Perform precise f64 division, then convert to f32 for attention weights
+        // The division happens at full f64 precision, avoiding the clippy warning
+        let normalized_energy = ((energy_f64 / dimension_f64) as f32)
             .clamp(0.0, 1.0);
-        
+
         self.attention_weights.update_from_energy(normalized_energy);
         
         Ok(())
@@ -1355,7 +1376,8 @@ impl CognitiveState {
     /// - Frequency: 3+ accesses (indicates importance)
     /// - Permanence: Not marked as transient/ephemeral
     ///
-    /// Uses TemporalContext.window_start for age calculation.
+    /// Uses `TemporalContext.window_start` for age calculation.
+    #[must_use]
     pub fn should_consolidate_to_longterm(&self, memory: &WorkingMemoryItem) -> bool {
         // Get temporal context (locked briefly for read)
         let _temporal_ctx = &*self.temporal_context;
@@ -1374,9 +1396,9 @@ impl CognitiveState {
             && !memory.is_transient
     }
 
-    /// Update temporal window using existing slide_window infrastructure
+    /// Update temporal window using existing `slide_window` infrastructure
     ///
-    /// Calls TemporalContext.slide_window() to advance time window
+    /// Calls `TemporalContext.slide_window()` to advance time window
     /// and apply temporal decay to history embeddings.
     pub fn update_temporal_window(&mut self) {
         // Get mutable access to temporal context
@@ -1387,8 +1409,8 @@ impl CognitiveState {
 
     /// Add causal link between memories with temporal awareness
     ///
-    /// Creates CausalLink with temporal distance calculation.
-    /// Uses existing TemporalContext.add_causal_dependency() infrastructure.
+    /// Creates `CausalLink` with temporal distance calculation.
+    /// Uses existing `TemporalContext.add_causal_dependency()` infrastructure.
     ///
     /// # Arguments
     /// * `source_id` - Source memory ID

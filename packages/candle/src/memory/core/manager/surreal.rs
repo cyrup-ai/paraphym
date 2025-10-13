@@ -352,7 +352,7 @@ pub struct MemoryStream {
 }
 
 impl MemoryStream {
-    fn new(rx: tokio::sync::mpsc::Receiver<Result<MemoryNode>>) -> Self {
+    pub(crate) fn new(rx: tokio::sync::mpsc::Receiver<Result<MemoryNode>>) -> Self {
         Self { rx }
     }
 }

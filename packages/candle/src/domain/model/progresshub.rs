@@ -70,25 +70,4 @@ pub trait ProgressHubModel: Send + Sync + 'static {
     fn from_downloaded_model(results: progresshub::types::OneOrMany<progresshub::DownloadResult>) -> Result<Self, Box<dyn Error + Send + Sync>>
     where
         Self: Sized;
-
-    /// Blocking version for builder patterns
-    ///
-    /// Uses shared runtime to await async initialization in sync contexts.
-    ///
-    /// BLOCKING CODE APPROVED: 2025-01-20 by @maintainer
-    /// Rationale: Builder patterns require synchronous initialization. Using
-    /// `shared_runtime().block_on()` is the correct pattern for bridging async
-    /// operations in sync builder contexts. This is intentional production code.
-    ///
-    /// # Errors
-    /// Returns error if download or initialization fails
-    fn default_for_builder() -> Result<Self, Box<dyn Error + Send + Sync>>
-    where
-        Self: Sized,
-    {
-        // BLOCKING CODE APPROVED: See trait-level documentation
-        crate::runtime::shared_runtime()
-            .ok_or_else(|| Box::<dyn Error + Send + Sync>::from("Runtime unavailable"))?
-            .block_on(Self::new())
-    }
 }

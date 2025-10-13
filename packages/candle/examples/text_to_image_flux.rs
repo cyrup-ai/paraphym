@@ -34,14 +34,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let device = Device::cuda_if_available(0)?;
     writeln!(&mut stdout, "📱 Device: {:?}", device)?;
     
-    // 2. Load model
+    // 2. Create provider
     stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow)))?;
-    writeln!(&mut stdout, "📥 Loading FLUX model from HuggingFace Hub...")?;
+    writeln!(&mut stdout, "📥 Creating FLUX provider...")?;
     stdout.reset()?;
-    let provider = FluxSchnell::from_pretrained()
-        .map_err(|e| format!("Model load failed: {}", e))?;
+    let provider = FluxSchnell::new();
     stdout.set_color(ColorSpec::new().set_fg(Some(Color::Green)))?;
-    writeln!(&mut stdout, "✅ Model loaded: {}", provider.model_name())?;
+    writeln!(&mut stdout, "✅ Provider ready: {}", provider.registry_key())?;
     stdout.reset()?;
     
     // 3. Configure generation (FLUX uses guidance_scale = 0.0)

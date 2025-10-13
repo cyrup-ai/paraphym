@@ -439,28 +439,38 @@ impl CandleAgentRoleImpl {
             // Receive results with configurable timeout
             let timeout_ms = Self::get_memory_timeout_ms(timeout_ms);
 
-            let retrieval_results = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    let timeout_duration = std::time::Duration::from_millis(timeout_ms);
-                    
-                    match tokio::time::timeout(timeout_duration, retrieval_rx.recv()).await {
-                        Ok(Some(Ok(results))) => results,
-                        Ok(Some(Err(e))) => {
-                            log::error!("Memory retrieval failed: {e}");
-                            Vec::new()
-                        }
-                        Ok(None) => {
-                            log::error!("Memory retrieval channel closed unexpectedly");
-                            Vec::new()
-                        }
-                        Err(_) => {
-                            log::warn!(
-                                "Memory retrieval timed out - context may be incomplete (timeout_ms: {timeout_ms}, message: {message:?})"
-                            );
-                            Vec::new()
-                        }
+            // Use shared runtime instead of Handle::current() to avoid nested runtime error
+            let Some(runtime) = crate::runtime::shared_runtime() else {
+                log::error!("Runtime unavailable for memory retrieval");
+                let result = ContextInjectionResult {
+                    injected_context: String::new(),
+                    relevance_score: 0.0,
+                    memory_nodes_used: 0,
+                };
+                let _ = sender.send(result);
+                return;
+            };
+
+            let retrieval_results = runtime.block_on(async {
+                let timeout_duration = std::time::Duration::from_millis(timeout_ms);
+                
+                match tokio::time::timeout(timeout_duration, retrieval_rx.recv()).await {
+                    Ok(Some(Ok(results))) => results,
+                    Ok(Some(Err(e))) => {
+                        log::error!("Memory retrieval failed: {e}");
+                        Vec::new()
                     }
-                })
+                    Ok(None) => {
+                        log::error!("Memory retrieval channel closed unexpectedly");
+                        Vec::new()
+                    }
+                    Err(_) => {
+                        log::warn!(
+                            "Memory retrieval timed out - context may be incomplete (timeout_ms: {timeout_ms}, message: {message:?})"
+                        );
+                        Vec::new()
+                    }
+                }
             });
 
             let memory_nodes_used = retrieval_results.len();

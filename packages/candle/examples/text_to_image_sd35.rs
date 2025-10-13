@@ -34,14 +34,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let device = Device::cuda_if_available(0)?;
     writeln!(&mut stdout, "📱 Device: {:?}", device)?;
     
-    // 2. Load model
+    // 2. Create provider
     stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow)))?;
-    writeln!(&mut stdout, "📥 Loading model from HuggingFace Hub...")?;
+    writeln!(&mut stdout, "📥 Creating SD3.5 provider...")?;
     stdout.reset()?;
-    let provider = StableDiffusion35Turbo::from_pretrained()
-        .map_err(|e| format!("Model load failed: {}", e))?;
+    let provider = StableDiffusion35Turbo::new();
     stdout.set_color(ColorSpec::new().set_fg(Some(Color::Green)))?;
-    writeln!(&mut stdout, "✅ Model loaded: {}", provider.model_name())?;
+    writeln!(&mut stdout, "✅ Provider ready: {}", provider.registry_key())?;
     stdout.reset()?;
     
     // 3. Configure generation

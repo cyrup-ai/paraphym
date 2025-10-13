@@ -4,9 +4,7 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use crossbeam::channel::{Sender, Receiver};
-use dashmap::DashMap;
 use prometheus::{IntGauge, HistogramVec, Counter};
-use tracing::{instrument, span, Level};
 
 /// Worker lifecycle states with atomic transitions
 #[repr(u32)]

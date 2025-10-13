@@ -105,7 +105,7 @@ pub type VectorStoreError = Error;
 // MemoryError alias removed to avoid conflict with paraphym_memory::Error
 
 /// Memory system configuration combining all subsystem configurations
-/// Generic over any model that implements CandleModel + TextToTextCapable
+/// Generic over any model that implements CandleModel + `TextToTextCapable`
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MemorySystemConfig {
     /// Database configuration for persistent storage

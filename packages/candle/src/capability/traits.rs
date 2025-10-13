@@ -155,26 +155,27 @@ pub trait TextEmbeddingCapable: CandleModel {
 }
 
 /// Trait for models capable of image embedding
+#[async_trait::async_trait(?Send)]
 pub trait ImageEmbeddingCapable: CandleModel {
     /// Generate embedding for an image from file path
-    fn embed_image(&self, image_path: &str) 
+    async fn embed_image(&self, image_path: &str)
         -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>;
-    
+
     /// Generate embedding for an image from URL
-    fn embed_image_url(&self, url: &str) 
+    async fn embed_image_url(&self, url: &str)
         -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>;
-    
+
     /// Generate embedding for an image from base64-encoded data
-    fn embed_image_base64(&self, base64_data: &str) 
+    async fn embed_image_base64(&self, base64_data: &str)
         -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>;
-    
+
     /// Generate embeddings for multiple images in batch
-    fn batch_embed_images(&self, image_paths: Vec<&str>) 
+    async fn batch_embed_images(&self, image_paths: Vec<&str>)
         -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>>;
-    
+
     /// Get the dimensionality of embeddings produced by this model
     fn embedding_dimension(&self) -> usize;
-    
+
     /// Get the supported embedding dimensions for this model
     fn supported_dimensions(&self) -> Vec<usize> {
         vec![self.embedding_dimension()]

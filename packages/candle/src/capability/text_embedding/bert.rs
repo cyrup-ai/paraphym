@@ -147,6 +147,7 @@ static BERT_EMBEDDING_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     provider: crate::domain::model::CandleProvider::SentenceTransformers,
     name: "all-MiniLM-L6-v2",
     registry_key: "sentence-transformers/all-MiniLM-L6-v2",
+    quantization_url: None,
     max_input_tokens: NonZeroU32::new(512),
     max_output_tokens: None,
     input_price: None,
@@ -210,9 +211,9 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleBertEmbeddingMode
         let dtype = if device.is_cuda() { DType::F16 } else { DType::F32 };
         
         // Get file paths via huggingface_file
-        let model_weights_path = self.huggingface_file("model.safetensors")?;
-        let tokenizer_path = self.huggingface_file("tokenizer.json")?;
-        let config_path = self.huggingface_file("config.json")?;
+        let model_weights_path = self.huggingface_file(self.info().registry_key, "model.safetensors")?;
+        let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json")?;
+        let config_path = self.huggingface_file(self.info().registry_key, "config.json")?;
         
         // Load tokenizer
         let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
@@ -288,9 +289,9 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleBertEmbeddingMode
         let dtype = if device.is_cuda() { DType::F16 } else { DType::F32 };
         
         // Get file paths via huggingface_file
-        let model_weights_path = self.huggingface_file("model.safetensors")?;
-        let tokenizer_path = self.huggingface_file("tokenizer.json")?;
-        let config_path = self.huggingface_file("config.json")?;
+        let model_weights_path = self.huggingface_file(self.info().registry_key, "model.safetensors")?;
+        let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json")?;
+        let config_path = self.huggingface_file(self.info().registry_key, "config.json")?;
         
         // Load tokenizer
         let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
@@ -428,9 +429,9 @@ impl LoadedBertModel {
         let dtype = if device.is_cuda() { DType::F16 } else { DType::F32 };
 
         // Get file paths via huggingface_file
-        let model_weights_path = base_model.huggingface_file("model.safetensors")?;
-        let tokenizer_path = base_model.huggingface_file("tokenizer.json")?;
-        let config_path = base_model.huggingface_file("config.json")?;
+        let model_weights_path = base_model.huggingface_file(base_model.info().registry_key, "model.safetensors")?;
+        let tokenizer_path = base_model.huggingface_file(base_model.info().registry_key, "tokenizer.json")?;
+        let config_path = base_model.huggingface_file(base_model.info().registry_key, "config.json")?;
 
         // Load tokenizer
         let mut tokenizer = Tokenizer::from_file(&tokenizer_path)

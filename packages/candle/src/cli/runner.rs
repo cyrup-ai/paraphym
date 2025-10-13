@@ -209,10 +209,8 @@ You are a master at refactoring code, remembering to check for code that ALREADY
                     }
                     InputHandlerResult::Chat(message) => {
                         // Resolve with smart input detection
-                        let resolved = tokio::task::block_in_place(|| {
-                            tokio::runtime::Handle::current().block_on(async {
-                                resolve_smart_input(&message).await.unwrap_or(message)
-                            })
+                        let resolved = tokio::runtime::Handle::current().block_on(async {
+                            resolve_smart_input(&message).await.unwrap_or(message.clone())
                         });
                         agent.chat(CandleChatLoop::UserPrompt(resolved))
                     }

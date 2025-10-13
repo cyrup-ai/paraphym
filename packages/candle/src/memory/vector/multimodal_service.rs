@@ -87,7 +87,7 @@ impl MultimodalEmbeddingService {
 
         tokio::spawn(async move {
             let result = vision_model
-                .embed_image(&image_path)
+                .embed_image(&image_path).await
                 .map_err(|e| crate::memory::utils::error::Error::Other(format!("Failed to embed image: {}", e)));
             let _ = tx.send(result);
         });
@@ -104,7 +104,7 @@ impl MultimodalEmbeddingService {
 
         tokio::spawn(async move {
             let result = vision_model
-                .embed_image_url(&url)
+                .embed_image_url(&url).await
                 .map_err(|e| crate::memory::utils::error::Error::Other(format!("Failed to embed image from URL: {}", e)));
             let _ = tx.send(result);
         });
@@ -121,7 +121,7 @@ impl MultimodalEmbeddingService {
 
         tokio::spawn(async move {
             let result = vision_model
-                .embed_image_base64(&base64_data)
+                .embed_image_base64(&base64_data).await
                 .map_err(|e| crate::memory::utils::error::Error::Other(format!("Failed to embed image from base64: {}", e)));
             let _ = tx.send(result);
         });
@@ -139,7 +139,7 @@ impl MultimodalEmbeddingService {
         tokio::spawn(async move {
             let paths: Vec<&str> = image_paths.iter().map(|s| s.as_str()).collect();
             let result = vision_model
-                .batch_embed_images(paths)
+                .batch_embed_images(paths).await
                 .map_err(|e| crate::memory::utils::error::Error::Other(format!("Failed to batch embed images: {}", e)));
             let _ = tx.send(result);
         });

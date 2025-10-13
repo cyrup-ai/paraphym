@@ -48,6 +48,7 @@ static T5_TOKENIZER_INFO: CandleModelInfo = CandleModelInfo {
     provider: crate::domain::model::CandleProvider::Community,
     name: "mt5-xxl-tokenizer",
     registry_key: "lmz/mt5-tokenizers",
+    quantization_url: None,
     max_input_tokens: None,
     max_output_tokens: None,
     input_price: None,

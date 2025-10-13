@@ -115,6 +115,7 @@ static GTE_QWEN_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     provider: crate::domain::model::CandleProvider::AlibabaNLP,
     name: "gte-Qwen2-1.5B-instruct",
     registry_key: "Alibaba-NLP/gte-Qwen2-1.5B-instruct",
+    quantization_url: None,
     max_input_tokens: NonZeroU32::new(32768),
     max_output_tokens: None,
     input_price: None,
@@ -176,9 +177,9 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleGteQwenEmbeddingM
         let dtype = if device.is_cuda() { DType::F16 } else { DType::F32 };
         
         // Get file paths via huggingface_file
-        let tokenizer_path = self.huggingface_file("tokenizer.json")?;
-        let config_path = self.huggingface_file("config.json")?;
-        let index_path = self.huggingface_file("model.safetensors.index.json")?;
+        let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json")?;
+        let config_path = self.huggingface_file(self.info().registry_key, "config.json")?;
+        let index_path = self.huggingface_file(self.info().registry_key, "model.safetensors.index.json")?;
         
         // Load tokenizer
         let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
@@ -278,9 +279,9 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleGteQwenEmbeddingM
         let dtype = if device.is_cuda() { DType::F16 } else { DType::F32 };
         
         // Get file paths via huggingface_file
-        let tokenizer_path = self.huggingface_file("tokenizer.json")?;
-        let config_path = self.huggingface_file("config.json")?;
-        let index_path = self.huggingface_file("model.safetensors.index.json")?;
+        let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json")?;
+        let config_path = self.huggingface_file(self.info().registry_key, "config.json")?;
+        let index_path = self.huggingface_file(self.info().registry_key, "model.safetensors.index.json")?;
         
         // Load tokenizer
         let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
@@ -422,9 +423,9 @@ impl LoadedGteQwenModel {
         let dtype = if device.is_cuda() { DType::F16 } else { DType::F32 };
         
         // Get file paths via huggingface_file
-        let tokenizer_path = base_model.huggingface_file("tokenizer.json")?;
-        let config_path = base_model.huggingface_file("config.json")?;
-        let index_path = base_model.huggingface_file("model.safetensors.index.json")?;
+        let tokenizer_path = base_model.huggingface_file(base_model.info().registry_key, "tokenizer.json")?;
+        let config_path = base_model.huggingface_file(base_model.info().registry_key, "config.json")?;
+        let index_path = base_model.huggingface_file(base_model.info().registry_key, "model.safetensors.index.json")?;
         
         // Load tokenizer
         let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
@@ -515,7 +516,7 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedGteQwenModel {
         
         let embeddings = CandleGteQwenEmbeddingModel::forward_pass_with_task(
             &self.tokenizer,
-            &mut *model_guard,
+            &mut model_guard,
             &self.device,
             &[text],
             task.as_deref(),
@@ -536,7 +537,7 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedGteQwenModel {
         let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
         CandleGteQwenEmbeddingModel::forward_pass_with_task(
             &self.tokenizer,
-            &mut *model_guard,
+            &mut model_guard,
             &self.device,
             &text_refs,
             task.as_deref(),

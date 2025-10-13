@@ -44,17 +44,6 @@ pub struct CandleQwen3CoderModel {
     engine: Arc<Engine>,
 }
 
-impl Default for CandleQwen3CoderModel {
-    fn default() -> Self {
-        crate::runtime::shared_runtime()
-            .unwrap_or_else(|| panic!("Shared runtime unavailable"))
-            .block_on(Self::new())
-            .unwrap_or_else(|e| panic!("Failed to initialize CandleQwen3CoderModel: {}", e))
-    }
-}
-
-
-
 impl CandleQwen3CoderModel {
     /// Create new Qwen3 Coder provider with automatic model download
     ///
@@ -287,6 +276,7 @@ pub static QWEN3_CODER_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     provider: crate::domain::model::CandleProvider::Unsloth,
     name: "qwen3-coder-30b-instruct",
     registry_key: "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
+    quantization_url: None,
     max_input_tokens: NonZeroU32::new(32768), // 32K context
     max_output_tokens: NonZeroU32::new(8192),
     input_price: None, // Local model - no pricing

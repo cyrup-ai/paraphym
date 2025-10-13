@@ -48,6 +48,7 @@ static T5_CONFIG_INFO: CandleModelInfo = CandleModelInfo {
     provider: crate::domain::model::CandleProvider::Google,
     name: "t5-v1_1-xxl-config",
     registry_key: "google/t5-v1_1-xxl",
+    quantization_url: None,
     max_input_tokens: None,
     max_output_tokens: None,
     input_price: None,

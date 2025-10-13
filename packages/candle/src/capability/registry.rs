@@ -106,7 +106,6 @@ use crate::capability::text_embedding::{
     bert::LoadedBertModel,
 };
 use crate::capability::vision::llava::LoadedLLaVAModel;
-use crate::capability::image_embedding::LoadedClipVisionModel;
 use crate::capability::text_to_text::{
     kimi_k2::LoadedKimiK2Model,
     qwen3_coder::LoadedQwen3CoderModel,
@@ -621,8 +620,9 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
     }
 }
 
+#[async_trait::async_trait(?Send)]
 impl ImageEmbeddingCapable for ImageEmbeddingModel {
-    fn embed_image(&self, image_path: &str) 
+    async fn embed_image(&self, image_path: &str)
         -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
         match self {
             Self::ClipVision(m) => {
@@ -637,11 +637,11 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
                     per_worker_mb,
                     pool.config().max_workers_per_model,
                     |_, allocation_guard| {
-                        let m_clone = m.clone();
+                        // Clone the model (Arc clone is cheap)
+                        let model = (**m).clone();
                         pool.spawn_image_embedding_worker(
                             registry_key,
-                            move || LoadedClipVisionModel::load(&m_clone)
-                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
+                            move || Ok(model),
                             per_worker_mb,
                             allocation_guard,
                         )
@@ -654,8 +654,8 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
             }
         }
     }
-    
-    fn embed_image_url(&self, url: &str) 
+
+    async fn embed_image_url(&self, url: &str)
         -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
         match self {
             Self::ClipVision(m) => {
@@ -670,11 +670,11 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
                     per_worker_mb,
                     pool.config().max_workers_per_model,
                     |_, allocation_guard| {
-                        let m_clone = m.clone();
+                        // Clone the model (Arc clone is cheap)
+                        let model = (**m).clone();
                         pool.spawn_image_embedding_worker(
                             registry_key,
-                            move || LoadedClipVisionModel::load(&m_clone)
-                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
+                            move || Ok(model),
                             per_worker_mb,
                             allocation_guard,
                         )
@@ -687,8 +687,8 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
             }
         }
     }
-    
-    fn embed_image_base64(&self, base64_data: &str) 
+
+    async fn embed_image_base64(&self, base64_data: &str)
         -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
         match self {
             Self::ClipVision(m) => {
@@ -703,11 +703,11 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
                     per_worker_mb,
                     pool.config().max_workers_per_model,
                     |_, allocation_guard| {
-                        let m_clone = m.clone();
+                        // Clone the model (Arc clone is cheap)
+                        let model = (**m).clone();
                         pool.spawn_image_embedding_worker(
                             registry_key,
-                            move || LoadedClipVisionModel::load(&m_clone)
-                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
+                            move || Ok(model),
                             per_worker_mb,
                             allocation_guard,
                         )
@@ -720,8 +720,8 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
             }
         }
     }
-    
-    fn batch_embed_images(&self, image_paths: Vec<&str>) 
+
+    async fn batch_embed_images(&self, image_paths: Vec<&str>)
         -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> {
         match self {
             Self::ClipVision(m) => {
@@ -736,11 +736,11 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
                     per_worker_mb,
                     pool.config().max_workers_per_model,
                     |_, allocation_guard| {
-                        let m_clone = m.clone();
+                        // Clone the model (Arc clone is cheap)
+                        let model = (**m).clone();
                         pool.spawn_image_embedding_worker(
                             registry_key,
-                            move || LoadedClipVisionModel::load(&m_clone)
-                                .map_err(|e| PoolError::SpawnFailed(e.to_string())),
+                            move || Ok(model),
                             per_worker_mb,
                             allocation_guard,
                         )
@@ -753,7 +753,7 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
             }
         }
     }
-    
+
     fn embedding_dimension(&self) -> usize {
         match self {
             Self::ClipVision(m) => m.embedding_dimension(),
@@ -855,7 +855,7 @@ impl TextToImageCapable for TextToImageModel {
                     per_worker_mb,
                     pool.config().max_workers_per_model,
                     |_, allocation_guard| {
-                        let m_inner = (&**m).clone();
+                        let m_inner = (**m).clone();
                         pool.spawn_text_to_image_worker(
                             registry_key,
                             move || Ok(m_inner),
@@ -884,7 +884,7 @@ impl TextToImageCapable for TextToImageModel {
                     per_worker_mb,
                     pool.config().max_workers_per_model,
                     |_, allocation_guard| {
-                        let m_inner = (&**m).clone();
+                        let m_inner = (**m).clone();
                         pool.spawn_text_to_image_worker(
                             registry_key,
                             move || Ok(m_inner),
@@ -923,10 +923,6 @@ static TEXT_TO_TEXT_REGISTRY: LazyLock<HashMap<&'static str, TextToTextModel>> =
         let model = Arc::new(CandleKimiK2Model::default());
         let key = model.info().registry_key;
         map.insert(key, TextToTextModel::KimiK2(model));
-        
-        let model = Arc::new(CandleQwen3CoderModel::default());
-        let key = model.info().registry_key;
-        map.insert(key, TextToTextModel::Qwen3Coder(model));
         
         let model = Arc::new(CandlePhi4ReasoningModel::default());
         let key = model.info().registry_key;
@@ -975,6 +971,10 @@ static TEXT_TO_IMAGE_REGISTRY: LazyLock<HashMap<&'static str, TextToImageModel>>
     LazyLock::new(HashMap::new);
 
 static TEXT_TO_IMAGE_RUNTIME: OnceLock<RwLock<HashMap<String, TextToImageModel>>> = OnceLock::new();
+
+// TEXT_TO_TEXT_RUNTIME: For text-to-text models that require async initialization (e.g., Qwen3Coder with HF downloads)
+// Use runtime registration after async model creation
+static TEXT_TO_TEXT_RUNTIME: OnceLock<RwLock<HashMap<String, TextToTextModel>>> = OnceLock::new();
 
 static VISION_REGISTRY: LazyLock<HashMap<&'static str, VisionModel>> = 
     LazyLock::new(|| {
@@ -1049,7 +1049,8 @@ pub trait FromRegistry: Sized {
 
 impl FromRegistry for TextToTextModel {
     fn from_registry(registry_key: &str) -> Option<Self> {
-        TEXT_TO_TEXT_REGISTRY.get(registry_key).cloned()
+        // Check runtime registry first, then fall back to static registry
+        get_text_to_text_runtime(registry_key)
     }
 }
 
@@ -1086,6 +1087,7 @@ impl FromRegistry for AnyModel {
 /// Get a text-to-text model by registry_key
 ///
 /// Returns an enum that implements both CandleModel and TextToTextCapable.
+/// Checks runtime registry first (for models like Qwen3Coder), then falls back to static registry.
 ///
 /// # Example
 /// ```rust
@@ -1095,35 +1097,35 @@ impl FromRegistry for AnyModel {
 ///     // model implements TextToTextCapable
 /// }
 /// ```
-pub fn get_text_to_text(registry_key: &str) -> Option<impl TextToTextCapable + CandleModel> {
-    TEXT_TO_TEXT_REGISTRY.get(registry_key).cloned()
+pub fn get_text_to_text(registry_key: &str) -> Option<impl TextToTextCapable> {
+    get_text_to_text_runtime(registry_key)
 }
 
 /// Get a text embedding model by registry_key
 ///
 /// Returns an enum that implements both CandleModel and TextEmbeddingCapable.
-pub fn get_text_embedding(registry_key: &str) -> Option<impl TextEmbeddingCapable + CandleModel> {
+pub fn get_text_embedding(registry_key: &str) -> Option<impl TextEmbeddingCapable> {
     TEXT_EMBEDDING_REGISTRY.get(registry_key).cloned()
 }
 
 /// Get an image embedding model by registry_key
 ///
 /// Returns an enum that implements both CandleModel and ImageEmbeddingCapable.
-pub fn get_image_embedding(registry_key: &str) -> Option<impl ImageEmbeddingCapable + CandleModel> {
+pub fn get_image_embedding(registry_key: &str) -> Option<impl ImageEmbeddingCapable> {
     IMAGE_EMBEDDING_REGISTRY.get(registry_key).cloned()
 }
 
 /// Get a text-to-image model by registry_key
 ///
 /// Returns an enum that implements both CandleModel and TextToImageCapable.
-pub fn get_text_to_image(registry_key: &str) -> Option<impl TextToImageCapable + CandleModel> {
+pub fn get_text_to_image(registry_key: &str) -> Option<impl TextToImageCapable> {
     TEXT_TO_IMAGE_REGISTRY.get(registry_key).cloned()
 }
 
 /// Get a vision model by registry_key
 ///
 /// Returns an enum that implements both CandleModel and VisionCapable.
-pub fn get_vision(registry_key: &str) -> Option<impl VisionCapable + CandleModel> {
+pub fn get_vision(registry_key: &str) -> Option<impl VisionCapable> {
     VISION_REGISTRY.get(registry_key).cloned()
 }
 
@@ -1185,7 +1187,7 @@ pub fn count_models_by_provider() -> Vec<(&'static str, usize)> {
 /// }
 /// ```
 pub fn all_registry_keys() -> Vec<&'static str> {
-    MODEL_REGISTRY.iter().map(|(key, _model)| *key).collect()
+    MODEL_REGISTRY.keys().map(|key| *key).collect()
 }
 
 /// Check if a registry_key is registered
@@ -1246,17 +1248,39 @@ pub fn register_text_to_image(key: impl Into<String>, model: TextToImageModel) {
     }
 }
 
+/// Register a text-to-text model at runtime
+///
+/// Use this for models that require async initialization (e.g., Qwen3Coder with HF downloads)
+/// and cannot be statically initialized with Default trait.
+///
+/// # Example
+/// ```rust
+/// use paraphym_candle::capability::registry;
+/// use paraphym_candle::capability::text_to_text::CandleQwen3CoderModel;
+/// use std::sync::Arc;
+///
+/// // Inside async context:
+/// let model = CandleQwen3CoderModel::new().await?;
+/// registry::register_text_to_text("unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF", 
+///     TextToTextModel::Qwen3Coder(Arc::new(model)));
+/// ```
+pub fn register_text_to_text(key: impl Into<String>, model: TextToTextModel) {
+    let runtime = TEXT_TO_TEXT_RUNTIME.get_or_init(|| RwLock::new(HashMap::new()));
+    if let Ok(mut map) = runtime.write() {
+        map.insert(key.into(), model);
+    }
+}
+
 /// Get an image embedding model from runtime registry
 ///
 /// Checks runtime registry first, then falls back to static registry.
 pub fn get_image_embedding_runtime(key: &str) -> Option<ImageEmbeddingModel> {
     // Check runtime registry first
-    if let Some(runtime) = IMAGE_EMBEDDING_RUNTIME.get() {
-        if let Ok(map) = runtime.read() {
-            if let Some(model) = map.get(key) {
-                return Some(model.clone());
-            }
-        }
+    if let Some(runtime) = IMAGE_EMBEDDING_RUNTIME.get()
+        && let Ok(map) = runtime.read()
+        && let Some(model) = map.get(key)
+    {
+        return Some(model.clone());
     }
     
     // Fall back to static registry
@@ -1268,16 +1292,32 @@ pub fn get_image_embedding_runtime(key: &str) -> Option<ImageEmbeddingModel> {
 /// Checks runtime registry first, then falls back to static registry.
 pub fn get_text_to_image_runtime(key: &str) -> Option<TextToImageModel> {
     // Check runtime registry first
-    if let Some(runtime) = TEXT_TO_IMAGE_RUNTIME.get() {
-        if let Ok(map) = runtime.read() {
-            if let Some(model) = map.get(key) {
-                return Some(model.clone());
-            }
-        }
+    if let Some(runtime) = TEXT_TO_IMAGE_RUNTIME.get()
+        && let Ok(map) = runtime.read()
+        && let Some(model) = map.get(key)
+    {
+        return Some(model.clone());
     }
     
     // Fall back to static registry
     TEXT_TO_IMAGE_REGISTRY.get(key).cloned()
+}
+
+/// Get a text-to-text model from runtime registry
+///
+/// Checks runtime registry first, then falls back to static registry.
+/// Use this for models registered at runtime via register_text_to_text().
+pub fn get_text_to_text_runtime(key: &str) -> Option<TextToTextModel> {
+    // Check runtime registry first
+    if let Some(runtime) = TEXT_TO_TEXT_RUNTIME.get()
+        && let Ok(map) = runtime.read()
+        && let Some(model) = map.get(key)
+    {
+        return Some(model.clone());
+    }
+    
+    // Fall back to static registry
+    TEXT_TO_TEXT_REGISTRY.get(key).cloned()
 }
 
 /// Get the total number of registered models

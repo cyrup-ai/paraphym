@@ -286,10 +286,10 @@ impl EmbeddingConfig {
         self.validate_dimensions()?;
 
         // Validate model name exists
-        if let Some(ref model) = self.model {
-            if model.trim().is_empty() {
-                return Err(crate::memory::utils::error::Error::Config("Model name cannot be empty".to_string()));
-            }
+        if let Some(ref model) = self.model
+            && model.trim().is_empty()
+        {
+            return Err(crate::memory::utils::error::Error::Config("Model name cannot be empty".to_string()));
         }
 
         Ok(())

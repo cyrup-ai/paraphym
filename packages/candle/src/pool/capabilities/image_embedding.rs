@@ -1,7 +1,6 @@
 use crossbeam::channel::{Sender, Receiver, bounded};
 use crossbeam::select;
 use once_cell::sync::Lazy;
-use dashmap::DashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, AtomicU64, AtomicU32, Ordering};
@@ -113,11 +112,13 @@ pub fn image_embedding_worker<T: ImageEmbeddingCapable>(
                 if let Ok(req) = req {
                     // Transition: Ready/Idle → Processing
                     state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
-                    
-                    let result = model.embed_image(&req.image_path)
+
+                    let rt = crate::runtime::shared_runtime()
+                        .expect("Shared runtime required for async operations");
+                    let result = rt.block_on(model.embed_image(&req.image_path))
                         .map_err(|e| PoolError::ModelError(e.to_string()));
                     let _ = req.response.send(result);
-                    
+
                     // Transition: Processing → Ready
                     state.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
                     last_activity = SystemTime::now();
@@ -127,11 +128,13 @@ pub fn image_embedding_worker<T: ImageEmbeddingCapable>(
                 if let Ok(req) = req {
                     // Transition: Ready/Idle → Processing
                     state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
-                    
-                    let result = model.embed_image_url(&req.url)
+
+                    let rt = crate::runtime::shared_runtime()
+                        .expect("Shared runtime required for async operations");
+                    let result = rt.block_on(model.embed_image_url(&req.url))
                         .map_err(|e| PoolError::ModelError(e.to_string()));
                     let _ = req.response.send(result);
-                    
+
                     // Transition: Processing → Ready
                     state.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
                     last_activity = SystemTime::now();
@@ -141,11 +144,13 @@ pub fn image_embedding_worker<T: ImageEmbeddingCapable>(
                 if let Ok(req) = req {
                     // Transition: Ready/Idle → Processing
                     state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
-                    
-                    let result = model.embed_image_base64(&req.base64_data)
+
+                    let rt = crate::runtime::shared_runtime()
+                        .expect("Shared runtime required for async operations");
+                    let result = rt.block_on(model.embed_image_base64(&req.base64_data))
                         .map_err(|e| PoolError::ModelError(e.to_string()));
                     let _ = req.response.send(result);
-                    
+
                     // Transition: Processing → Ready
                     state.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
                     last_activity = SystemTime::now();
@@ -155,12 +160,14 @@ pub fn image_embedding_worker<T: ImageEmbeddingCapable>(
                 if let Ok(req) = req {
                     // Transition: Ready/Idle → Processing
                     state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
-                    
+
+                    let rt = crate::runtime::shared_runtime()
+                        .expect("Shared runtime required for async operations");
                     let paths: Vec<&str> = req.image_paths.iter().map(|s| s.as_str()).collect();
-                    let result = model.batch_embed_images(paths)
+                    let result = rt.block_on(model.batch_embed_images(paths))
                         .map_err(|e| PoolError::ModelError(e.to_string()));
                     let _ = req.response.send(result);
-                    
+
                     // Transition: Processing → Ready
                     state.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
                     last_activity = SystemTime::now();
@@ -232,6 +239,7 @@ impl Pool<ImageEmbeddingWorkerHandle> {
         // Clone channels for worker thread
         let health_rx_worker_clone = health_rx_worker.clone();
         let health_tx_main_clone = health_tx_main.clone();
+        let per_worker_mb_clone = per_worker_mb;
         
         // Create state before spawning thread so we can clone it
         use std::sync::atomic::AtomicU32;
@@ -259,6 +267,11 @@ impl Pool<ImageEmbeddingWorkerHandle> {
                     log::error!("ImageEmbedding worker {} model loading failed: {}", worker_id, e);
                     // Transition: Loading → Failed
                     state_clone.store(WorkerState::Failed as u32, std::sync::atomic::Ordering::Release);
+                    
+                    // Clean up memory tracking (CRITICAL FIX)
+                    // This prevents memory leak when model loading fails
+                    image_embedding_pool().remove_memory(per_worker_mb_clone);
+                    
                     return;
                 }
             };
@@ -340,7 +353,7 @@ impl Pool<ImageEmbeddingWorkerHandle> {
         }
 
         // Get workers from pool
-        let workers = self.workers.get(registry_key)
+        let workers = self.workers().get(registry_key)
             .ok_or_else(|| PoolError::NoWorkers(format!("No workers for {}", registry_key)))?;
 
         if workers.is_empty() {
@@ -408,7 +421,7 @@ impl Pool<ImageEmbeddingWorkerHandle> {
         }
 
         // Get workers from pool
-        let workers = self.workers.get(registry_key)
+        let workers = self.workers().get(registry_key)
             .ok_or_else(|| PoolError::NoWorkers(format!("No workers for {}", registry_key)))?;
 
         if workers.is_empty() {
@@ -476,7 +489,7 @@ impl Pool<ImageEmbeddingWorkerHandle> {
         }
 
         // Get workers from pool
-        let workers = self.workers.get(registry_key)
+        let workers = self.workers().get(registry_key)
             .ok_or_else(|| PoolError::NoWorkers(format!("No workers for {}", registry_key)))?;
 
         if workers.is_empty() {
@@ -544,7 +557,7 @@ impl Pool<ImageEmbeddingWorkerHandle> {
         }
 
         // Get workers from pool
-        let workers = self.workers.get(registry_key)
+        let workers = self.workers().get(registry_key)
             .ok_or_else(|| PoolError::NoWorkers(format!("No workers for {}", registry_key)))?;
 
         if workers.is_empty() {

@@ -79,24 +79,24 @@ pub trait CandleModel: Send + Sync + std::fmt::Debug + 'static {
         self.info().quantization()
     }
 
-    /// Get path to a file in this model's HuggingFace repo
+    /// Get path to a file in a `HuggingFace` repository
     /// 
     /// Downloads the file if not cached, returns cached path if available.
-    /// Uses self.info().registry_key to determine the repo.
     /// 
     /// # Arguments
-    /// * `filename` - Just the filename (e.g., "config.json", "tokenizer.json")
+    /// * `repo_key` - Repository identifier (e.g., "org/model-name")
+    /// * `filename` - File name within the repository (e.g., "config.json")
     /// 
     /// # Errors
     /// Returns error if file download or access fails
-    fn huggingface_file(&self, filename: &str) -> Result<std::path::PathBuf, Box<dyn std::error::Error + Send + Sync>>
+    fn huggingface_file(&self, repo_key: &str, filename: &str) -> Result<std::path::PathBuf, Box<dyn std::error::Error + Send + Sync>>
     where
         Self: Sized
     {
         use hf_hub::api::sync::Api;
         
         let api = Api::new()?;
-        let repo = api.model(self.info().registry_key.to_string());
+        let repo = api.model(repo_key.to_string());
         let path = repo.get(filename)?;
         
         Ok(path)

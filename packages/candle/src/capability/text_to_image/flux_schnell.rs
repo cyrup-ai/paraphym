@@ -74,13 +74,13 @@ impl ImageGenerationModel for FluxSchnell {
             let use_bf16 = FLUX_SCHNELL_MODEL_INFO.use_bf16;  // true
             
             // === 2. SET RANDOM SEED (if provided) ===
-            if let Some(seed) = config.seed {
-                if let Err(e) = device.set_seed(seed) {
-                    let _ = sender.send(ImageGenerationChunk::Error(
-                        format!("Seed setting failed: {}", e)
-                    ));
-                    return;
-                }
+            if let Some(seed) = config.seed
+                && let Err(e) = device.set_seed(seed)
+            {
+                let _ = sender.send(ImageGenerationChunk::Error(
+                    format!("Seed setting failed: {}", e)
+                ));
+                return;
             }
             
             // === 3. DETERMINE DTYPE ===
@@ -497,6 +497,7 @@ static FLUX_SCHNELL_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     provider: crate::domain::model::CandleProvider::BlackForestLabs,
     name: "FLUX.1-schnell",
     registry_key: "black-forest-labs/FLUX.1-schnell",
+    quantization_url: None,
     max_input_tokens: None,
     max_output_tokens: None,
     input_price: None,

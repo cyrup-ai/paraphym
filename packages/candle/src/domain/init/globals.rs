@@ -73,7 +73,7 @@
 //!
 //! ### Database Backend
 //!
-//! The configuration system manages **SurrealDB with SurrealKV** storage:
+//! The configuration system manages **`SurrealDB` with `SurrealKV`** storage:
 //! - Connection string: `surrealkv://./data/memory.db` (default)
 //! - Namespace: `paraphym`
 //! - Database: `memory`

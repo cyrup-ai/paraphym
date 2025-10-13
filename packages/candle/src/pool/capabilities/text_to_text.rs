@@ -1,7 +1,6 @@
 use crossbeam::channel::{bounded, Receiver, Sender};
 use crossbeam::select;
 use once_cell::sync::Lazy;
-use dashmap::DashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, AtomicU64, AtomicU32, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -65,7 +64,7 @@ pub fn text_to_text_worker<T: TextToTextCapable>(
     health_rx: Receiver<HealthPing>,
     health_tx: Sender<HealthPong>,
     worker_id: usize,
-    registry_key: String,
+    _registry_key: String,
     state: Arc<AtomicU32>,
 ) {
     use std::time::Duration;
@@ -160,6 +159,7 @@ impl Pool<TextToTextWorkerHandle> {
         // Get worker ID before moving into thread
         let worker_id = self.next_worker_id();
         let registry_key_clone = registry_key.to_string();
+        let registry_key_for_handle = registry_key.to_string();
 
         // Clone channels for worker thread
         let health_rx_worker_clone = health_rx_worker.clone();
@@ -240,7 +240,7 @@ impl Pool<TextToTextWorkerHandle> {
             },
             prompt_tx,
             shutdown_tx,
-            registry_key: registry_key_clone.clone(),
+            registry_key: registry_key_for_handle.clone(),
         };
 
         // Single registration point - no duplication
@@ -286,8 +286,8 @@ impl Pool<TextToTextWorkerHandle> {
                 return;
             }
 
-            // Get workers from global worker storage
-            let workers = match TEXT_TO_TEXT_WORKERS.get(&registry_key) {
+            // Get workers from pool
+            let workers = match pool.workers().get(&registry_key) {
                 Some(w) => w,
                 None => {
                     ystream::emit!(sender, CandleCompletionChunk::Error(

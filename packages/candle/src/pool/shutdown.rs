@@ -74,14 +74,14 @@ fn all_pools_drained() -> bool {
 /// Count pending requests in a pool
 ///
 /// Iterates all workers across all registry keys and sums pending_requests.
-fn count_pool_pending<T: ?Sized>(pool: &Pool<T>) -> usize {
+fn count_pool_pending<T: crate::pool::core::types::PoolWorkerHandle>(pool: &Pool<T>) -> usize {
     let mut total = 0;
 
     // Iterate DashMap entries (registry_key -> Vec<WorkerHandle>)
     for entry in pool.workers().iter() {
         let workers = entry.value();
         for worker in workers {
-            total += worker.pending_requests.load(Ordering::Acquire);
+            total += worker.core().pending_requests.load(Ordering::Acquire);
         }
     }
 

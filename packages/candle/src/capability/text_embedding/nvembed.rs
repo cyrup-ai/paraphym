@@ -204,8 +204,8 @@ impl CandleNvEmbedEmbeddingModel {
         let dtype = if device.is_cuda() { DType::F16 } else { DType::F32 };
         
         // Get file paths via huggingface_file
-        let tokenizer_path = self.huggingface_file("tokenizer.json")?;
-        let index_path = self.huggingface_file("model.safetensors.index.json")?;
+        let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json")?;
+        let index_path = self.huggingface_file(self.info().registry_key, "model.safetensors.index.json")?;
         
         // Load tokenizer
         let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
@@ -273,6 +273,7 @@ static NVEMBED_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     provider: crate::domain::model::CandleProvider::Nvidia,
     name: "NV-Embed-v2",
     registry_key: "nvidia/NV-Embed-v2",
+    quantization_url: None,
     max_input_tokens: NonZeroU32::new(32768),
     max_output_tokens: None,
     input_price: None,
@@ -413,8 +414,8 @@ impl LoadedNvEmbedModel {
         let dtype = if device.is_cuda() { DType::F16 } else { DType::F32 };
 
         // Get file paths via huggingface_file
-        let tokenizer_path = base_model.huggingface_file("tokenizer.json")?;
-        let index_path = base_model.huggingface_file("model.safetensors.index.json")?;
+        let tokenizer_path = base_model.huggingface_file(base_model.info().registry_key, "tokenizer.json")?;
+        let index_path = base_model.huggingface_file(base_model.info().registry_key, "model.safetensors.index.json")?;
 
         // Load tokenizer
         let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
@@ -499,7 +500,7 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedNvEmbedModel {
         
         let embeddings = CandleNvEmbedEmbeddingModel::forward_pass_with_instruction(
             &self.tokenizer,
-            &mut *model,
+            &mut model,
             &self.device,
             &[text],
             task.as_deref(),
@@ -519,7 +520,7 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedNvEmbedModel {
         let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
         CandleNvEmbedEmbeddingModel::forward_pass_with_instruction(
             &self.tokenizer,
-            &mut *model,
+            &mut model,
             &self.device,
             &text_refs,
             task.as_deref(),

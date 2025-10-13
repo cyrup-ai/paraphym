@@ -48,6 +48,7 @@ static CLIP_L_TOKENIZER_INFO: CandleModelInfo = CandleModelInfo {
     provider: crate::domain::model::CandleProvider::OpenAI,
     name: "clip-vit-large-patch14-tokenizer",
     registry_key: "openai/clip-vit-large-patch14",
+    quantization_url: None,
     max_input_tokens: None,
     max_output_tokens: None,
     input_price: None,

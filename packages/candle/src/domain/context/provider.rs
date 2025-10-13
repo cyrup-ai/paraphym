@@ -14,8 +14,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime};
 
 // Git operations
-use git2::build::{CheckoutBuilder, RepoBuilder};
-use git2::{Cred, FetchOptions, RemoteCallbacks, Repository};
+use gitgix::{clone_repo as gitgix_clone, open_repo, fetch, merge, CloneOpts, FetchOpts, MergeOpts, GitError as GitGixError};
 
 // Domain imports
 use cyrup_sugars::prelude::MessageChunk;
@@ -1327,13 +1326,28 @@ impl CandleContext<CandleGithub> {
         }
     }
 
+    /// Build authenticated URL by embedding token if provided
+    fn build_auth_url(repo_url: &str, auth_token: Option<&String>) -> String {
+        if let Some(token) = auth_token {
+            // Inject token into HTTPS URL: https://github.com -> https://TOKEN@github.com
+            if repo_url.starts_with("https://") {
+                repo_url.replace("https://", &format!("https://{}@", token))
+            } else {
+                // For non-HTTPS URLs, return as-is (SSH, git://, etc.)
+                repo_url.to_string()
+            }
+        } else {
+            repo_url.to_string()
+        }
+    }
+
     /// Clone or update a git repository
-    fn get_or_clone_repo(
+    async fn get_or_clone_repo(
         repo_url: &str,
         branch: &str,
         auth_token: Option<&String>,
         cache_dir: &Path,
-    ) -> Result<PathBuf, git2::Error> {
+    ) -> Result<PathBuf, GitGixError> {
         // Generate cache path from repo URL
         let repo_name = repo_url
             .trim_end_matches(".git")
@@ -1343,64 +1357,54 @@ impl CandleContext<CandleGithub> {
         let repo_path = cache_dir.join(repo_name);
 
         if repo_path.exists() {
-            Self::update_repo(&repo_path, branch, auth_token)
+            Self::update_repo(&repo_path, branch, auth_token).await
         } else {
-            Self::clone_repo(repo_url, branch, auth_token, &repo_path, cache_dir)
+            Self::clone_repo(repo_url, branch, auth_token, &repo_path, cache_dir).await
         }
     }
 
     /// Update existing repository
-    fn update_repo(repo_path: &Path, branch: &str, auth_token: Option<&String>) -> Result<PathBuf, git2::Error> {
-        let repo = Repository::open(repo_path)?;
-        let mut remote = repo.find_remote("origin")?;
+    async fn update_repo(repo_path: &Path, branch: &str, _auth_token: Option<&String>) -> Result<PathBuf, GitGixError> {
+        // Open repository
+        let repo_handle = open_repo(repo_path)
+            .await
+            .map_err(|e| GitGixError::Gix(Box::new(e)))?
+            .map_err(|e| GitGixError::Gix(Box::new(e)))?;
 
-        let mut callbacks = RemoteCallbacks::new();
-        if let Some(token) = auth_token {
-            let token = token.clone();
-            callbacks.credentials(move |_url, _username, _allowed| {
-                Cred::userpass_plaintext("git", &token)
-            });
-        }
+        // Fetch from origin
+        let fetch_opts = FetchOpts::from_remote("origin");
+        fetch(repo_handle.clone(), fetch_opts)
+            .await
+            .map_err(|e| GitGixError::Gix(Box::new(e)))?
+            .map_err(|e| GitGixError::Gix(Box::new(e)))?;
 
-        let mut fo = FetchOptions::new();
-        fo.remote_callbacks(callbacks);
-        remote.fetch(&[branch], Some(&mut fo), None)?;
-
-        let fetch_head = repo.find_reference("FETCH_HEAD")?;
-        let fetch_commit = repo.reference_to_annotated_commit(&fetch_head)?;
-        let analysis = repo.merge_analysis(&[&fetch_commit])?;
-
-        if analysis.0.is_fast_forward() {
-            let refname = format!("refs/heads/{branch}");
-            if let Ok(mut r) = repo.find_reference(&refname) {
-                r.set_target(fetch_commit.id(), "Fast-forward")?;
-                repo.set_head(&refname)?;
-                repo.checkout_head(Some(CheckoutBuilder::default().force()))?;
-            }
-        }
+        // Merge remote branch (gitgix automatically does fast-forward if possible)
+        let remote_branch = format!("origin/{}", branch);
+        let merge_opts = MergeOpts::new(remote_branch);
+        merge(repo_handle, merge_opts)
+            .await
+            .map_err(|e| GitGixError::Gix(Box::new(e)))?
+            .map_err(|e| GitGixError::Gix(Box::new(e)))?;
 
         Ok(repo_path.to_path_buf())
     }
 
     /// Clone fresh repository
-    fn clone_repo(repo_url: &str, branch: &str, auth_token: Option<&String>, repo_path: &Path, cache_dir: &Path) -> Result<PathBuf, git2::Error> {
+    async fn clone_repo(repo_url: &str, branch: &str, auth_token: Option<&String>, repo_path: &Path, cache_dir: &Path) -> Result<PathBuf, GitGixError> {
         std::fs::create_dir_all(cache_dir).ok();
 
-        let mut callbacks = RemoteCallbacks::new();
-        if let Some(token) = auth_token {
-            let token = token.clone();
-            callbacks.credentials(move |_url, _username, _allowed| {
-                Cred::userpass_plaintext("git", &token)
-            });
-        }
+        // Build authenticated URL
+        let auth_url = Self::build_auth_url(repo_url, auth_token);
 
-        let mut fo = FetchOptions::new();
-        fo.remote_callbacks(callbacks);
+        // Create clone options
+        let opts = CloneOpts::new(auth_url, repo_path)
+            .branch(branch);
 
-        let mut builder = RepoBuilder::new();
-        builder.fetch_options(fo);
-        builder.branch(branch);
-        builder.clone(repo_url, repo_path)?;
+        // Execute clone
+        let _repo_handle = gitgix_clone(opts)
+            .await
+            .map_err(|e| GitGixError::Gix(Box::new(e)))?
+            .map_err(|e| GitGixError::Gix(Box::new(e)))?;
 
         Ok(repo_path.to_path_buf())
     }
@@ -1410,7 +1414,7 @@ impl CandleContext<CandleGithub> {
     pub fn load(self) -> AsyncStream<Document> {
 
         AsyncStream::with_channel(move |sender| {
-            spawn_task(move || {
+            spawn_task(async move || {
                 match self.source {
                     CandleContextSourceType::Github(github_context) => {
                         // Validate repository URL
@@ -1432,7 +1436,7 @@ impl CandleContext<CandleGithub> {
                             &github_context.branch,
                             github_context.auth_token.as_ref(),
                             &cache_dir,
-                        ) {
+                        ).await {
                             Ok(repo_path) => {
                                 // Build glob pattern for files in repository
                                 let glob_pattern = format!(

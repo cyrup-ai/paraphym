@@ -102,7 +102,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
             let use_flash_attn = model_self.info().supports_flash_attention;
             
             // Lazy load model files
-            let clip_g_path = match model_self.huggingface_file("text_encoders/clip_g.safetensors") {
+            let clip_g_path = match model_self.huggingface_file(model_self.info().registry_key, "text_encoders/clip_g.safetensors") {
                 Ok(p) => p,
                 Err(e) => {
                     let _ = sender.send(ImageGenerationChunk::Error(
@@ -112,7 +112,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
                 }
             };
             
-            let clip_l_path = match model_self.huggingface_file("text_encoders/clip_l.safetensors") {
+            let clip_l_path = match model_self.huggingface_file(model_self.info().registry_key, "text_encoders/clip_l.safetensors") {
                 Ok(p) => p,
                 Err(e) => {
                     let _ = sender.send(ImageGenerationChunk::Error(
@@ -122,7 +122,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
                 }
             };
             
-            let t5xxl_path = match model_self.huggingface_file("text_encoders/t5xxl_fp16.safetensors") {
+            let t5xxl_path = match model_self.huggingface_file(model_self.info().registry_key, "text_encoders/t5xxl_fp16.safetensors") {
                 Ok(p) => p,
                 Err(e) => {
                     let _ = sender.send(ImageGenerationChunk::Error(
@@ -132,7 +132,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
                 }
             };
             
-            let mmdit_path = match model_self.huggingface_file("sd3.5_large_turbo.safetensors") {
+            let mmdit_path = match model_self.huggingface_file(model_self.info().registry_key, "sd3.5_large_turbo.safetensors") {
                 Ok(p) => p,
                 Err(e) => {
                     let _ = sender.send(ImageGenerationChunk::Error(
@@ -143,7 +143,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
             };
             
             // Download tokenizers using CandleModel.huggingface_file()
-            let clip_l_tokenizer_path = match ClipLTokenizer.huggingface_file("tokenizer.json") {
+            let clip_l_tokenizer_path = match ClipLTokenizer.huggingface_file(ClipLTokenizer.info().registry_key, "tokenizer.json") {
                 Ok(p) => p,
                 Err(e) => {
                     let _ = sender.send(ImageGenerationChunk::Error(
@@ -153,7 +153,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
                 }
             };
             
-            let clip_g_tokenizer_path = match ClipGTokenizer.huggingface_file("tokenizer.json") {
+            let clip_g_tokenizer_path = match ClipGTokenizer.huggingface_file(ClipGTokenizer.info().registry_key, "tokenizer.json") {
                 Ok(p) => p,
                 Err(e) => {
                     let _ = sender.send(ImageGenerationChunk::Error(
@@ -163,7 +163,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
                 }
             };
             
-            let t5_config_path = match T5ConfigModel.huggingface_file("config.json") {
+            let t5_config_path = match T5ConfigModel.huggingface_file(T5ConfigModel.info().registry_key, "config.json") {
                 Ok(p) => p,
                 Err(e) => {
                     let _ = sender.send(ImageGenerationChunk::Error(
@@ -173,7 +173,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
                 }
             };
             
-            let t5_tokenizer_path = match T5TokenizerModel.huggingface_file("t5-v1_1-xxl.tokenizer.json") {
+            let t5_tokenizer_path = match T5TokenizerModel.huggingface_file(T5TokenizerModel.info().registry_key, "t5-v1_1-xxl.tokenizer.json") {
                 Ok(p) => p,
                 Err(e) => {
                     let _ = sender.send(ImageGenerationChunk::Error(
@@ -628,6 +628,7 @@ static SD35_TURBO_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     provider: crate::domain::model::CandleProvider::StabilityAI,
     name: "stable-diffusion-3.5-large-turbo",
     registry_key: "stabilityai/stable-diffusion-3.5-large-turbo",
+    quantization_url: None,
     max_input_tokens: None,
     max_output_tokens: None,
     input_price: None,

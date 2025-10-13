@@ -73,7 +73,6 @@ fn candle_agent_role_example() -> AsyncStream<CandleMessageChunk> {
 /// Demonstrates pure ChatLoop pattern with Candle ML framework
 fn candle_chat_loop_example() -> AsyncStream<CandleMessageChunk> {
     CandleFluentAi::agent_role("helpful assistant")
-        // .completion_provider(CandleKimiK2Provider::with_config("./models/kimi-k2".to_string(), CandleKimiK2Config::default())) // TODO: Re-enable when providers module is ready
         .model(CandleModels::KimiK2)
         .temperature(0.7)
         .on_chunk(|chunk| {

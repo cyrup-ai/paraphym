@@ -45,9 +45,13 @@ surrealdb = { path = "../../forks/surrealdb/crates/sdk", features = ["http", "pr
 # Async runtime (from memory package)
 futures = { version = "0.3.31" }
 async-channel = { version = "2.5.0" }
+async-trait = { version = "0.1" }
 
 # Error handling (from memory package)
 anyhow = { version = "1.0.100" }
+
+# Tracing and observability
+tracing = { version = "0.1.41" }
 
 # File watching for realtime context updates
 notify = "8.2"
@@ -71,7 +75,7 @@ sha2 = { version = "0.11.0-rc.2" }
 walkdir = { version = "2.5.0" }
 
 # Git operations
-git2 = { version = "0.20", default-features = false, features = ["https", "ssh"] }
+gitgix = { git = "https://github.com/cyrup-ai/gitgix", branch = "main" }
 
 # Complex numbers (from memory package)
 num-complex = { version = "0.4.6" }

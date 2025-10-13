@@ -268,67 +268,60 @@ impl CognitiveWorker {
         // Start operation tracking
         let op_id = tracker.start_operation(OperationType::CommitteeEvaluation, None);
         
-        // Spawn non-blocking task
-        tokio::task::spawn_blocking(move || {
-            if let Some(runtime) = crate::runtime::shared_runtime() {
-                runtime.block_on(async move {
-                    let start_time = Instant::now();
+        // Spawn async task
+        tokio::spawn(async move {
+            let start_time = Instant::now();
+                
+                // Get memory from database
+                let mut memory = match manager.get_memory(&memory_id).await {
+                Ok(Some(mem)) => mem,
+                Ok(None) => {
+                    log::warn!("Memory {} not found", memory_id);
+                    tracker.fail_operation(op_id, "Memory not found".to_string());
+                    return;
+                }
+                Err(e) => {
+                    log::error!("Failed to fetch memory {}: {:?}", memory_id, e);
+                    tracker.fail_operation(op_id, format!("Fetch error: {:?}", e));
+                    return;
+                }
+            };
+            
+            // Evaluate with timeout + retry (3 attempts, 10s timeout each)
+            match Self::evaluate_with_timeout_and_retry(
+                &evaluator,
+                &memory.content.text,
+                2, // Max 2 retries (3 total attempts)
+            ).await {
+                Ok(score) => {
+                    // Store quality score
+                    memory.metadata.set_custom("quality_score", score).ok();
+                    memory.metadata.set_custom("evaluation_status", "Success").ok();
                     
-                    // Get memory from database
-                    let mut memory = match manager.get_memory(&memory_id).await {
-                        Ok(Some(mem)) => mem,
-                        Ok(None) => {
-                            log::warn!("Memory {} not found", memory_id);
-                            tracker.fail_operation(op_id, "Memory not found".to_string());
-                            return;
-                        }
-                        Err(e) => {
-                            log::error!("Failed to fetch memory {}: {:?}", memory_id, e);
-                            tracker.fail_operation(op_id, format!("Fetch error: {:?}", e));
-                            return;
-                        }
-                    };
-                    
-                    // Evaluate with timeout + retry (3 attempts, 10s timeout each)
-                    match Self::evaluate_with_timeout_and_retry(
-                        evaluator,
-                        &memory.content.text,
-                        2, // Max 2 retries (3 total attempts)
-                    ).await {
-                        Ok(score) => {
-                            // Store quality score
-                            memory.metadata.set_custom("quality_score", score).ok();
-                            memory.metadata.set_custom("evaluation_status", "Success").ok();
-                            
-                            // Update memory in database
-                            if let Err(e) = manager.update_memory(memory).await {
-                                log::error!("Failed to update memory {}: {:?}", memory_id, e);
-                                tracker.fail_operation(op_id, format!("Update error: {:?}", e));
-                            } else {
-                                log::info!("Committee evaluation completed: {} (score: {:.2})", memory_id, score);
-                                tracker.complete_operation(op_id);
-                            }
-                        }
-                        Err(e) => {
-                            // All retries failed - use default score
-                            log::error!("Committee evaluation exhausted retries for {}: {}", memory_id, e);
-                            
-                            memory.metadata.set_custom("quality_score", 0.5).ok(); // Default fallback
-                            memory.metadata.set_custom("evaluation_status", "Failed").ok();
-                            memory.metadata.set_custom("error_message", e.clone()).ok();
-                            
-                            manager.update_memory(memory).await.ok();
-                            tracker.fail_operation(op_id, e);
-                        }
+                    // Update memory in database
+                    if let Err(e) = manager.update_memory(memory).await {
+                        log::error!("Failed to update memory {}: {:?}", memory_id, e);
+                        tracker.fail_operation(op_id, format!("Update error: {:?}", e));
+                    } else {
+                        log::info!("Committee evaluation completed: {} (score: {:.2})", memory_id, score);
+                        tracker.complete_operation(op_id);
                     }
+                }
+                Err(e) => {
+                    // All retries failed - use default score
+                    log::error!("Committee evaluation exhausted retries for {}: {}", memory_id, e);
                     
-                    let duration = start_time.elapsed();
-                    log::debug!("Committee evaluation took {:?} for {}", duration, memory_id);
-                });
-            } else {
-                log::error!("Shared runtime not available");
-                tracker.fail_operation(op_id, "Runtime unavailable".to_string());
+                    memory.metadata.set_custom("quality_score", 0.5).ok(); // Default fallback
+                    memory.metadata.set_custom("evaluation_status", "Failed").ok();
+                    memory.metadata.set_custom("error_message", e.clone()).ok();
+                    
+                    manager.update_memory(memory).await.ok();
+                    tracker.fail_operation(op_id, e);
+                }
             }
+            
+            let duration = start_time.elapsed();
+            log::debug!("Committee evaluation took {:?} for {}", duration, memory_id);
         });
     }
 
@@ -341,11 +334,9 @@ impl CognitiveWorker {
         // Start operation tracking
         let op_id = tracker.start_operation(OperationType::EntanglementDiscovery, None);
 
-        // Spawn non-blocking task - worker continues immediately
-        tokio::task::spawn_blocking(move || {
-            if let Some(runtime) = crate::runtime::shared_runtime() {
-                runtime.block_on(async move {
-                    use futures_util::StreamExt;
+        // Spawn async task
+        tokio::spawn(async move {
+            use futures_util::StreamExt;
                     
                     // Get source memory
                     let memory = match manager.get_memory(&memory_id).await {
@@ -734,17 +725,12 @@ impl CognitiveWorker {
                         memory_id, entangled_count
                     );
                     tracker.complete_operation(op_id);
-                });
-            } else {
-                log::error!("Shared runtime not available for entanglement discovery");
-                tracker.fail_operation(op_id, "Runtime unavailable".to_string());
-            }
         });
     }
 
     /// Evaluate with timeout and retry for transient failures
     async fn evaluate_with_timeout_and_retry(
-        evaluator: Arc<ModelCommitteeEvaluator>,
+        evaluator: &ModelCommitteeEvaluator,
         content: &str,
         max_retries: u32,
     ) -> Result<f64, String> {
@@ -795,11 +781,9 @@ impl CognitiveWorker {
         let manager = self.memory_manager.clone();
         let evaluator = self.committee_evaluator.clone();
 
-        // Use tokio::task::spawn_blocking as shown in existing methods
-        tokio::task::spawn_blocking(move || {
-            if let Some(runtime) = crate::runtime::shared_runtime() {
-                runtime.block_on(async move {
-                    log::info!("Processing batch evaluation for {} memories", memory_ids.len());
+        // Spawn async task
+        tokio::spawn(async move {
+            log::info!("Processing batch evaluation for {} memories", memory_ids.len());
 
                     // Collect memory contents
                     let mut memories = Vec::new();
@@ -869,10 +853,6 @@ impl CognitiveWorker {
                             }
                         }
                     }
-                });
-            } else {
-                log::error!("Shared runtime not available for batch processing");
-            }
         });
     }
 

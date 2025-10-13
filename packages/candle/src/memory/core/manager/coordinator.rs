@@ -34,9 +34,7 @@ use crate::memory::core::cognitive_queue::{
 use crate::memory::cognitive::committee::ModelCommitteeEvaluator;
 
 // Quantum components from memory/cognitive/quantum module
-use crate::memory::cognitive::quantum::{
-    EnhancedQuery, QuantumRouter, QuantumState, RoutingStrategy, TemporalContext,
-};
+use crate::memory::cognitive::quantum::{QuantumRouter, QuantumState};
 
 /// Strategy for handling memories with pending cognitive evaluation
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -55,6 +53,7 @@ pub enum LazyEvalStrategy {
 /// Note: cognitive_queue, committee_evaluator, quantum_router, and quantum_state
 /// are wired in but not used until COGMEM_4 worker implementation
 #[allow(dead_code)]
+#[derive(Clone)]
 pub struct MemoryCoordinator {
     surreal_manager: Arc<SurrealDBMemoryManager>,
     repository: Arc<RwLock<MemoryRepository>>,
@@ -1269,37 +1268,47 @@ impl MemoryManager for MemoryCoordinator {
     // QUANTUM-ROUTED SEARCH METHODS
 
     fn search_by_content(&self, query: &str) -> MemoryStream {
-        // ALWAYS try vector search first for semantic similarity
-        // Generate embedding for the query
-        let embedding = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current()
-                .block_on(async { self.generate_embedding(query).await })
+        let query = query.to_string();
+        let self_clone = self.clone();
+
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
+
+        tokio::spawn(async move {
+            // Generate embedding lazily when stream is consumed
+            match self_clone.generate_embedding(&query).await {
+                Ok(emb) => {
+                    // Use vector search with cosine similarity
+                    let mut stream = self_clone.surreal_manager.search_by_vector(emb, 10);
+
+                    // Forward results through sender
+                    use futures_util::StreamExt;
+                    while let Some(result) = stream.next().await {
+                        if tx.send(result).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    // Fall back to substring search
+                    log::warn!(
+                        "Embedding generation failed, falling back to substring search: {}",
+                        e
+                    );
+
+                    let mut stream = self_clone.surreal_manager.search_by_content(&query);
+
+                    // Forward results through sender
+                    use futures_util::StreamExt;
+                    while let Some(result) = stream.next().await {
+                        if tx.send(result).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
         });
 
-        match embedding {
-            Ok(emb) => {
-                // Successfully generated embedding - use vector search with cosine similarity
-                self.surreal_manager.search_by_vector(emb, 10)
-            }
-            Err(e) => {
-                // Only fall back to substring search if embedding generation fails
-                log::warn!(
-                    "Embedding generation failed, falling back to substring search: {}",
-                    e
-                );
-
-                // Try quantum routing as secondary option
-                let _enhanced_query = EnhancedQuery {
-                    query: query.to_string(),
-                    routing_strategy: RoutingStrategy::Attention, // Use attention for substring
-                    temporal_context: TemporalContext::default(),
-                    coherence_threshold: 0.7,
-                };
-
-                // Use substring search as fallback
-                self.surreal_manager.search_by_content(query)
-            }
-        }
+        MemoryStream::new(rx)
     }
 
     fn search_by_vector(&self, vector: Vec<f32>, limit: usize) -> MemoryStream {

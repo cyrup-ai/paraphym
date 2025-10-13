@@ -89,6 +89,8 @@ pub mod prelude {
         },
         tool::{RouterError, SweetMcpRouter, ToolInfo, ToolRoute},
     };
+    // Text-to-image providers
+    pub use crate::capability::text_to_image::{FluxSchnell, StableDiffusion35Turbo};
     // Real workflow execution types - streams-only architecture
     pub use crate::workflow::{CandleExecutableWorkflow, CandleWorkflowStep, candle_workflow};
 
@@ -121,6 +123,9 @@ pub use ystream::{AsyncStream, AsyncStreamSender, AsyncTask, spawn_task};
 // SIMD operations from paraphym-simd for high-performance ML workloads
 pub use paraphym_simd;
 pub use prelude::*;
+
+// Text-to-image providers (also available through prelude)
+pub use capability::text_to_image::{FluxSchnell, StableDiffusion35Turbo};
 
 // Pool infrastructure
 pub use pool::{Pool, PoolError, init_maintenance};

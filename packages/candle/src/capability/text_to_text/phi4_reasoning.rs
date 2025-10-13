@@ -115,7 +115,7 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
         params: &CandleCompletionParams,
     ) -> AsyncStream<CandleCompletionChunk> {
         // Get file paths before the closure
-        let gguf_path = match self.huggingface_file("phi-4-reasoning-Q4_K_M.gguf") {
+        let gguf_path = match self.huggingface_file(self.info().quantization_url.unwrap(), "phi-4-reasoning-Q4_K_M.gguf") {
             Ok(path) => path,
             Err(e) => {
                 return AsyncStream::with_channel(move |sender| {
@@ -127,7 +127,7 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
             }
         };
 
-        let tokenizer_path = match self.huggingface_file("tokenizer.json") {
+        let tokenizer_path = match self.huggingface_file(self.info().registry_key, "tokenizer.json") {
             Ok(path) => path,
             Err(e) => {
                 return AsyncStream::with_channel(move |sender| {
@@ -273,7 +273,8 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
 pub static PHI4_REASONING_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     provider: crate::domain::model::CandleProvider::Unsloth,
     name: "phi-4-reasoning-q4-k-m",
-    registry_key: "unsloth/Phi-4-reasoning-GGUF",
+    registry_key: "unsloth/phi-4-reasoning",
+    quantization_url: Some("unsloth/Phi-4-reasoning-GGUF"),
     max_input_tokens: NonZeroU32::new(32768),
     max_output_tokens: NonZeroU32::new(32768),
     input_price: None,
@@ -337,10 +338,10 @@ impl LoadedPhi4ReasoningModel {
         -> Result<Self, Box<dyn std::error::Error + Send + Sync>> 
     {
         // Get file paths
-        let gguf_file_path = base.huggingface_file("phi-4-reasoning-Q4_K_M.gguf")
+        let gguf_file_path = base.huggingface_file(base.info().quantization_url.unwrap(), "phi-4-reasoning-Q4_K_M.gguf")
             .map_err(|e| Box::from(format!("Failed to get GGUF file: {}", e)) as Box<dyn std::error::Error + Send + Sync>)?;
         
-        let tokenizer_path = base.huggingface_file("tokenizer.json")
+        let tokenizer_path = base.huggingface_file(base.info().registry_key, "tokenizer.json")
             .map_err(|e| Box::from(format!("Failed to get tokenizer file: {}", e)) as Box<dyn std::error::Error + Send + Sync>)?;
         
         // Load device (prefer GPU if available)

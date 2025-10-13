@@ -103,7 +103,7 @@ impl ClipVisionModel {
         let device = Device::cuda_if_available(0).unwrap_or(Device::Cpu);
         
         // 3. LAZY MODEL LOADING - Load model file on-demand
-        let model_path = self.huggingface_file("model.safetensors")
+        let model_path = self.huggingface_file(self.info().registry_key, "model.safetensors")
             .map_err(|e| format!("Failed to get model file: {}", e))?;
         
         // 4. BUILD CLIP CONFIG - Select configs based on dimension
@@ -112,7 +112,7 @@ impl ClipVisionModel {
             text_config,
             vision_config,
             logit_scale_init_value: 2.6592,
-            image_size: image_size,
+            image_size,
         };
         
         // 5. LOAD MODEL - From huggingface_file path
@@ -155,7 +155,7 @@ impl ClipVisionModel {
         let device = Device::cuda_if_available(0).unwrap_or(Device::Cpu);
         
         // 3. LAZY MODEL LOADING
-        let model_path = self.huggingface_file("model.safetensors")
+        let model_path = self.huggingface_file(self.info().registry_key, "model.safetensors")
             .map_err(|e| format!("Failed to get model file: {}", e))?;
         
         // 4. BUILD CLIP CONFIG - Select configs based on dimension
@@ -164,7 +164,7 @@ impl ClipVisionModel {
             text_config,
             vision_config,
             logit_scale_init_value: 2.6592,
-            image_size: image_size,
+            image_size,
         };
         
         // 5. LOAD MODEL
@@ -207,7 +207,7 @@ impl ClipVisionModel {
         let device = Device::cuda_if_available(0).unwrap_or(Device::Cpu);
         
         // 3. LAZY MODEL LOADING
-        let model_path = self.huggingface_file("model.safetensors")
+        let model_path = self.huggingface_file(self.info().registry_key, "model.safetensors")
             .map_err(|e| format!("Failed to get model file: {}", e))?;
         
         // 4. BUILD CLIP CONFIG - Select configs based on dimension
@@ -216,7 +216,7 @@ impl ClipVisionModel {
             text_config,
             vision_config,
             logit_scale_init_value: 2.6592,
-            image_size: image_size,
+            image_size,
         };
         
         // 5. LOAD MODEL
@@ -259,7 +259,7 @@ impl ClipVisionModel {
         let device = Device::cuda_if_available(0).unwrap_or(Device::Cpu);
         
         // 3. LAZY MODEL LOADING
-        let model_path = self.huggingface_file("model.safetensors")
+        let model_path = self.huggingface_file(self.info().registry_key, "model.safetensors")
             .map_err(|e| format!("Failed to get model file: {}", e))?;
         
         // 4. BUILD CLIP CONFIG - Select configs based on dimension
@@ -268,7 +268,7 @@ impl ClipVisionModel {
             text_config,
             vision_config,
             logit_scale_init_value: 2.6592,
-            image_size: image_size,
+            image_size,
         };
         
         // 5. LOAD MODEL
@@ -306,6 +306,7 @@ static CLIP_VISION_BASE_INFO: CandleModelInfo = CandleModelInfo {
     provider: crate::domain::model::CandleProvider::OpenAI,
     name: "clip-vit-base-patch32",
     registry_key: "openai/clip-vit-base-patch32",
+    quantization_url: None,
     max_input_tokens: None,
     max_output_tokens: None,
     input_price: None,
@@ -327,7 +328,7 @@ static CLIP_VISION_BASE_INFO: CandleModelInfo = CandleModelInfo {
     vocab_size: None,
     image_size: Some(224),
     image_mean: Some([0.48145466, 0.4578275, 0.40821073]),
-    image_std: Some([0.26862954, 0.26130258, 0.27577711]),
+    image_std: Some([0.26862954, 0.261_302_6, 0.275_777_1]),
     default_temperature: None,
     default_top_k: None,
     default_top_p: None,
@@ -345,6 +346,7 @@ static CLIP_VISION_LARGE_INFO: CandleModelInfo = CandleModelInfo {
     provider: crate::domain::model::CandleProvider::OpenAI,
     name: "clip-vit-large-patch14-336",
     registry_key: "openai/clip-vit-large-patch14-336",
+    quantization_url: None,
     max_input_tokens: None,
     max_output_tokens: None,
     input_price: None,
@@ -366,7 +368,7 @@ static CLIP_VISION_LARGE_INFO: CandleModelInfo = CandleModelInfo {
     vocab_size: None,
     image_size: Some(336),
     image_mean: Some([0.48145466, 0.4578275, 0.40821073]),
-    image_std: Some([0.26862954, 0.26130258, 0.27577711]),
+    image_std: Some([0.26862954, 0.261_302_6, 0.275_777_1]),
     default_temperature: None,
     default_top_k: None,
     default_top_p: None,
@@ -389,85 +391,74 @@ impl CandleModel for ClipVisionModel {
     }
 }
 
+#[async_trait::async_trait(?Send)]
 impl crate::capability::traits::ImageEmbeddingCapable for ClipVisionModel {
-    fn embed_image(&self, image_path: &str) 
-        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> 
+    async fn embed_image(&self, image_path: &str)
+        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>
     {
-        // Create runtime to block on async encode_image
-        let rt = tokio::runtime::Runtime::new()?;
-        
         // Encode image to tensor (1, embed_dim)
-        let tensor = rt.block_on(self.encode_image(image_path))
-            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as Box<dyn std::error::Error + Send + Sync>)?;
-        
+        let tensor = self.encode_image(image_path).await
+            .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>)?;
+
         // Extract first batch element and convert to Vec<f32>
         let embedding = tensor.get(0)
             .map_err(|e| format!("Failed to extract embedding: {}", e))?
             .to_vec1::<f32>()
             .map_err(|e| format!("Failed to convert embedding to vec: {}", e))?;
-        
+
         Ok(embedding)
     }
-    
-    fn embed_image_url(&self, url: &str) 
-        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> 
+
+    async fn embed_image_url(&self, url: &str)
+        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>
     {
-        // Create runtime to block on async encode_url
-        let rt = tokio::runtime::Runtime::new()?;
-        
         // Encode image from URL to tensor (1, embed_dim)
-        let tensor = rt.block_on(self.encode_url(url))
-            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as Box<dyn std::error::Error + Send + Sync>)?;
-        
+        let tensor = self.encode_url(url).await
+            .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>)?;
+
         // Extract first batch element and convert to Vec<f32>
         let embedding = tensor.get(0)
             .map_err(|e| format!("Failed to extract embedding: {}", e))?
             .to_vec1::<f32>()
             .map_err(|e| format!("Failed to convert embedding to vec: {}", e))?;
-        
+
         Ok(embedding)
     }
-    
-    fn embed_image_base64(&self, base64_data: &str) 
-        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> 
+
+    async fn embed_image_base64(&self, base64_data: &str)
+        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>
     {
-        // Create runtime to block on async encode_base64
-        let rt = tokio::runtime::Runtime::new()?;
-        
         // Encode image from base64 to tensor (1, embed_dim)
-        let tensor = rt.block_on(self.encode_base64(base64_data))
-            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as Box<dyn std::error::Error + Send + Sync>)?;
-        
+        let tensor = self.encode_base64(base64_data).await
+            .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>)?;
+
         // Extract first batch element and convert to Vec<f32>
         let embedding = tensor.get(0)
             .map_err(|e| format!("Failed to extract embedding: {}", e))?
             .to_vec1::<f32>()
             .map_err(|e| format!("Failed to convert embedding to vec: {}", e))?;
-        
+
         Ok(embedding)
     }
-    
-    fn batch_embed_images(&self, image_paths: Vec<&str>) 
-        -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> 
+
+    async fn batch_embed_images(&self, image_paths: Vec<&str>)
+        -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>>
     {
-        // Create runtime to block on async encode_batch
-        let rt = tokio::runtime::Runtime::new()?;
-        
         // Encode batch to tensor (N, embed_dim)
-        let tensor = rt.block_on(self.encode_batch(image_paths))
-            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as Box<dyn std::error::Error + Send + Sync>)?;
-        
+        let tensor = self.encode_batch(image_paths).await
+            .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>)?;
+
         // Convert to Vec<Vec<f32>>
         let embeddings = tensor.to_vec2::<f32>()
             .map_err(|e| format!("Failed to convert batch embeddings to vec: {}", e))?;
-        
+
         Ok(embeddings)
     }
-    
+
     fn embedding_dimension(&self) -> usize {
         self.info().embedding_dimension.unwrap_or(512) as usize
     }
-    
+
     fn supported_dimensions(&self) -> Vec<usize> {
         // CLIP Vision supports both Base (512D) and Large (768D) variants
         vec![512, 768]

@@ -1,7 +1,6 @@
 use crossbeam::channel::{Sender, Receiver, bounded};
 use crossbeam::select;
 use once_cell::sync::Lazy;
-use dashmap::DashMap;
 use std::time::Duration;
 use std::sync::atomic::{Ordering, AtomicU32};
 use std::sync::Arc;
@@ -9,6 +8,7 @@ use std::sync::Arc;
 use crate::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
 use crate::pool::core::types::{select_worker_power_of_two, HealthPing, HealthPong};
 use crate::pool::core::memory_governor::AllocationGuard;
+use crate::pool::WorkerState;
 use crate::capability::traits::TextEmbeddingCapable;
 
 /// Request for embed() operation
@@ -72,7 +72,7 @@ pub fn text_embedding_worker<T: TextEmbeddingCapable>(
     health_rx: Receiver<HealthPing>,
     health_tx: Sender<HealthPong>,
     worker_id: usize,
-    registry_key: String,
+    _registry_key: String,
     state: Arc<AtomicU32>,
 ) {
     use std::time::{SystemTime, UNIX_EPOCH, Duration};
@@ -182,6 +182,7 @@ impl Pool<TextEmbeddingWorkerHandle> {
         // Get worker ID before moving into thread
         let worker_id = self.next_worker_id();
         let registry_key_clone = registry_key.to_string();
+        let registry_key_for_handle = registry_key_clone.clone(); // Clone for later use
 
         // Create state for worker
         use std::sync::Arc;
@@ -197,19 +198,24 @@ impl Pool<TextEmbeddingWorkerHandle> {
 
         // Spawn worker thread
         std::thread::spawn(move || {
-            use crate::pool::core::worker_state::WorkerState;
-            
             // Guard held by worker thread - will drop on exit
             let _memory_guard = allocation_guard;
+            
+            // Transition: Spawning → Loading
+            state_clone.store(WorkerState::Loading as u32, std::sync::atomic::Ordering::Release);
             
             // Load model
             let model = match model_loader() {
                 Ok(m) => {
                     log::info!("TextEmbedding worker {} ready", worker_id);
+                    // Transition: Loading → Ready
+                    state_clone.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
                     m
                 }
                 Err(e) => {
                     log::error!("TextEmbedding worker {} failed: {}", worker_id, e);
+                    // Transition: Loading → Failed
+                    state_clone.store(WorkerState::Failed as u32, std::sync::atomic::Ordering::Release);
                     
                     // Clean up memory tracking
                     // This prevents memory leak when model loading fails
@@ -228,7 +234,11 @@ impl Pool<TextEmbeddingWorkerHandle> {
                 health_tx_main_clone,
                 worker_id,
                 registry_key_clone.clone(),
+                Arc::clone(&state_clone),
             );
+            
+            // Transition: Ready → Dead (when worker loop exits)
+            state_clone.store(WorkerState::Dead as u32, std::sync::atomic::Ordering::Release);
         });
 
         // Register worker handles
@@ -260,7 +270,7 @@ impl Pool<TextEmbeddingWorkerHandle> {
             embed_tx,
             batch_embed_tx,
             shutdown_tx,
-            registry_key: registry_key_clone.clone(),
+            registry_key: registry_key_for_handle,
         };
 
         // Single registration point - no duplication
@@ -295,7 +305,7 @@ impl Pool<TextEmbeddingWorkerHandle> {
         }
 
         // Get workers from pool
-        let workers = self.workers.get(registry_key)
+        let workers = self.workers().get(registry_key)
             .ok_or_else(|| PoolError::NoWorkers(format!("No workers for {}", registry_key)))?;
 
         if workers.is_empty() {
@@ -369,7 +379,7 @@ impl Pool<TextEmbeddingWorkerHandle> {
         }
 
         // Get workers from pool
-        let workers = self.workers.get(registry_key)
+        let workers = self.workers().get(registry_key)
             .ok_or_else(|| PoolError::NoWorkers(format!("No workers for {}", registry_key)))?;
 
         if workers.is_empty() {

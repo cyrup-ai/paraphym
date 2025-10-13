@@ -28,7 +28,7 @@ pub enum CandleProvider {
     /// Black Forest Labs (FLUX models)
     #[serde(rename = "black-forest-labs")]
     BlackForestLabs,
-    /// OpenAI (CLIP models)
+    /// `OpenAI` (CLIP models)
     #[serde(rename = "openai")]
     OpenAI,
     /// Sentence Transformers (BERT models)
@@ -43,7 +43,7 @@ pub enum CandleProvider {
     /// Dunzhang (Stella models)
     #[serde(rename = "dunzhang")]
     Dunzhang,
-    /// LLaVA HF (LLaVA models)
+    /// `LLaVA` HF (`LLaVA` models)
     #[serde(rename = "llava-hf")]
     LLaVAHF,
     /// Unsloth (Quantized models)
@@ -55,13 +55,14 @@ pub enum CandleProvider {
     /// Google (T5, other models)
     #[serde(rename = "google")]
     Google,
-    /// Community contributors on HuggingFace
+    /// Community contributors on `HuggingFace`
     #[serde(rename = "community")]
     Community,
 }
 
 impl CandleProvider {
     /// Convert provider to string representation
+    #[must_use]
     pub fn as_str(&self) -> &'static str {
         match self {
             CandleProvider::MoonshotAI => "moonshot-ai",
@@ -107,8 +108,13 @@ pub struct CandleModelInfo {
     /// The name of the model (e.g., "kimi-k2-instruct", "qwen3-coder-30b")
     pub name: &'static str,
 
-    /// HuggingFace registry key (org/model-id)
+    /// `HuggingFace` registry key (org/model-id)
     pub registry_key: &'static str,
+
+    /// Optional path to quantized model file in format "org/repo/filename.gguf"
+    /// If specified, enables cross-repository file loading for quantized variants
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quantization_url: Option<&'static str>,
 
     /// Maximum number of input tokens supported by the model
     pub max_input_tokens: Option<NonZeroU32>,
@@ -179,14 +185,14 @@ pub struct CandleModelInfo {
     pub vocab_size: Option<u32>,
     
     // === VISION MODELS ===
-    /// Input image size (e.g., 336 for LLaVA, CLIP)
+    /// Input image size (e.g., 336 for `LLaVA`, CLIP)
     pub image_size: Option<u32>,
     
-    /// Image normalization mean (ImageNet: [0.485, 0.456, 0.406])
+    /// Image normalization mean (`ImageNet`: [0.485, 0.456, 0.406])
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image_mean: Option<[f32; 3]>,
     
-    /// Image normalization std (ImageNet: [0.229, 0.224, 0.225])
+    /// Image normalization std (`ImageNet`: [0.229, 0.224, 0.225])
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image_std: Option<[f32; 3]>,
     
@@ -243,7 +249,7 @@ impl CandleModelInfo {
         self.provider
     }
 
-    /// Get the registry key (org/model-id for HuggingFace)
+    /// Get the registry key (org/model-id for `HuggingFace`)
     #[inline]
     #[must_use]
     pub fn registry_key(&self) -> &'static str {
@@ -257,7 +263,7 @@ impl CandleModelInfo {
         self.provider.as_str()
     }
 
-    /// Get the `HuggingFace` repository URL (computed from registry_key)
+    /// Get the `HuggingFace` repository URL (computed from `registry_key`)
     #[inline]
     #[must_use]
     pub fn hf_repo_url(&self) -> String {

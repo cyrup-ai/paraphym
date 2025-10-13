@@ -87,6 +87,7 @@ static STELLA_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     provider: crate::domain::model::CandleProvider::Dunzhang,
     name: "stella_en_400M_v5",
     registry_key: "dunzhang/stella_en_400M_v5",
+    quantization_url: None,
     max_input_tokens: NonZeroU32::new(8192),
     max_output_tokens: None,
     input_price: None,
@@ -164,15 +165,16 @@ impl crate::capability::traits::TextEmbeddingCapable for StellaEmbeddingModel {
         // ═══════════════════════════════════════════════════════════════
         
         // Base model weights
-        let base_weights = self.huggingface_file("model.safetensors")?;
+        let base_weights = self.huggingface_file(self.info().registry_key, "model.safetensors")?;
         
         // MRL projection head (dimension-specific)
         let projection_head = self.huggingface_file(
+            self.info().registry_key,
             &format!("2_Dense_{}/model.safetensors", dimension)
         )?;
         
         // Tokenizer
-        let tokenizer_path = self.huggingface_file("tokenizer.json")?;
+        let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json")?;
         
         // ═══════════════════════════════════════════════════════════════
         // STEP 4: Load tokenizer with variant-specific padding
@@ -313,11 +315,12 @@ impl crate::capability::traits::TextEmbeddingCapable for StellaEmbeddingModel {
         let dtype = if device.is_cuda() { DType::F16 } else { DType::F32 };
         
         // Load files
-        let base_weights = self.huggingface_file("model.safetensors")?;
+        let base_weights = self.huggingface_file(self.info().registry_key, "model.safetensors")?;
         let projection_head = self.huggingface_file(
+            self.info().registry_key,
             &format!("2_Dense_{}/model.safetensors", dimension)
         )?;
-        let tokenizer_path = self.huggingface_file("tokenizer.json")?;
+        let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json")?;
         
         // Load and configure tokenizer (variant-specific padding)
         let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
@@ -505,11 +508,12 @@ impl LoadedStellaModel {
         let dtype = if device.is_cuda() { DType::F16 } else { DType::F32 };
 
         // Load files from HuggingFace
-        let base_weights = base_model.huggingface_file("model.safetensors")?;
+        let base_weights = base_model.huggingface_file(base_model.info().registry_key, "model.safetensors")?;
         let projection_head = base_model.huggingface_file(
+            base_model.info().registry_key,
             &format!("2_Dense_{}/model.safetensors", dimension)
         )?;
-        let tokenizer_path = base_model.huggingface_file("tokenizer.json")?;
+        let tokenizer_path = base_model.huggingface_file(base_model.info().registry_key, "tokenizer.json")?;
 
         // Load tokenizer with variant-specific padding
         let mut tokenizer = Tokenizer::from_file(&tokenizer_path)

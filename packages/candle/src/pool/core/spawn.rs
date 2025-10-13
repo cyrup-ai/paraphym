@@ -7,6 +7,7 @@ use super::{Pool, PoolError, SpawnGuard};
 use super::memory_governor::{MemoryGovernor, AllocationGuard};
 use std::time::Duration;
 use std::sync::Arc;
+use tracing::{info, warn, debug, instrument};
 
 /// Ensure workers are spawned for a model (cold-start helper with race protection)
 ///
@@ -43,6 +44,7 @@ use std::sync::Arc;
 ///     }
 /// )?;
 /// ```
+#[instrument(skip(pool, spawn_fn), fields(registry_key = %registry_key, per_worker_mb = per_worker_mb))]
 pub fn ensure_workers_spawned<P, F>(
     pool: &P,
     registry_key: &str,
@@ -94,6 +96,11 @@ where
             // Guard transferred to worker thread, will drop when worker exits
         }
 
+        info!(
+            workers_spawned = workers_to_spawn,
+            "Workers spawned successfully"
+        );
+
         // _guard drops here, releasing spawn lock
         Ok(())
     } else {
@@ -118,6 +125,7 @@ where
 /// # Returns
 /// - `Ok(())` if workers exist, spawned, or at max capacity
 /// - `Err(PoolError)` if memory exhausted or spawn failed
+#[instrument(skip(pool, spawn_fn), fields(registry_key = %registry_key, max_workers = max_workers))]
 pub fn ensure_workers_spawned_adaptive<P, F>(
     pool: &P,
     registry_key: &str,
@@ -130,6 +138,11 @@ where
     F: Fn(usize, AllocationGuard) -> Result<(), PoolError>,
 {
     let worker_count = pool.worker_count(registry_key);
+    
+    debug!(
+        worker_count = worker_count,
+        "Adaptive scaling check"
+    );
 
     // Cold start: spawn 1-2 workers
     if worker_count == 0 {
@@ -193,17 +206,17 @@ where
                     // Try to allocate memory for one more worker
                     match governor.try_allocate(per_worker_mb) {
                         Ok(allocation_guard) => {
-                            log::info!(
-                                "All {} workers busy for {}, spawning 1 more (max: {})",
-                                current_count, registry_key, max_workers
+                            info!(
+                                current_count = current_count,
+                                max_workers = max_workers,
+                                "All workers busy, spawning 1 more"
                             );
                             spawn_fn(current_count, allocation_guard)?;
                         }
                         Err(_) => {
                             // Memory exhausted, can't spawn more workers (not an error, just at capacity)
-                            log::debug!(
-                                "Cannot spawn additional worker for {} - memory limit reached",
-                                registry_key
+                            debug!(
+                                "Cannot spawn additional worker - memory limit reached"
                             );
                         }
                     }

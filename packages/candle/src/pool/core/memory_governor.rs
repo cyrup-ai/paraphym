@@ -1,7 +1,7 @@
 // memory_governor.rs - System-wide memory management and pressure handling
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use std::collections::BTreeMap;
 use parking_lot::RwLock;
@@ -125,11 +125,11 @@ pub struct MemoryPools {
     large_pool: Vec<MemoryChunk>,   // > 1000 MB
 }
 
+#[derive(Clone)]
 pub struct MemoryChunk {
     size_mb: usize,
     allocated: bool,
     last_used: Instant,
-    numa_node: Option<usize>,
 }
 
 #[derive(Clone)]
@@ -427,7 +427,7 @@ impl MemoryGovernor {
                 {
                     let mut sys = governor.system.write();
                     sys.refresh_memory();
-                    let used = sys.used_memory() / 1024 / 1024;
+                    let _used = sys.used_memory() / 1024 / 1024;
                     let total = sys.total_memory() / 1024 / 1024;
                     governor.total_system_mb.store(total, Ordering::Release);
                 }
@@ -478,7 +478,6 @@ impl MemoryGovernor {
                 size_mb: 50,
                 allocated: false,
                 last_used: Instant::now(),
-                numa_node: self.get_numa_node(),
             });
         }
         
@@ -488,7 +487,6 @@ impl MemoryGovernor {
                 size_mb: 500,
                 allocated: false,
                 last_used: Instant::now(),
-                numa_node: self.get_numa_node(),
             });
         }
         
@@ -498,32 +496,11 @@ impl MemoryGovernor {
                 size_mb: 2000,
                 allocated: false,
                 last_used: Instant::now(),
-                numa_node: self.get_numa_node(),
             });
         }
     }
     
-    fn allocate_from_pool(&self, size_mb: usize) -> Option<MemoryChunk> {
-        let mut pools = self.memory_pools.write();
-        
-        let pool = if size_mb <= 100 {
-            &mut pools.small_pool
-        } else if size_mb <= 1000 {
-            &mut pools.medium_pool
-        } else {
-            &mut pools.large_pool
-        };
-        
-        // Find best fit chunk
-        pool.iter_mut()
-            .find(|chunk| !chunk.allocated && chunk.size_mb >= size_mb)
-            .map(|chunk| {
-                chunk.allocated = true;
-                chunk.last_used = Instant::now();
-                chunk.clone()
-            })
-    }
-    
+
     fn return_to_pool(&self, size_mb: usize) {
         let mut pools = self.memory_pools.write();
         
@@ -542,51 +519,8 @@ impl MemoryGovernor {
         }
     }
     
-    fn compact_memory_pools(&self) {
-        log::info!("Running memory pool compaction");
-        
-        let mut pools = self.memory_pools.write();
-        
-        // Defragment each pool
-        pools.small_pool.retain(|chunk| {
-            chunk.allocated || chunk.last_used.elapsed() < Duration::from_secs(300)
-        });
-        
-        pools.medium_pool.retain(|chunk| {
-            chunk.allocated || chunk.last_used.elapsed() < Duration::from_secs(300)
-        });
-        
-        pools.large_pool.retain(|chunk| {
-            chunk.allocated || chunk.last_used.elapsed() < Duration::from_secs(300)
-        });
-    }
-    
-    #[cfg(target_os = "linux")]
-    fn enable_huge_pages_for_allocation(&self, size_mb: usize) {
-        use std::process::Command;
-        
-        let pages_needed = size_mb / 2;  // 2MB huge pages
-        
-        let output = Command::new("sysctl")
-            .arg("-w")
-            .arg(format!("vm.nr_hugepages={}", pages_needed))
-            .output();
-        
-        match output {
-            Ok(o) if o.status.success() => {
-                log::info!("Enabled {} huge pages for allocation", pages_needed);
-            }
-            _ => {
-                log::warn!("Failed to enable huge pages");
-            }
-        }
-    }
-    
-    #[cfg(not(target_os = "linux"))]
-    fn enable_huge_pages_for_allocation(&self, _size_mb: usize) {
-        // No-op on non-Linux systems
-    }
-    
+
+
     fn get_numa_node(&self) -> Option<usize> {
         #[cfg(target_os = "linux")]
         if self.config.enable_numa_aware {

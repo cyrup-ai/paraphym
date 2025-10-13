@@ -7,16 +7,130 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
-use std::thread;
 
-use crossbeam_channel::unbounded;
 use serde::{Deserialize, Serialize};
 use surrealdb::Value;
+use tokio::sync::oneshot;
 
 use crate::memory::graph::graph_db::{GraphDatabase, GraphError, Node, Result};
 
 /// Type alias for entity validation functions
 pub type EntityValidatorFn = Box<dyn Fn(&dyn Entity) -> Result<()> + Send + Sync>;
+
+/// Future wrapper for entity creation/update operations
+pub struct PendingEntity {
+    rx: oneshot::Receiver<Result<Box<dyn Entity>>>,
+}
+
+impl PendingEntity {
+    pub fn new(rx: oneshot::Receiver<Result<Box<dyn Entity>>>) -> Self {
+        Self { rx }
+    }
+}
+
+impl std::future::Future for PendingEntity {
+    type Output = Result<Box<dyn Entity>>;
+
+    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        match std::pin::Pin::new(&mut self.rx).poll(cx) {
+            std::task::Poll::Ready(Ok(result)) => std::task::Poll::Ready(result),
+            std::task::Poll::Ready(Err(_)) => std::task::Poll::Ready(Err(GraphError::Other("Channel closed".to_string()))),
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+}
+
+/// Future wrapper for entity retrieval operations
+pub struct PendingEntityOption {
+    rx: oneshot::Receiver<Result<Option<Box<dyn Entity>>>>,
+}
+
+impl PendingEntityOption {
+    pub fn new(rx: oneshot::Receiver<Result<Option<Box<dyn Entity>>>>) -> Self {
+        Self { rx }
+    }
+}
+
+impl std::future::Future for PendingEntityOption {
+    type Output = Result<Option<Box<dyn Entity>>>;
+
+    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        match std::pin::Pin::new(&mut self.rx).poll(cx) {
+            std::task::Poll::Ready(Ok(result)) => std::task::Poll::Ready(result),
+            std::task::Poll::Ready(Err(_)) => std::task::Poll::Ready(Err(GraphError::Other("Channel closed".to_string()))),
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+}
+
+/// Future wrapper for entity list operations
+pub struct PendingEntityList {
+    rx: oneshot::Receiver<Result<Vec<Box<dyn Entity>>>>,
+}
+
+impl PendingEntityList {
+    pub fn new(rx: oneshot::Receiver<Result<Vec<Box<dyn Entity>>>>) -> Self {
+        Self { rx }
+    }
+}
+
+impl std::future::Future for PendingEntityList {
+    type Output = Result<Vec<Box<dyn Entity>>>;
+
+    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        match std::pin::Pin::new(&mut self.rx).poll(cx) {
+            std::task::Poll::Ready(Ok(result)) => std::task::Poll::Ready(result),
+            std::task::Poll::Ready(Err(_)) => std::task::Poll::Ready(Err(GraphError::Other("Channel closed".to_string()))),
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+}
+
+/// Future wrapper for entity count operations
+pub struct PendingEntityCount {
+    rx: oneshot::Receiver<Result<usize>>,
+}
+
+impl PendingEntityCount {
+    pub fn new(rx: oneshot::Receiver<Result<usize>>) -> Self {
+        Self { rx }
+    }
+}
+
+impl std::future::Future for PendingEntityCount {
+    type Output = Result<usize>;
+
+    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        match std::pin::Pin::new(&mut self.rx).poll(cx) {
+            std::task::Poll::Ready(Ok(result)) => std::task::Poll::Ready(result),
+            std::task::Poll::Ready(Err(_)) => std::task::Poll::Ready(Err(GraphError::Other("Channel closed".to_string()))),
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+}
+
+/// Future wrapper for unit operations (delete, etc.)
+pub struct PendingUnit {
+    rx: oneshot::Receiver<Result<()>>,
+}
+
+impl PendingUnit {
+    pub fn new(rx: oneshot::Receiver<Result<()>>) -> Self {
+        Self { rx }
+    }
+}
+
+impl std::future::Future for PendingUnit {
+    type Output = Result<()>;
+
+    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        match std::pin::Pin::new(&mut self.rx).poll(cx) {
+            std::task::Poll::Ready(Ok(result)) => std::task::Poll::Ready(result),
+            std::task::Poll::Ready(Err(_)) => std::task::Poll::Ready(Err(GraphError::Other("Channel closed".to_string()))),
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+}
 
 /// Entity trait for domain objects
 pub trait Entity: Send + Sync + Debug {
@@ -220,11 +334,11 @@ impl BaseEntity {
     }
 }
 
-/// Thread-safe entity repository trait - SYNCHRONOUS OPERATIONS ONLY
+/// Thread-safe entity repository trait - Returns Futures
 ///
-/// This trait provides a synchronous interface for entity CRUD operations.
-/// All methods are thread-safe and return Results directly.
-/// For concurrent operations, use external thread pools and channels.
+/// This trait provides an interface for entity CRUD operations that return futures.
+/// All methods are thread-safe and return pending wrappers that can be awaited.
+/// This pattern matches the rest of the memory system.
 pub trait EntityRepository: Send + Sync {
     /// Create a new entity
     ///
@@ -232,8 +346,8 @@ pub trait EntityRepository: Send + Sync {
     /// * `entity` - Entity to create
     ///
     /// # Returns
-    /// Result containing the created entity with database-assigned ID
-    fn create_entity(&self, entity: Box<dyn Entity>) -> Result<Box<dyn Entity>>;
+    /// PendingEntity that resolves to the created entity with database-assigned ID
+    fn create_entity(&self, entity: Box<dyn Entity>) -> PendingEntity;
 
     /// Get an entity by ID
     ///
@@ -241,8 +355,8 @@ pub trait EntityRepository: Send + Sync {
     /// * `id` - Unique identifier of the entity
     ///
     /// # Returns
-    /// Result containing the entity if found
-    fn get_entity(&self, id: &str) -> Result<Option<Box<dyn Entity>>>;
+    /// PendingEntityOption that resolves to the entity if found
+    fn get_entity(&self, id: &str) -> PendingEntityOption;
 
     /// Update an entity
     ///
@@ -250,8 +364,8 @@ pub trait EntityRepository: Send + Sync {
     /// * `entity` - Entity with updated data
     ///
     /// # Returns
-    /// Result containing the updated entity
-    fn update_entity(&self, entity: Box<dyn Entity>) -> Result<Box<dyn Entity>>;
+    /// PendingEntity that resolves to the updated entity
+    fn update_entity(&self, entity: Box<dyn Entity>) -> PendingEntity;
 
     /// Delete an entity
     ///
@@ -259,8 +373,8 @@ pub trait EntityRepository: Send + Sync {
     /// * `id` - Unique identifier of the entity to delete
     ///
     /// # Returns
-    /// Result indicating success or failure
-    fn delete_entity(&self, id: &str) -> Result<()>;
+    /// PendingUnit that resolves when deletion is complete
+    fn delete_entity(&self, id: &str) -> PendingUnit;
 
     /// Find entities by type with pagination
     ///
@@ -270,13 +384,13 @@ pub trait EntityRepository: Send + Sync {
     /// * `offset` - Number of results to skip
     ///
     /// # Returns
-    /// Result containing list of matching entities
+    /// PendingEntityList that resolves to list of matching entities
     fn find_entities_by_type(
         &self,
         entity_type: &str,
         limit: Option<usize>,
         offset: Option<usize>,
-    ) -> Result<Vec<Box<dyn Entity>>>;
+    ) -> PendingEntityList;
 
     /// Find entities by attribute with pagination
     ///
@@ -287,14 +401,14 @@ pub trait EntityRepository: Send + Sync {
     /// * `offset` - Number of results to skip
     ///
     /// # Returns
-    /// Result containing list of matching entities
+    /// PendingEntityList that resolves to list of matching entities
     fn find_entities_by_attribute(
         &self,
         attribute_name: &str,
         attribute_value: &Value,
         limit: Option<usize>,
         offset: Option<usize>,
-    ) -> Result<Vec<Box<dyn Entity>>>;
+    ) -> PendingEntityList;
 
     /// Count entities by type
     ///
@@ -302,8 +416,8 @@ pub trait EntityRepository: Send + Sync {
     /// * `entity_type` - Type of entities to count
     ///
     /// # Returns
-    /// Result containing the count
-    fn count_entities_by_type(&self, entity_type: &str) -> Result<usize>;
+    /// PendingEntityCount that resolves to the count
+    fn count_entities_by_type(&self, entity_type: &str) -> PendingEntityCount;
 
     /// Batch create entities (optimized for bulk operations)
     ///
@@ -311,19 +425,8 @@ pub trait EntityRepository: Send + Sync {
     /// * `entities` - Vector of entities to create
     ///
     /// # Returns
-    /// Result containing vector of created entities
-    fn batch_create_entities(
-        &self,
-        entities: Vec<Box<dyn Entity>>,
-    ) -> Result<Vec<Box<dyn Entity>>> {
-        // Default implementation - create one by one
-        // Implementations should override for better performance
-        let mut results = Vec::with_capacity(entities.len());
-        for entity in entities {
-            results.push(self.create_entity(entity)?);
-        }
-        Ok(results)
-    }
+    /// PendingEntityList that resolves to vector of created entities
+    fn batch_create_entities(&self, entities: Vec<Box<dyn Entity>>) -> PendingEntityList;
 
     /// Batch update entities
     ///
@@ -331,18 +434,8 @@ pub trait EntityRepository: Send + Sync {
     /// * `entities` - Vector of entities to update
     ///
     /// # Returns
-    /// Result containing vector of updated entities
-    fn batch_update_entities(
-        &self,
-        entities: Vec<Box<dyn Entity>>,
-    ) -> Result<Vec<Box<dyn Entity>>> {
-        // Default implementation - update one by one
-        let mut results = Vec::with_capacity(entities.len());
-        for entity in entities {
-            results.push(self.update_entity(entity)?);
-        }
-        Ok(results)
-    }
+    /// PendingEntityList that resolves to vector of updated entities
+    fn batch_update_entities(&self, entities: Vec<Box<dyn Entity>>) -> PendingEntityList;
 
     /// Batch delete entities
     ///
@@ -350,14 +443,8 @@ pub trait EntityRepository: Send + Sync {
     /// * `ids` - Vector of entity IDs to delete
     ///
     /// # Returns
-    /// Result indicating success or failure
-    fn batch_delete_entities(&self, ids: Vec<&str>) -> Result<()> {
-        // Default implementation - delete one by one
-        for id in ids {
-            self.delete_entity(id)?;
-        }
-        Ok(())
-    }
+    /// PendingUnit that resolves when deletion is complete
+    fn batch_delete_entities(&self, ids: Vec<&str>) -> PendingUnit;
 }
 
 /// SurrealDB-backed entity repository implementation
@@ -422,118 +509,101 @@ impl<E: Entity + Clone + 'static> SurrealEntityRepository<E> {
     pub fn table_name(&self) -> &str {
         &self.table_name
     }
-
-    /// Execute database operation with thread-based execution
-    ///
-    /// This method provides a way to execute database operations that need to be async
-    /// in a synchronous context using thread-based execution.
-    fn execute_db_operation<F, T>(&self, operation: F) -> Result<T>
-    where
-        F: FnOnce(Arc<dyn GraphDatabase>) -> Result<T> + Send + 'static,
-        T: Send + 'static,
-    {
-        let db = self.db.clone();
-        let (sender, receiver) = unbounded();
-
-        thread::spawn(move || {
-            let result = operation(db);
-            let _ = sender.send(result);
-        });
-
-        receiver
-            .recv()
-            .map_err(|_| GraphError::Other("Database operation thread failed".to_string()))?
-    }
 }
 
 impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E> {
-    fn create_entity(&self, entity: Box<dyn Entity>) -> Result<Box<dyn Entity>> {
-        // Validate the entity synchronously if a validator is configured
+    fn create_entity(&self, entity: Box<dyn Entity>) -> PendingEntity {
+        // Validate synchronously
         if let Some(validator) = &self.validator {
-            validator(entity.as_ref())?;
-        }
-
-        // Validate the entity itself
-        entity.validate()?;
-
-        // Convert the entity to a node
-        let node = entity.to_node();
-        
-        // Execute database operation synchronously using the execute_db_operation method
-        let _created_node_id = self.execute_db_operation(move |db| {
-            // Create node in database using async operations
-            let pending_node = db.create_node(node.properties);
-            // Since we're in a sync context, we need to use a runtime to await the result
-            let rt = crate::runtime::shared_runtime()
-                .ok_or_else(|| GraphError::DatabaseError("Runtime unavailable".to_string()))?;
-            rt.block_on(pending_node)
-        })?;
-
-        // Create a new entity with the generated ID
-        let created_entity = entity;
-        // Update the entity with database-generated ID if needed
-        if created_entity.id().is_empty() {
-            // This would typically be handled by setting the ID on the entity
-            // For now, we'll use the generated ID format
-        }
-
-        Ok(created_entity)
-    }
-
-    fn get_entity(&self, id: &str) -> Result<Option<Box<dyn Entity>>> {
-        let id = id.to_string();
-        
-        // Execute database operation synchronously
-        self.execute_db_operation(move |db| {
-            let node_query = db.get_node(&id);
-            let rt = crate::runtime::shared_runtime()
-                .ok_or_else(|| GraphError::DatabaseError("Runtime unavailable".to_string()))?;
-            
-            match rt.block_on(node_query)? {
-                Some(node) => {
-                    let entity = E::from_node(node)?;
-                    Ok(Some(Box::new(entity) as Box<dyn Entity>))
-                }
-                None => Ok(None),
+            if let Err(e) = validator(entity.as_ref()) {
+                let (tx, rx) = oneshot::channel();
+                let _ = tx.send(Err(e));
+                return PendingEntity::new(rx);
             }
-        })
-    }
-
-    fn update_entity(&self, entity: Box<dyn Entity>) -> Result<Box<dyn Entity>> {
-        // Validate the entity synchronously if a validator is configured
-        if let Some(validator) = &self.validator {
-            validator(entity.as_ref())?;
         }
 
-        // Validate the entity itself
-        entity.validate()?;
+        if let Err(e) = entity.validate() {
+            let (tx, rx) = oneshot::channel();
+            let _ = tx.send(Err(e));
+            return PendingEntity::new(rx);
+        }
 
-        // Convert the entity to a node
+        let node = entity.to_node();
+        let db = self.db.clone();
+        let (tx, rx) = oneshot::channel();
+
+        tokio::spawn(async move {
+            let result = db.create_node(node.properties).await
+                .map_err(|e| GraphError::DatabaseError(e.to_string()))
+                .map(|_| entity);
+            let _ = tx.send(result);
+        });
+
+        PendingEntity::new(rx)
+    }
+
+    fn get_entity(&self, id: &str) -> PendingEntityOption {
+        let id = id.to_string();
+        let db = self.db.clone();
+        let (tx, rx) = oneshot::channel();
+
+        tokio::spawn(async move {
+            let result = db.get_node(&id).await
+                .map_err(|e| GraphError::DatabaseError(e.to_string()))
+                .and_then(|opt| {
+                    Ok(opt.and_then(|node| {
+                        E::from_node(node).ok().map(|entity| Box::new(entity) as Box<dyn Entity>)
+                    }))
+                });
+            let _ = tx.send(result);
+        });
+
+        PendingEntityOption::new(rx)
+    }
+
+    fn update_entity(&self, entity: Box<dyn Entity>) -> PendingEntity {
+        // Validate synchronously
+        if let Some(validator) = &self.validator {
+            if let Err(e) = validator(entity.as_ref()) {
+                let (tx, rx) = oneshot::channel();
+                let _ = tx.send(Err(e));
+                return PendingEntity::new(rx);
+            }
+        }
+
+        if let Err(e) = entity.validate() {
+            let (tx, rx) = oneshot::channel();
+            let _ = tx.send(Err(e));
+            return PendingEntity::new(rx);
+        }
+
         let node = entity.to_node();
         let entity_id = entity.id().to_string();
-        
-        // Execute database operation synchronously
-        self.execute_db_operation(move |db| {
-            let node_update = db.update_node(&entity_id, node.properties);
-            let rt = crate::runtime::shared_runtime()
-                .ok_or_else(|| GraphError::DatabaseError("Runtime unavailable".to_string()))?;
-            rt.block_on(node_update)?;
-            Ok(())
-        })?;
+        let db = self.db.clone();
+        let (tx, rx) = oneshot::channel();
 
-        Ok(entity)
+        tokio::spawn(async move {
+            let result = db.update_node(&entity_id, node.properties).await
+                .map_err(|e| GraphError::DatabaseError(e.to_string()))
+                .map(|_| entity);
+            let _ = tx.send(result);
+        });
+
+        PendingEntity::new(rx)
     }
 
-    fn delete_entity(&self, id: &str) -> Result<()> {
+    fn delete_entity(&self, id: &str) -> PendingUnit {
         let id = id.to_string();
-        
-        // Execute database operation synchronously
-        self.execute_db_operation(move |db| {
-            let node_delete = db.delete_node(&id);
-            let rt = crate::runtime::shared_runtime()
-                .ok_or_else(|| GraphError::DatabaseError("Runtime unavailable".to_string()))?;
-            rt.block_on(node_delete)
-        })
+        let db = self.db.clone();
+        let (tx, rx) = oneshot::channel();
+
+        tokio::spawn(async move {
+            let result = db.delete_node(&id).await
+                .map_err(|e| GraphError::DatabaseError(e.to_string()));
+            let _ = tx.send(result);
+        });
+
+        PendingUnit::new(rx)
     }
 
     fn find_entities_by_type(
@@ -541,52 +611,46 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
         entity_type: &str,
         limit: Option<usize>,
         offset: Option<usize>,
-    ) -> Result<Vec<Box<dyn Entity>>> {
+    ) -> PendingEntityList {
         let entity_type = entity_type.to_string();
-        
-        // Execute database operation synchronously
-        self.execute_db_operation(move |db| {
+        let db = self.db.clone();
+        let (tx, rx) = oneshot::channel();
+
+        tokio::spawn(async move {
+            use futures_util::StreamExt;
+
             let node_stream = db.get_nodes_by_type(&entity_type);
-            let rt = crate::runtime::shared_runtime()
-                .ok_or_else(|| GraphError::DatabaseError("Runtime unavailable".to_string()))?;
-            
-            // Collect nodes from stream with pagination
             let mut entities = Vec::new();
             let mut count = 0;
             let start_offset = offset.unwrap_or(0);
             let max_limit = limit.unwrap_or(usize::MAX);
-            
-            rt.block_on(async {
-                use futures_util::StreamExt;
-                let mut stream = node_stream;
-                
-                while let Some(node_result) = stream.next().await {
-                    match node_result {
-                        Ok(node) => {
-                            // Skip offset items
-                            if count < start_offset {
-                                count += 1;
-                                continue;
-                            }
-                            
-                            // Check limit
-                            if entities.len() >= max_limit {
-                                break;
-                            }
-                            
-                            // Convert node to entity
-                            if let Ok(entity) = E::from_node(node) {
-                                entities.push(Box::new(entity) as Box<dyn Entity>);
-                            }
+
+            let mut stream = node_stream;
+            while let Some(node_result) = stream.next().await {
+                match node_result {
+                    Ok(node) => {
+                        if count < start_offset {
                             count += 1;
+                            continue;
                         }
-                        Err(_) => break, // Stop on error
+
+                        if entities.len() >= max_limit {
+                            break;
+                        }
+
+                        if let Ok(entity) = E::from_node(node) {
+                            entities.push(Box::new(entity) as Box<dyn Entity>);
+                        }
+                        count += 1;
                     }
+                    Err(_) => break,
                 }
-            });
-            
-            Ok(entities)
-        })
+            }
+
+            let _ = tx.send(Ok(entities));
+        });
+
+        PendingEntityList::new(rx)
     }
 
     fn find_entities_by_attribute(
@@ -595,26 +659,26 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
         attribute_value: &Value,
         limit: Option<usize>,
         offset: Option<usize>,
-    ) -> Result<Vec<Box<dyn Entity>>> {
+    ) -> PendingEntityList {
         let attribute_name = attribute_name.to_string();
         let attribute_value = attribute_value.clone();
         let table_name = self.table_name.clone();
-        
-        // Execute database operation synchronously using query method
         let db = self.db.clone();
-        
-        // Convert attribute_value to JSON value to avoid lifetime issues
-        let json_value = serde_json::to_value(&attribute_value)
-            .map_err(|e| GraphError::ConversionError(format!("Failed to convert attribute value: {}", e)))?;
-        
-        let rt = crate::runtime::shared_runtime()
-            .ok_or_else(|| GraphError::DatabaseError("Runtime unavailable".to_string()))?;
-        
-        let entities = rt.block_on(async {
+        let (tx, rx) = oneshot::channel();
+
+        // Convert attribute_value to JSON value
+        let json_value = match serde_json::to_value(&attribute_value) {
+            Ok(v) => v,
+            Err(e) => {
+                let _ = tx.send(Err(GraphError::ConversionError(format!("Failed to convert attribute value: {}", e))));
+                return PendingEntityList::new(rx);
+            }
+        };
+
+        tokio::spawn(async move {
             use crate::memory::graph::graph_db::GraphQueryOptions;
             use futures_util::StreamExt;
-            
-            // Build query for attribute filtering
+
             let query = format!("SELECT * FROM {} WHERE {} = $value", table_name, attribute_name);
             let options = GraphQueryOptions {
                 limit,
@@ -625,65 +689,67 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
                     filters
                 }
             };
-            
+
             let node_stream = db.query(&query, Some(options));
-            
-            // Collect entities from stream
             let mut entities = Vec::new();
             let mut stream = node_stream;
-            
+
             while let Some(node_result) = stream.next().await {
                 if let Ok(node) = node_result
                     && let Ok(entity) = E::from_node(node) {
                         entities.push(Box::new(entity) as Box<dyn Entity>);
                     }
             }
-            
-            entities
+
+            let _ = tx.send(Ok(entities));
         });
-        
-        Ok(entities)
+
+        PendingEntityList::new(rx)
     }
 
-    fn count_entities_by_type(&self, entity_type: &str) -> Result<usize> {
+    fn count_entities_by_type(&self, entity_type: &str) -> PendingEntityCount {
         let entity_type = entity_type.to_string();
-        
-        // Execute database operation synchronously
-        self.execute_db_operation(move |db| {
+        let db = self.db.clone();
+        let (tx, rx) = oneshot::channel();
+
+        tokio::spawn(async move {
             use crate::memory::graph::graph_db::GraphQueryOptions;
-            
-            // Build count query
+            use futures_util::StreamExt;
+
             let query = format!("SELECT COUNT(*) FROM {}", entity_type);
             let node_stream = db.query(&query, Some(GraphQueryOptions::default()));
-            let rt = crate::runtime::shared_runtime()
-                .ok_or_else(|| GraphError::DatabaseError("Runtime unavailable".to_string()))?;
-            
-            // Get count from query result
+            let mut stream = node_stream;
             let mut count = 0;
-            rt.block_on(async {
-                use futures_util::StreamExt;
-                let mut stream = node_stream;
-                
-                if let Some(Ok(node)) = stream.next().await
-                    && let Some(count_value) = node.properties.get("count") {
-                        count = count_value.as_u64().unwrap_or(0) as usize;
-                    }
-            });
-            
-            Ok(count)
-        })
+
+            if let Some(Ok(node)) = stream.next().await
+                && let Some(count_value) = node.properties.get("count") {
+                    count = count_value.as_u64().unwrap_or(0) as usize;
+                }
+
+            let _ = tx.send(Ok(count));
+        });
+
+        PendingEntityCount::new(rx)
     }
 
     fn batch_create_entities(
         &self,
         entities: Vec<Box<dyn Entity>>,
-    ) -> Result<Vec<Box<dyn Entity>>> {
+    ) -> PendingEntityList {
         // Validate all entities first
         for entity in &entities {
             if let Some(validator) = &self.validator {
-                validator(entity.as_ref())?;
+                if let Err(e) = validator(entity.as_ref()) {
+                    let (tx, rx) = oneshot::channel();
+                    let _ = tx.send(Err(e));
+                    return PendingEntityList::new(rx);
+                }
             }
-            entity.validate()?;
+            if let Err(e) = entity.validate() {
+                let (tx, rx) = oneshot::channel();
+                let _ = tx.send(Err(e));
+                return PendingEntityList::new(rx);
+            }
         }
 
         // Convert entities to JSON array for SurrealQL
@@ -697,40 +763,51 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
             })
             .collect();
 
-        // Build SurrealQL batch query with FOR loop and transaction
         let query = format!(
             "BEGIN TRANSACTION; FOR $item IN $items {{ CREATE {}:ulid() CONTENT $item.properties; }}; COMMIT TRANSACTION;",
             self.table_name
         );
 
-        // Execute batch database operation
-        let nodes = self.execute_db_operation(move |db| {
-            let pending = db.batch_query(&query, serde_json::json!({ "items": create_items }));
-            let rt = crate::runtime::shared_runtime()
-                .ok_or_else(|| GraphError::DatabaseError("Runtime unavailable".to_string()))?;
-            rt.block_on(pending)
-        })?;
+        let db = self.db.clone();
+        let (tx, rx) = oneshot::channel();
 
-        // Reconstruct entities from database nodes with generated IDs
-        let mut results = Vec::with_capacity(nodes.len());
-        for node in nodes {
-            let entity = E::from_node(node)?;
-            results.push(Box::new(entity) as Box<dyn Entity>);
-        }
+        tokio::spawn(async move {
+            let result = db.batch_query(&query, serde_json::json!({ "items": create_items })).await
+                .map_err(|e| GraphError::DatabaseError(e.to_string()))
+                .and_then(|nodes| {
+                    let mut results = Vec::with_capacity(nodes.len());
+                    for node in nodes {
+                        match E::from_node(node) {
+                            Ok(entity) => results.push(Box::new(entity) as Box<dyn Entity>),
+                            Err(e) => return Err(e),
+                        }
+                    }
+                    Ok(results)
+                });
+            let _ = tx.send(result);
+        });
 
-        Ok(results)
+        PendingEntityList::new(rx)
     }
 
     fn batch_update_entities(
         &self,
         entities: Vec<Box<dyn Entity>>,
-    ) -> Result<Vec<Box<dyn Entity>>> {
+    ) -> PendingEntityList {
         // Validate all entities first
         for entity in &entities {
             if let Some(validator) = &self.validator {
-                validator(entity.as_ref())?;
+                if let Err(e) = validator(entity.as_ref()) {
+                    let (tx, rx) = oneshot::channel();
+                    let _ = tx.send(Err(e));
+                    return PendingEntityList::new(rx);
+                }
             }
-            entity.validate()?;
+            if let Err(e) = entity.validate() {
+                let (tx, rx) = oneshot::channel();
+                let _ = tx.send(Err(e));
+                return PendingEntityList::new(rx);
+            }
         }
 
         // Convert entities to JSON array with IDs for SurrealQL
@@ -745,43 +822,44 @@ impl<E: Entity + Clone + 'static> EntityRepository for SurrealEntityRepository<E
             })
             .collect();
 
-        // Build SurrealQL batch query with FOR loop and transaction
-        // Use full record ID directly since entity.id() returns "table:id" format
         let query = "BEGIN TRANSACTION; FOR $item IN $items { UPDATE $item.id CONTENT $item.properties; }; COMMIT TRANSACTION;".to_string();
 
-        // Execute batch database operation
-        let nodes = self.execute_db_operation(move |db| {
-            let pending = db.batch_query(&query, serde_json::json!({ "items": update_items }));
-            let rt = crate::runtime::shared_runtime()
-                .ok_or_else(|| GraphError::DatabaseError("Runtime unavailable".to_string()))?;
-            rt.block_on(pending)
-        })?;
+        let db = self.db.clone();
+        let (tx, rx) = oneshot::channel();
 
-        // Reconstruct entities from database nodes with any DB-side updates applied
-        let mut results = Vec::with_capacity(nodes.len());
-        for node in nodes {
-            let entity = E::from_node(node)?;
-            results.push(Box::new(entity) as Box<dyn Entity>);
-        }
+        tokio::spawn(async move {
+            let result = db.batch_query(&query, serde_json::json!({ "items": update_items })).await
+                .map_err(|e| GraphError::DatabaseError(e.to_string()))
+                .and_then(|nodes| {
+                    let mut results = Vec::with_capacity(nodes.len());
+                    for node in nodes {
+                        match E::from_node(node) {
+                            Ok(entity) => results.push(Box::new(entity) as Box<dyn Entity>),
+                            Err(e) => return Err(e),
+                        }
+                    }
+                    Ok(results)
+                });
+            let _ = tx.send(result);
+        });
 
-        Ok(results)
+        PendingEntityList::new(rx)
     }
 
-    fn batch_delete_entities(&self, ids: Vec<&str>) -> Result<()> {
-        // Convert IDs to JSON array for SurrealQL
+    fn batch_delete_entities(&self, ids: Vec<&str>) -> PendingUnit {
         let id_array: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
-
-        // Build SurrealQL batch query with FOR loop and transaction
-        // Use full record ID directly since IDs already contain "table:id" format
         let query = "BEGIN TRANSACTION; FOR $id IN $ids { DELETE $id; }; COMMIT TRANSACTION;".to_string();
 
-        // Execute batch database operation
-        self.execute_db_operation(move |db| {
-            let pending = db.batch_query(&query, serde_json::json!({ "ids": id_array }));
-            let rt = crate::runtime::shared_runtime()
-                .ok_or_else(|| GraphError::DatabaseError("Runtime unavailable".to_string()))?;
-            rt.block_on(pending)?;
-            Ok(())
-        })
+        let db = self.db.clone();
+        let (tx, rx) = oneshot::channel();
+
+        tokio::spawn(async move {
+            let result = db.batch_query(&query, serde_json::json!({ "ids": id_array })).await
+                .map_err(|e| GraphError::DatabaseError(e.to_string()))
+                .map(|_| ());
+            let _ = tx.send(result);
+        });
+
+        PendingUnit::new(rx)
     }
 }

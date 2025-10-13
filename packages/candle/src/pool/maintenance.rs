@@ -1,12 +1,12 @@
 use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tracing::{info, warn, debug, instrument};
 
 use crate::pool::capabilities::{
     image_embedding_pool, text_embedding_pool, text_to_image_pool, text_to_text_pool,
     vision_pool,
 };
-use crate::pool::core::types::WorkerHandle;
 use crate::pool::core::Pool;
 
 /// Check if all workers for a model are idle
@@ -56,6 +56,7 @@ fn find_lru_worker<W: crate::pool::core::types::PoolWorkerHandle>(workers: &[W])
 }
 
 /// Remove dead and failed workers from pool
+#[instrument(skip(pool))]
 fn cleanup_dead_workers<W: crate::pool::core::types::PoolWorkerHandle>(pool: &Pool<W>) {
     use crate::pool::core::worker_state::WorkerState;
     
@@ -68,11 +69,11 @@ fn cleanup_dead_workers<W: crate::pool::core::types::PoolWorkerHandle>(pool: &Po
                 let state = worker.core().get_state();
                 
                 if matches!(state, WorkerState::Dead | WorkerState::Failed) {
-                    log::warn!(
-                        "Removing {:?} worker {} for {}",
-                        state,
-                        worker.core().worker_id,
-                        registry_key
+                    warn!(
+                        worker_id = worker.core().worker_id,
+                        registry_key = %registry_key,
+                        state = ?state,
+                        "Removing dead worker"
                     );
                     
                     // Clean up memory
@@ -105,6 +106,7 @@ fn cleanup_dead_workers<W: crate::pool::core::types::PoolWorkerHandle>(pool: &Po
 ///
 /// # Returns
 /// Ok(()) on success, Err with description on failure
+#[instrument(skip(pool), fields(registry_key = %registry_key, worker_idx = worker_idx))]
 fn evict_worker<W: crate::pool::core::types::PoolWorkerHandle>(
     pool: &Pool<W>,
     registry_key: &str,
@@ -133,10 +135,10 @@ fn evict_worker<W: crate::pool::core::types::PoolWorkerHandle>(
     // Send shutdown signal to worker thread
     // Worker loop will receive signal and break
     if let Err(e) = worker.core().shutdown_tx.send(()) {
-        log::warn!(
-            "Failed to send shutdown signal to worker {}: {}",
-            worker.core().worker_id,
-            e
+        warn!(
+            worker_id = worker.core().worker_id,
+            error = %e,
+            "Failed to send shutdown signal"
         );
     }
 
@@ -146,11 +148,10 @@ fn evict_worker<W: crate::pool::core::types::PoolWorkerHandle>(
     // Update metrics
     pool.metrics().workers_evicted.fetch_add(1, Ordering::Release);
 
-    log::info!(
-        "Evicted worker {} from {} (idle cooldown), {} workers remain",
-        worker.core().worker_id,
-        registry_key,
-        remaining_count
+    info!(
+        worker_id = worker.core().worker_id,
+        remaining_count = remaining_count,
+        "Evicted worker (idle cooldown)"
     );
 
     Ok(())
@@ -160,7 +161,8 @@ fn evict_worker<W: crate::pool::core::types::PoolWorkerHandle>(
 ///
 /// Checks each worker's health and removes dead workers.
 /// Should be called before idle eviction to ensure accurate state.
-fn validate_pool_health<T: ?Sized>(
+#[instrument(skip(pool))]
+fn validate_pool_health<T: crate::pool::core::types::PoolWorkerHandle>(
     pool: &'static Pool<T>,
     pool_name: &str,
 ) {
@@ -169,11 +171,11 @@ fn validate_pool_health<T: ?Sized>(
         let removed = pool.validate_workers(registry_key);
         
         if removed > 0 {
-            log::warn!(
-                "[{}] Removed {} dead workers for model '{}'",
-                pool_name,
-                removed,
-                registry_key
+            warn!(
+                pool_name = %pool_name,
+                removed = removed,
+                registry_key = %registry_key,
+                "Removed dead workers"
             );
         }
     }
@@ -214,23 +216,23 @@ fn process_pool_maintenance<W: crate::pool::core::types::PoolWorkerHandle>(
         let per_worker_mb = pool
             .workers()
             .get(&registry_key)
-            .and_then(|workers| workers.get(lru_idx).map(|w| w.per_worker_mb))
+            .and_then(|workers| workers.get(lru_idx).map(|w| w.core().per_worker_mb))
             .unwrap_or(1024); // Default fallback if worker not found
 
-        log::debug!(
-            "{} pool: All workers idle for {}, evicting LRU worker at index {} ({} MB)",
-            pool_name,
-            registry_key,
-            lru_idx,
-            per_worker_mb
+        debug!(
+            pool_name = %pool_name,
+            registry_key = %registry_key,
+            lru_idx = lru_idx,
+            per_worker_mb = per_worker_mb,
+            "All workers idle, evicting LRU worker"
         );
 
         if let Err(e) = evict_worker(pool, &registry_key, lru_idx, per_worker_mb) {
-            log::warn!(
-                "Failed to evict worker from {} pool ({}): {}",
-                pool_name,
-                registry_key,
-                e
+            warn!(
+                pool_name = %pool_name,
+                registry_key = %registry_key,
+                error = %e,
+                "Failed to evict worker"
             );
         }
     }
@@ -250,14 +252,14 @@ fn log_memory_usage() {
         + vision_mb
         + text_to_image_mb;
 
-    log::debug!(
-        "Pool memory usage: {} MB (TextEmbedding: {}, TextToText: {}, ImageEmbedding: {}, Vision: {}, TextToImage: {})",
-        total_mb,
-        text_embedding_mb,
-        text_to_text_mb,
-        image_embedding_mb,
-        vision_mb,
-        text_to_image_mb
+    debug!(
+        total_mb = total_mb,
+        text_embedding_mb = text_embedding_mb,
+        text_to_text_mb = text_to_text_mb,
+        image_embedding_mb = image_embedding_mb,
+        vision_mb = vision_mb,
+        text_to_image_mb = text_to_image_mb,
+        "Pool memory usage"
     );
 }
 
@@ -279,10 +281,10 @@ pub fn start_maintenance_thread() -> Result<thread::JoinHandle<()>, String> {
             let interval = Duration::from_secs(config.maintenance_interval_secs);
             let idle_threshold = config.cooldown_idle_minutes * 60; // Convert minutes to seconds
 
-            log::info!(
-                "Maintenance thread started (interval: {}s, idle_threshold: {}s)",
-                interval.as_secs(),
-                idle_threshold
+            info!(
+                interval_secs = interval.as_secs(),
+                idle_threshold_secs = idle_threshold,
+                "Maintenance thread started"
             );
 
             loop {
@@ -295,7 +297,7 @@ pub fn start_maintenance_thread() -> Result<thread::JoinHandle<()>, String> {
                     || vision_pool().is_shutting_down()
                     || text_to_image_pool().is_shutting_down()
                 {
-                    log::info!("Maintenance thread shutting down");
+                    info!("Maintenance thread shutting down");
                     break;
                 }
 
@@ -321,7 +323,7 @@ pub fn start_maintenance_thread() -> Result<thread::JoinHandle<()>, String> {
                 log_memory_usage();
             }
 
-            log::info!("Maintenance thread exited");
+            info!("Maintenance thread exited");
         })
         .map_err(|e| format!("Failed to spawn maintenance thread: {}", e))
 }

@@ -1,6 +1,6 @@
-//! CLIP Vision Embedding Provider - Sync Wrapper for EmbeddingModel Trait
+//! CLIP Vision Embedding Provider - Async Wrapper for EmbeddingModel Trait
 //!
-//! This module provides a synchronous wrapper around ClipVisionProvider to enable
+//! This module provides an async wrapper around ClipVisionProvider to enable
 //! integration with the EmbeddingModel trait system and EmbeddingModelFactory.
 
 use std::sync::Arc;
@@ -10,10 +10,11 @@ use super::ClipVisionModel;
 use crate::domain::model::traits::CandleModel;
 use crate::domain::model::CandleModelInfo;
 
-/// Synchronous wrapper for ClipVisionModel implementing EmbeddingModel trait
+/// Async wrapper for ClipVisionModel implementing EmbeddingModel trait
 ///
-/// This adapter bridges the async ClipVisionModel with the sync EmbeddingModel trait
-/// by using tokio runtime to execute async operations synchronously.
+/// This adapter wraps the async ClipVisionModel for integration with the
+/// async ImageEmbeddingCapable trait system.
+#[derive(Clone)]
 pub struct ClipVisionEmbeddingModel {
     provider: Arc<ClipVisionModel>,
     dimension: usize,
@@ -25,15 +26,6 @@ impl std::fmt::Debug for ClipVisionEmbeddingModel {
             .field("provider", &"ClipVisionModel { .. }")
             .field("dimension", &self.dimension)
             .finish()
-    }
-}
-
-impl Default for ClipVisionEmbeddingModel {
-    fn default() -> Self {
-        crate::runtime::shared_runtime()
-            .unwrap_or_else(|| panic!("Shared runtime unavailable"))
-            .block_on(Self::new())
-            .unwrap_or_else(|e| panic!("Failed to initialize ClipVisionEmbeddingModel: {}", e))
     }
 }
 
@@ -62,7 +54,7 @@ impl ClipVisionEmbeddingModel {
         // Create provider with specified dimension
         // Model will be downloaded and loaded on-demand via huggingface_file()
         let provider = ClipVisionModel::new(dimension)
-            .map_err(|e| MemoryError::Config(e))?;
+            .map_err(MemoryError::Config)?;
 
         Ok(Self {
             provider: Arc::new(provider),
@@ -90,15 +82,8 @@ impl ClipVisionEmbeddingModel {
     /// Encode image from file path (public API for direct image embedding)
     ///
     /// This is the primary method for encoding images to embeddings.
-    pub fn embed_image(&self, image_path: &str) -> Result<Vec<f32>> {
-        // Create tokio runtime for async execution
-        let runtime = tokio::runtime::Runtime::new()
-            .map_err(|e| MemoryError::ModelError(format!("Failed to create runtime: {}", e)))?;
-
-        // Execute async operation synchronously
-        let provider = self.provider.clone();
-        let tensor = runtime
-            .block_on(provider.encode_image(image_path))
+    pub async fn embed_image(&self, image_path: &str) -> Result<Vec<f32>> {
+        let tensor = self.provider.encode_image(image_path).await
             .map_err(|e| MemoryError::ModelError(format!("Image encoding failed: {}", e)))?;
 
         // Convert Tensor to Vec<f32>
@@ -109,13 +94,8 @@ impl ClipVisionEmbeddingModel {
     }
 
     /// Encode image from URL
-    pub fn embed_image_url(&self, url: &str) -> Result<Vec<f32>> {
-        let runtime = tokio::runtime::Runtime::new()
-            .map_err(|e| MemoryError::ModelError(format!("Failed to create runtime: {}", e)))?;
-
-        let provider = self.provider.clone();
-        let tensor = runtime
-            .block_on(provider.encode_url(url))
+    pub async fn embed_image_url(&self, url: &str) -> Result<Vec<f32>> {
+        let tensor = self.provider.encode_url(url).await
             .map_err(|e| MemoryError::ModelError(format!("Image URL encoding failed: {}", e)))?;
 
         tensor
@@ -125,13 +105,8 @@ impl ClipVisionEmbeddingModel {
     }
 
     /// Encode image from base64 data
-    pub fn embed_image_base64(&self, base64_data: &str) -> Result<Vec<f32>> {
-        let runtime = tokio::runtime::Runtime::new()
-            .map_err(|e| MemoryError::ModelError(format!("Failed to create runtime: {}", e)))?;
-
-        let provider = self.provider.clone();
-        let tensor = runtime
-            .block_on(provider.encode_base64(base64_data))
+    pub async fn embed_image_base64(&self, base64_data: &str) -> Result<Vec<f32>> {
+        let tensor = self.provider.encode_base64(base64_data).await
             .map_err(|e| MemoryError::ModelError(format!("Base64 image encoding failed: {}", e)))?;
 
         tensor
@@ -141,13 +116,8 @@ impl ClipVisionEmbeddingModel {
     }
 
     /// Batch encode multiple images
-    pub fn batch_embed_images(&self, image_paths: Vec<&str>) -> Result<Vec<Vec<f32>>> {
-        let runtime = tokio::runtime::Runtime::new()
-            .map_err(|e| MemoryError::ModelError(format!("Failed to create runtime: {}", e)))?;
-
-        let provider = self.provider.clone();
-        let batch_tensor = runtime
-            .block_on(provider.encode_batch(image_paths))
+    pub async fn batch_embed_images(&self, image_paths: Vec<&str>) -> Result<Vec<Vec<f32>>> {
+        let batch_tensor = self.provider.encode_batch(image_paths).await
             .map_err(|e| MemoryError::ModelError(format!("Batch image encoding failed: {}", e)))?;
 
         // Convert batch tensor (N, D) to Vec<Vec<f32>>
@@ -176,6 +146,7 @@ static CLIP_VISION_EMBEDDING_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     provider: crate::domain::model::CandleProvider::OpenAI,
     name: "clip-vit-base-patch32",
     registry_key: "openai/clip-vit-base-patch32",
+    quantization_url: None,
     max_input_tokens: None,
     max_output_tokens: None,
     input_price: None,
@@ -197,7 +168,7 @@ static CLIP_VISION_EMBEDDING_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     vocab_size: None,
     image_size: Some(224),
     image_mean: Some([0.48145466, 0.4578275, 0.40821073]),
-    image_std: Some([0.26862954, 0.26130258, 0.27577711]),
+    image_std: Some([0.26862954, 0.261_302_6, 0.275_777_1]),
     default_temperature: None,
     default_top_k: None,
     default_top_p: None,
@@ -217,211 +188,42 @@ impl CandleModel for ClipVisionEmbeddingModel {
     }
 }
 
+#[async_trait::async_trait(?Send)]
 impl crate::capability::traits::ImageEmbeddingCapable for ClipVisionEmbeddingModel {
-    fn embed_image(&self, image_path: &str) 
-        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> 
+    async fn embed_image(&self, image_path: &str)
+        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>
     {
-        ClipVisionEmbeddingModel::embed_image(self, image_path)
+        ClipVisionEmbeddingModel::embed_image(self, image_path).await
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
-    
-    fn embed_image_url(&self, url: &str) 
-        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> 
+
+    async fn embed_image_url(&self, url: &str)
+        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>
     {
-        ClipVisionEmbeddingModel::embed_image_url(self, url)
+        ClipVisionEmbeddingModel::embed_image_url(self, url).await
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
-    
-    fn embed_image_base64(&self, base64_data: &str) 
-        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> 
+
+    async fn embed_image_base64(&self, base64_data: &str)
+        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>
     {
-        ClipVisionEmbeddingModel::embed_image_base64(self, base64_data)
+        ClipVisionEmbeddingModel::embed_image_base64(self, base64_data).await
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
-    
-    fn batch_embed_images(&self, image_paths: Vec<&str>) 
-        -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> 
+
+    async fn batch_embed_images(&self, image_paths: Vec<&str>)
+        -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>>
     {
-        ClipVisionEmbeddingModel::batch_embed_images(self, image_paths)
+        ClipVisionEmbeddingModel::batch_embed_images(self, image_paths).await
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
-    
+
     fn embedding_dimension(&self) -> usize {
         self.dimension
     }
-    
+
     fn supported_dimensions(&self) -> Vec<usize> {
         vec![512, 768]
     }
 }
 
-/// Loaded CLIP Vision model that stays in memory for repeated inference
-///
-/// This struct wraps ClipVisionEmbeddingModel with a persistent tokio runtime
-/// to eliminate runtime recreation overhead on every inference call. Designed for
-/// use in worker threads that process many requests.
-pub struct LoadedClipVisionModel {
-    model: ClipVisionEmbeddingModel,
-    runtime: tokio::runtime::Runtime,
-}
-
-impl std::fmt::Debug for LoadedClipVisionModel {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("LoadedClipVisionModel")
-            .field("model", &self.model)
-            .field("runtime", &"<Runtime>")
-            .finish()
-    }
-}
-
-impl CandleModel for LoadedClipVisionModel {
-    fn info(&self) -> &'static CandleModelInfo {
-        self.model.info()
-    }
-}
-
-impl LoadedClipVisionModel {
-    /// Load model into memory from base model reference
-    ///
-    /// Creates a persistent tokio runtime and wraps the ClipVisionEmbeddingModel
-    /// for efficient reuse in worker threads.
-    pub fn load(base_model: &ClipVisionEmbeddingModel)
-        -> std::result::Result<Self, Box<dyn std::error::Error + Send + Sync>>
-    {
-        // Create persistent runtime for this worker
-        let runtime = tokio::runtime::Runtime::new()
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
-        
-        // Clone the model (Arc clone is cheap)
-        let model = ClipVisionEmbeddingModel {
-            provider: Arc::clone(&base_model.provider),
-            dimension: base_model.dimension,
-        };
-        
-        Ok(Self {
-            model,
-            runtime,
-        })
-    }
-}
-
-impl crate::capability::traits::ImageEmbeddingCapable for LoadedClipVisionModel {
-    fn embed_image(&self, image_path: &str) 
-        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> 
-    {
-        let provider = Arc::clone(&self.model.provider);
-        let result = self.runtime.block_on(async {
-            provider.encode_image(image_path).await
-        });
-        
-        match result {
-            Ok(tensor) => {
-                tensor.flatten_all()
-                    .and_then(|t| t.to_vec1::<f32>())
-                    .map_err(|e| Box::new(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("Failed to convert tensor: {}", e)
-                    )) as Box<dyn std::error::Error + Send + Sync>)
-            }
-            Err(e) => Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )) as Box<dyn std::error::Error + Send + Sync>)
-        }
-    }
-    
-    fn embed_image_url(&self, url: &str) 
-        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> 
-    {
-        let provider = Arc::clone(&self.model.provider);
-        let result = self.runtime.block_on(async {
-            provider.encode_url(url).await
-        });
-        
-        match result {
-            Ok(tensor) => {
-                tensor.flatten_all()
-                    .and_then(|t| t.to_vec1::<f32>())
-                    .map_err(|e| Box::new(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("Failed to convert tensor: {}", e)
-                    )) as Box<dyn std::error::Error + Send + Sync>)
-            }
-            Err(e) => Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )) as Box<dyn std::error::Error + Send + Sync>)
-        }
-    }
-    
-    fn embed_image_base64(&self, base64_data: &str) 
-        -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> 
-    {
-        let provider = Arc::clone(&self.model.provider);
-        let result = self.runtime.block_on(async {
-            provider.encode_base64(base64_data).await
-        });
-        
-        match result {
-            Ok(tensor) => {
-                tensor.flatten_all()
-                    .and_then(|t| t.to_vec1::<f32>())
-                    .map_err(|e| Box::new(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("Failed to convert tensor: {}", e)
-                    )) as Box<dyn std::error::Error + Send + Sync>)
-            }
-            Err(e) => Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )) as Box<dyn std::error::Error + Send + Sync>)
-        }
-    }
-    
-    fn batch_embed_images(&self, image_paths: Vec<&str>) 
-        -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> 
-    {
-        let provider = Arc::clone(&self.model.provider);
-        let result = self.runtime.block_on(async {
-            provider.encode_batch(image_paths).await
-        });
-        
-        match result {
-            Ok(batch_tensor) => {
-                let batch_size = batch_tensor.dim(0)
-                    .map_err(|e| Box::new(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("Failed to get batch size: {}", e)
-                    )) as Box<dyn std::error::Error + Send + Sync>)?;
-
-                let mut embeddings = Vec::with_capacity(batch_size);
-
-                for i in 0..batch_size {
-                    let row = batch_tensor
-                        .get(i)
-                        .and_then(|t| t.flatten_all())
-                        .and_then(|t| t.to_vec1::<f32>())
-                        .map_err(|e| Box::new(std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            format!("Failed to extract embedding {}: {}", i, e)
-                        )) as Box<dyn std::error::Error + Send + Sync>)?;
-                    embeddings.push(row);
-                }
-
-                Ok(embeddings)
-            }
-            Err(e) => Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )) as Box<dyn std::error::Error + Send + Sync>)
-        }
-    }
-    
-    fn embedding_dimension(&self) -> usize {
-        self.model.dimension
-    }
-    
-    fn supported_dimensions(&self) -> Vec<usize> {
-        vec![512, 768]
-    }
-}

@@ -30,6 +30,17 @@ use crate::memory::primitives::node::MemoryNode;
 
 // Candle domain types - self-contained
 
+// Type aliases to reduce complexity warnings
+type OnToolResultHandler = Arc<dyn Fn(&[String]) + Send + Sync>;
+type OnConversationTurnHandler = Arc<
+    dyn Fn(
+            &CandleAgentConversation,
+            &CandleAgentRoleAgent,
+        ) -> AsyncStream<CandleMessageChunk>
+        + Send
+        + Sync,
+>;
+
 /// Agent helper type for conversation control in `on_conversation_turn` callbacks.
 /// Holds Arc<AgentBuilderState> for recursive inference.
 #[derive(Clone)]
@@ -61,210 +72,202 @@ impl CandleAgentRoleAgent {
     fn run_inference_cycle(&self, user_message: String) -> AsyncStream<CandleMessageChunk> {
         let state = self.state.clone();
 
-        AsyncStream::with_channel(move |_sender| {
-            let _background_stream = ystream::spawn_stream(move |stream_sender| {
-                // Extract handlers from state for recursive inference
-                let on_chunk_handler = state.on_chunk_handler.clone();
-                let on_tool_result_handler = state.on_tool_result_handler.clone();
-                
-                // Initialize tool router
-                let tool_router = {
-                    let Some(runtime) = crate::runtime::shared_runtime() else {
-                        let error_chunk = CandleMessageChunk::Error(
-                            "Failed to access shared runtime".to_string(),
-                        );
-                        ystream::emit!(stream_sender, error_chunk);
+        AsyncStream::with_channel(move |stream_sender| {
+            // Spawn async task to handle operations with native async/await
+            if let Some(runtime) = crate::runtime::shared_runtime() {
+                runtime.spawn(async move {
+                    // Extract handlers from state for recursive inference
+                    let on_chunk_handler = state.on_chunk_handler.clone();
+                    let on_tool_result_handler = state.on_tool_result_handler.clone();
+
+                    // Initialize tool router
+                    let tool_router = {
+                let reasoner_schema = crate::domain::agent::role::convert_serde_to_sweet_json(
+                    serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "thought": {"type": "string", "description": "Current reasoning step"},
+                            "thoughtNumber": {"type": "integer", "description": "Current step number", "minimum": 1},
+                            "totalThoughts": {"type": "integer", "description": "Total expected steps", "minimum": 1},
+                            "nextThoughtNeeded": {"type": "boolean", "description": "Whether another step is needed"}
+                        },
+                        "required": ["thought", "thoughtNumber", "totalThoughts", "nextThoughtNeeded"]
+                    }),
+                );
+
+                let default_plugin_config = crate::domain::tool::router::PluginConfig {
+                    tool_name: "mcp-reasoner".to_string(),
+                    wasm_path: "packages/sweetmcp/plugins/reasoner/target/wasm32-unknown-unknown/release/sweetmcp_plugin_reasoner.wasm".to_string(),
+                    description: "Advanced reasoning tool".to_string(),
+                    input_schema: reasoner_schema,
+                };
+
+                let plugin_configs = vec![default_plugin_config];
+                let mut router = crate::domain::tool::router::SweetMcpRouter::with_configs(
+                    plugin_configs,
+                    None,
+                );
+
+                match router.initialize().await {
+                    Ok(()) => Some(router),
+                    Err(e) => {
+                        let error_chunk = CandleMessageChunk::Error(format!(
+                            "Tool initialization failed: {}",
+                            e
+                        ));
+                        let _ = stream_sender.send(error_chunk);
                         return;
-                    };
-
-                    let reasoner_schema = crate::domain::agent::role::convert_serde_to_sweet_json(
-                        serde_json::json!({
-                            "type": "object",
-                            "properties": {
-                                "thought": {"type": "string", "description": "Current reasoning step"},
-                                "thoughtNumber": {"type": "integer", "description": "Current step number", "minimum": 1},
-                                "totalThoughts": {"type": "integer", "description": "Total expected steps", "minimum": 1},
-                                "nextThoughtNeeded": {"type": "boolean", "description": "Whether another step is needed"}
-                            },
-                            "required": ["thought", "thoughtNumber", "totalThoughts", "nextThoughtNeeded"]
-                        }),
-                    );
-
-                    let default_plugin_config = crate::domain::tool::router::PluginConfig {
-                        tool_name: "mcp-reasoner".to_string(),
-                        wasm_path: "packages/sweetmcp/plugins/reasoner/target/wasm32-unknown-unknown/release/sweetmcp_plugin_reasoner.wasm".to_string(),
-                        description: "Advanced reasoning tool".to_string(),
-                        input_schema: reasoner_schema,
-                    };
-
-                    let plugin_configs = vec![default_plugin_config];
-                    let mut router = crate::domain::tool::router::SweetMcpRouter::with_configs(
-                        plugin_configs,
-                        None,
-                    );
-
-                    match runtime.block_on(router.initialize()) {
-                        Ok(()) => Some(router),
-                        Err(e) => {
-                            let error_chunk = CandleMessageChunk::Error(format!(
-                                "Tool initialization failed: {}",
-                                e
-                            ));
-                            ystream::emit!(stream_sender, error_chunk);
-                            return;
-                        }
-                    }
-                };
-
-                // Build prompt - system_prompt always exists (no memory in recursive calls)
-                let full_prompt = format!("{}\n\nUser: {}", &state.system_prompt, user_message);
-
-                // Call provider
-                let prompt = CandlePrompt::new(full_prompt);
-                let mut params = crate::domain::completion::CandleCompletionParams {
-                    temperature: state.temperature,
-                    max_tokens: std::num::NonZeroU64::new(state.max_tokens),
-                    ..Default::default()
-                };
-
-                // Add tools
-                if let Some(ref router) = tool_router {
-                    let mut all_tools: Vec<sweet_mcp_type::ToolInfo> = state.tools.clone().into();
-                    if let Some(runtime) = crate::runtime::shared_runtime() {
-                        let auto_generated_tools = runtime.block_on(router.get_available_tools());
-                        all_tools.extend(auto_generated_tools);
-                    }
-                    if !all_tools.is_empty() {
-                        params.tools = Some(ZeroOneOrMany::from(all_tools));
                     }
                 }
+            };
 
-                let completion_stream = state.text_to_text_model.prompt(prompt, &params);
-                let completion_results = completion_stream.collect();
-                let mut assistant_response = String::new();
+            // Build prompt - system_prompt always exists (no memory in recursive calls)
+            let full_prompt = format!("{}\n\nUser: {}", &state.system_prompt, user_message);
 
-                // Track metrics for performance visibility
-                let start_time = std::time::Instant::now();
-                let mut token_count = 0u32;
+            // Call provider
+            let prompt = CandlePrompt::new(full_prompt);
+            let mut params = crate::domain::completion::CandleCompletionParams {
+                temperature: state.temperature,
+                max_tokens: std::num::NonZeroU64::new(state.max_tokens),
+                ..Default::default()
+            };
 
-                // Stream chunks
-                for completion_chunk in completion_results {
-                    let message_chunk = match completion_chunk {
-                        CandleCompletionChunk::Text(ref text) => {
-                            token_count += 1;
-                            assistant_response.push_str(text);
-                            CandleMessageChunk::Text(text.clone())
+            // Add tools
+            if let Some(ref router) = tool_router {
+                let mut all_tools: Vec<sweet_mcp_type::ToolInfo> = state.tools.clone().into();
+
+                // Use .await instead of block_on
+                let auto_generated_tools = router.get_available_tools().await;
+                all_tools.extend(auto_generated_tools);
+
+                if !all_tools.is_empty() {
+                    params.tools = Some(ZeroOneOrMany::from(all_tools));
+                }
+            }
+
+            let completion_stream = state.text_to_text_model.prompt(prompt, &params);
+            let completion_results = completion_stream.collect();
+            let mut assistant_response = String::new();
+
+            // Track metrics for performance visibility
+            let start_time = std::time::Instant::now();
+            let mut token_count = 0u32;
+
+            // Stream chunks
+            for completion_chunk in completion_results {
+                let message_chunk = match completion_chunk {
+                    CandleCompletionChunk::Text(ref text) => {
+                        token_count += 1;
+                        assistant_response.push_str(text);
+                        CandleMessageChunk::Text(text.clone())
+                    }
+                    CandleCompletionChunk::Complete {
+                        ref text,
+                        finish_reason,
+                        usage,
+                    } => {
+                        assistant_response.push_str(text);
+
+                        // Calculate performance metrics
+                        let elapsed = start_time.elapsed();
+                        let elapsed_secs = elapsed.as_secs_f64();
+                        let tokens_per_sec = if elapsed_secs > 0.0 {
+                            Some(token_count as f64 / elapsed_secs)
+                        } else {
+                            None
+                        };
+
+                        CandleMessageChunk::Complete {
+                            text: text.clone(),
+                            finish_reason: finish_reason.map(|f| format!("{:?}", f)),
+                            usage: usage.map(|u| format!("{:?}", u)),
+                            token_count: Some(token_count),
+                            elapsed_secs: Some(elapsed_secs),
+                            tokens_per_sec,
                         }
-                        CandleCompletionChunk::Complete {
-                            ref text,
-                            finish_reason,
-                            usage,
-                        } => {
-                            assistant_response.push_str(text);
-
-                            // Calculate performance metrics
-                            let elapsed = start_time.elapsed();
-                            let elapsed_secs = elapsed.as_secs_f64();
-                            let tokens_per_sec = if elapsed_secs > 0.0 {
-                                Some(token_count as f64 / elapsed_secs)
-                            } else {
-                                None
-                            };
-
-                            CandleMessageChunk::Complete {
-                                text: text.clone(),
-                                finish_reason: finish_reason.map(|f| format!("{:?}", f)),
-                                usage: usage.map(|u| format!("{:?}", u)),
-                                token_count: Some(token_count),
-                                elapsed_secs: Some(elapsed_secs),
-                                tokens_per_sec,
-                            }
-                        }
-                        CandleCompletionChunk::ToolCallStart { id, name } => {
-                            CandleMessageChunk::ToolCallStart { id, name }
-                        }
-                        CandleCompletionChunk::ToolCall {
-                            id,
-                            name,
-                            partial_input,
-                        } => CandleMessageChunk::ToolCall {
-                            id,
-                            name,
-                            partial_input,
-                        },
-                        CandleCompletionChunk::ToolCallComplete { id, name, input } => {
-                            if let Some(ref router) = tool_router {
-                                match serde_json::from_str::<serde_json::Value>(&input) {
-                                    Ok(args_json) => {
-                                        let sweet_args =
-                                            crate::domain::agent::role::convert_serde_to_sweet_json(
-                                                args_json,
-                                            );
-                                        match crate::runtime::shared_runtime() {
-                                            Some(runtime) => {
-                                                match runtime
-                                                    .block_on(router.call_tool(&name, sweet_args))
-                                                {
-                                                    Ok(response) => {
-                                                        // Call tool result handler if configured
-                                                        if let Some(ref handler) = on_tool_result_handler {
-                                                            let results = vec![format!("{:?}", response)];
-                                                            handler(&results);
-                                                        }
-                                                        
-                                                        CandleMessageChunk::Text(format!(
-                                                            "Tool '{}' executed: {:?}",
-                                                            name, response
-                                                        ))
-                                                    }
-                                                    Err(e) => CandleMessageChunk::Error(format!(
-                                                        "Tool '{}' failed: {}",
-                                                        name, e
-                                                    )),
-                                                }
+                    }
+                    CandleCompletionChunk::ToolCallStart { id, name } => {
+                        CandleMessageChunk::ToolCallStart { id, name }
+                    }
+                    CandleCompletionChunk::ToolCall {
+                        id,
+                        name,
+                        partial_input,
+                    } => CandleMessageChunk::ToolCall {
+                        id,
+                        name,
+                        partial_input,
+                    },
+                    CandleCompletionChunk::ToolCallComplete { id, name, input } => {
+                        if let Some(ref router) = tool_router {
+                            match serde_json::from_str::<serde_json::Value>(&input) {
+                                Ok(args_json) => {
+                                    let sweet_args =
+                                        crate::domain::agent::role::convert_serde_to_sweet_json(
+                                            args_json,
+                                        );
+                                    // Use .await instead of block_on
+                                    match router.call_tool(&name, sweet_args).await {
+                                        Ok(response) => {
+                                            // Call tool result handler if configured
+                                            if let Some(ref handler) = on_tool_result_handler {
+                                                let results = vec![format!("{:?}", response)];
+                                                handler(&results);
                                             }
-                                            None => CandleMessageChunk::Error(
-                                                "Runtime unavailable".to_string(),
-                                            ),
+
+                                            CandleMessageChunk::Text(format!(
+                                                "Tool '{}' executed: {:?}",
+                                                name, response
+                                            ))
                                         }
-                                    }
-                                    Err(e) => {
-                                        CandleMessageChunk::Error(format!("Invalid JSON: {}", e))
+                                        Err(e) => CandleMessageChunk::Error(format!(
+                                            "Tool '{}' failed: {}",
+                                            name, e
+                                        )),
                                     }
                                 }
-                            } else {
-                                CandleMessageChunk::ToolCallComplete { id, name, input }
+                                Err(e) => {
+                                    CandleMessageChunk::Error(format!("Invalid JSON: {}", e))
+                                }
                             }
+                        } else {
+                            CandleMessageChunk::ToolCallComplete { id, name, input }
                         }
-                        CandleCompletionChunk::Error(error) => CandleMessageChunk::Error(error),
-                    };
-                    
-                    // Apply chunk handler if configured (zero allocation for None)
-                    let final_chunk = if let Some(ref handler) = on_chunk_handler {
-                        handler(message_chunk)
-                    } else {
-                        message_chunk
-                    };
-                    ystream::emit!(stream_sender, final_chunk);
-                }
-
-                // CRITICAL: Call handler for recursion
-                if let Some(ref handler) = state.on_conversation_turn_handler {
-                    let mut conversation = CandleAgentConversation::new();
-                    conversation.add_message(user_message.clone(), CandleMessageRole::User);
-                    conversation
-                        .add_message(assistant_response.clone(), CandleMessageRole::Assistant);
-
-                    let agent = CandleAgentRoleAgent {
-                        state: state.clone(),
-                    };
-                    let handler_stream = handler(&conversation, &agent);
-                    let handler_chunks = handler_stream.collect();
-                    for chunk in handler_chunks {
-                        ystream::emit!(stream_sender, chunk);
                     }
+                    CandleCompletionChunk::Error(error) => CandleMessageChunk::Error(error),
+                };
+
+                // Apply chunk handler if configured (zero allocation for None)
+                let final_chunk = if let Some(ref handler) = on_chunk_handler {
+                    handler(message_chunk)
+                } else {
+                    message_chunk
+                };
+                let _ = stream_sender.send(final_chunk);
+            }
+
+            // CRITICAL: Call handler for recursion
+            if let Some(ref handler) = state.on_conversation_turn_handler {
+                let mut conversation = CandleAgentConversation::new();
+                conversation.add_message(user_message.clone(), CandleMessageRole::User);
+                conversation
+                    .add_message(assistant_response.clone(), CandleMessageRole::Assistant);
+
+                let agent = CandleAgentRoleAgent {
+                    state: state.clone(),
+                };
+                let handler_stream = handler(&conversation, &agent);
+                let handler_chunks = handler_stream.collect();
+                for chunk in handler_chunks {
+                    let _ = stream_sender.send(chunk);
                 }
-            });
+            }
+                });
+            } else {
+                let _ = stream_sender.send(CandleMessageChunk::Error(
+                    "Runtime unavailable for async operations".to_string()
+                ));
+            }
         })
     }
 }
@@ -288,17 +291,8 @@ struct AgentBuilderState {
     additional_params: std::collections::HashMap<String, String>,
     metadata: std::collections::HashMap<String, String>,
     on_chunk_handler: Option<Arc<dyn Fn(CandleMessageChunk) -> CandleMessageChunk + Send + Sync>>,
-    on_tool_result_handler: Option<Arc<dyn Fn(&[String]) + Send + Sync>>,
-    on_conversation_turn_handler: Option<
-        Arc<
-            dyn Fn(
-                    &CandleAgentConversation,
-                    &CandleAgentRoleAgent,
-                ) -> AsyncStream<CandleMessageChunk>
-                + Send
-                + Sync,
-        >,
-    >,
+    on_tool_result_handler: Option<OnToolResultHandler>,
+    on_conversation_turn_handler: Option<OnConversationTurnHandler>,
 }
 
 /// Agent role builder trait - elegant zero-allocation builder pattern (PUBLIC API)
@@ -565,17 +559,8 @@ struct CandleAgentRoleBuilderImpl {
     additional_params: std::collections::HashMap<String, String>,
     metadata: std::collections::HashMap<String, String>,
     on_chunk_handler: Option<Arc<dyn Fn(CandleMessageChunk) -> CandleMessageChunk + Send + Sync>>,
-    on_tool_result_handler: Option<Arc<dyn Fn(&[String]) + Send + Sync>>,
-    on_conversation_turn_handler: Option<
-        Arc<
-            dyn Fn(
-                    &CandleAgentConversation,
-                    &CandleAgentRoleAgent,
-                ) -> AsyncStream<CandleMessageChunk>
-                + Send
-                + Sync,
-        >,
-    >,
+    on_tool_result_handler: Option<OnToolResultHandler>,
+    on_conversation_turn_handler: Option<OnConversationTurnHandler>,
 }
 
 impl std::fmt::Debug for CandleAgentRoleBuilderImpl {
@@ -684,7 +669,7 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
         
         // Get max_tokens from model's ModelInfo
         let model_max_tokens = model.info().max_output_tokens
-            .and_then(|t| t.get().try_into().ok())
+            .map(|t| t.get().into())
             .unwrap_or(2000);
         
         // Get default embedding model from registry
@@ -871,7 +856,7 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
         
         // Get max_tokens from model's ModelInfo
         let model_max_tokens = text_model.info().max_output_tokens
-            .and_then(|t| t.get().try_into().ok())
+            .map(|t| t.get().into())
             .unwrap_or(2000);
         
         // Get default embedding model from registry
@@ -928,17 +913,8 @@ pub struct CandleAgentBuilderImpl {
     additional_params: std::collections::HashMap<String, String>,
     metadata: std::collections::HashMap<String, String>,
     on_chunk_handler: Option<Arc<dyn Fn(CandleMessageChunk) -> CandleMessageChunk + Send + Sync>>,
-    on_tool_result_handler: Option<Arc<dyn Fn(&[String]) + Send + Sync>>,
-    on_conversation_turn_handler: Option<
-        Arc<
-            dyn Fn(
-                    &CandleAgentConversation,
-                    &CandleAgentRoleAgent,
-                ) -> AsyncStream<CandleMessageChunk>
-                + Send
-                + Sync,
-        >,
-    >,
+    on_tool_result_handler: Option<OnToolResultHandler>,
+    on_conversation_turn_handler: Option<OnConversationTurnHandler>,
 }
 
 impl std::fmt::Debug for CandleAgentBuilderImpl {
@@ -1279,152 +1255,6 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
         let context_github = self.context_github;
         let additional_params = self.additional_params;
         let metadata = self.metadata;
-        
-        // ALWAYS create memory internally - WE GUARANTEE MEMORY
-        let memory: Option<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>> = {
-                // Create memory manager from embedding model
-                let Some(runtime) = crate::runtime::shared_runtime() else {
-                    return Err(AgentError::MemoryInit("Failed to access shared runtime for memory creation".into()));
-                };
-                
-                use surrealdb::engine::any::connect;
-                use crate::memory::core::manager::surreal::SurrealDBMemoryManager;
-                
-                let db_path = dirs::cache_dir()
-                    .unwrap_or_else(|| std::path::PathBuf::from("."))
-                    .join("paraphym")
-                    .join("agent.db");
-                
-                if let Some(parent) = db_path.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-                
-                let db_url = format!("surrealkv://{}", db_path.display());
-                let db = runtime.block_on(async {
-                    let db = connect(&db_url).await.map_err(|e| 
-                        AgentError::MemoryInit(format!("Failed to connect to database: {}", e))
-                    )?;
-                    db.use_ns("candle").use_db("agent").await.map_err(|e|
-                        AgentError::MemoryInit(format!("Failed to initialize database namespace: {}", e))
-                    )?;
-                    Ok::<_, AgentError>(db)
-                })?;
-                
-                let manager = runtime.block_on(async {
-                    let mgr = SurrealDBMemoryManager::with_embedding_model(db, embedding_model.clone()).await
-                        .map_err(|e| AgentError::MemoryInit(format!("Failed to create memory manager: {}", e)))?;
-                    mgr.initialize().await
-                        .map_err(|e| AgentError::MemoryInit(format!("Failed to initialize memory tables: {}", e)))?;
-                    Ok::<_, AgentError>(mgr)
-                })?;
-                
-                Some(Arc::new(manager) as Arc<dyn crate::memory::core::manager::surreal::MemoryManager>)
-        };
-
-        // Ingest documents from context fields into memory
-        if let Some(ref mem_mgr) = memory {
-            use crate::memory::primitives::node::MemoryNode;
-            use crate::memory::primitives::types::{MemoryContent, MemoryTypeEnum};
-            use chrono::Utc;
-            
-            let Some(runtime) = crate::runtime::shared_runtime() else {
-                return Err(AgentError::MemoryInit("Failed to access shared runtime for document ingestion".into()));
-            };
-            
-            runtime.block_on(async {
-                // Load from context_file
-                if let Some(ctx) = context_file {
-                    let docs = ctx.load().collect();
-                    for doc in docs {
-                        let content_hash = crate::domain::memory::serialization::content_hash(&doc.data);
-                        let memory = MemoryNode {
-                            id: format!("doc_{}", content_hash),
-                            content: MemoryContent::new(&doc.data),
-                            content_hash,
-                            memory_type: MemoryTypeEnum::Semantic,
-                            created_at: Utc::now(),
-                            updated_at: Utc::now(),
-                            embedding: None,
-                            evaluation_status: crate::memory::monitoring::operations::OperationStatus::Pending,
-                            metadata: crate::memory::primitives::metadata::MemoryMetadata::new(),
-                            relevance_score: None,
-                        };
-                        if let Err(e) = mem_mgr.create_memory(memory).await {
-                            log::error!("Failed to ingest document: {:?}", e);
-                        }
-                    }
-                }
-                
-                // Load from context_files
-                if let Some(ctx) = context_files {
-                    let docs = ctx.load().collect();
-                    for doc in docs {
-                        let content_hash = crate::domain::memory::serialization::content_hash(&doc.data);
-                        let memory = MemoryNode {
-                            id: format!("doc_{}", content_hash),
-                            content: MemoryContent::new(&doc.data),
-                            content_hash,
-                            memory_type: MemoryTypeEnum::Semantic,
-                            created_at: Utc::now(),
-                            updated_at: Utc::now(),
-                            embedding: None,
-                            evaluation_status: crate::memory::monitoring::operations::OperationStatus::Pending,
-                            metadata: crate::memory::primitives::metadata::MemoryMetadata::new(),
-                            relevance_score: None,
-                        };
-                        if let Err(e) = mem_mgr.create_memory(memory).await {
-                            log::error!("Failed to ingest document: {:?}", e);
-                        }
-                    }
-                }
-                
-                // Load from context_directory
-                if let Some(ctx) = context_directory {
-                    let docs = ctx.load().collect();
-                    for doc in docs {
-                        let content_hash = crate::domain::memory::serialization::content_hash(&doc.data);
-                        let memory = MemoryNode {
-                            id: format!("doc_{}", content_hash),
-                            content: MemoryContent::new(&doc.data),
-                            content_hash,
-                            memory_type: MemoryTypeEnum::Semantic,
-                            created_at: Utc::now(),
-                            updated_at: Utc::now(),
-                            embedding: None,
-                            evaluation_status: crate::memory::monitoring::operations::OperationStatus::Pending,
-                            metadata: crate::memory::primitives::metadata::MemoryMetadata::new(),
-                            relevance_score: None,
-                        };
-                        if let Err(e) = mem_mgr.create_memory(memory).await {
-                            log::error!("Failed to ingest document: {:?}", e);
-                        }
-                    }
-                }
-                
-                // Load from context_github
-                if let Some(ctx) = context_github {
-                    let docs = ctx.load().collect();
-                    for doc in docs {
-                        let content_hash = crate::domain::memory::serialization::content_hash(&doc.data);
-                        let memory = MemoryNode {
-                            id: format!("doc_{}", content_hash),
-                            content: MemoryContent::new(&doc.data),
-                            content_hash,
-                            memory_type: MemoryTypeEnum::Semantic,
-                            created_at: Utc::now(),
-                            updated_at: Utc::now(),
-                            embedding: None,
-                            evaluation_status: crate::memory::monitoring::operations::OperationStatus::Pending,
-                            metadata: crate::memory::primitives::metadata::MemoryMetadata::new(),
-                            relevance_score: None,
-                        };
-                        if let Err(e) = mem_mgr.create_memory(memory).await {
-                            log::error!("Failed to ingest document: {:?}", e);
-                        }
-                    }
-                }
-            });
-        }
 
         Ok(AsyncStream::with_channel(move |sender| {
             // Create initial empty conversation for handler to inspect
@@ -1449,22 +1279,165 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                 }
                 CandleChatLoop::UserPrompt(user_message)
                 | CandleChatLoop::Reprompt(user_message) => {
-                    // Spawn stream to handle operations (uses shared runtime for async)
-                    // BLOCKING CODE APPROVED: Using shared_runtime().block_on() for async operations within ystream closure (2025-01-XX)
-                    let _background_stream = ystream::spawn_stream(move |stream_sender| {
-                        // Create conversation with real user input for this inference
-                        let _conversation_with_input =
-                            CandleAgentConversation::with_user_input(&user_message);
+                    // Spawn async task to handle operations with native async/await
+                    if let Some(runtime) = crate::runtime::shared_runtime() {
+                        runtime.spawn(async move {
+                            // ALWAYS create memory internally - WE GUARANTEE MEMORY
+                            // Database connection and memory manager initialization
+                            use surrealdb::engine::any::connect;
+                            use crate::memory::core::manager::surreal::SurrealDBMemoryManager;
+                            use crate::memory::primitives::node::MemoryNode;
+                            use crate::memory::primitives::types::{MemoryContent, MemoryTypeEnum};
+                            use chrono::Utc;
 
-                        // Initialize tool router - ALWAYS create with default reasoner plugin
-                        let tool_router = {
-                            let Some(runtime) = crate::runtime::shared_runtime() else {
-                                let error_chunk = CandleMessageChunk::Error(
-                                    "Failed to access shared runtime".to_string(),
-                                );
-                                ystream::emit!(stream_sender, error_chunk);
-                                return;
-                            };
+                    let db_path = dirs::cache_dir()
+                        .unwrap_or_else(|| std::path::PathBuf::from("."))
+                        .join("paraphym")
+                        .join("agent.db");
+
+                    if let Some(parent) = db_path.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+
+                    let db_url = format!("surrealkv://{}", db_path.display());
+
+                    // Connect to database using .await
+                    let db = match connect(&db_url).await {
+                        Ok(db) => db,
+                        Err(e) => {
+                            let _ = sender.send(CandleMessageChunk::Error(
+                                format!("Failed to connect to database: {}", e)
+                            ));
+                            return;
+                        }
+                    };
+
+                    // Initialize database namespace using .await
+                    if let Err(e) = db.use_ns("candle").use_db("agent").await {
+                        let _ = sender.send(CandleMessageChunk::Error(
+                            format!("Failed to initialize database namespace: {}", e)
+                        ));
+                        return;
+                    }
+
+                    // Create and initialize memory manager using .await
+                    let manager = match SurrealDBMemoryManager::with_embedding_model(db, embedding_model.clone()).await {
+                        Ok(mgr) => mgr,
+                        Err(e) => {
+                            let _ = sender.send(CandleMessageChunk::Error(
+                                format!("Failed to create memory manager: {}", e)
+                            ));
+                            return;
+                        }
+                    };
+
+                    if let Err(e) = manager.initialize().await {
+                        let _ = sender.send(CandleMessageChunk::Error(
+                            format!("Failed to initialize memory tables: {}", e)
+                        ));
+                        return;
+                    }
+
+                    let memory: Option<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>> =
+                        Some(Arc::new(manager) as Arc<dyn crate::memory::core::manager::surreal::MemoryManager>);
+
+                    // Ingest documents from context fields into memory using .await
+                    if let Some(ref mem_mgr) = memory {
+                        // Load from context_file
+                        if let Some(ctx) = context_file {
+                            let docs = ctx.load().collect();
+                            for doc in docs {
+                                let content_hash = crate::domain::memory::serialization::content_hash(&doc.data);
+                                let memory_node = MemoryNode {
+                                    id: format!("doc_{}", content_hash),
+                                    content: MemoryContent::new(&doc.data),
+                                    content_hash,
+                                    memory_type: MemoryTypeEnum::Semantic,
+                                    created_at: Utc::now(),
+                                    updated_at: Utc::now(),
+                                    embedding: None,
+                                    evaluation_status: crate::memory::monitoring::operations::OperationStatus::Pending,
+                                    metadata: crate::memory::primitives::metadata::MemoryMetadata::new(),
+                                    relevance_score: None,
+                                };
+                                if let Err(e) = mem_mgr.create_memory(memory_node).await {
+                                    log::error!("Failed to ingest document: {:?}", e);
+                                }
+                            }
+                        }
+
+                        // Load from context_files
+                        if let Some(ctx) = context_files {
+                            let docs = ctx.load().collect();
+                            for doc in docs {
+                                let content_hash = crate::domain::memory::serialization::content_hash(&doc.data);
+                                let memory_node = MemoryNode {
+                                    id: format!("doc_{}", content_hash),
+                                    content: MemoryContent::new(&doc.data),
+                                    content_hash,
+                                    memory_type: MemoryTypeEnum::Semantic,
+                                    created_at: Utc::now(),
+                                    updated_at: Utc::now(),
+                                    embedding: None,
+                                    evaluation_status: crate::memory::monitoring::operations::OperationStatus::Pending,
+                                    metadata: crate::memory::primitives::metadata::MemoryMetadata::new(),
+                                    relevance_score: None,
+                                };
+                                if let Err(e) = mem_mgr.create_memory(memory_node).await {
+                                    log::error!("Failed to ingest document: {:?}", e);
+                                }
+                            }
+                        }
+
+                        // Load from context_directory
+                        if let Some(ctx) = context_directory {
+                            let docs = ctx.load().collect();
+                            for doc in docs {
+                                let content_hash = crate::domain::memory::serialization::content_hash(&doc.data);
+                                let memory_node = MemoryNode {
+                                    id: format!("doc_{}", content_hash),
+                                    content: MemoryContent::new(&doc.data),
+                                    content_hash,
+                                    memory_type: MemoryTypeEnum::Semantic,
+                                    created_at: Utc::now(),
+                                    updated_at: Utc::now(),
+                                    embedding: None,
+                                    evaluation_status: crate::memory::monitoring::operations::OperationStatus::Pending,
+                                    metadata: crate::memory::primitives::metadata::MemoryMetadata::new(),
+                                    relevance_score: None,
+                                };
+                                if let Err(e) = mem_mgr.create_memory(memory_node).await {
+                                    log::error!("Failed to ingest document: {:?}", e);
+                                }
+                            }
+                        }
+
+                        // Load from context_github
+                        if let Some(ctx) = context_github {
+                            let docs = ctx.load().collect();
+                            for doc in docs {
+                                let content_hash = crate::domain::memory::serialization::content_hash(&doc.data);
+                                let memory_node = MemoryNode {
+                                    id: format!("doc_{}", content_hash),
+                                    content: MemoryContent::new(&doc.data),
+                                    content_hash,
+                                    memory_type: MemoryTypeEnum::Semantic,
+                                    created_at: Utc::now(),
+                                    updated_at: Utc::now(),
+                                    embedding: None,
+                                    evaluation_status: crate::memory::monitoring::operations::OperationStatus::Pending,
+                                    metadata: crate::memory::primitives::metadata::MemoryMetadata::new(),
+                                    relevance_score: None,
+                                };
+                                if let Err(e) = mem_mgr.create_memory(memory_node).await {
+                                    log::error!("Failed to ingest document: {:?}", e);
+                                }
+                            }
+                        }
+                    }
+
+                    // Initialize tool router - ALWAYS create with default reasoner plugin
+                    let tool_router = {
 
                             // Create default reasoner plugin configuration
                             let reasoner_schema =
@@ -1527,14 +1500,14 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                             let plugin_configs = vec![default_plugin_config];
                             let mut router = SweetMcpRouter::with_configs(plugin_configs, None);
 
-                            match runtime.block_on(router.initialize()) {
+                            match router.initialize().await {
                                 Ok(()) => Some(router),
                                 Err(e) => {
                                     let error_chunk = CandleMessageChunk::Error(format!(
                                         "Tool initialization failed: {}",
                                         e
                                     ));
-                                    ystream::emit!(stream_sender, error_chunk);
+                                    let _ = sender.send(error_chunk);
                                     return;
                                 }
                             }
@@ -1545,22 +1518,17 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                             let memory_stream = mem_manager.search_by_content(&user_message);
                             let timeout_duration = std::time::Duration::from_millis(memory_read_timeout);
 
-                            // Use tokio::task::block_in_place pattern with timeout protection
-                            let results: Vec<MemoryResult<MemoryNode>> =
-                                tokio::task::block_in_place(|| {
-                                    tokio::runtime::Handle::current().block_on(async {
-                                        match tokio::time::timeout(timeout_duration, async {
-                                            use futures_util::StreamExt;
-                                            memory_stream.take(5).collect().await
-                                        }).await {
-                                            Ok(results) => results,
-                                            Err(_) => {
-                                                log::warn!("Memory search timed out after {}ms, proceeding with empty context", memory_read_timeout);
-                                                Vec::new()
-                                            }
-                                        }
-                                    })
-                                });
+                            // Use native async/await with timeout protection
+                            let results: Vec<MemoryResult<MemoryNode>> = match tokio::time::timeout(timeout_duration, async {
+                                use futures_util::StreamExt;
+                                memory_stream.take(5).collect().await
+                            }).await {
+                                Ok(results) => results,
+                                Err(_) => {
+                                    log::warn!("Memory search timed out after {}ms, proceeding with empty context", memory_read_timeout);
+                                    Vec::new()
+                                }
+                            };
 
                             let memories: Vec<MemoryNode> =
                                 results.into_iter().filter_map(|r| r.ok()).collect();
@@ -1596,12 +1564,9 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                         if let Some(ref router) = tool_router {
                             let mut all_tools: Vec<ToolInfo> = tools.clone().into();
 
-                            // Try to get auto-generated tools if runtime is available
-                            if let Some(runtime) = crate::runtime::shared_runtime() {
-                                let auto_generated_tools =
-                                    runtime.block_on(router.get_available_tools());
-                                all_tools.extend(auto_generated_tools);
-                            }
+                            // Get auto-generated tools using native async/await
+                            let auto_generated_tools = router.get_available_tools().await;
+                            all_tools.extend(auto_generated_tools);
 
                             if !all_tools.is_empty() {
                                 // Pass merged tools to completion system for function calling
@@ -1683,41 +1648,31 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                                                 // Convert to SweetMCP JsonValue
                                                 let sweet_args = crate::domain::agent::role::convert_serde_to_sweet_json(args_json);
 
-                                                // Execute the tool if runtime is available
-                                                match crate::runtime::shared_runtime() {
-                                                    Some(runtime) => {
-                                                        match runtime.block_on(
-                                                            router.call_tool(&name, sweet_args),
-                                                        ) {
-                                                            Ok(response) => {
-                                                                // Call tool result handler if configured (zero allocation for None)
-                                                                if let Some(ref handler) = on_tool_result_handler {
-                                                                    let results = vec![format!("{:?}", response)];
-                                                                    handler(&results);
-                                                                }
-                                                                
-                                                                // Convert response to text result
-                                                                let result_text = format!(
-                                                                    "Tool '{}' executed successfully: {:?}",
-                                                                    name, response
-                                                                );
-                                                                CandleMessageChunk::Text(
-                                                                    result_text,
-                                                                )
-                                                            }
-                                                            Err(e) => {
-                                                                // Return error as text
-                                                                CandleMessageChunk::Error(format!(
-                                                                    "Tool '{}' execution failed: {}",
-                                                                    name, e
-                                                                ))
-                                                            }
+                                                // Execute the tool using native async/await
+                                                match router.call_tool(&name, sweet_args).await {
+                                                    Ok(response) => {
+                                                        // Call tool result handler if configured (zero allocation for None)
+                                                        if let Some(ref handler) = on_tool_result_handler {
+                                                            let results = vec![format!("{:?}", response)];
+                                                            handler(&results);
                                                         }
+
+                                                        // Convert response to text result
+                                                        let result_text = format!(
+                                                            "Tool '{}' executed successfully: {:?}",
+                                                            name, response
+                                                        );
+                                                        CandleMessageChunk::Text(
+                                                            result_text,
+                                                        )
                                                     }
-                                                    None => CandleMessageChunk::Error(
-                                                        "Runtime unavailable for tool execution"
-                                                            .to_string(),
-                                                    ),
+                                                    Err(e) => {
+                                                        // Return error as text
+                                                        CandleMessageChunk::Error(format!(
+                                                            "Tool '{}' execution failed: {}",
+                                                            name, e
+                                                        ))
+                                                    }
                                                 }
                                             }
                                             Err(e) => CandleMessageChunk::Error(format!(
@@ -1740,7 +1695,7 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                             } else {
                                 message_chunk
                             };
-                            ystream::emit!(stream_sender, final_chunk);
+                            let _ = sender.send(final_chunk);
                         }
 
                         // Store conversation turn in memory after completion
@@ -1854,10 +1809,15 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                             let handler_stream = handler(&conversation, &agent);
                             let handler_chunks = handler_stream.collect();
                             for chunk in handler_chunks {
-                                ystream::emit!(stream_sender, chunk);
+                                let _ = sender.send(chunk);
                             }
                         }
-                    });
+                        });
+                    } else {
+                        let _ = sender.send(CandleMessageChunk::Error(
+                            "Runtime unavailable for async operations".to_string()
+                        ));
+                    }
                 }
             }
         }))
