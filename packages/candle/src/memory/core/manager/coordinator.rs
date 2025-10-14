@@ -1163,6 +1163,7 @@ impl MemoryCoordinator {
         let embedding = self
             .embedding_model
             .embed(text, None)
+            .await
             .map_err(|e| Error::Internal(format!("BERT embedding failed: {}", e)))?;
         Ok(embedding)
     }

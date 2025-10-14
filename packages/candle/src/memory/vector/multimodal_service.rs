@@ -49,7 +49,7 @@ impl MultimodalEmbeddingService {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         tokio::spawn(async move {
-            let result = text_model.embed(&text, task).map_err(|e| {
+            let result = text_model.embed(&text, task).await.map_err(|e| {
                 crate::memory::utils::error::Error::Other(format!("Text embedding failed: {}", e))
             });
             let _ = tx.send(result);
@@ -70,7 +70,7 @@ impl MultimodalEmbeddingService {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         tokio::spawn(async move {
-            let result = text_model.batch_embed(&texts, task).map_err(|e| {
+            let result = text_model.batch_embed(&texts, task).await.map_err(|e| {
                 crate::memory::utils::error::Error::Other(format!(
                     "Batch text embedding failed: {}",
                     e

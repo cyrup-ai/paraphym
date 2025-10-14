@@ -859,8 +859,8 @@ impl MemoryManager for SurrealDBMemoryManager {
                 // Extract text content for embedding
                 let content_text = memory.content.text.clone();
 
-                // Generate embedding synchronously (EmbeddingModel trait methods are sync)
-                match model.embed(&content_text, Some("search".to_string())) {
+                // Generate embedding asynchronously
+                match model.embed(&content_text, Some("search".to_string())).await {
                     Ok(embedding_vec) => {
                         memory.embedding = Some(embedding_vec);
                         // Also update metadata.embedding for consistency
@@ -1875,8 +1875,8 @@ impl SurrealDBMemoryManager {
     pub async fn search_by_text(&self, text: &str, limit: usize) -> Result<MemoryStream> {
         // Generate embedding from text
         if let Some(ref embedding_model) = self.embedding_model {
-            // Generate embedding synchronously
-            let embedding = embedding_model.embed(text, Some("search".to_string()))?;
+            // Generate embedding asynchronously
+            let embedding = embedding_model.embed(text, Some("search".to_string())).await?;
 
             // Delegate to existing search_by_vector
             let stream = self.search_by_vector(embedding, limit);

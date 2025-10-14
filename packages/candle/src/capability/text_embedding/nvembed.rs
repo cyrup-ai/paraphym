@@ -370,8 +370,20 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleNvEmbedEmbeddingM
         &self,
         text: &str,
         task: Option<String>,
-    ) -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
-        self.validate_input(text)?;
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<f32>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
+        let text = text.to_string();
+        Box::pin(async move {
+            self.validate_input(&text)?;
 
         // Load model and tokenizer from disk
         let (tokenizer, mut model, device) = self.load_model_and_tokenizer()?;
@@ -379,21 +391,34 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleNvEmbedEmbeddingM
         // Run inference with instruction masking
         let task_ref = task.as_deref();
         let embeddings =
-            Self::forward_pass_with_instruction(&tokenizer, &mut model, &device, &[text], task_ref)
+            Self::forward_pass_with_instruction(&tokenizer, &mut model, &device, &[&text], task_ref)
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
         embeddings
             .into_iter()
             .next()
             .ok_or_else(|| "No embeddings generated".into())
+        })
     }
 
     fn batch_embed(
         &self,
         texts: &[String],
         task: Option<String>,
-    ) -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> {
-        self.validate_batch(texts)?;
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<Vec<f32>>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
+        let texts = texts.to_vec();
+        Box::pin(async move {
+            self.validate_batch(&texts)?;
 
         // Load model and tokenizer from disk
         let (tokenizer, mut model, device) = self.load_model_and_tokenizer()?;
@@ -403,6 +428,7 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleNvEmbedEmbeddingM
         let task_ref = task.as_deref();
         Self::forward_pass_with_instruction(&tokenizer, &mut model, &device, &text_refs, task_ref)
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+        })
     }
 
     fn embedding_dimension(&self) -> usize {
@@ -562,18 +588,30 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedNvEmbedModel {
         &self,
         text: &str,
         task: Option<String>,
-    ) -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
-        // Lock mutex to get mutable access to model
-        let mut model = self
-            .model
-            .lock()
-            .map_err(|e| format!("Failed to lock model mutex: {}", e))?;
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<f32>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
+        let text = text.to_string();
+        Box::pin(async move {
+            // Lock mutex to get mutable access to model
+            let mut model = self
+                .model
+                .lock()
+                .map_err(|e| format!("Failed to lock model mutex: {}", e))?;
 
         let embeddings = CandleNvEmbedEmbeddingModel::forward_pass_with_instruction(
             &self.tokenizer,
             &mut model,
             &self.device,
-            &[text],
+            &[&text],
             task.as_deref(),
         )
         .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
@@ -582,28 +620,42 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedNvEmbedModel {
             .into_iter()
             .next()
             .ok_or_else(|| "No embeddings generated".into())
+        })
     }
 
     fn batch_embed(
         &self,
         texts: &[String],
         task: Option<String>,
-    ) -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> {
-        // Lock mutex to get mutable access to model
-        let mut model = self
-            .model
-            .lock()
-            .map_err(|e| format!("Failed to lock model mutex: {}", e))?;
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<Vec<f32>>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
+        let texts = texts.to_vec();
+        Box::pin(async move {
+            // Lock mutex to get mutable access to model
+            let mut model = self
+                .model
+                .lock()
+                .map_err(|e| format!("Failed to lock model mutex: {}", e))?;
 
-        let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
-        CandleNvEmbedEmbeddingModel::forward_pass_with_instruction(
-            &self.tokenizer,
-            &mut model,
-            &self.device,
-            &text_refs,
-            task.as_deref(),
-        )
-        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+            CandleNvEmbedEmbeddingModel::forward_pass_with_instruction(
+                &self.tokenizer,
+                &mut model,
+                &self.device,
+                &text_refs,
+                task.as_deref(),
+            )
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+        })
     }
 
     fn embedding_dimension(&self) -> usize {

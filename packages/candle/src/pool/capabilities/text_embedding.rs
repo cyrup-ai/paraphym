@@ -125,6 +125,7 @@ pub async fn text_embedding_worker<T: TextEmbeddingCapable>(
                 state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
 
                 let result = model.embed(&req.text, req.task)
+                    .await
                     .map_err(|e| PoolError::ModelError(e.to_string()));
                 let _ = req.response.send(result);
 
@@ -137,6 +138,7 @@ pub async fn text_embedding_worker<T: TextEmbeddingCapable>(
                 state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
 
                 let result = model.batch_embed(&req.texts, req.task)
+                    .await
                     .map_err(|e| PoolError::ModelError(e.to_string()));
                 let _ = req.response.send(result);
 

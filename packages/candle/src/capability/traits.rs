@@ -45,14 +45,34 @@ pub trait TextEmbeddingCapable: CandleModel {
         &self,
         text: &str,
         task: Option<String>,
-    ) -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>;
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<f32>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    >;
 
     /// Generate embeddings for multiple texts in batch
     fn batch_embed(
         &self,
         texts: &[String],
         task: Option<String>,
-    ) -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>>;
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<Vec<f32>>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    >;
 
     /// Get the dimensionality of embeddings produced by this model
     fn embedding_dimension(&self) -> usize;
@@ -165,17 +185,30 @@ pub trait TextEmbeddingCapable: CandleModel {
         &self,
         texts: &[String],
         task: Option<String>,
-    ) -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> {
-        if texts.is_empty() {
-            return Ok(Vec::new());
-        }
-        let chunk_size = self.recommended_batch_size();
-        let mut all_embeddings = Vec::with_capacity(texts.len());
-        for chunk in texts.chunks(chunk_size) {
-            let chunk_embeddings = self.batch_embed(chunk, task.clone())?;
-            all_embeddings.extend(chunk_embeddings);
-        }
-        Ok(all_embeddings)
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<Vec<f32>>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
+        let texts = texts.to_vec();
+        Box::pin(async move {
+            if texts.is_empty() {
+                return Ok(Vec::new());
+            }
+            let chunk_size = self.recommended_batch_size();
+            let mut all_embeddings = Vec::with_capacity(texts.len());
+            for chunk in texts.chunks(chunk_size) {
+                let chunk_embeddings = self.batch_embed(chunk, task.clone()).await?;
+                all_embeddings.extend(chunk_embeddings);
+            }
+            Ok(all_embeddings)
+        })
     }
 }
 

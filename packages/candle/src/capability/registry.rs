@@ -335,9 +335,21 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
         &self,
         text: &str,
         task: Option<String>,
-    ) -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
-        match self {
-            Self::GteQwen(m) => {
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<f32>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
+        let text = text.to_string();
+        Box::pin(async move {
+            match self {
+                Self::GteQwen(m) => {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
                 let per_worker_mb = m.info().est_memory_allocation_mb;
@@ -364,11 +376,12 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
                 // Route through pool
-                pool.embed_text(registry_key, text, task)
+                pool.embed_text(registry_key, &text, task)
+                    .await
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
-            }
+                }
 
-            Self::JinaBert(m) => {
+                Self::JinaBert(m) => {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
                 let per_worker_mb = m.info().est_memory_allocation_mb;
@@ -394,11 +407,12 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 )
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
-                pool.embed_text(registry_key, text, task)
+                pool.embed_text(registry_key, &text, task)
+                    .await
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
-            }
+                }
 
-            Self::NvEmbed(m) => {
+                Self::NvEmbed(m) => {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
                 let per_worker_mb = m.info().est_memory_allocation_mb;
@@ -424,11 +438,12 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 )
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
-                pool.embed_text(registry_key, text, task)
+                pool.embed_text(registry_key, &text, task)
+                    .await
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
-            }
+                }
 
-            Self::Stella(m) => {
+                Self::Stella(m) => {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
                 let per_worker_mb = m.info().est_memory_allocation_mb;
@@ -454,11 +469,12 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 )
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
-                pool.embed_text(registry_key, text, task)
+                pool.embed_text(registry_key, &text, task)
+                    .await
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
-            }
+                }
 
-            Self::Bert(m) => {
+                Self::Bert(m) => {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
                 let per_worker_mb = m.info().est_memory_allocation_mb;
@@ -484,19 +500,33 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 )
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
-                pool.embed_text(registry_key, text, task)
+                pool.embed_text(registry_key, &text, task)
+                    .await
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+                }
             }
-        }
+        })
     }
 
     fn batch_embed(
         &self,
         texts: &[String],
         task: Option<String>,
-    ) -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> {
-        match self {
-            Self::GteQwen(m) => {
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<Vec<f32>>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
+        let texts = texts.to_vec();
+        Box::pin(async move {
+            match self {
+                Self::GteQwen(m) => {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
                 let per_worker_mb = m.info().est_memory_allocation_mb;
@@ -522,11 +552,11 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 )
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
-                pool.batch_embed_text(registry_key, texts, task)
+                pool.batch_embed_text(registry_key, &texts, task)
                     .await
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
-            }
-            Self::JinaBert(m) => {
+                }
+                Self::JinaBert(m) => {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
                 let per_worker_mb = m.info().est_memory_allocation_mb;
@@ -552,11 +582,11 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 )
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
-                pool.batch_embed_text(registry_key, texts, task)
+                pool.batch_embed_text(registry_key, &texts, task)
                     .await
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
-            }
-            Self::NvEmbed(m) => {
+                }
+                Self::NvEmbed(m) => {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
                 let per_worker_mb = m.info().est_memory_allocation_mb;
@@ -582,11 +612,11 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 )
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
-                pool.batch_embed_text(registry_key, texts, task)
+                pool.batch_embed_text(registry_key, &texts, task)
                     .await
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
-            }
-            Self::Stella(m) => {
+                }
+                Self::Stella(m) => {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
                 let per_worker_mb = m.info().est_memory_allocation_mb;
@@ -612,11 +642,11 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 )
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
-                pool.batch_embed_text(registry_key, texts, task)
+                pool.batch_embed_text(registry_key, &texts, task)
                     .await
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
-            }
-            Self::Bert(m) => {
+                }
+                Self::Bert(m) => {
                 let registry_key = m.info().registry_key;
                 let pool = text_embedding_pool();
                 let per_worker_mb = m.info().est_memory_allocation_mb;
@@ -642,11 +672,12 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                 )
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
-                pool.batch_embed_text(registry_key, texts, task)
+                pool.batch_embed_text(registry_key, &texts, task)
                     .await
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+                }
             }
-        }
+        })
     }
 
     fn embedding_dimension(&self) -> usize {

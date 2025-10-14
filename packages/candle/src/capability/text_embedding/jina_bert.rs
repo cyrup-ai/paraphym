@@ -187,9 +187,21 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleJinaBertEmbedding
         &self,
         text: &str,
         task: Option<String>,
-    ) -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
-        self.validate_input(text)?;
-        let _ = task; // Jina-BERT doesn't use task-specific instructions
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<f32>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
+        let text = text.to_string();
+        Box::pin(async move {
+            self.validate_input(&text)?;
+            let _ = task; // Jina-BERT doesn't use task-specific instructions
 
         // Get max_length from ModelInfo - single source of truth
         let max_length = self
@@ -268,22 +280,35 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleJinaBertEmbedding
             .map_err(|e| format!("Failed to create model: {}", e))?;
 
         // Run inference
-        let embeddings = Self::forward_pass(&tokenizer, &model, &device, &[text])
+        let embeddings = Self::forward_pass(&tokenizer, &model, &device, &[&text])
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
         embeddings
             .into_iter()
             .next()
             .ok_or_else(|| "No embeddings generated".into())
+        })
     }
 
     fn batch_embed(
         &self,
         texts: &[String],
         task: Option<String>,
-    ) -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> {
-        self.validate_batch(texts)?;
-        let _ = task; // Jina-BERT doesn't use task-specific instructions
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<Vec<f32>>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
+        let texts = texts.to_vec();
+        Box::pin(async move {
+            self.validate_batch(&texts)?;
+            let _ = task; // Jina-BERT doesn't use task-specific instructions
 
         // Get max_length from ModelInfo - single source of truth
         let max_length = self
@@ -365,6 +390,7 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleJinaBertEmbedding
         let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
         Self::forward_pass(&tokenizer, &model, &device, &text_refs)
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+        })
     }
 
     fn embedding_dimension(&self) -> usize {
@@ -574,17 +600,60 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedJinaBertModel {
     fn embed(
         &self,
         text: &str,
-        task: Option<String>,
-    ) -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
-        self.embed(text, task)
+        _task: Option<String>,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<f32>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
+        let text = text.to_string();
+        Box::pin(async move {
+            let embeddings = CandleJinaBertEmbeddingModel::forward_pass(
+                &self.tokenizer,
+                &self.model,
+                &self.device,
+                &[&text],
+            )?;
+
+            embeddings
+                .into_iter()
+                .next()
+                .ok_or_else(|| "No embeddings generated".into())
+        })
     }
 
     fn batch_embed(
         &self,
         texts: &[String],
-        task: Option<String>,
-    ) -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> {
-        self.batch_embed(texts, task)
+        _task: Option<String>,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<Vec<f32>>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
+        let texts = texts.to_vec();
+        Box::pin(async move {
+            let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+            CandleJinaBertEmbeddingModel::forward_pass(
+                &self.tokenizer,
+                &self.model,
+                &self.device,
+                &text_refs,
+            )
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+        })
     }
 
     fn embedding_dimension(&self) -> usize {

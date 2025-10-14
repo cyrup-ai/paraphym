@@ -142,8 +142,20 @@ impl crate::capability::traits::TextEmbeddingCapable for StellaEmbeddingModel {
         &self,
         text: &str,
         task: Option<String>,
-    ) -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
-        self.validate_input(text)?;
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<f32>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
+        let text = text.to_string();
+        Box::pin(async move {
+            self.validate_input(&text)?;
 
         // ═══════════════════════════════════════════════════════════════
         // STEP 1: Get ALL config from self.info() - SINGLE SOURCE OF TRUTH
@@ -277,7 +289,7 @@ impl crate::capability::traits::TextEmbeddingCapable for StellaEmbeddingModel {
         // ═══════════════════════════════════════════════════════════════
 
         // Format with instruction prefix
-        let formatted_text = self.format_with_instruction(&[text], task.as_deref())[0].clone();
+        let formatted_text = self.format_with_instruction(&[&text], task.as_deref())[0].clone();
 
         // Tokenize
         let tokens = tokenizer
@@ -312,14 +324,27 @@ impl crate::capability::traits::TextEmbeddingCapable for StellaEmbeddingModel {
             .ok_or("No embeddings generated")?;
 
         Ok(embedding_vec)
+        })
     }
 
     fn batch_embed(
         &self,
         texts: &[String],
         task: Option<String>,
-    ) -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> {
-        self.validate_batch(texts)?;
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<Vec<f32>>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
+        let texts = texts.to_vec();
+        Box::pin(async move {
+            self.validate_batch(&texts)?;
 
         // Same pattern as embed() but batch processing
         let max_length = self
@@ -449,6 +474,7 @@ impl crate::capability::traits::TextEmbeddingCapable for StellaEmbeddingModel {
             .map_err(|e| format!("Failed to convert embeddings to vec: {}", e))?;
 
         Ok(embeddings_data)
+        })
     }
 
     fn embedding_dimension(&self) -> usize {
@@ -669,13 +695,25 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedStellaModel {
         &self,
         text: &str,
         task: Option<String>,
-    ) -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
-        // No I/O - use loaded state
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<f32>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
+        let text = text.to_string();
+        Box::pin(async move {
+            // No I/O - use loaded state
 
         // Format with instruction prefix (using base model's static method)
         let formatted_text = StellaEmbeddingModel::format_with_instruction(
             &StellaEmbeddingModel {},
-            &[text],
+            &[&text],
             task.as_deref(),
         )[0]
         .clone();
@@ -718,15 +756,28 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedStellaModel {
             .ok_or("No embeddings generated")?;
 
         Ok(embedding_vec)
+        })
     }
 
     fn batch_embed(
         &self,
         texts: &[String],
         task: Option<String>,
-    ) -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> {
-        // No I/O - use loaded state
-        let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<Vec<f32>>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
+        let texts = texts.to_vec();
+        Box::pin(async move {
+            // No I/O - use loaded state
+            let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
 
         // Format with instruction prefix
         let formatted_texts = StellaEmbeddingModel::format_with_instruction(
@@ -768,6 +819,7 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedStellaModel {
         embeddings
             .to_vec2::<f32>()
             .map_err(|e| format!("Failed to convert batch embeddings to vec: {}", e).into())
+        })
     }
 
     fn embedding_dimension(&self) -> usize {

@@ -177,8 +177,20 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleGteQwenEmbeddingM
         &self,
         text: &str,
         task: Option<String>,
-    ) -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
-        self.validate_input(text)?;
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<f32>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
+        let text = text.to_string();
+        Box::pin(async move {
+            self.validate_input(&text)?;
 
         // Get configuration from ModelInfo
         let max_length = self
@@ -279,21 +291,34 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleGteQwenEmbeddingM
         // Run inference
         let task_ref = task.as_deref();
         let embeddings =
-            Self::forward_pass_with_task(&tokenizer, &mut model, &device, &[text], task_ref)
+            Self::forward_pass_with_task(&tokenizer, &mut model, &device, &[&text], task_ref)
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
         embeddings
             .into_iter()
             .next()
             .ok_or_else(|| "No embeddings generated".into())
+        })
     }
 
     fn batch_embed(
         &self,
         texts: &[String],
         task: Option<String>,
-    ) -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> {
-        self.validate_batch(texts)?;
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<Vec<f32>>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
+        let texts = texts.to_vec();
+        Box::pin(async move {
+            self.validate_batch(&texts)?;
 
         // Get configuration from ModelInfo
         let max_length = self
@@ -396,6 +421,7 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleGteQwenEmbeddingM
         let task_ref = task.as_deref();
         Self::forward_pass_with_task(&tokenizer, &mut model, &device, &text_refs, task_ref)
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+        })
     }
 
     fn embedding_dimension(&self) -> usize {
@@ -559,8 +585,20 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedGteQwenModel {
         &self,
         text: &str,
         task: Option<String>,
-    ) -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
-        self.validate_input(text)?;
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<f32>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
+        let text = text.to_string();
+        Box::pin(async move {
+            self.validate_input(&text)?;
 
         let mut model_guard = self.model.lock().map_err(|e| {
             Box::from(format!("Failed to lock model: {}", e))
@@ -571,12 +609,13 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedGteQwenModel {
             &self.tokenizer,
             &mut model_guard,
             &self.device,
-            &[text],
+            &[&text],
             task.as_deref(),
         )?;
 
         embeddings.into_iter().next().ok_or_else(|| {
             Box::from("No embeddings generated") as Box<dyn std::error::Error + Send + Sync>
+        })
         })
     }
 
@@ -584,8 +623,20 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedGteQwenModel {
         &self,
         texts: &[String],
         task: Option<String>,
-    ) -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> {
-        self.validate_batch(texts)?;
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<Vec<f32>>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
+        let texts = texts.to_vec();
+        Box::pin(async move {
+            self.validate_batch(&texts)?;
 
         let mut model_guard = self.model.lock().map_err(|e| {
             Box::from(format!("Failed to lock model: {}", e))
@@ -601,6 +652,7 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedGteQwenModel {
             task.as_deref(),
         )
         .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+        })
     }
 
     fn embedding_dimension(&self) -> usize {

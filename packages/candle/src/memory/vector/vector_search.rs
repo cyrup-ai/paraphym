@@ -351,7 +351,7 @@ impl VectorSearch {
     ///
     /// # Returns
     /// Result containing ranked search results
-    pub fn search_by_text(
+    pub async fn search_by_text(
         &self,
         text: &str,
         options: Option<SearchOptions>,
@@ -361,8 +361,8 @@ impl VectorSearch {
             return Ok(Vec::new());
         }
 
-        // Generate embedding for the text (synchronous)
-        let embedding = self.embedding_model.embed(text, task_string(SEARCH_TASK))?;
+        // Generate embedding for the text (asynchronous)
+        let embedding = self.embedding_model.embed(text, task_string(SEARCH_TASK)).await?;
 
         // Search by embedding
         self.search_by_embedding(&embedding, options)
@@ -564,7 +564,7 @@ impl VectorSearch {
     ///
     /// # Returns
     /// Result containing vector of search result vectors (one per input text)
-    pub fn batch_search_by_text(
+    pub async fn batch_search_by_text(
         &self,
         texts: &[String],
         options: Option<SearchOptions>,
@@ -573,10 +573,11 @@ impl VectorSearch {
             return Ok(Vec::new());
         }
 
-        // Generate embeddings for all texts (synchronous batch operation)
+        // Generate embeddings for all texts (asynchronous batch operation)
         let embeddings = self
             .embedding_model
-            .batch_embed(texts, task_string(SEARCH_TASK))?;
+            .batch_embed(texts, task_string(SEARCH_TASK))
+            .await?;
 
         // Parallel search using thread pool
         let (sender, receiver) = unbounded();
@@ -742,56 +743,35 @@ impl HybridSearch {
     ///
     /// # Returns
     /// Result containing merged and ranked search results
-    pub fn search(&self, text: &str, options: Option<SearchOptions>) -> Result<Vec<SearchResult>> {
+    pub async fn search(&self, text: &str, options: Option<SearchOptions>) -> Result<Vec<SearchResult>> {
         if text.is_empty() {
             return Ok(Vec::new());
         }
 
-        // Execute both searches in parallel using threads
-        let (sender, receiver) = unbounded();
-
-        // Vector search thread
-        let vector_sender = sender.clone();
+        // Execute both searches in parallel using tokio tasks
         let vector_search = self.vector_search.clone();
         let text_for_vector = text.to_string();
         let options_for_vector = options.clone();
 
-        let vector_handle = thread::spawn(move || {
-            let result = vector_search.search_by_text(&text_for_vector, options_for_vector);
-            let _ = vector_sender.send(("vector", result));
+        let vector_handle = tokio::spawn(async move {
+            vector_search.search_by_text(&text_for_vector, options_for_vector).await
         });
 
-        // Keyword search thread
-        let keyword_sender = sender;
-        let keyword_search = self.keyword_search.clone(); // This should be Arc<> wrapped
+        // Keyword search
+        let keyword_search = self.keyword_search.clone();
         let text_for_keyword = text.to_string();
         let options_for_keyword = options.clone();
 
-        let keyword_handle = thread::spawn(move || {
-            let result = (keyword_search)(&text_for_keyword, options_for_keyword);
-            let _ = keyword_sender.send(("keyword", result));
+        let keyword_handle = tokio::task::spawn_blocking(move || {
+            (keyword_search)(&text_for_keyword, options_for_keyword)
         });
 
         // Wait for both results
-        let mut vector_results = Vec::new();
-        let mut keyword_results = Vec::new();
-
-        for _ in 0..2 {
-            if let Ok((search_type, result)) = receiver.recv() {
-                match search_type {
-                    "vector" => vector_results = result?,
-                    "keyword" => keyword_results = result?,
-                    _ => unreachable!(),
-                }
-            }
-        }
-
-        // Wait for threads to complete
-        if vector_handle.join().is_err() || keyword_handle.join().is_err() {
-            return Err(crate::memory::utils::error::Error::Other(
-                "Thread execution failed during hybrid search".to_string(),
-            ));
-        }
+        let vector_results = vector_handle.await
+            .map_err(|e| crate::memory::utils::error::Error::Other(format!("Vector search task failed: {}", e)))??;
+        
+        let keyword_results = keyword_handle.await
+            .map_err(|e| crate::memory::utils::error::Error::Other(format!("Keyword search task failed: {}", e)))??;
 
         // Combine and rank results
         let combined_results = self.combine_results(vector_results, keyword_results, options);
