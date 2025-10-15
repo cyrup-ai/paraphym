@@ -17,7 +17,8 @@
 ///   ring powering [`AsyncStream`].
 /// * NO FUTURES - all operations use AsyncStream patterns exclusively
 
-use ystream::AsyncStream;
+use std::pin::Pin;
+use tokio_stream::Stream;
 use hashbrown::HashMap;
 
 use crate::{
@@ -46,11 +47,11 @@ impl<M: CompletionModelTrait> Completion<M> for Agent<M> {
         &self,
         prompt: impl Into<Message> + Send,
         chat_history: Vec<Message>,
-    ) -> AsyncStream<CompletionRequestBuilder<M>> {
+    ) -> Pin<Box<dyn Stream<Item = CompletionRequestBuilder<M>> + Send>> {
         let prompt: Message = prompt.into();
         let agent = self.clone();
         
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
             // ---------------------------------------------------------
             // 1. Prepare the base request (static artefacts only)
             // ---------------------------------------------------------
@@ -210,11 +211,11 @@ impl<M: CompletionModelTrait> Chat for Agent<M> {
         &self,
         prompt: impl Into<Message> + Send,
         mut chat_history: Vec<Message>,
-    ) -> AsyncStream<ChatMessageChunk> {
+    ) -> Pin<Box<dyn Stream<Item = ChatMessageChunk> + Send>> {
         let prompt_msg = prompt.into();
         let agent = self.clone();
         
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
             let mut depth = 0usize;
             let mut current_prompt = prompt_msg;
             
@@ -291,11 +292,11 @@ impl<M: CompletionModelTrait> StreamingChat<M::StreamingResponse> for Agent<M> {
         &self,
         prompt: impl Into<Message> + Send,
         chat_history: Vec<Message>,
-    ) -> AsyncStream<StreamingCompletionResponse<M::StreamingResponse>> {
+    ) -> Pin<Box<dyn Stream<Item = StreamingCompletionResponse<M::StreamingResponse>> + Send>> {
         let agent = self.clone();
         let prompt_msg = prompt.into();
         
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
             let mut completion_stream = agent.stream_completion(prompt_msg, chat_history);
             
             if let Some(builder) = completion_stream.try_next() {

@@ -21,7 +21,8 @@ use gitgix::{
 
 // Domain imports
 use cyrup_sugars::prelude::MessageChunk;
-use ystream::{AsyncStream, AsyncStreamSender, spawn_task};
+use std::pin::Pin;
+use tokio_stream::Stream;
 // Local macro definitions removed - using ystream macros instead
 // Streaming primitives from paraphym-async
 // Macros now available from ystream crate
@@ -417,7 +418,7 @@ impl CandleMemoryIntegration {
 /// Immutable embedding model with streaming operations for Candle
 pub trait CandleImmutableEmbeddingModel: Send + Sync + 'static {
     /// Generate embeddings for text with streaming results - returns unwrapped values
-    fn embed(&self, text: &str, context: Option<String>) -> AsyncStream<Vec<f32>>;
+    fn embed(&self, text: &str, context: Option<String>) -> Pin<Box<dyn Stream<Item = Vec<f32>> + Send>>;
 
     /// Get model information
     fn model_info(&self) -> CandleEmbeddingModelInfo;
@@ -443,19 +444,19 @@ pub struct CandleEmbeddingModelInfo {
 /// Immutable memory manager with streaming operations for Candle
 pub trait CandleImmutableMemoryManager: Send + Sync + 'static {
     /// Create memory with streaming confirmation - returns unwrapped values
-    fn create_memory(&self, node: CandleMemoryNode) -> AsyncStream<()>;
+    fn create_memory(&self, node: CandleMemoryNode) -> Pin<Box<dyn Stream<Item = ()> + Send>>;
 
     /// Search by vector with streaming results - returns unwrapped values
-    fn search_by_vector(&self, vector: Vec<f32>, limit: usize) -> AsyncStream<CandleMemoryNode>;
+    fn search_by_vector(&self, vector: Vec<f32>, limit: usize) -> Pin<Box<dyn Stream<Item = CandleMemoryNode> + Send>>;
 
     /// Search by text with streaming results - returns unwrapped values
-    fn search_by_text(&self, query: &str, limit: usize) -> AsyncStream<CandleMemoryNode>;
+    fn search_by_text(&self, query: &str, limit: usize) -> Pin<Box<dyn Stream<Item = CandleMemoryNode> + Send>>;
 
     /// Update memory with streaming confirmation - returns unwrapped values
-    fn update_memory(&self, memory_id: &str, node: CandleMemoryNode) -> AsyncStream<()>;
+    fn update_memory(&self, memory_id: &str, node: CandleMemoryNode) -> Pin<Box<dyn Stream<Item = ()> + Send>>;
 
     /// Delete memory with streaming confirmation - returns unwrapped values
-    fn delete_memory(&self, memory_id: &str) -> AsyncStream<()>;
+    fn delete_memory(&self, memory_id: &str) -> Pin<Box<dyn Stream<Item = ()> + Send>>;
 
     /// Get memory manager information
     fn manager_info(&self) -> CandleMemoryManagerInfo;
@@ -486,7 +487,7 @@ pub struct CandleStreamingContextProcessor {
     total_processing_time_nanos: AtomicU64,
 
     /// Event streaming
-    event_sender: Option<AsyncStreamSender<CandleContextEvent>>,
+    event_sender: Option<tokio::sync::mpsc::UnboundedSender<CandleContextEvent>>,
 
     /// Performance thresholds
     max_processing_time_ms: u64,
@@ -572,10 +573,10 @@ impl CandleStreamingContextProcessor {
     /// Create processor with event streaming
     #[inline]
     #[must_use]
-    pub fn with_streaming(processor_id: String) -> (Self, AsyncStream<CandleContextEvent>) {
-        let stream = AsyncStream::with_channel(|_sender| {
+    pub fn with_streaming(processor_id: String) -> (Self, Pin<Box<dyn Stream<Item = CandleContextEvent> + Send>>) {
+        let stream = Box::pin(crate::async_stream::spawn_stream(|_tx| async move {
             // Stream created for event processing
-        });
+        }));
         let mut processor = Self::new(processor_id);
         processor.event_sender = None; // Will be set up separately if needed
         (processor, stream)
@@ -586,11 +587,11 @@ impl CandleStreamingContextProcessor {
     pub fn process_file_context(
         &self,
         context: CandleImmutableFileContext,
-    ) -> AsyncStream<Document> {
+    ) -> Pin<Box<dyn Stream<Item = Document> + Send>> {
         let _processor_id = self.processor_id.clone();
         let event_sender = self.event_sender.clone();
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             let start_time = SystemTime::now();
 
             // Emit context load started event
@@ -604,24 +605,25 @@ impl CandleStreamingContextProcessor {
 
             // Validate input
             if let Err(validation_error) = Self::validate_file_context(&context) {
-                let error = CandleContextError::ValidationError(validation_error.to_string());
+                let _error = CandleContextError::ValidationError(validation_error.to_string());
 
                 // Emit validation failed event before terminating
                 if let Some(ref events) = event_sender {
                     let _ = events.send(CandleContextEvent::ValidationFailed {
                         validation_type: "FileContext".to_string(),
-                        error: error.to_string(),
+                        error: _error.to_string(),
                         timestamp: SystemTime::now(),
                     });
                 }
 
-                ystream::handle_error!(error, "File context validation failed");
+                log::error!("File context validation failed: {}", _error);
+                return;
             }
 
             // Process file context
             let document = Self::load_file_document(&context);
             let duration = start_time.elapsed().unwrap_or(Duration::ZERO);
-            let _ = sender.send(document);
+            let _ = tx.send(document);
 
             // Emit context load completed event
             if let Some(ref events) = event_sender {
@@ -633,7 +635,7 @@ impl CandleStreamingContextProcessor {
                     timestamp: SystemTime::now(),
                 });
             }
-        })
+        }))
     }
 
     /// Validate file context
@@ -1006,7 +1008,7 @@ impl<T> CandleContext<T> {
     #[inline]
     pub fn with_streaming(
         source: CandleContextSourceType,
-    ) -> (Self, AsyncStream<CandleContextEvent>) {
+    ) -> (Self, Pin<Box<dyn Stream<Item = CandleContextEvent> + Send>>) {
         let processor_id = Uuid::new_v4().to_string();
         let (processor, stream) = CandleStreamingContextProcessor::with_streaming(processor_id);
         let context = Self {
@@ -1073,19 +1075,17 @@ impl CandleContext<CandleFile> {
         Self::new(CandleContextSourceType::File(file_context))
     }
 
-    /// Load document asynchronously with streaming - returns unwrapped values
+    /// Load documents asynchronously with streaming - returns unwrapped values
     #[inline]
-    pub fn load(self) -> AsyncStream<Document> {
+    pub fn load(self) -> Pin<Box<dyn Stream<Item = Document> + Send>> {
         match self.source {
             CandleContextSourceType::File(file_context) => {
                 self.processor.process_file_context(file_context)
             }
-            _ => AsyncStream::with_channel(move |_sender| {
-                ystream::handle_error!(
-                    CandleContextError::ContextNotFound("Invalid context type".to_string()),
-                    "Invalid context type for file loading"
-                );
-            }),
+            _ => Box::pin(crate::async_stream::spawn_stream(move |_tx| async move {
+                // Invalid context type for file loading
+                log::error!("Invalid context type for file loading");
+            })),
         }
     }
 }
@@ -1107,61 +1107,53 @@ impl CandleContext<CandleFiles> {
 
     /// Load documents asynchronously with streaming - returns unwrapped values
     #[inline]
-    pub fn load(self) -> AsyncStream<Document> {
-        AsyncStream::with_channel(move |sender| {
-            spawn_task(move || {
-                match self.source {
-                    CandleContextSourceType::Files(files_context) => {
-                        // Expand glob pattern and load files
-                        match glob::glob(&files_context.pattern) {
-                            Ok(paths) => {
-                                for entry in paths.flatten() {
-                                    if let Ok(content) = std::fs::read_to_string(&entry) {
-                                        let document = Document {
-                                            data: content,
-                                            format: Some(crate::domain::context::CandleContentFormat::Text),
-                                            media_type: Some(
-                                                crate::domain::context::CandleDocumentMediaType::TXT,
-                                            ),
-                                            additional_props: {
-                                                let mut props = HashMap::new();
-                                                props.insert(
-                                                    "id".to_string(),
-                                                    serde_json::Value::String(
-                                                        Uuid::new_v4().to_string(),
-                                                    ),
-                                                );
-                                                props.insert(
-                                                    "path".to_string(),
-                                                    serde_json::Value::String(
-                                                        entry.to_string_lossy().to_string(),
-                                                    ),
-                                                );
-                                                props
-                                            }};
-                                        let _ = sender.send(document);
-                                    }
+    pub fn load(self) -> Pin<Box<dyn Stream<Item = Document> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+            match self.source {
+                CandleContextSourceType::Files(files_context) => {
+                    // Expand glob pattern and load files
+                    match glob::glob(&files_context.pattern) {
+                        Ok(paths) => {
+                            for entry in paths.flatten() {
+                                if let Ok(content) = tokio::fs::read_to_string(&entry).await {
+                                    let document = Document {
+                                        data: content,
+                                        format: Some(crate::domain::context::CandleContentFormat::Text),
+                                        media_type: Some(
+                                            crate::domain::context::CandleDocumentMediaType::TXT,
+                                        ),
+                                        additional_props: {
+                                            let mut props = HashMap::new();
+                                            props.insert(
+                                                "id".to_string(),
+                                                serde_json::Value::String(
+                                                    Uuid::new_v4().to_string(),
+                                                ),
+                                            );
+                                            props.insert(
+                                                "path".to_string(),
+                                                serde_json::Value::String(
+                                                    entry.to_string_lossy().to_string(),
+                                                ),
+                                            );
+                                            props
+                                        }};
+                                    let _ = tx.send(document);
                                 }
                             }
-                            Err(e) => {
-                                ystream::handle_error!(
-                                    CandleContextError::ContextNotFound(format!(
-                                        "Glob pattern error: {e}"
-                                    )),
-                                    "Glob pattern expansion failed"
-                                );
-                            }
+                        }
+                        Err(e) => {
+                            log::error!("Streaming error in {}: {:?}", "Glob pattern error", CandleContextError::ContextNotFound(format!(
+                                    "Glob pattern error: {e}"
+                                )));
                         }
                     }
-                    _ => {
-                        ystream::handle_error!(
-                            CandleContextError::ContextNotFound("Invalid context type".to_string()),
-                            "Invalid context type for files loading"
-                        );
-                    }
                 }
-            });
-        })
+                _ => {
+                    log::error!("Streaming error in {}: {:?}", "Invalid context type for files loading", CandleContextError::ContextNotFound("Invalid context type".to_string()));
+                }
+            }
+        }))
     }
 }
 
@@ -1183,9 +1175,10 @@ impl CandleContext<CandleDirectory> {
 
     /// Load documents asynchronously with streaming - returns unwrapped values
     #[inline]
-    pub fn load(self) -> AsyncStream<Document> {
-        AsyncStream::with_channel(move |sender| {
-            spawn_task(move || {
+    pub fn load(self) -> Pin<Box<dyn Stream<Item = Document> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+            // Use spawn_blocking for CPU-bound directory traversal
+            let _ = tokio::task::spawn_blocking(move || {
                 match self.source {
                     CandleContextSourceType::Directory(directory_context) => {
                         // Traverse directory and load files
@@ -1196,7 +1189,7 @@ impl CandleContext<CandleDirectory> {
                             extensions: &[String],
                             max_depth: Option<usize>,
                             current_depth: usize,
-                            sender: &AsyncStreamSender<Document, 1024>,
+                            sender: &tokio::sync::mpsc::UnboundedSender<Document>,
                         ) -> Result<(), std::io::Error> {
                             if let Some(max) = max_depth
                                 && current_depth > max
@@ -1267,30 +1260,24 @@ impl CandleContext<CandleDirectory> {
                             &directory_context.extensions,
                             directory_context.max_depth,
                             0,
-                            &sender,
+                            &tx,
                         ) {
                             Ok(()) => {
                                 // Documents are sent directly by traverse_dir
                             }
                             Err(e) => {
-                                ystream::handle_error!(
-                                    CandleContextError::ContextNotFound(format!(
+                                log::error!("Streaming error in {}: {:?}", "Directory traversal failed", CandleContextError::ContextNotFound(format!(
                                         "Directory traversal error: {e}"
-                                    )),
-                                    "Directory traversal failed"
-                                );
+                                    )));
                             }
                         }
                     }
                     _ => {
-                        ystream::handle_error!(
-                            CandleContextError::ContextNotFound("Invalid context type".to_string()),
-                            "Invalid context type for directory loading"
-                        );
+                        log::error!("Streaming error in {}: {:?}", "Invalid context type for directory loading", CandleContextError::ContextNotFound("Invalid context type".to_string()));
                     }
                 }
-            });
-        })
+            }).await;
+        }))
     }
 }
 
@@ -1441,92 +1428,79 @@ impl CandleContext<CandleGithub> {
 
     /// Load documents asynchronously with streaming - returns unwrapped values
     #[inline]
-    pub fn load(self) -> AsyncStream<Document> {
-        AsyncStream::with_channel(move |sender| {
-            spawn_task(async move || {
-                match self.source {
-                    CandleContextSourceType::Github(github_context) => {
-                        // Validate repository URL
-                        if github_context.repository_url.is_empty() {
-                            ystream::handle_error!(
-                                CandleContextError::ContextNotFound(
-                                    "GitHub repository URL is required".to_string()
-                                ),
-                                "GitHub repository URL missing"
-                            );
-                        }
+    pub fn load(self) -> Pin<Box<dyn Stream<Item = Document> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+            match self.source {
+                CandleContextSourceType::Github(github_context) => {
+                    // Validate repository URL
+                    if github_context.repository_url.is_empty() {
+                        log::error!("Streaming error in {}: {:?}", "GitHub repository URL missing", CandleContextError::ContextNotFound(
+                                "GitHub repository URL is required".to_string()
+                            ));
+                        return;
+                    }
 
-                        // Determine cache directory (use standard location)
-                        let cache_dir = Self::get_github_cache_dir();
+                    // Determine cache directory (use standard location)
+                    let cache_dir = Self::get_github_cache_dir();
 
-                        // Clone or update repository
-                        match Self::get_or_clone_repo(
-                            &github_context.repository_url,
-                            &github_context.branch,
-                            github_context.auth_token.as_ref(),
-                            &cache_dir,
-                        )
-                        .await
-                        {
-                            Ok(repo_path) => {
-                                // Build glob pattern for files in repository
-                                let glob_pattern =
-                                    format!("{}/{}", repo_path.display(), github_context.pattern);
+                    // Clone or update repository
+                    match Self::get_or_clone_repo(
+                        &github_context.repository_url,
+                        &github_context.branch,
+                        github_context.auth_token.as_ref(),
+                        &cache_dir,
+                    )
+                    .await
+                    {
+                        Ok(repo_path) => {
+                            // Build glob pattern for files in repository
+                            let glob_pattern =
+                                format!("{}/{}", repo_path.display(), github_context.pattern);
 
-                                // Match files using glob pattern
-                                match glob::glob(&glob_pattern) {
-                                    Ok(paths) => {
-                                        for entry in paths.flatten() {
-                                            // Read file content
-                                            if let Ok(content) = std::fs::read_to_string(&entry) {
-                                                let relative_path = entry
-                                                    .strip_prefix(&repo_path)
-                                                    .unwrap_or(&entry)
-                                                    .to_string_lossy()
-                                                    .to_string();
+                            // Match files using glob pattern
+                            match glob::glob(&glob_pattern) {
+                                Ok(paths) => {
+                                    for entry in paths.flatten() {
+                                        // Read file content
+                                        if let Ok(content) = tokio::fs::read_to_string(&entry).await {
+                                            let relative_path = entry
+                                                .strip_prefix(&repo_path)
+                                                .unwrap_or(&entry)
+                                                .to_string_lossy()
+                                                .to_string();
 
-                                                let document = Self::create_github_document(
-                                                    content,
-                                                    relative_path,
-                                                    github_context.repository_url.clone(),
-                                                    github_context.branch.clone(),
-                                                );
+                                            let document = Self::create_github_document(
+                                                content,
+                                                relative_path,
+                                                github_context.repository_url.clone(),
+                                                github_context.branch.clone(),
+                                            );
 
-                                                let _ = sender.send(document);
-                                            }
+                                            let _ = tx.send(document);
                                         }
                                     }
-                                    Err(e) => {
-                                        ystream::handle_error!(
-                                            CandleContextError::PatternError(format!(
-                                                "Glob pattern error for '{}': {}",
-                                                github_context.pattern, e
-                                            )),
-                                            "Glob pattern expansion failed"
-                                        );
-                                    }
+                                }
+                                Err(e) => {
+                                    log::error!("Streaming error in {}: {:?}", "Glob pattern expansion failed", CandleContextError::PatternError(format!(
+                                            "Glob pattern error for '{}': {}",
+                                            github_context.pattern, e
+                                        )));
                                 }
                             }
-                            Err(e) => {
-                                ystream::handle_error!(
-                                    CandleContextError::ProviderUnavailable(format!(
-                                        "Failed to clone/update repository '{}': {}",
-                                        github_context.repository_url, e
-                                    )),
-                                    "GitHub repository access failed"
-                                );
-                            }
+                        }
+                        Err(e) => {
+                            log::error!("Streaming error in {}: {:?}", "GitHub repository access failed", CandleContextError::ProviderUnavailable(format!(
+                                    "Failed to clone/update repository '{}': {}",
+                                    github_context.repository_url, e
+                                )));
                         }
                     }
-                    _ => {
-                        ystream::handle_error!(
-                            CandleContextError::ContextNotFound("Invalid context type".to_string()),
-                            "Invalid context type for GitHub loading"
-                        );
-                    }
                 }
-            });
-        })
+                _ => {
+                    log::error!("Streaming error in {}: {:?}", "Invalid context type for GitHub loading", CandleContextError::ContextNotFound("Invalid context type".to_string()));
+                }
+            }
+        }))
     }
 }
 

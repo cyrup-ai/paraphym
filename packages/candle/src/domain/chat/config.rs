@@ -12,12 +12,13 @@ use std::time::Duration;
 
 use arc_swap::ArcSwap;
 
-use crossbeam_queue::SegQueue;
+use tokio::sync::Mutex;
 #[cfg(feature = "rkyv")]
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use tokio::sync::broadcast;
-use ystream::{AsyncStream, emit};
+use std::pin::Pin;
+use tokio_stream::Stream;
 
 use crate::domain::util::unix_timestamp_nanos;
 use uuid::Uuid;
@@ -231,13 +232,13 @@ impl CandleModelConfig {
 
     /// Validate the model configuration
     #[must_use]
-    pub fn validate(&self) -> AsyncStream<crate::domain::context::chunk::CandleUnit> {
+    pub fn validate(&self) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunk::CandleUnit> + Send>> {
         let _config = self.clone();
-        // Use AsyncStream::with_channel for streaming-only architecture - emit success immediately
-        AsyncStream::with_channel(move |sender| {
+        // Use spawn_stream for streaming-only architecture - emit success immediately
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Emit success via sender - validation happens during stream processing
-            let _ = sender.send(crate::domain::context::chunk::CandleUnit(()));
-        })
+            let _ = tx.send(crate::domain::context::chunk::CandleUnit(()));
+        }))
     }
 }
 
@@ -578,7 +579,7 @@ pub struct CandleConfigurationManager {
     /// Current configuration with atomic updates
     config: ArcSwap<CandleChatConfig>,
     /// Configuration change event queue
-    change_events: SegQueue<CandleConfigurationChangeEvent>,
+    change_events: Arc<Mutex<Vec<CandleConfigurationChangeEvent>>>,
     /// Change notification broadcaster
     change_notifier: broadcast::Sender<CandleConfigurationChangeEvent>,
     /// Configuration validation rules
@@ -604,7 +605,7 @@ impl Clone for CandleConfigurationManager {
 
         Self {
             config: ArcSwap::new(current_config),
-            change_events: SegQueue::new(), // Fresh event queue
+            change_events: Arc::new(Mutex::new(Vec::new())), // Fresh event queue
             change_notifier,
             validation_rules: Arc::clone(&self.validation_rules),
             persistence: Arc::clone(&self.persistence),
@@ -837,7 +838,7 @@ impl CandleConfigurationManager {
 
         let manager = Self {
             config: ArcSwap::new(Arc::new(initial_config)),
-            change_events: SegQueue::new(),
+            change_events: Arc::new(Mutex::new(Vec::new())),
             change_notifier,
             validation_rules: Arc::new(RwLock::new(HashMap::new())),
             persistence: Arc::new(RwLock::new(CandleConfigurationPersistence::default())),
@@ -870,10 +871,10 @@ impl CandleConfigurationManager {
     pub fn update_config(
         &self,
         new_config: CandleChatConfig,
-    ) -> AsyncStream<crate::domain::context::chunk::CandleUnit> {
+    ) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunk::CandleUnit> + Send>> {
         let manager = self.clone();
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Validate the new configuration (sync validation)
             // Validation would go here if needed
 
@@ -901,7 +902,7 @@ impl CandleConfigurationManager {
             };
 
             // Queue change event
-            manager.change_events.push(change_event.clone());
+            manager.change_events.lock().await.push(change_event.clone());
             manager.change_counter.fetch_add(1, Ordering::Relaxed);
             manager.version_counter.fetch_add(1, Ordering::Relaxed);
 
@@ -913,8 +914,8 @@ impl CandleConfigurationManager {
             let _ = manager.change_notifier.send(change_event);
 
             // Emit completion
-            let _ = sender.send(crate::domain::context::chunk::CandleUnit(()));
-        })
+            let _ = tx.send(crate::domain::context::chunk::CandleUnit(()));
+        }))
     }
 
     /// Update specific Candle configuration section
@@ -922,14 +923,14 @@ impl CandleConfigurationManager {
         &self,
         section: &str,
         updater: F,
-    ) -> AsyncStream<crate::domain::context::chunk::CandleUnit>
+    ) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunk::CandleUnit> + Send>>
     where
         F: FnOnce(&mut CandleChatConfig) + Send + 'static,
     {
         let section_arc: String = String::from(section);
         let manager = self.clone();
 
-        AsyncStream::with_channel(move |stream_sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Load current config and make a copy
             let current_config = manager.config.load_full();
             let mut new_config = current_config.as_ref().clone();
@@ -959,7 +960,7 @@ impl CandleConfigurationManager {
             };
 
             // Queue change event
-            manager.change_events.push(change_event.clone());
+            manager.change_events.lock().await.push(change_event.clone());
             manager.change_counter.fetch_add(1, Ordering::Relaxed);
             manager.version_counter.fetch_add(1, Ordering::Relaxed);
 
@@ -971,8 +972,8 @@ impl CandleConfigurationManager {
             let _ = manager.change_notifier.send(change_event);
 
             // Emit completion
-            let _ = stream_sender.send(crate::domain::context::chunk::CandleUnit(()));
-        })
+            let _ = tx.send(crate::domain::context::chunk::CandleUnit(()));
+        }))
     }
 
     /// Subscribe to configuration changes
@@ -984,10 +985,9 @@ impl CandleConfigurationManager {
     pub fn validate_config_stream(
         &self,
         _config: CandleChatConfig,
-    ) -> AsyncStream<CandleConfigUpdate> {
+    ) -> std::pin::Pin<Box<dyn tokio_stream::Stream<Item = CandleConfigUpdate> + Send>> {
         let _manager = self.clone();
-        AsyncStream::with_channel(move |sender| {
-            std::thread::spawn(move || {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
                 // Create validation update
                 let now_nanos = unix_timestamp_nanos();
 
@@ -999,7 +999,7 @@ impl CandleConfigurationManager {
                     description: Some("Configuration validation initiated".to_string()),
                 };
 
-                emit!(sender, validation_start);
+                let _ = sender.send(validation_start);
 
                 // Emit completion update
                 let completion_update = CandleConfigUpdate {
@@ -1010,21 +1010,19 @@ impl CandleConfigurationManager {
                     description: Some("Configuration validation completed".to_string()),
                 };
 
-                emit!(sender, completion_update);
-            });
-        })
+                let _ = sender.send(completion_update);
+        }))
     }
 
     /// Register a configuration validator using streaming pattern
     pub fn register_validator_stream(
         &self,
         validator: &Arc<dyn CandleConfigurationValidator + Send + Sync>,
-    ) -> AsyncStream<CandleConfigUpdate> {
+    ) -> std::pin::Pin<Box<dyn tokio_stream::Stream<Item = CandleConfigUpdate> + Send>> {
         let _manager = self.clone();
         let validator_name: String = String::from(validator.name());
 
-        AsyncStream::with_channel(move |sender| {
-            std::thread::spawn(move || {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
                 let now_nanos = unix_timestamp_nanos();
 
                 // Create validator registration update
@@ -1036,16 +1034,14 @@ impl CandleConfigurationManager {
                     description: Some("Configuration validator registered".to_string()),
                 };
 
-                emit!(sender, registration_update);
-            });
-        })
+                let _ = sender.send(registration_update);
+        }))
     }
 
     /// Create persistence event stream for lock-free tracking
-    pub fn create_persistence_event_stream(&self) -> AsyncStream<CandlePersistenceEvent> {
+    pub fn create_persistence_event_stream(&self) -> std::pin::Pin<Box<dyn tokio_stream::Stream<Item = CandlePersistenceEvent> + Send>> {
         let manager = self.clone();
-        AsyncStream::with_channel(move |sender| {
-            std::thread::spawn(move || {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
                 // Update persistence timestamp atomically
                 let now_nanos = unix_timestamp_nanos();
 
@@ -1059,16 +1055,14 @@ impl CandleConfigurationManager {
                     success: true,
                 };
 
-                emit!(sender, event);
-            });
-        })
+                let _ = sender.send(event);
+        }))
     }
 
     /// Check if auto-save is needed using lock-free atomic operations with streaming pattern
-    pub fn check_auto_save_stream(&self) -> AsyncStream<CandleConfigUpdate> {
+    pub fn check_auto_save_stream(&self) -> std::pin::Pin<Box<dyn tokio_stream::Stream<Item = CandleConfigUpdate> + Send>> {
         let manager = self.clone();
-        AsyncStream::with_channel(move |sender| {
-            std::thread::spawn(move || {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
                 let now_nanos = unix_timestamp_nanos();
 
                 // Emit check initiated update
@@ -1080,7 +1074,7 @@ impl CandleConfigurationManager {
                     description: Some("Auto-save check initiated".to_string()),
                 };
 
-                emit!(sender, check_update);
+                let _ = sender.send(check_update);
 
                 let last_save_nanos = manager.last_persistence.load(Ordering::Acquire);
                 let elapsed_secs = (now_nanos - last_save_nanos) / 1_000_000_000;
@@ -1105,17 +1099,15 @@ impl CandleConfigurationManager {
                         description: Some("Auto-save executed".to_string()),
                     };
 
-                    emit!(sender, autosave_update);
+                    let _ = sender.send(autosave_update);
                 }
-            });
-        })
+        }))
     }
 
     /// Save configuration to file using streaming pattern
-    pub fn save_to_file_stream(&self) -> AsyncStream<CandleConfigUpdate> {
+    pub fn save_to_file_stream(&self) -> std::pin::Pin<Box<dyn tokio_stream::Stream<Item = CandleConfigUpdate> + Send>> {
         let manager = self.clone();
-        AsyncStream::with_channel(move |sender| {
-            std::thread::spawn(move || {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
                 let now_nanos = unix_timestamp_nanos();
 
                 // Emit save initiated update
@@ -1127,7 +1119,7 @@ impl CandleConfigurationManager {
                     description: Some("File save initiated".to_string()),
                 };
 
-                emit!(sender, save_start);
+                let _ = sender.send(save_start);
 
                 // Perform file save using sync implementation
                 let success = manager.save_to_file_sync().is_ok();
@@ -1145,9 +1137,8 @@ impl CandleConfigurationManager {
                     }),
                 };
 
-                emit!(sender, save_complete);
-            });
-        })
+                let _ = sender.send(save_complete);
+        }))
     }
 
     /// Synchronous implementation of `save_to_file` for streams-only architecture
@@ -1187,42 +1178,40 @@ impl CandleConfigurationManager {
     }
 
     /// Load configuration from file using streaming pattern
-    pub fn load_from_file_stream(&self) -> AsyncStream<CandleConfigUpdate> {
+    pub fn load_from_file_stream(&self) -> Pin<Box<dyn Stream<Item = CandleConfigUpdate> + Send>> {
         let manager = self.clone();
-        AsyncStream::with_channel(move |sender| {
-            std::thread::spawn(move || {
-                let now_nanos = unix_timestamp_nanos();
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
+            let now_nanos = unix_timestamp_nanos();
 
-                // Emit load initiated update
-                let load_start = CandleConfigUpdate {
-                    timestamp_nanos: now_nanos,
-                    update_type: CandleConfigUpdateType::LoadedFromFile,
-                    section: None,
-                    success: false,
-                    description: Some("File load initiated".to_string()),
-                };
+            // Emit load initiated update
+            let load_start = CandleConfigUpdate {
+                timestamp_nanos: now_nanos,
+                update_type: CandleConfigUpdateType::LoadedFromFile,
+                section: None,
+                success: false,
+                description: Some("File load initiated".to_string()),
+            };
 
-                emit!(sender, load_start);
+            let _ = sender.send(load_start);
 
-                // Perform file load using sync implementation
-                let success = manager.load_from_file_sync().is_ok();
+            // Perform file load using sync implementation
+            let success = manager.load_from_file_sync().is_ok();
 
-                // Emit load completion update
-                let load_complete = CandleConfigUpdate {
-                    timestamp_nanos: now_nanos,
-                    update_type: CandleConfigUpdateType::LoadedFromFile,
-                    section: None,
-                    success,
-                    description: Some(if success {
-                        "File load completed successfully".to_string()
-                    } else {
-                        "File load failed".to_string()
-                    }),
-                };
+            // Emit load completion update
+            let load_complete = CandleConfigUpdate {
+                timestamp_nanos: now_nanos,
+                update_type: CandleConfigUpdateType::LoadedFromFile,
+                section: None,
+                success,
+                description: Some(if success {
+                    "File load completed successfully".to_string()
+                } else {
+                    "File load failed".to_string()
+                }),
+            };
 
-                emit!(sender, load_complete);
-            });
-        })
+            let _ = sender.send(load_complete);
+        }))
     }
 
     /// Synchronous implementation of `load_from_file` for streams-only architecture
@@ -1260,12 +1249,9 @@ impl CandleConfigurationManager {
     }
 
     /// Get Candle configuration change history
-    pub fn get_change_history(&self) -> Vec<CandleConfigurationChangeEvent> {
-        let mut history = Vec::new();
-        while let Some(event) = self.change_events.pop() {
-            history.push(event);
-        }
-        history.reverse();
+    pub async fn get_change_history(&self) -> Vec<CandleConfigurationChangeEvent> {
+        let mut events = self.change_events.lock().await;
+        let history = events.drain(..).collect();
         history
     }
 

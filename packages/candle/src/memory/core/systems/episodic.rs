@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use surrealdb::Value;
 use tokio::sync::RwLock;
-use ystream::AsyncStream;
-use ystream::channel;
+use std::pin::Pin;
+use tokio_stream::Stream;
 
 use crate::memory::graph::entity::{BaseEntity, Entity};
 use crate::memory::primitives::metadata::MemoryMetadata;
@@ -360,11 +360,16 @@ impl EpisodicMemory {
         id: &str,
         name: &str,
         description: &str,
-    ) -> AsyncStream<EpisodicMemoryChunk> {
-        let (tx, stream) = channel();
-        let id_string = id.to_string();
-        let name_string = name.to_string();
-        let description_string = description.to_string();
+    ) -> Pin<Box<dyn Stream<Item = EpisodicMemoryChunk> + Send>> {
+        // Convert to owned strings BEFORE moving into closure
+        let id_owned = id.to_string();
+        let name_owned = name.to_string();
+        let description_owned = description.to_string();
+        
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+        let id_string = id_owned;
+        let name_string = name_owned;
+        let description_string = description_owned;
 
         tokio::spawn(async move {
             let result = {
@@ -435,6 +440,6 @@ impl EpisodicMemory {
             };
             let _ = tx.send(EpisodicMemoryChunk::new(result));
         });
-        stream
+        }))
     }
 }

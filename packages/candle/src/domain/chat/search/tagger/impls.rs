@@ -5,7 +5,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crossbeam_skiplist::SkipMap;
 use regex::Regex;
 use uuid::Uuid;
-use ystream::AsyncStream;
+use std::pin::Pin;
+use tokio_stream::Stream;
 
 use super::types::{CandleConversationTag, CandleTaggingStatistics};
 
@@ -56,7 +57,7 @@ impl CandleConversationTagger {
         name: String,
         description: String,
         category: String,
-    ) -> AsyncStream<crate::domain::context::chunk::CandleCollectionChunk<String>> {
+    ) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunk::CandleCollectionChunk<String>> + Send>> {
         let id: String = Uuid::new_v4().to_string();
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -78,13 +79,13 @@ impl CandleConversationTagger {
         self.tags.insert(id.clone(), tag);
         self.stats.total_tags += 1;
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             let result = crate::domain::context::chunk::CandleCollectionChunk {
                 items: id,
                 error_message: None,
             };
-            let _ = sender.try_send(result);
-        })
+            let _ = tx.send(result);
+        }))
     }
 
     // TODO: Add additional methods from original implementation as needed

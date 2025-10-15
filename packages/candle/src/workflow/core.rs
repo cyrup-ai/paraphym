@@ -1,24 +1,25 @@
 //! Candle Workflow Core - Zero-allocation impl Trait workflow execution
 //!
 //! This module provides candle workflow traits and builders following paraphym
-//! patterns exactly but with Candle prefixes. All execution uses unwrapped
-//! AsyncStream<Out> with NO trait objects - only impl Trait patterns.
+//! patterns exactly but with Candle prefixes. All execution uses tokio Stream<Out>
+//! with NO trait objects - only impl Trait patterns.
 
 use std::marker::PhantomData;
+use std::pin::Pin;
+use tokio_stream::Stream;
 
 use crate::domain::context::WorkflowDataChunk;
-use ystream::AsyncStream;
 
 /// Core workflow execution trait enabling polymorphic workflow steps
 ///
 /// This trait defines the contract for any executable workflow step, providing
 /// true async execution with streams-only architecture compliance. All implementations
-/// must use AsyncStream for output without Future trait usage.
+/// must use tokio Stream for output without Future trait usage.
 ///
 /// ## Architecture Constraints
 /// - Zero-allocation with PhantomData for type safety
 /// - Send + Sync for concurrent execution capabilities
-/// - AsyncStream-only outputs (NO Result wrapping)
+/// - Stream-only outputs (NO Result wrapping)
 /// - No unsafe code, no locking primitives
 /// - Error handling via handle_error! macro and stream termination
 ///
@@ -30,19 +31,19 @@ use ystream::AsyncStream;
 /// ## Example
 /// ```rust,no_run
 /// use paraphym_candle::workflow::{CandleWorkflowStep, CandleWorkflow};
-/// use ystream::{AsyncStream, handle_error};
+/// use tokio_stream::Stream;
 ///
 /// struct SimpleStep;
 ///
 /// impl CandleWorkflowStep<String, String> for SimpleStep {
-///     fn execute(&self, input: String) -> AsyncStream<String> {
+///     fn execute(&self, input: String) -> Pin<Box<dyn Stream<Item = String> + Send>> {
 ///         // Real execution logic here - no mocking, no Result wrapping
-///         AsyncStream::with_channel(|sender| {
+///         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
 ///             match process_input(&input) {
-///                 Ok(result) => { sender.send(format!("Processed: {}", result)); },
-///                 Err(e) => handle_error!(e, "SimpleStep execution failed"),
+///                 Ok(result) => { let _ = tx.send(format!("Processed: {}", result)); },
+///                 Err(e) => { /* handle error */ },
 ///             }
-///         })
+///         }))
 ///     }
 /// }
 /// ```
@@ -50,20 +51,20 @@ pub trait CandleWorkflowStep<In, Out>: Send + Sync + 'static {
     /// Execute the workflow step with streaming output
     ///
     /// Takes input of type `In` and produces a stream of `Out` values
-    /// using AsyncStream. This method is the core execution primitive for all
+    /// using tokio Stream. This method is the core execution primitive for all
     /// workflow operations.
     ///
     /// ## Implementation Requirements
-    /// - Must use AsyncStream for return type (streams-only architecture)
-    /// - No .await on AsyncStream (streams are consumed, not awaited)
-    /// - NO Result<T, E> wrapping - error handling via handle_error! macro
+    /// - Must use tokio Stream for return type (streams-only architecture)
+    /// - Streams are async and should be awaited
+    /// - NO Result<T, E> wrapping - error handling via stream patterns
     /// - Real execution logic - no mocking or simulation
     ///
     /// ## Performance Notes
     /// - Method is not marked #[inline] to allow concrete specialization
     /// - Implementations should use #[inline] for hot path methods
-    /// - AsyncStream provides zero-copy streaming where possible
-    fn execute(&self, input: In) -> AsyncStream<Out>;
+    /// - Stream provides zero-copy streaming where possible
+    fn execute(&self, input: In) -> Pin<Box<dyn Stream<Item = Out> + Send>>;
 }
 
 /// Simple passthrough step for basic workflow functionality  
@@ -73,11 +74,11 @@ pub struct CandlePassthroughStep;
 
 impl CandleWorkflowStep<WorkflowDataChunk, WorkflowDataChunk> for CandlePassthroughStep {
     #[inline]
-    fn execute(&self, input: WorkflowDataChunk) -> AsyncStream<WorkflowDataChunk> {
-        AsyncStream::with_channel(move |sender| {
-            // Receiver dropped, terminate gracefully
-            let _ = sender.send(input);
-        })
+    fn execute(&self, input: WorkflowDataChunk) -> Pin<Box<dyn Stream<Item = WorkflowDataChunk> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+            // Send input through stream
+            let _ = tx.send(input);
+        }))
     }
 }
 
@@ -93,8 +94,8 @@ pub fn candle_workflow() -> CandleExecutableWorkflow<CandlePassthroughStep> {
 /// Compiled, executable candle workflow with concrete step type
 ///
 /// This struct represents a fully built workflow that can be executed
-/// with streaming output. It follows candle patterns with AsyncStream<Out>
-/// unwrapped streams for error handling via handle_error! macro.
+/// with streaming output. It follows candle patterns with tokio Stream<Out>
+/// for error handling via stream patterns.
 pub struct CandleExecutableWorkflow<S>
 where
     S: CandleWorkflowStep<WorkflowDataChunk, WorkflowDataChunk>,
@@ -110,15 +111,14 @@ where
     /// Execute the workflow with streaming output
     ///
     /// Takes input and produces a stream of outputs using streams-only architecture.
-    /// Error handling uses handle_error! macro pattern for stream termination.
+    /// Error handling uses stream patterns.
     ///
     /// ## Streams-Only Architecture  
-    /// - Returns AsyncStream<WorkflowDataChunk> (unwrapped)
+    /// - Returns Pin<Box<dyn Stream<Item = WorkflowDataChunk> + Send>>
     /// - NO Result<T,E> wrapping inside streams
-    /// - Error handling via handle_error! macro and stream termination  
-    /// - No Future trait usage in execution paths
+    /// - Error handling via stream patterns
     #[inline]
-    pub fn execute(&self, input: WorkflowDataChunk) -> AsyncStream<WorkflowDataChunk> {
+    pub fn execute(&self, input: WorkflowDataChunk) -> Pin<Box<dyn Stream<Item = WorkflowDataChunk> + Send>> {
         self.step.execute(input)
     }
 
@@ -160,25 +160,26 @@ where
     A: CandleWorkflowStep<WorkflowDataChunk, WorkflowDataChunk> + Clone,
     B: CandleWorkflowStep<WorkflowDataChunk, WorkflowDataChunk> + Clone,
 {
-    fn execute(&self, input: WorkflowDataChunk) -> AsyncStream<WorkflowDataChunk> {
+    fn execute(&self, input: WorkflowDataChunk) -> Pin<Box<dyn Stream<Item = WorkflowDataChunk> + Send>> {
         // Clone to avoid lifetime issues in the closure
         let second_clone = self.second.clone();
 
         // Execute first step and chain with second step
         let first_stream = self.first.execute(input);
 
-        AsyncStream::with_channel(move |sender| {
-            let first_results = first_stream.collect();
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+            use tokio_stream::StreamExt;
+            let first_results = first_stream.collect::<Vec<_>>().await;
             for intermediate in first_results {
                 let second_stream = second_clone.execute(intermediate);
-                let second_results = second_stream.collect();
+                let second_results = second_stream.collect::<Vec<_>>().await;
                 for output in second_results {
-                    // Receiver dropped, terminate gracefully
-                    if sender.send(output).is_err() {
+                    // Send output through stream
+                    if tx.send(output).is_err() {
                         break;
                     }
                 }
             }
-        })
+        }))
     }
 }

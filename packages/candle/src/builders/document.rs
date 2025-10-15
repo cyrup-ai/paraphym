@@ -17,6 +17,8 @@ use cyrup_sugars::prelude::MessageChunk;
 use quyc::Quyc;
 use serde_json::Value;
 use std::fs;
+use tokio_stream::Stream;
+use crate::async_stream;
 use ystream::{AsyncStream, AsyncTask, emit, spawn_task};
 
 /// Document builder data enumeration for zero-allocation type tracking
@@ -87,13 +89,13 @@ pub trait DocumentBuilder: Sized {
     fn load_all(self) -> AsyncTask<ZeroOneOrMany<Document>>;
 
     /// Stream documents one by one - EXACT syntax: .stream()
-    fn stream(self) -> AsyncStream<Document>;
+    fn stream(self) -> impl Stream<Item = Document>;
 
     /// Stream document content in chunks - EXACT syntax: .stream_chunks(1024)
-    fn stream_chunks(self, chunk_size: usize) -> AsyncStream<DocumentChunk>;
+    fn stream_chunks(self, chunk_size: usize) -> impl Stream<Item = DocumentChunk>;
 
     /// Stream document content line by line - EXACT syntax: .stream_lines()
-    fn stream_lines(self) -> AsyncStream<DocumentChunk>;
+    fn stream_lines(self) -> impl Stream<Item = DocumentChunk>;
 }
 
 /// Hidden implementation struct - zero-allocation builder state using DOMAIN OBJECTS
@@ -421,46 +423,48 @@ where
     }
 
     /// Stream documents one by one - EXACT syntax: .stream()
-    fn stream(self) -> AsyncStream<Document> {
-        AsyncStream::with_channel(move |sender| match self.data {
-            DocumentBuilderData::Glob(pattern) => {
-                if let Ok(paths) = glob::glob(&pattern) {
-                    for entry in paths.filter_map(Result::ok) {
-                        let doc_builder = DocumentBuilderImpl {
-                            data: DocumentBuilderData::File(entry),
-                            format: self.format,
-                            media_type: self.media_type,
-                            additional_props: self.additional_props.clone(),
-                            encoding: self.encoding.clone(),
-                            max_size: self.max_size,
-                            timeout_ms: self.timeout_ms,
-                            retry_attempts: self.retry_attempts,
-                            cache_enabled: self.cache_enabled,
-                            error_handler: None,
-                            chunk_handler: None,
-                            _marker: PhantomData,
-                        };
+    fn stream(self) -> impl Stream<Item = Document> {
+        async_stream::spawn_stream(move |tx| async move {
+            match self.data {
+                DocumentBuilderData::Glob(pattern) => {
+                    if let Ok(paths) = glob::glob(&pattern) {
+                        for entry in paths.filter_map(Result::ok) {
+                            let doc_builder = DocumentBuilderImpl {
+                                data: DocumentBuilderData::File(entry),
+                                format: self.format,
+                                media_type: self.media_type,
+                                additional_props: self.additional_props.clone(),
+                                encoding: self.encoding.clone(),
+                                max_size: self.max_size,
+                                timeout_ms: self.timeout_ms,
+                                retry_attempts: self.retry_attempts,
+                                cache_enabled: self.cache_enabled,
+                                error_handler: None,
+                                chunk_handler: None,
+                                _marker: PhantomData,
+                            };
 
-                        if let Some(handler) = self.error_handler.clone() {
-                            let handler_clone = handler.clone();
-                            let doc_stream = Self::load_document_data(doc_builder, handler);
-                            if let Some(doc) = doc_stream.try_next() {
-                                emit!(sender, doc);
-                            } else {
-                                handler_clone("Failed to load document".to_string());
+                            if let Some(handler) = self.error_handler.clone() {
+                                let handler_clone = handler.clone();
+                                let doc_stream = Self::load_document_data(doc_builder, handler);
+                                if let Some(doc) = doc_stream.try_next() {
+                                    let _ = tx.send(doc);
+                                } else {
+                                    handler_clone("Failed to load document".to_string());
+                                }
                             }
                         }
                     }
                 }
-            }
-            _ => {
-                if let Some(handler) = self.error_handler.clone() {
-                    let handler_clone = handler.clone();
-                    let doc_stream = Self::load_document_data(self, handler);
-                    if let Some(doc) = doc_stream.try_next() {
-                        emit!(sender, doc);
-                    } else {
-                        handler_clone("Failed to load document".to_string());
+                _ => {
+                    if let Some(handler) = self.error_handler.clone() {
+                        let handler_clone = handler.clone();
+                        let doc_stream = Self::load_document_data(self, handler);
+                        if let Some(doc) = doc_stream.try_next() {
+                            let _ = tx.send(doc);
+                        } else {
+                            handler_clone("Failed to load document".to_string());
+                        }
                     }
                 }
             }
@@ -468,8 +472,8 @@ where
     }
 
     /// Stream document content in chunks - EXACT syntax: .stream_chunks(1024)
-    fn stream_chunks(self, chunk_size: usize) -> AsyncStream<DocumentChunk> {
-        AsyncStream::with_channel(move |sender| {
+    fn stream_chunks(self, chunk_size: usize) -> impl Stream<Item = DocumentChunk> {
+        async_stream::spawn_stream(move |tx| async move {
             let chunk_handler = self.chunk_handler.clone();
             let doc = {
                 let task = self.load_async();
@@ -493,15 +497,15 @@ where
                     chunk = handler(chunk);
                 }
 
-                emit!(sender, chunk);
+                let _ = tx.send(chunk);
                 offset = end;
             }
         })
     }
 
     /// Stream document content line by line - EXACT syntax: .stream_lines()
-    fn stream_lines(self) -> AsyncStream<DocumentChunk> {
-        AsyncStream::with_channel(move |sender| {
+    fn stream_lines(self) -> impl Stream<Item = DocumentChunk> {
+        async_stream::spawn_stream(move |tx| async move {
             let chunk_handler = self.chunk_handler.clone();
             let doc = {
                 let task = self.load_async();
@@ -522,7 +526,7 @@ where
                     chunk = handler(chunk);
                 }
 
-                emit!(sender, chunk);
+                let _ = tx.send(chunk);
                 offset += line.len() + 1; // +1 for newline
             }
         })

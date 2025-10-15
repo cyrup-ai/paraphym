@@ -8,7 +8,8 @@ use std::path::PathBuf;
 
 use cyrup_sugars::prelude::MessageChunk;
 use serde::{Deserialize, Serialize};
-use ystream::AsyncStream;
+use std::pin::Pin;
+use tokio_stream::Stream;
 
 /// `CandleContext` trait - mirrors `paraphym-domain::Context` exactly with Candle prefix
 ///
@@ -21,8 +22,8 @@ pub trait CandleContext: Send + Sync + 'static {
     /// Load context content from the source
     ///
     /// # Returns
-    /// `AsyncStream` containing context content chunks
-    fn load_content(&self) -> AsyncStream<CandleContextChunk>;
+    /// tokio Stream containing context content chunks
+    fn load_content(&self) -> Pin<Box<dyn Stream<Item = CandleContextChunk> + Send>>;
 
     /// Get context metadata and information
     ///
@@ -33,14 +34,14 @@ pub trait CandleContext: Send + Sync + 'static {
     /// Refresh context content if it has changed
     ///
     /// # Returns
-    /// `AsyncStream` indicating whether refresh was successful
-    fn refresh(&self) -> AsyncStream<crate::domain::context::chunk::CandleRefreshResult>;
+    /// tokio Stream indicating whether refresh was successful
+    fn refresh(&self) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunk::CandleRefreshResult> + Send>>;
 
     /// Get context capabilities and supported operations
     ///
     /// # Returns
-    /// `AsyncStream` containing context capabilities
-    fn get_capabilities(&self) -> AsyncStream<CandleContextCapabilities>;
+    /// tokio Stream containing context capabilities
+    fn get_capabilities(&self) -> Pin<Box<dyn Stream<Item = CandleContextCapabilities> + Send>>;
 }
 
 /// Context content chunk for streaming large contexts
@@ -339,10 +340,10 @@ impl CandleFileContext {
 }
 
 impl CandleContext for CandleFileContext {
-    fn load_content(&self) -> AsyncStream<CandleContextChunk> {
+    fn load_content(&self) -> Pin<Box<dyn Stream<Item = CandleContextChunk> + Send>> {
         let path = self.path.clone();
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             if let Ok(content) = std::fs::read_to_string(&path) {
                 let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
                 let content_type = match extension {
@@ -360,31 +361,31 @@ impl CandleContext for CandleFileContext {
                     .with_sequence(0)
                     .with_metadata("file_path", path.to_string_lossy());
 
-                let _ = sender.send(chunk);
+                let _ = tx.send(chunk);
             } else {
                 let error_chunk = CandleContextChunk::new(
                     format!("Error reading file: {}", path.display()),
                     CandleContextType::Text,
                 )
                 .with_final();
-                let _ = sender.send(error_chunk);
+                let _ = tx.send(error_chunk);
             }
-        })
+        }))
     }
 
     fn get_metadata(&self) -> CandleContextMetadata {
         self.metadata.clone()
     }
 
-    fn refresh(&self) -> AsyncStream<crate::domain::context::chunk::CandleRefreshResult> {
-        AsyncStream::with_channel(move |sender| {
+    fn refresh(&self) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunk::CandleRefreshResult> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // For files, always return success since file system access is always "fresh"
-            let _ = sender.send(crate::domain::context::chunk::CandleRefreshResult::success());
-        })
+            let _ = tx.send(crate::domain::context::chunk::CandleRefreshResult::success());
+        }))
     }
 
-    fn get_capabilities(&self) -> AsyncStream<CandleContextCapabilities> {
-        AsyncStream::with_channel(move |sender| {
+    fn get_capabilities(&self) -> Pin<Box<dyn Stream<Item = CandleContextCapabilities> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             let capabilities = CandleContextCapabilities {
                 flags: ContextCapabilityFlags::REALTIME_UPDATES
                     | ContextCapabilityFlags::REFRESH
@@ -399,7 +400,7 @@ impl CandleContext for CandleFileContext {
                 ],
                 required_permissions: vec!["file_read".to_string()],
             };
-            let _ = sender.send(capabilities);
-        })
+            let _ = tx.send(capabilities);
+        }))
     }
 }

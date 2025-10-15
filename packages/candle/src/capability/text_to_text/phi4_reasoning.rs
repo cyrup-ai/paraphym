@@ -4,9 +4,11 @@
 //! model with integrated chain-of-thought reasoning capabilities.
 
 use std::num::NonZeroU32;
+use std::pin::Pin;
 use std::sync::OnceLock;
 
-use ystream::AsyncStream;
+use tokio_stream::Stream;
+use crate::async_stream;
 
 use crate::core::Engine;
 use crate::domain::model::{info::CandleModelInfo, traits::CandleModel};
@@ -111,7 +113,7 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
         &self,
         prompt: CandlePrompt,
         params: &CandleCompletionParams,
-    ) -> AsyncStream<CandleCompletionChunk> {
+    ) -> Pin<Box<dyn Stream<Item = CandleCompletionChunk> + Send>> {
         // Get file paths before the closure
         let gguf_path = match self.huggingface_file(
             self.info().quantization_url.unwrap(),
@@ -119,12 +121,12 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
         ) {
             Ok(path) => path,
             Err(e) => {
-                return AsyncStream::with_channel(move |sender| {
-                    let _ = sender.send(CandleCompletionChunk::Error(format!(
+                return Box::pin(async_stream::spawn_stream(move |tx| async move {
+                    let _ = tx.send(CandleCompletionChunk::Error(format!(
                         "Failed to get GGUF file: {}",
                         e
                     )));
-                });
+                }));
             }
         };
 
@@ -132,12 +134,12 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
         {
             Ok(path) => path,
             Err(e) => {
-                return AsyncStream::with_channel(move |sender| {
-                    let _ = sender.send(CandleCompletionChunk::Error(format!(
+                return Box::pin(async_stream::spawn_stream(move |tx| async move {
+                    let _ = tx.send(CandleCompletionChunk::Error(format!(
                         "Failed to get tokenizer file: {}",
                         e
                     )));
-                });
+                }));
             }
         };
 
@@ -148,7 +150,7 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
             self.info().default_temperature.unwrap_or(0.7)
         };
 
-        // Clone engine for closure
+        // Clone engine Arc for the coordinate_generation call
         let engine = self.engine.clone();
 
         // Extract additional params or use defaults
@@ -170,102 +172,108 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
         let prompt_text = match Self::apply_chat_template(&prompt) {
             Ok(text) => text,
             Err(e) => {
-                return AsyncStream::with_channel(move |sender| {
-                    let _ = sender.send(CandleCompletionChunk::Error(format!(
+                return Box::pin(async_stream::spawn_stream(move |tx| async move {
+                    let _ = tx.send(CandleCompletionChunk::Error(format!(
                         "Failed to apply chat template: {}",
                         e
                     )));
-                });
+                }));
             }
         };
         let max_tokens = params.max_tokens.map(|n| n.get()).unwrap_or(2000);
 
         // Use Engine's coordinate_generation for automatic metrics and stream conversion
-        engine.coordinate_generation(move || {
-            use crate::core::generation::{
-                SamplingConfig, generator::TextGenerator, models::CandleQuantizedMixFormerModel,
-                tokens::SpecialTokens,
-            };
-            use crate::domain::context::chunk::CandleStringChunk;
-            use candle_core::Device;
-            use tokenizers::Tokenizer;
+        Box::pin(engine.coordinate_generation(move || {
+                use crate::core::generation::{
+                    SamplingConfig, generator::TextGenerator, models::CandleQuantizedMixFormerModel,
+                    tokens::SpecialTokens,
+                };
+                use crate::domain::context::chunk::CandleStringChunk;
+                use candle_core::Device;
+                use tokenizers::Tokenizer;
+                use tokio_stream::StreamExt;
 
-            // Load device (prefer GPU if available)
-            let device = crate::core::device_util::detect_best_device().unwrap_or_else(|e| {
-                log::warn!("Device detection failed: {}. Using CPU.", e);
-                Device::Cpu
-            });
-
-            // Load tokenizer - return error stream on failure
-            let tokenizer = match Tokenizer::from_file(&tokenizer_path) {
-                Ok(t) => t,
-                Err(e) => {
-                    return AsyncStream::with_channel(move |sender| {
-                        let _ = sender.send(CandleStringChunk(format!(
-                            "ERROR: Failed to load tokenizer: {}",
-                            e
-                        )));
+                async_stream::spawn_stream(move |tx| async move {
+                    // Load device (prefer GPU if available)
+                    let device = crate::core::device_util::detect_best_device().unwrap_or_else(|e| {
+                        log::warn!("Device detection failed: {}. Using CPU.", e);
+                        Device::Cpu
                     });
-                }
-            };
 
-            // Load the quantized MixFormer model
-            let quantized_model =
-                match CandleQuantizedMixFormerModel::from_gguf_path(&gguf_path, device.clone()) {
-                    Ok(model) => model,
-                    Err(e) => {
-                        return AsyncStream::with_channel(move |sender| {
-                            let _ = sender.send(CandleStringChunk(format!(
-                                "ERROR: Failed to load quantized model: {}",
+                    // Load tokenizer - send error and return on failure
+                    let tokenizer = match Tokenizer::from_file(&tokenizer_path) {
+                        Ok(t) => t,
+                        Err(e) => {
+                            let _ = tx.send(CandleStringChunk(format!(
+                                "ERROR: Failed to load tokenizer: {}",
                                 e
                             )));
-                        });
+                            return;
+                        }
+                    };
+
+                    // Load the quantized MixFormer model
+                    let quantized_model =
+                        match CandleQuantizedMixFormerModel::from_gguf_path(&gguf_path, device.clone()) {
+                            Ok(model) => model,
+                            Err(e) => {
+                                let _ = tx.send(CandleStringChunk(format!(
+                                    "ERROR: Failed to load quantized model: {}",
+                                    e
+                                )));
+                                return;
+                            }
+                        };
+
+                    // Build sampling config with extracted parameters
+                    let mut sampling_config = SamplingConfig::new(temperature as f32);
+
+                    if let Some(k) = top_k {
+                        sampling_config = sampling_config.with_top_k(k);
                     }
-                };
+                    if let Some(p) = top_p {
+                        sampling_config = sampling_config.with_top_p(p);
+                    }
 
-            // Build sampling config with extracted parameters
-            let mut sampling_config = SamplingConfig::new(temperature as f32);
+                    sampling_config = sampling_config
+                        .with_repetition_penalty(1.0)
+                        .with_frequency_penalty(0.0)
+                        .with_presence_penalty(0.0);
 
-            if let Some(k) = top_k {
-                sampling_config = sampling_config.with_top_k(k);
-            }
-            if let Some(p) = top_p {
-                sampling_config = sampling_config.with_top_p(p);
-            }
+                    // Create TextGenerator with real model
+                    let text_generator = TextGenerator::new(
+                        Box::new(quantized_model),
+                        tokenizer,
+                        device,
+                        sampling_config,
+                    );
 
-            sampling_config = sampling_config
-                .with_repetition_penalty(1.0)
-                .with_frequency_penalty(0.0)
-                .with_presence_penalty(0.0);
+                    // Set up special tokens for Phi-4
+                    let special_tokens = SpecialTokens {
+                        bos_token_id: None, // Phi doesn't use BOS
+                        eos_token_id: Some(2),
+                        pad_token_id: None,
+                    };
 
-            // Create TextGenerator with real model
-            let text_generator = TextGenerator::new(
-                Box::new(quantized_model),
-                tokenizer,
-                device,
-                sampling_config,
-            );
+                    // Convert max_tokens to u32
+                    let max_tokens_u32 = max_tokens.try_into().unwrap_or_else(|_| {
+                        log::warn!(
+                            "max_tokens value {} exceeds u32::MAX, capping at {}",
+                            max_tokens,
+                            u32::MAX
+                        );
+                        u32::MAX
+                    });
 
-            // Set up special tokens for Phi-4
-            let special_tokens = SpecialTokens {
-                bos_token_id: None, // Phi doesn't use BOS
-                eos_token_id: Some(2),
-                pad_token_id: None,
-            };
-
-            // Convert max_tokens to u32
-            let max_tokens_u32 = max_tokens.try_into().unwrap_or_else(|_| {
-                log::warn!(
-                    "max_tokens value {} exceeds u32::MAX, capping at {}",
-                    max_tokens,
-                    u32::MAX
-                );
-                u32::MAX
-            });
-
-            // Generate and return text stream - Engine handles conversion to CandleCompletionChunk
-            text_generator.generate(prompt_text, max_tokens_u32, special_tokens)
-        })
+                    // Generate and forward text stream
+                    let mut stream = text_generator.generate(prompt_text, max_tokens_u32, special_tokens);
+                    while let Some(chunk) = stream.next().await {
+                        if tx.send(chunk).is_err() {
+                            break;
+                        }
+                    }
+                })
+        }))
     }
 }
 
@@ -380,7 +388,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedPhi4ReasoningModel {
         &self,
         prompt: CandlePrompt,
         params: &CandleCompletionParams,
-    ) -> AsyncStream<CandleCompletionChunk> {
+    ) -> Pin<Box<dyn Stream<Item = CandleCompletionChunk> + Send>> {
         // Clone pre-loaded resources for the generation closure
         let engine = self.engine.clone();
         let gguf_path = self.gguf_file_path.clone();
@@ -413,81 +421,88 @@ impl crate::capability::traits::TextToTextCapable for LoadedPhi4ReasoningModel {
         let prompt_text = match CandlePhi4ReasoningModel::apply_chat_template(&prompt) {
             Ok(text) => text,
             Err(e) => {
-                return AsyncStream::with_channel(move |sender| {
-                    let _ = sender.send(CandleCompletionChunk::Error(format!(
+                return Box::pin(async_stream::spawn_stream(move |tx| async move {
+                    let _ = tx.send(CandleCompletionChunk::Error(format!(
                         "Failed to apply chat template: {}",
                         e
                     )));
-                });
+                }));
             }
         };
         let max_tokens = params.max_tokens.map(|n| n.get()).unwrap_or(2000);
 
         // Use Engine's coordinate_generation for automatic metrics and stream conversion
-        engine.coordinate_generation(move || {
+        Box::pin(engine.coordinate_generation(move || {
             use crate::core::generation::{
                 SamplingConfig, generator::TextGenerator, models::CandleQuantizedMixFormerModel,
                 tokens::SpecialTokens,
             };
             use crate::domain::context::chunk::CandleStringChunk;
+            use tokio_stream::StreamExt;
 
-            // Load the quantized MixFormer model
-            let quantized_model =
-                match CandleQuantizedMixFormerModel::from_gguf_path(&gguf_path, device.clone()) {
-                    Ok(model) => model,
-                    Err(e) => {
-                        return AsyncStream::with_channel(move |sender| {
-                            let _ = sender.send(CandleStringChunk(format!(
+            async_stream::spawn_stream(move |tx| async move {
+                // Load the quantized MixFormer model
+                let quantized_model =
+                    match CandleQuantizedMixFormerModel::from_gguf_path(&gguf_path, device.clone()) {
+                        Ok(model) => model,
+                        Err(e) => {
+                            let _ = tx.send(CandleStringChunk(format!(
                                 "ERROR: Failed to load quantized model: {}",
                                 e
                             )));
-                        });
-                    }
+                            return;
+                        }
+                    };
+
+                // Build sampling config with extracted parameters
+                let mut sampling_config = SamplingConfig::new(temperature as f32);
+
+                if let Some(k) = top_k {
+                    sampling_config = sampling_config.with_top_k(k);
+                }
+                if let Some(p) = top_p {
+                    sampling_config = sampling_config.with_top_p(p);
+                }
+
+                sampling_config = sampling_config
+                    .with_repetition_penalty(1.0)
+                    .with_frequency_penalty(0.0)
+                    .with_presence_penalty(0.0);
+
+                // Create TextGenerator with real model and pre-loaded tokenizer
+                let text_generator = TextGenerator::new(
+                    Box::new(quantized_model),
+                    tokenizer, // ✅ Use pre-loaded tokenizer (no disk I/O)
+                    device,
+                    sampling_config,
+                );
+
+                // Set up special tokens for Phi-4
+                let special_tokens = SpecialTokens {
+                    bos_token_id: None, // Phi doesn't use BOS
+                    eos_token_id: Some(2),
+                    pad_token_id: None,
                 };
 
-            // Build sampling config with extracted parameters
-            let mut sampling_config = SamplingConfig::new(temperature as f32);
-
-            if let Some(k) = top_k {
-                sampling_config = sampling_config.with_top_k(k);
-            }
-            if let Some(p) = top_p {
-                sampling_config = sampling_config.with_top_p(p);
-            }
-
-            sampling_config = sampling_config
-                .with_repetition_penalty(1.0)
-                .with_frequency_penalty(0.0)
-                .with_presence_penalty(0.0);
-
-            // Create TextGenerator with real model and pre-loaded tokenizer
-            let text_generator = TextGenerator::new(
-                Box::new(quantized_model),
-                tokenizer, // ✅ Use pre-loaded tokenizer (no disk I/O)
-                device,
-                sampling_config,
-            );
-
-            // Set up special tokens for Phi-4
-            let special_tokens = SpecialTokens {
-                bos_token_id: None, // Phi doesn't use BOS
-                eos_token_id: Some(2),
-                pad_token_id: None,
-            };
-
-            // Convert max_tokens to u32
-            let max_tokens_u32 = max_tokens.try_into().unwrap_or_else(|_| {
-                log::warn!(
-                    "max_tokens value {} exceeds u32::MAX, capping at {}",
-                    max_tokens,
+                // Convert max_tokens to u32
+                let max_tokens_u32 = max_tokens.try_into().unwrap_or_else(|_| {
+                    log::warn!(
+                        "max_tokens value {} exceeds u32::MAX, capping at {}",
+                        max_tokens,
+                        u32::MAX
+                    );
                     u32::MAX
-                );
-                u32::MAX
-            });
+                });
 
-            // Generate and return text stream
-            text_generator.generate(prompt_text, max_tokens_u32, special_tokens)
-        })
+                // Generate and forward text stream
+                let mut stream = text_generator.generate(prompt_text, max_tokens_u32, special_tokens);
+                while let Some(chunk) = stream.next().await {
+                    if tx.send(chunk).is_err() {
+                        break;
+                    }
+                }
+            })
+        }))
     }
 }
 

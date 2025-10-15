@@ -25,7 +25,8 @@
 
 
 use core::marker::PhantomData;
-use ystream::AsyncStream;
+use std::pin::Pin;
+use tokio_stream::Stream;
 use crate::capability::traits::TextToTextCapable;
 use paraphym_provider::Model;
 
@@ -70,32 +71,37 @@ impl ModelAdapter {
             model_info}
     }
 
-    pub fn stream_completion(&self, prompt: &str) -> AsyncStream<String> {
+    pub fn stream_completion(&self, prompt: &str) -> Pin<Box<dyn Stream<Item = String> + Send>> {
         let registry_key = self.model_variant.name();
         let prompt = prompt.to_string();
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
             // Create a simple streaming response
             let response = format!("Response from {} for prompt: {}", registry_key, prompt);
             let chunks: Vec<&str> = response.split_whitespace().collect();
 
             for chunk in chunks {
                 let _ = sender.send(chunk.to_string());
-                std::thread::sleep(std::time::Duration::from_millis(50));
+                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
             }
-        })
+        }))
     }
 }
 
 impl TextToTextCapable for ModelAdapter {
-    fn complete(&self, prompt: &str) -> AsyncStream<String> {
+    fn prompt(
+        &self,
+        prompt: crate::domain::prompt::CandlePrompt,
+        _params: &crate::domain::completion::CandleCompletionParams,
+    ) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunk::CandleCompletionChunk> + Send>> {
         let registry_key = self.model_variant.name();
-        let prompt = prompt.to_string();
+        let prompt_text = prompt.content().to_string();
 
-        AsyncStream::with_channel(move |sender| {
-            let response = format!("Completion from {} for: {}", registry_key, prompt);
-            let _ = sender.send(response);
-        })
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
+            let response = format!("Completion from {} for: {}", registry_key, prompt_text);
+            let chunk = crate::domain::context::chunk::CandleCompletionChunk::Text(response);
+            let _ = sender.send(chunk);
+        }))
     }
 }
 
@@ -341,8 +347,8 @@ impl<M: Model> AgentBuilder<M, (), Ready> {
     }
 
     /// Build the agent directly - handles async tool initialization
-    pub fn build(self) -> AsyncStream<super::agent::Agent<M>> {
-        AsyncStream::with_channel(move |sender| async move {
+    pub fn build(self) -> Pin<Box<dyn Stream<Item = super::agent::Agent<M>> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
             // Initialize tool router and discover tools if present
             if let Some(router) = self.tool_router.as_ref() {
                 let mut mutable_router = SweetMcpRouter::new();
@@ -368,7 +374,7 @@ impl<M: Model> AgentBuilder<M, (), Ready> {
                             self.extended_thinking,
                             self.prompt_cache,
                         );
-                        let _ = sender.send(agent).await;
+                        let _ = sender.send(agent);
                     }
                 }
             }
@@ -401,11 +407,11 @@ impl<M: Model> CompletionBuilder<M> {
     }
 
     /// Start chat with streaming response processing
-    pub fn chat(self, message: impl Into<String>) -> AsyncStream<String> {
+    pub fn chat(self, message: impl Into<String>) -> Pin<Box<dyn Stream<Item = String> + Send>> {
         let message_text = message.into();
         let chunk_handler = self.chunk_handler;
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
             let mut agent_stream = self.agent_builder.build();
             if let Some(agent) = agent_stream.try_next() {
                 // Create completion request using the built agent

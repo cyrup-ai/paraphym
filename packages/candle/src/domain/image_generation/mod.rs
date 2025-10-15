@@ -7,6 +7,8 @@
 use candle_core::Tensor;
 use cyrup_sugars::prelude::MessageChunk;
 use image::DynamicImage;
+use std::pin::Pin;
+use tokio_stream::Stream;
 
 /// Configuration for image generation with diffusion models
 ///
@@ -115,7 +117,7 @@ pub trait ImageGenerationModel: Send + Sync + 'static {
         prompt: &str,
         config: &ImageGenerationConfig,
         device: &candle_core::Device,
-    ) -> ystream::AsyncStream<ImageGenerationChunk>;
+    ) -> Pin<Box<dyn Stream<Item = ImageGenerationChunk> + Send>>;
 
     /// Model identifier (e.g., "stable-diffusion-3.5-medium", "flux-schnell")
     fn registry_key(&self) -> &str;

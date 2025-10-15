@@ -7,8 +7,9 @@
 use std::fmt;
 use std::path::PathBuf;
 
-use ystream::AsyncStream;
-use ystream::AsyncTask;
+use tokio_stream::Stream;
+use crate::async_stream;
+use crate::AsyncTask;
 
 use cyrup_sugars::ZeroOneOrMany as ZeroOneOrMany;
 
@@ -26,18 +27,18 @@ where
     /// Load all files matching the criteria
     fn load_all(&self) -> AsyncTask<ZeroOneOrMany<T>>
     where
-        T: ystream::NotResult;
+        T: Send + 'static;
 
     /// Stream files one by one
-    fn stream_files(&self) -> AsyncStream<T>
+    fn stream_files(&self) -> impl Stream<Item = T>
     where
-        T: ystream::NotResult;
+        T: Send + 'static;
 
     /// Process each file with a processor function
     fn process_each<F, U>(&self, processor: F) -> AsyncTask<ZeroOneOrMany<U>>
     where
         F: Fn(&T) -> U + Send + Sync + 'static,
-        U: Send + Sync + fmt::Debug + Clone + 'static + ystream::NotResult;
+        U: Send + Sync + fmt::Debug + Clone + 'static;
 
     /// Create new loader with pattern
     fn new(pattern: impl Into<String>) -> Self;
@@ -94,7 +95,7 @@ impl Loader<PathBuf> for LoaderImpl<PathBuf> {
 
     fn load_all(&self) -> AsyncTask<ZeroOneOrMany<PathBuf>>
     where
-        PathBuf: ystream::NotResult,
+        PathBuf: Send + 'static,
     {
         let pattern = self.pattern.clone();
         let recursive = self.recursive;
@@ -138,15 +139,15 @@ impl Loader<PathBuf> for LoaderImpl<PathBuf> {
         })
     }
 
-    fn stream_files(&self) -> AsyncStream<PathBuf>
+    fn stream_files(&self) -> impl Stream<Item = PathBuf>
     where
-        PathBuf: ystream::NotResult,
+        PathBuf: Send + 'static,
     {
         let pattern = self.pattern.clone();
         let recursive = self.recursive;
         let filter_fn = self.filter_fn.clone();
 
-        AsyncStream::with_channel(move |sender| {
+        async_stream::spawn_stream(move |tx| async move {
             if let Some(p) = pattern {
                 let glob_pattern = if recursive && !p.contains("**") {
                     format!("**/{}", p)
@@ -163,7 +164,7 @@ impl Loader<PathBuf> for LoaderImpl<PathBuf> {
                             }
                         }
                         
-                        if sender.try_send(path).is_err() {
+                        if tx.send(path).is_err() {
                             break;
                         }
                     }
@@ -175,7 +176,7 @@ impl Loader<PathBuf> for LoaderImpl<PathBuf> {
     fn process_each<F, U>(&self, processor: F) -> AsyncTask<ZeroOneOrMany<U>>
     where
         F: Fn(&PathBuf) -> U + Send + Sync + 'static,
-        U: Send + Sync + fmt::Debug + Clone + 'static + ystream::NotResult,
+        U: Send + Sync + fmt::Debug + Clone + 'static + Send + 'static,
     {
         let load_task = self.load_all();
         ystream::spawn_task(move || {

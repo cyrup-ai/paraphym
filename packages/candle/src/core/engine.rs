@@ -12,11 +12,12 @@ use std::sync::{
 use log::error;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tokio_stream::Stream;
+use crate::async_stream;
 
 use crate::domain::completion::response::CompletionResponse;
 use crate::domain::context::chunk::{CandleCompletionChunk, CandleStringChunk};
 use crate::domain::model::CandleUsage;
-use crate::{AsyncStream, AsyncTask, spawn_task};
 
 /// Parameters for completion execution
 #[derive(Debug, Clone)]
@@ -366,10 +367,10 @@ impl Engine {
     pub fn process_completion(
         &self,
         request: CompletionRequest<'_>,
-    ) -> AsyncTask<EngineResult<CompletionResponse<'static>>> {
+    ) -> tokio::task::JoinHandle<EngineResult<CompletionResponse<'static>>> {
         // Validate request first
         if let Err(e) = request.validate() {
-            return spawn_task(move || Err(e));
+            return tokio::task::spawn_blocking(move || Err(e));
         }
 
         // Atomic operations for metrics (lock-free)
@@ -399,7 +400,7 @@ impl Engine {
 
         // We'll update metrics after the task completes, not during
 
-        spawn_task(move || {
+        tokio::task::spawn_blocking(move || {
             // Create streaming completion and collect first result for backward compatibility
             let _params = CompletionParams {
                 request_id,
@@ -432,9 +433,10 @@ impl Engine {
     /// - Stream conversion from CandleStringChunk to CandleCompletionChunk  
     /// - Error handling and health monitoring
     /// - Performance timing and throughput calculation
-    pub fn coordinate_generation<F>(&self, generation_fn: F) -> AsyncStream<CandleCompletionChunk>
+    pub fn coordinate_generation<F, S>(&self, generation_fn: F) -> impl Stream<Item = CandleCompletionChunk> + use<F, S>
     where
-        F: FnOnce() -> AsyncStream<CandleStringChunk> + Send + 'static,
+        F: FnOnce() -> S + Send + 'static,
+        S: Stream<Item = CandleStringChunk> + Send + 'static,
     {
         // Update metrics atomically
         self.request_count.fetch_add(1, Ordering::Relaxed);
@@ -454,9 +456,10 @@ impl Engine {
     /// - Custom completion logic requiring direct control over chunk types
     ///
     /// This bypasses the text-to-completion conversion and provides metrics tracking only.
-    pub fn coordinate_completion<F>(&self, generation_fn: F) -> AsyncStream<CandleCompletionChunk>
+    pub fn coordinate_completion<F, S>(&self, generation_fn: F) -> impl Stream<Item = CandleCompletionChunk> + use<F, S>
     where
-        F: FnOnce() -> AsyncStream<CandleCompletionChunk> + Send + 'static,
+        F: FnOnce() -> S + Send + 'static,
+        S: Stream<Item = CandleCompletionChunk> + Send + 'static,
     {
         // Update metrics atomically
         self.request_count.fetch_add(1, Ordering::Relaxed);
@@ -470,16 +473,18 @@ impl Engine {
         let completion_stream = generation_fn();
 
         // Pass through with metrics tracking only
-        AsyncStream::with_channel(move |sender| {
+        async_stream::spawn_stream(move |tx| async move {
+            use tokio_stream::StreamExt;
             let mut has_error = false;
+            let mut stream = Box::pin(completion_stream);
 
-            for chunk in completion_stream {
+            while let Some(chunk) = stream.next().await {
                 // Check for error chunks
                 if matches!(chunk, CandleCompletionChunk::Error(_)) {
                     has_error = true;
                 }
 
-                if sender.send(chunk).is_err() {
+                if tx.send(chunk).is_err() {
                     // Client disconnected
                     has_error = true;
                     break;
@@ -497,20 +502,25 @@ impl Engine {
     }
 
     /// Convert TextGenerator output to completion chunks with metrics tracking
-    fn manage_streaming_response(
+    fn manage_streaming_response<S>(
         &self,
-        text_stream: AsyncStream<CandleStringChunk>,
-    ) -> AsyncStream<CandleCompletionChunk> {
+        text_stream: S,
+    ) -> impl Stream<Item = CandleCompletionChunk> + use<S>
+    where
+        S: Stream<Item = CandleStringChunk> + Send + 'static,
+    {
         let active_requests = Arc::clone(&self.active_requests);
         let successful_requests = Arc::clone(&self.successful_requests);
         let failed_requests = Arc::clone(&self.failed_requests);
 
-        AsyncStream::with_channel(move |sender| {
+        async_stream::spawn_stream(move |tx| async move {
+            use tokio_stream::StreamExt;
             let mut token_count = 0u32;
             let mut has_error = false;
+            let mut stream = Box::pin(text_stream);
 
             // Process each chunk from TextGenerator
-            for string_chunk in text_stream {
+            while let Some(string_chunk) = stream.next().await {
                 // Convert CandleStringChunk to CandleCompletionChunk
                 let completion_chunk = match &string_chunk {
                     CandleStringChunk(text) if text.starts_with("ERROR:") => {
@@ -523,7 +533,7 @@ impl Engine {
                     }
                 };
 
-                if sender.send(completion_chunk).is_err() {
+                if tx.send(completion_chunk).is_err() {
                     // Client disconnected
                     has_error = true;
                     break;
@@ -544,7 +554,7 @@ impl Engine {
                     total_tokens: token_count,
                 }),
             };
-            let _ = sender.send(final_chunk);
+            let _ = tx.send(final_chunk);
 
             // Update metrics atomically on completion
             active_requests.fetch_sub(1, Ordering::Relaxed);
@@ -561,11 +571,11 @@ impl Engine {
     pub fn process_completion_stream(
         &self,
         request: CompletionRequest<'_>,
-    ) -> AsyncStream<CompletionResponse<'static>> {
+    ) -> impl Stream<Item = CompletionResponse<'static>> {
         // Validate request first
         if let Err(e) = request.validate() {
-            return AsyncStream::with_channel(move |_sender| {
-                handle_error!(e, "process_completion_stream validation");
+            return async_stream::spawn_stream(move |_tx| async move {
+                log::error!("process_completion_stream validation: {}", e);
             });
         }
 
@@ -594,7 +604,7 @@ impl Engine {
         let tools: Vec<String> = request.tools.iter().map(|s| s.to_string()).collect();
         let metadata = request.metadata.map(|s| s.to_string());
 
-        AsyncStream::with_channel(move |sender| {
+        async_stream::spawn_stream(move |tx| async move {
             let params = CompletionParams {
                 request_id,
                 registry_key,
@@ -622,7 +632,7 @@ impl Engine {
                 generation_time_ms: Some(0),
                 tokens_per_second: Some(0.0),
             };
-            let _ = sender.send(error_response);
+            let _ = tx.send(error_response);
         })
     }
 
@@ -631,7 +641,7 @@ impl Engine {
     pub fn get_completion_stream(
         &self,
         request: CompletionRequest<'_>,
-    ) -> AsyncStream<CompletionResponse<'static>> {
+    ) -> impl Stream<Item = CompletionResponse<'static>> {
         self.process_completion_stream(request)
     }
 

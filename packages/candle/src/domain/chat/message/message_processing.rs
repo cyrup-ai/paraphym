@@ -6,7 +6,8 @@
 // Removed unused import: use crate::error::ZeroAllocResult;
 use thiserror::Error;
 use unicode_normalization::UnicodeNormalization;
-use ystream::AsyncStream;
+use std::pin::Pin;
+use tokio_stream::Stream;
 
 use super::types::CandleMessage;
 
@@ -39,11 +40,11 @@ pub enum SanitizationError {
 /// * `message` - The message to process
 ///
 /// # Returns
-/// Returns an `AsyncStream` that will emit the processed message.
+/// Returns a tokio Stream that will emit the processed message.
 /// The `on_chunk` handler should validate the processed message.
 #[must_use]
-pub fn process_message(message: CandleMessage) -> AsyncStream<CandleMessage> {
-    AsyncStream::with_channel(move |sender| {
+pub fn process_message(message: CandleMessage) -> impl tokio_stream::Stream<Item = CandleMessage> {
+    crate::async_stream::spawn_stream(move |sender| async move {
         let mut processed_message = message;
 
         // Apply security sanitization pipeline to message content
@@ -75,11 +76,11 @@ pub fn process_message(message: CandleMessage) -> AsyncStream<CandleMessage> {
 /// * `message` - The message to validate
 ///
 /// # Returns
-/// Returns an `AsyncStream` that will emit the message if valid.
+/// Returns a tokio Stream that will emit the message if valid.
 /// Invalid messages will be handled by the `on_chunk` error handler.
 #[must_use]
-pub fn validate_message(message: CandleMessage) -> AsyncStream<CandleMessage> {
-    AsyncStream::with_channel(move |sender| {
+pub fn validate_message(message: CandleMessage) -> impl tokio_stream::Stream<Item = CandleMessage> {
+    crate::async_stream::spawn_stream(move |sender| async move {
         // Always emit the message - the `on_chunk` handler decides validation behavior
         let _ = sender.send(message);
     })

@@ -8,7 +8,8 @@ use std::time::Instant;
 
 use crossbeam_utils::CachePadded;
 use mime_guess::from_ext;
-use ystream::AsyncStream;
+use std::pin::Pin;
+use tokio_stream::Stream;
 
 use super::parsing::CommandParser;
 use super::types::actions::SearchScope;

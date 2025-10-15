@@ -8,7 +8,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use cyrup_sugars::prelude::MessageChunk;
 use thiserror::Error;
-use ystream::{AsyncStream, AsyncStreamSender};
+use std::pin::Pin;
+use tokio_stream::Stream;
+use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use crate::domain::chat::message::types::CandleMessageRole;
 use crate::domain::util::unix_timestamp_nanos;
@@ -157,7 +159,7 @@ pub struct CandleStreamingConversation {
     /// System message count (atomic)
     system_messages: AtomicUsize,
     /// Event stream sender
-    event_sender: Option<AsyncStreamSender<CandleConversationEvent>>,
+    event_sender: Option<tokio::sync::mpsc::UnboundedSender<CandleConversationEvent>>,
 }
 
 impl std::fmt::Debug for CandleStreamingConversation {
@@ -218,15 +220,15 @@ impl CandleStreamingConversation {
     /// Create Candle conversation with event streaming
     #[inline]
     #[must_use]
-    pub fn with_streaming() -> (Self, AsyncStream<CandleConversationEvent>) {
-        let (sender, stream) = AsyncStream::channel();
+    pub fn with_streaming() -> (Self, Pin<Box<dyn Stream<Item = CandleConversationEvent> + Send>>) {
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
 
         let conversation = Self {
             event_sender: Some(sender),
             ..Self::new()
         };
 
-        (conversation, stream)
+        (conversation, Box::pin(UnboundedReceiverStream::new(receiver)))
     }
 
     /// Add Candle user message (creates new immutable message)

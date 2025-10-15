@@ -10,9 +10,9 @@ use std::time::{Duration, Instant};
 
 use ahash::RandomState;
 use arc_swap::ArcSwap;
-use crossbeam_channel::{Receiver, Sender, unbounded};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
+use tokio::sync::broadcast;
 use uuid::Uuid;
 
 use super::events::{ConnectionStatus, RealTimeEvent};
@@ -185,10 +185,8 @@ pub struct ConnectionManager {
     heartbeat_timeout: u64,
     /// Health check interval in seconds
     health_check_interval: u64,
-    /// Event sender for connection events
-    event_sender: Sender<RealTimeEvent>,
-    /// Event receiver for connection events
-    event_receiver: Receiver<RealTimeEvent>,
+    /// Event sender for connection events (broadcast for pub-sub pattern)
+    event_sender: broadcast::Sender<RealTimeEvent>,
     /// Whether the health check task is running
     health_check_running: Arc<AtomicBool>,
     /// Total connections handled
@@ -205,14 +203,14 @@ impl ConnectionManager {
     /// Create a new connection manager
     #[must_use]
     pub fn new(heartbeat_timeout: u64, health_check_interval: u64) -> Self {
-        let (event_sender, event_receiver) = unbounded();
+        // Create broadcast channel with capacity of 100 for connection events
+        let (event_sender, _) = broadcast::channel(100);
 
         Self {
             connections: Arc::new(DashMap::with_hasher(RandomState::default())),
             heartbeat_timeout,
             health_check_interval,
             event_sender,
-            event_receiver,
             health_check_running: Arc::new(AtomicBool::new(false)),
             total_connections: AtomicUsize::new(0),
             active_connections: Arc::new(AtomicUsize::new(0)),
@@ -394,8 +392,8 @@ impl ConnectionManager {
     }
 
     /// Subscribe to connection events
-    pub fn subscribe(&self) -> Receiver<RealTimeEvent> {
-        self.event_receiver.clone()
+    pub fn subscribe(&self) -> broadcast::Receiver<RealTimeEvent> {
+        self.event_sender.subscribe()
     }
 }
 

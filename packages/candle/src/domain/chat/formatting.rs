@@ -11,7 +11,8 @@ use std::time::Duration;
 use cyrup_sugars::prelude::MessageChunk;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use ystream::{AsyncStream, AsyncStreamSender};
+use std::pin::Pin;
+use tokio_stream::Stream;
 
 use crate::domain::util::unix_timestamp_nanos;
 
@@ -805,7 +806,7 @@ pub struct StreamingMessageFormatter {
     /// Failed operations (atomic)
     failed_operations: AtomicU64,
     /// Event stream sender
-    event_sender: Option<AsyncStreamSender<FormattingEvent>>,
+    event_sender: Option<tokio::sync::mpsc::UnboundedSender<FormattingEvent>>,
     /// Formatter configuration
     options: ImmutableFormatOptions,
 }
@@ -877,11 +878,11 @@ impl StreamingMessageFormatter {
     #[inline]
     pub fn with_streaming(
         options: ImmutableFormatOptions,
-    ) -> FormatResult<(Self, AsyncStream<FormattingEvent>)> {
+    ) -> FormatResult<(Self, Pin<Box<dyn Stream<Item = FormattingEvent> + Send>>)> {
         options.validate()?;
-        let stream = AsyncStream::with_channel(|_sender| {
+        let stream = Box::pin(crate::async_stream::spawn_stream(|_sender| async move {
             // Stream is created but not used directly
-        });
+        }));
         let formatter = Self {
             content_counter: AtomicU64::new(0),
             active_operations: AtomicUsize::new(0),

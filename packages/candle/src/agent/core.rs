@@ -1,11 +1,12 @@
 //! Core agent data structures with automatic memory tool injection
-//! Uses AsyncStream patterns exclusively - NO FUTURES
+//! Uses tokio Stream patterns exclusively
 
 use std::sync::{Arc, atomic::AtomicUsize};
 
 use crossbeam_utils::CachePadded;
 use serde_json::Value;
-use ystream::AsyncStream;
+use std::pin::Pin;
+use tokio_stream::Stream;
 
 use cyrup_sugars::ZeroOneOrMany;
 use crate::context::Document;
@@ -76,10 +77,10 @@ impl Agent {
     pub fn new(
         model: &'static dyn CandleModel,
         system_prompt: impl Into<String>,
-    ) -> AsyncStream<Self> {
+    ) -> Pin<Box<dyn Stream<Item = Self> + Send>> {
         let system_prompt = system_prompt.into();
         
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Initialize memory system with cognitive settings optimized for performance
             let comprehensive_config = ComprehensiveMemoryConfig::default();
             // Convert comprehensive config to Memory::new() format
@@ -105,9 +106,9 @@ impl Agent {
                     max_tokens: None,
                     additional_params: None};
                     
-                let _ = sender.send(agent);
+                let _ = tx.send(agent);
             }
-        })
+        }))
     }
 
     /// Create a new agent with custom memory configuration
@@ -127,10 +128,10 @@ impl Agent {
         model: &'static dyn CandleModel,
         system_prompt: impl Into<String>,
         memory_config: ComprehensiveMemoryConfig,
-    ) -> AsyncStream<Self> {
+    ) -> Pin<Box<dyn Stream<Item = Self> + Send>> {
         let system_prompt = system_prompt.into();
         
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Initialize memory system with custom configuration
             // Convert comprehensive config to Memory::new() format
             let memory_cfg = MemoryConfig {
@@ -155,9 +156,9 @@ impl Agent {
                     max_tokens: None,
                     additional_params: None};
                     
-                let _ = sender.send(agent);
+                let _ = tx.send(agent);
             }
-        })
+        }))
     }
 
     /// Create a new agent with shared memory instance
@@ -177,10 +178,10 @@ impl Agent {
         model: &'static dyn CandleModel,
         system_prompt: impl Into<String>,
         memory: Memory,
-    ) -> AsyncStream<Self> {
+    ) -> Pin<Box<dyn Stream<Item = Self> + Send>> {
         let system_prompt = system_prompt.into();
         
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Create memory tool with zero-allocation initialization
             let memory_arc = Arc::new(memory);
             let memory_tool = MemoryTool::new(memory_arc.clone());
@@ -196,8 +197,8 @@ impl Agent {
                 max_tokens: None,
                 additional_params: None};
                 
-            let _ = sender.send(agent);
-        })
+            let _ = tx.send(agent);
+        }))
     }
 
     /// Get memory tool reference for direct access

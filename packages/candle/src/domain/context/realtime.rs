@@ -4,10 +4,10 @@
 //! when files change on disk. Uses the `notify` crate for cross-platform file
 //! system event monitoring.
 
-use crossbeam_channel::{Receiver, Sender, bounded};
 use log::{debug, error};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::PathBuf;
+use tokio::sync::mpsc;
 
 /// Events representing file system changes
 #[derive(Debug, Clone)]
@@ -24,15 +24,15 @@ pub enum ContextUpdateEvent {
 pub struct RealtimeContextProvider {
     watcher: Option<RecommendedWatcher>,
     watched_paths: Vec<PathBuf>,
-    event_tx: Sender<ContextUpdateEvent>,
-    event_rx: Receiver<ContextUpdateEvent>,
+    event_tx: mpsc::UnboundedSender<ContextUpdateEvent>,
+    event_rx: mpsc::UnboundedReceiver<ContextUpdateEvent>,
 }
 
 impl RealtimeContextProvider {
     /// Create a new realtime context provider
     #[must_use]
     pub fn new() -> Self {
-        let (event_tx, event_rx) = bounded(100);
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
         Self {
             watcher: None,
             watched_paths: Vec::new(),
@@ -101,14 +101,17 @@ impl RealtimeContextProvider {
     ///
     /// # Returns
     /// A `JoinHandle` for the background task, allowing graceful shutdown
-    pub fn start_event_loop<F>(&self, on_update: F) -> tokio::task::JoinHandle<()>
+    pub fn start_event_loop<F>(&mut self, on_update: F) -> tokio::task::JoinHandle<()>
     where
         F: Fn(ContextUpdateEvent) + Send + 'static,
     {
-        let rx = self.event_rx.clone();
+        // Take ownership of the receiver to move it into the spawned task
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        std::mem::swap(&mut self.event_rx, &mut rx);
+        self.event_tx = tx;
 
         tokio::spawn(async move {
-            while let Ok(event) = rx.recv() {
+            while let Some(event) = rx.recv().await {
                 debug!("Context update event: {event:?}");
                 on_update(event);
             }

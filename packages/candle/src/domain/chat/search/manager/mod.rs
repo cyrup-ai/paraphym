@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use crossbeam_skiplist::SkipMap;
-use ystream::AsyncStream;
+use std::pin::Pin;
+use tokio_stream::Stream;
 
 use super::{SearchQuery as CandleSearchQuery, SearchResult as CandleSearchResult};
 use crate::domain::chat::message::CandleSearchChatMessage;
@@ -47,7 +48,7 @@ impl CandleEnhancedHistoryManager {
     pub fn add_message_stream(
         &self,
         message: &CandleSearchChatMessage,
-    ) -> AsyncStream<super::types::IndexOperationResult> {
+    ) -> Pin<Box<dyn Stream<Item = super::types::IndexOperationResult> + Send>> {
         let message_id = message.message.id.clone();
         let timestamp = message.message.timestamp;
         let message_clone = message.clone();
@@ -55,7 +56,7 @@ impl CandleEnhancedHistoryManager {
         let message_timestamps = Arc::clone(&self.message_timestamps);
         let search_index: Arc<super::index::ChatSearchIndex> = Arc::clone(&self.search_index);
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Add to message store - only if message_id is present
             if let Some(id) = message_id.clone() {
                 messages.insert(id.clone(), message_clone.clone());
@@ -79,8 +80,8 @@ impl CandleEnhancedHistoryManager {
                 duration_ms: 0.0, // Could measure duration if needed
                 error: None,
             };
-            let _ = sender.try_send(result);
-        })
+            let _ = tx.send(result);
+        }))
     }
 
     /// Search messages (streaming)
@@ -88,7 +89,7 @@ impl CandleEnhancedHistoryManager {
     pub fn search_messages_stream(
         &self,
         query: &CandleSearchQuery,
-    ) -> AsyncStream<CandleSearchResult> {
+    ) -> Pin<Box<dyn Stream<Item = CandleSearchResult> + Send>> {
         let search_index = Arc::clone(&self.search_index);
         let query_clone = query.clone();
 

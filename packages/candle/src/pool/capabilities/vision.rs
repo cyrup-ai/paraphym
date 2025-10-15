@@ -1,10 +1,10 @@
-use crossbeam::channel::{Receiver, Sender, bounded};
-use crossbeam::select;
 use once_cell::sync::Lazy;
+use tokio::sync::{mpsc, oneshot};
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use ystream::{AsyncStream, spawn_stream};
+use tokio_stream::Stream;
 
 use crate::capability::traits::VisionCapable;
 use crate::domain::context::CandleStringChunk;
@@ -16,22 +16,22 @@ use crate::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
 pub struct DescribeImageRequest {
     pub image_path: String,
     pub query: String,
-    pub response: Sender<Result<AsyncStream<CandleStringChunk>, PoolError>>,
+    pub response: oneshot::Sender<Result<Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>>, PoolError>>,
 }
 
 /// Request for describe_url() operation (streaming response)
 pub struct DescribeUrlRequest {
     pub url: String,
     pub query: String,
-    pub response: Sender<Result<AsyncStream<CandleStringChunk>, PoolError>>,
+    pub response: oneshot::Sender<Result<Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>>, PoolError>>,
 }
 
 /// Vision-specific worker handle with channels
 pub struct VisionWorkerHandle {
     pub core: WorkerHandle,
-    pub describe_image_tx: Sender<DescribeImageRequest>,
-    pub describe_url_tx: Sender<DescribeUrlRequest>,
-    pub shutdown_tx: Sender<()>,
+    pub describe_image_tx: mpsc::UnboundedSender<DescribeImageRequest>,
+    pub describe_url_tx: mpsc::UnboundedSender<DescribeUrlRequest>,
+    pub shutdown_tx: mpsc::UnboundedSender<()>,
     pub registry_key: String, // Added to enable cleanup on drop
 }
 
@@ -59,11 +59,11 @@ impl std::ops::Deref for VisionWorkerHandle {
 
 /// Channels used by vision worker
 pub struct VisionWorkerChannels {
-    pub describe_image_rx: Receiver<DescribeImageRequest>,
-    pub describe_url_rx: Receiver<DescribeUrlRequest>,
-    pub shutdown_rx: Receiver<()>,
-    pub health_rx: Receiver<HealthPing>,
-    pub health_tx: Sender<HealthPong>,
+    pub describe_image_rx: mpsc::UnboundedReceiver<DescribeImageRequest>,
+    pub describe_url_rx: mpsc::UnboundedReceiver<DescribeUrlRequest>,
+    pub shutdown_rx: mpsc::UnboundedReceiver<()>,
+    pub health_rx: mpsc::UnboundedReceiver<HealthPing>,
+    pub health_tx: mpsc::UnboundedSender<HealthPong>,
 }
 
 /// Context for vision worker
@@ -75,9 +75,9 @@ pub struct VisionWorkerContext {
 /// Worker loop for Vision models
 ///
 /// Processes streaming requests. Worker calls trait method which
-/// returns AsyncStream<CandleStringChunk>. Stream is sent back to caller
+/// returns Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>>. Stream is sent back to caller
 /// who forwards chunks to end user.
-pub fn vision_worker<T: VisionCapable>(
+pub async fn vision_worker<T: VisionCapable>(
     model: T,
     channels: VisionWorkerChannels,
     context: VisionWorkerContext,
@@ -87,10 +87,10 @@ pub fn vision_worker<T: VisionCapable>(
 
     // Destructure channels and context
     let VisionWorkerChannels {
-        describe_image_rx,
-        describe_url_rx,
-        shutdown_rx,
-        health_rx,
+        mut describe_image_rx,
+        mut describe_url_rx,
+        mut shutdown_rx,
+        mut health_rx,
         health_tx,
     } = channels;
     let VisionWorkerContext { worker_id, state } = context;
@@ -113,50 +113,44 @@ pub fn vision_worker<T: VisionCapable>(
             }
         }
 
-        select! {
-            recv(describe_image_rx) -> req => {
-                if let Ok(req) = req {
-                    // Transition: Ready/Idle → Processing
-                    state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
+        tokio::select! {
+            Some(req) = describe_image_rx.recv() => {
+                // Transition: Ready/Idle → Processing
+                state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
 
-                    let stream = model.describe_image(&req.image_path, &req.query);
-                    let _ = req.response.send(Ok(stream));
+                let stream = model.describe_image(&req.image_path, &req.query);
+                let _ = req.response.send(Ok(stream));
 
-                    // Transition: Processing → Ready
-                    state.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
-                    last_activity = SystemTime::now();
-                }
+                // Transition: Processing → Ready
+                state.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
+                last_activity = SystemTime::now();
             }
-            recv(describe_url_rx) -> req => {
-                if let Ok(req) = req {
-                    // Transition: Ready/Idle → Processing
-                    state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
+            Some(req) = describe_url_rx.recv() => {
+                // Transition: Ready/Idle → Processing
+                state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
 
-                    let stream = model.describe_url(&req.url, &req.query);
-                    let _ = req.response.send(Ok(stream));
+                let stream = model.describe_url(&req.url, &req.query);
+                let _ = req.response.send(Ok(stream));
 
-                    // Transition: Processing → Ready
-                    state.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
-                    last_activity = SystemTime::now();
-                }
+                // Transition: Processing → Ready
+                state.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
+                last_activity = SystemTime::now();
             }
-            recv(health_rx) -> ping => {
-                if ping.is_ok() {
-                    let now = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .map(|d| d.as_secs())
-                        .unwrap_or(0);
+            Some(_ping) = health_rx.recv() => {
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
 
-                    let pong = HealthPong {
-                        worker_id,
-                        timestamp: now,
-                        queue_depth: describe_image_rx.len() + describe_url_rx.len(),
-                    };
+                let pong = HealthPong {
+                    worker_id,
+                    timestamp: now,
+                    queue_depth: 0, // Note: tokio mpsc doesn't expose len()
+                };
 
-                    let _ = health_tx.send(pong);
-                }
+                let _ = health_tx.send(pong);
             }
-            recv(shutdown_rx) -> _ => {
+            Some(_) = shutdown_rx.recv() => {
                 log::info!("Vision worker {} shutting down", worker_id);
                 // Transition: Ready/Idle → Evicting
                 state.store(WorkerState::Evicting as u32, std::sync::atomic::Ordering::Release);
@@ -187,20 +181,16 @@ impl Pool<VisionWorkerHandle> {
         T: VisionCapable + Send + 'static,
         F: FnOnce() -> Result<T, PoolError> + Send + 'static,
     {
-        // Create BOUNDED channels (prevent OOM)
-        let (describe_image_tx, describe_image_rx) = bounded(self.config().vision_queue_capacity);
-        let (describe_url_tx, describe_url_rx) = bounded(self.config().vision_queue_capacity);
-        let (shutdown_tx, shutdown_rx) = bounded(1);
-        let (health_tx_worker, health_rx_worker) = bounded::<HealthPing>(1);
-        let (health_tx_main, health_rx_main) = bounded::<HealthPong>(1);
+        // Create unbounded channels for worker communication
+        let (describe_image_tx, describe_image_rx) = mpsc::unbounded_channel();
+        let (describe_url_tx, describe_url_rx) = mpsc::unbounded_channel();
+        let (shutdown_tx, shutdown_rx) = mpsc::unbounded_channel();
+        let (health_tx_main, health_rx_worker) = mpsc::unbounded_channel();
+        let (health_tx_worker, health_rx_main) = mpsc::unbounded_channel();
 
         // Get worker ID before moving into thread
         let worker_id = self.next_worker_id();
         let registry_key_clone = registry_key.to_string();
-
-        // Clone channels for worker thread
-        let health_rx_worker_clone = health_rx_worker.clone();
-        let health_tx_main_clone = health_tx_main.clone();
         let per_worker_mb_clone = per_worker_mb;
 
         // Create state before spawning thread so we can clone it
@@ -208,11 +198,11 @@ impl Pool<VisionWorkerHandle> {
         let state = Arc::new(AtomicU32::new(0)); // Spawning state
         let state_clone = Arc::clone(&state);
 
-        // Spawn worker thread
-        std::thread::spawn(move || {
+        // Spawn worker task
+        tokio::spawn(async move {
             use crate::pool::core::worker_state::WorkerState;
 
-            // Guard held by worker thread - will drop on exit
+            // Guard held by worker task - will drop on exit
             let _memory_guard = allocation_guard;
 
             // Transition: Spawning → Loading
@@ -253,14 +243,14 @@ impl Pool<VisionWorkerHandle> {
                     describe_image_rx,
                     describe_url_rx,
                     shutdown_rx,
-                    health_rx: health_rx_worker_clone,
-                    health_tx: health_tx_main_clone,
+                    health_rx: health_rx_worker,
+                    health_tx: health_tx_worker,
                 },
                 VisionWorkerContext {
                     worker_id,
                     state: Arc::clone(&state_clone),
                 },
-            );
+            ).await;
 
             // Transition: Ready → Dead (when worker loop exits)
             state_clone.store(
@@ -286,8 +276,8 @@ impl Pool<VisionWorkerHandle> {
                 worker_id,
                 shutdown_tx: shutdown_tx.clone(),
                 per_worker_mb,
-                health_tx: health_tx_worker,
-                health_rx: health_rx_main,
+                health_tx: health_tx_main,
+                health_rx: Arc::new(tokio::sync::Mutex::new(health_rx_main)),
                 state,
             },
             describe_image_tx,
@@ -305,13 +295,13 @@ impl Pool<VisionWorkerHandle> {
         Ok(())
     }
 
-    /// Describe image using pooled worker (returns AsyncStream)
+    /// Describe image using pooled worker (returns tokio Stream)
     pub fn describe_image(
         &self,
         registry_key: &str,
         image_path: &str,
         query: &str,
-    ) -> AsyncStream<CandleStringChunk> {
+    ) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
         // Clone for move into closure
         let registry_key = registry_key.to_string();
         let image_path = image_path.to_string();
@@ -319,10 +309,10 @@ impl Pool<VisionWorkerHandle> {
         let is_shutting_down = self.is_shutting_down();
         let request_timeout_secs = self.config().request_timeout_secs;
 
-        spawn_stream(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Check shutdown
             if is_shutting_down {
-                ystream::emit!(sender, CandleStringChunk("Pool shutting down".to_string()));
+                let _ = tx.send(CandleStringChunk("Pool shutting down".to_string()));
                 return;
             }
 
@@ -331,10 +321,7 @@ impl Pool<VisionWorkerHandle> {
             let circuit = pool.get_circuit_breaker(&registry_key);
 
             if !circuit.can_request() {
-                ystream::emit!(
-                    sender,
-                    CandleStringChunk(format!("Circuit breaker open for {}", registry_key))
-                );
+                let _ = tx.send(CandleStringChunk(format!("Circuit breaker open for {}", registry_key)));
                 // Update metrics
                 pool.metrics()
                     .circuit_rejections
@@ -346,19 +333,13 @@ impl Pool<VisionWorkerHandle> {
             let workers = match pool.workers().get(&registry_key) {
                 Some(w) => w,
                 None => {
-                    ystream::emit!(
-                        sender,
-                        CandleStringChunk(format!("No workers for {}", registry_key))
-                    );
+                    let _ = tx.send(CandleStringChunk(format!("No workers for {}", registry_key)));
                     return;
                 }
             };
 
             if workers.is_empty() {
-                ystream::emit!(
-                    sender,
-                    CandleStringChunk("No workers available".to_string())
-                );
+                let _ = tx.send(CandleStringChunk("No workers available".to_string()));
                 return;
             }
 
@@ -368,10 +349,7 @@ impl Pool<VisionWorkerHandle> {
             let worker = match select_worker_power_of_two(&alive_workers, |w| &w.core) {
                 Some(w) => w,
                 None => {
-                    ystream::emit!(
-                        sender,
-                        CandleStringChunk(format!("No alive workers for {}", registry_key))
-                    );
+                    let _ = tx.send(CandleStringChunk(format!("No alive workers for {}", registry_key)));
                     return;
                 }
             };
@@ -381,68 +359,75 @@ impl Pool<VisionWorkerHandle> {
             worker.core.touch();
 
             // Send request to worker
-            let (response_tx, response_rx) = crossbeam::channel::bounded(1);
+            let (response_tx, response_rx) = oneshot::channel();
             if let Err(e) = worker.describe_image_tx.send(DescribeImageRequest {
                 image_path,
                 query,
                 response: response_tx,
             }) {
-                ystream::emit!(
-                    sender,
-                    CandleStringChunk(format!("Failed to send request: {}", e))
-                );
+                let _ = tx.send(CandleStringChunk(format!("Failed to send request: {}", e)));
                 worker.core.pending_requests.fetch_sub(1, Ordering::Release);
                 return;
             }
 
-            // Wait for worker's AsyncStream with timeout
+            // Wait for worker's stream with timeout
             let timeout = Duration::from_secs(request_timeout_secs);
-            let worker_stream = match response_rx.recv_timeout(timeout) {
-                Ok(Ok(stream)) => {
-                    // Record success on circuit breaker
+            let mut worker_stream = match tokio::time::timeout(timeout, response_rx).await {
+                Ok(Ok(Ok(stream))) => {
+                    // timeout Ok, recv Ok, result Ok
                     circuit.record_success();
                     stream
                 }
-                Ok(Err(e)) => {
-                    // Record failure on circuit breaker
+                Ok(Ok(Err(e))) => {
+                    // timeout Ok, recv Ok, result Err
                     circuit.record_failure();
                     pool.metrics().total_errors.fetch_add(1, Ordering::Relaxed);
 
-                    ystream::emit!(sender, CandleStringChunk(format!("Worker error: {}", e)));
+                    let _ = tx.send(CandleStringChunk(format!("Worker error: {}", e)));
                     worker.core.pending_requests.fetch_sub(1, Ordering::Release);
                     return;
                 }
-                Err(e) => {
-                    // Record timeout as failure
+                Ok(Err(_)) => {
+                    // timeout Ok, recv Err (channel closed)
+                    circuit.record_failure();
+                    pool.metrics().total_errors.fetch_add(1, Ordering::Relaxed);
+
+                    let _ = tx.send(CandleStringChunk("Response channel closed".to_string()));
+                    worker.core.pending_requests.fetch_sub(1, Ordering::Release);
+                    return;
+                }
+                Err(_) => {
+                    // timeout Err
                     circuit.record_failure();
                     pool.metrics()
                         .total_timeouts
                         .fetch_add(1, Ordering::Relaxed);
 
-                    ystream::emit!(sender, CandleStringChunk(format!("Request timeout: {}", e)));
+                    let _ = tx.send(CandleStringChunk("Request timeout".to_string()));
                     worker.core.pending_requests.fetch_sub(1, Ordering::Release);
                     return;
                 }
             };
 
             // Forward chunks from worker stream to caller as they arrive
-            // We're already in a background thread, so blocking iteration is fine
-            // into_iter() gives us blocking iteration over the stream
-            for chunk in worker_stream {
-                ystream::emit!(sender, chunk);
+            use tokio_stream::StreamExt;
+            while let Some(chunk) = worker_stream.next().await {
+                if tx.send(chunk).is_err() {
+                    break;
+                }
             }
 
             worker.core.pending_requests.fetch_sub(1, Ordering::Release);
-        })
+        }))
     }
 
-    /// Describe image from URL using pooled worker (returns AsyncStream)
+    /// Describe image from URL using pooled worker (returns tokio Stream)
     pub fn describe_url(
         &self,
         registry_key: &str,
         url: &str,
         query: &str,
-    ) -> AsyncStream<CandleStringChunk> {
+    ) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
         // Clone for move into closure
         let registry_key = registry_key.to_string();
         let url = url.to_string();
@@ -450,10 +435,10 @@ impl Pool<VisionWorkerHandle> {
         let is_shutting_down = self.is_shutting_down();
         let request_timeout_secs = self.config().request_timeout_secs;
 
-        spawn_stream(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Check shutdown
             if is_shutting_down {
-                ystream::emit!(sender, CandleStringChunk("Pool shutting down".to_string()));
+                let _ = tx.send(CandleStringChunk("Pool shutting down".to_string()));
                 return;
             }
 
@@ -462,10 +447,7 @@ impl Pool<VisionWorkerHandle> {
             let circuit = pool.get_circuit_breaker(&registry_key);
 
             if !circuit.can_request() {
-                ystream::emit!(
-                    sender,
-                    CandleStringChunk(format!("Circuit breaker open for {}", registry_key))
-                );
+                let _ = tx.send(CandleStringChunk(format!("Circuit breaker open for {}", registry_key)));
                 // Update metrics
                 pool.metrics()
                     .circuit_rejections
@@ -477,19 +459,13 @@ impl Pool<VisionWorkerHandle> {
             let workers = match pool.workers().get(&registry_key) {
                 Some(w) => w,
                 None => {
-                    ystream::emit!(
-                        sender,
-                        CandleStringChunk(format!("No workers for {}", registry_key))
-                    );
+                    let _ = tx.send(CandleStringChunk(format!("No workers for {}", registry_key)));
                     return;
                 }
             };
 
             if workers.is_empty() {
-                ystream::emit!(
-                    sender,
-                    CandleStringChunk("No workers available".to_string())
-                );
+                let _ = tx.send(CandleStringChunk("No workers available".to_string()));
                 return;
             }
 
@@ -499,10 +475,7 @@ impl Pool<VisionWorkerHandle> {
             let worker = match select_worker_power_of_two(&alive_workers, |w| &w.core) {
                 Some(w) => w,
                 None => {
-                    ystream::emit!(
-                        sender,
-                        CandleStringChunk(format!("No alive workers for {}", registry_key))
-                    );
+                    let _ = tx.send(CandleStringChunk(format!("No alive workers for {}", registry_key)));
                     return;
                 }
             };
@@ -512,58 +485,65 @@ impl Pool<VisionWorkerHandle> {
             worker.core.touch();
 
             // Send request to worker
-            let (response_tx, response_rx) = crossbeam::channel::bounded(1);
+            let (response_tx, response_rx) = oneshot::channel();
             if let Err(e) = worker.describe_url_tx.send(DescribeUrlRequest {
                 url,
                 query,
                 response: response_tx,
             }) {
-                ystream::emit!(
-                    sender,
-                    CandleStringChunk(format!("Failed to send request: {}", e))
-                );
+                let _ = tx.send(CandleStringChunk(format!("Failed to send request: {}", e)));
                 worker.core.pending_requests.fetch_sub(1, Ordering::Release);
                 return;
             }
 
-            // Wait for worker's AsyncStream with timeout
+            // Wait for worker's stream with timeout
             let timeout = Duration::from_secs(request_timeout_secs);
-            let worker_stream = match response_rx.recv_timeout(timeout) {
-                Ok(Ok(stream)) => {
-                    // Record success on circuit breaker
+            let mut worker_stream = match tokio::time::timeout(timeout, response_rx).await {
+                Ok(Ok(Ok(stream))) => {
+                    // timeout Ok, recv Ok, result Ok
                     circuit.record_success();
                     stream
                 }
-                Ok(Err(e)) => {
-                    // Record failure on circuit breaker
+                Ok(Ok(Err(e))) => {
+                    // timeout Ok, recv Ok, result Err
                     circuit.record_failure();
                     pool.metrics().total_errors.fetch_add(1, Ordering::Relaxed);
 
-                    ystream::emit!(sender, CandleStringChunk(format!("Worker error: {}", e)));
+                    let _ = tx.send(CandleStringChunk(format!("Worker error: {}", e)));
                     worker.core.pending_requests.fetch_sub(1, Ordering::Release);
                     return;
                 }
-                Err(e) => {
-                    // Record timeout as failure
+                Ok(Err(_)) => {
+                    // timeout Ok, recv Err (channel closed)
+                    circuit.record_failure();
+                    pool.metrics().total_errors.fetch_add(1, Ordering::Relaxed);
+
+                    let _ = tx.send(CandleStringChunk("Response channel closed".to_string()));
+                    worker.core.pending_requests.fetch_sub(1, Ordering::Release);
+                    return;
+                }
+                Err(_) => {
+                    // timeout Err
                     circuit.record_failure();
                     pool.metrics()
                         .total_timeouts
                         .fetch_add(1, Ordering::Relaxed);
 
-                    ystream::emit!(sender, CandleStringChunk(format!("Request timeout: {}", e)));
+                    let _ = tx.send(CandleStringChunk("Request timeout".to_string()));
                     worker.core.pending_requests.fetch_sub(1, Ordering::Release);
                     return;
                 }
             };
 
             // Forward chunks from worker stream to caller as they arrive
-            // We're already in a background thread, so blocking iteration is fine
-            // into_iter() gives us blocking iteration over the stream
-            for chunk in worker_stream {
-                ystream::emit!(sender, chunk);
+            use tokio_stream::StreamExt;
+            while let Some(chunk) = worker_stream.next().await {
+                if tx.send(chunk).is_err() {
+                    break;
+                }
             }
 
             worker.core.pending_requests.fetch_sub(1, Ordering::Release);
-        })
+        }))
     }
 }

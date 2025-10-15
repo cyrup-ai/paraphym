@@ -12,7 +12,8 @@ use atomic_counter::{AtomicCounter, ConsistentCounter};
 use crossbeam_skiplist::SkipMap;
 use cyrup_sugars::prelude::MessageChunk;
 use serde::{Deserialize, Serialize};
-use ystream::AsyncStream;
+use std::pin::Pin;
+use tokio_stream::Stream;
 
 use super::types::{IndexEntry, SearchError, SearchStatistics, TermFrequency};
 use crate::domain::chat::message::CandleSearchChatMessage as SearchChatMessage;
@@ -147,10 +148,10 @@ impl ChatSearchIndex {
     }
 
     /// Add message to search index (streaming)
-    pub fn add_message_stream(&self, message: SearchChatMessage) -> AsyncStream<IndexResult> {
+    pub fn add_message_stream(&self, message: SearchChatMessage) -> Pin<Box<dyn Stream<Item = IndexResult> + Send>> {
         let self_clone = self.clone();
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             let index = self_clone.document_count.load(Ordering::Relaxed);
             let doc_id = message
                 .message
@@ -220,8 +221,8 @@ impl ChatSearchIndex {
                 terms_indexed: tokens.len(),
                 error_message: None,
             };
-            let _ = sender.send(result);
-        })
+            let _ = tx.send(result);
+        }))
     }
 
     /// Add message to search index (legacy future-compatible method)

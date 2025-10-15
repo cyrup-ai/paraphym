@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use dashmap::DashMap;
-use crossbeam::channel::{bounded, unbounded, Sender, Receiver};
 use parking_lot::RwLock;
+use tokio::sync::mpsc;
 use tracing::{info, warn, error, instrument, span, Level};
 use prometheus::core::{Collector, Desc};
 
@@ -203,13 +203,13 @@ impl<Req: Send + 'static, Resp: Send + 'static> WorkerOrchestrator<Req, Resp> {
         
         let worker_id = self.next_worker_id.fetch_add(1, Ordering::Relaxed);
         
-        // Create channels with bounded capacity
-        let (request_tx, request_rx) = bounded(100);
-        let (priority_tx, priority_rx) = bounded(10);
-        let (response_tx, response_rx) = bounded(100);
-        let (shutdown_tx, shutdown_rx) = unbounded();
-        let (health_tx, health_rx) = bounded(1);
-        let (health_status_tx, health_status_rx) = bounded(1);
+        // Create channels with tokio mpsc
+        let (request_tx, request_rx) = mpsc::unbounded_channel();
+        let (priority_tx, priority_rx) = mpsc::unbounded_channel();
+        let (response_tx, response_rx) = mpsc::unbounded_channel();
+        let (shutdown_tx, shutdown_rx) = mpsc::unbounded_channel();
+        let (health_tx, health_rx) = mpsc::unbounded_channel();
+        let (health_status_tx, health_status_rx) = mpsc::unbounded_channel();
         
         // Create worker handle
         let worker = Arc::new(UnifiedWorkerHandle {

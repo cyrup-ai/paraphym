@@ -1,7 +1,7 @@
 //! Typing indicator system with lock-free atomic operations
 //!
 //! This module provides zero-allocation typing state management using atomic operations,
-//! crossbeam-skiplist for concurrent access, and `AsyncStream` integration for blazing-fast
+//! crossbeam-skiplist for concurrent access, and tokio Stream integration for blazing-fast
 //! performance without any locking mechanisms.
 
 use std::sync::Arc;
@@ -13,7 +13,8 @@ use crossbeam_skiplist::SkipMap;
 use cyrup_sugars::prelude::MessageChunk;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
-use ystream::{AsyncStream, emit};
+use std::pin::Pin;
+use tokio_stream::Stream;
 
 use crate::domain::context::chunk::CandleCollectionChunk;
 use crate::domain::util::unix_timestamp_nanos;
@@ -214,14 +215,14 @@ impl TypingIndicator {
 
     /// Start typing indicator with zero-allocation key generation
     #[must_use]
-    pub fn start_typing(&self, user_id: String, session_id: String) -> AsyncStream<RealTimeEvent> {
+    pub fn start_typing(&self, user_id: String, session_id: String) -> Pin<Box<dyn Stream<Item = RealTimeEvent> + Send>> {
         let key = format!("{user_id}:{session_id}");
         let typing_states = self.typing_states.clone();
         let event_broadcaster = self.event_broadcaster.clone();
         let active_users = self.active_users.clone();
         let typing_events = self.typing_events.clone();
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Get or create typing state
             let typing_state = if let Some(existing) = typing_states.get(&key) {
                 existing.value().clone()
@@ -239,19 +240,19 @@ impl TypingIndicator {
             // Create and broadcast event
             let event = RealTimeEvent::typing_started(user_id, session_id);
             let _ = event_broadcaster.send(event.clone());
-            emit!(sender, event);
-        })
+            let _ = tx.send(event);
+        }))
     }
 
     /// Stop typing indicator with event emission
     #[must_use]
-    pub fn stop_typing(&self, user_id: String, session_id: String) -> AsyncStream<RealTimeEvent> {
+    pub fn stop_typing(&self, user_id: String, session_id: String) -> Pin<Box<dyn Stream<Item = RealTimeEvent> + Send>> {
         let key = format!("{user_id}:{session_id}");
         let typing_states = self.typing_states.clone();
         let event_broadcaster = self.event_broadcaster.clone();
         let typing_events = self.typing_events.clone();
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             if let Some(typing_state_entry) = typing_states.get(&key) {
                 let typing_state = typing_state_entry.value();
                 typing_state.stop_typing();
@@ -260,9 +261,9 @@ impl TypingIndicator {
                 // Create and broadcast event
                 let event = RealTimeEvent::typing_stopped(user_id, session_id);
                 let _ = event_broadcaster.send(event.clone());
-                emit!(sender, event);
+                let _ = tx.send(event);
             }
-        })
+        }))
     }
 
     /// Get currently typing users in a session
@@ -270,10 +271,10 @@ impl TypingIndicator {
     pub fn get_typing_users_stream(
         &self,
         session_id: String,
-    ) -> AsyncStream<CandleCollectionChunk<Vec<String>>> {
+    ) -> Pin<Box<dyn Stream<Item = CandleCollectionChunk<Vec<String>>> + Send>> {
         let typing_states = self.typing_states.clone();
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             let mut typing_users = Vec::with_capacity(16); // Pre-allocate for performance
 
             for entry in typing_states.iter() {
@@ -283,26 +284,21 @@ impl TypingIndicator {
                 }
             }
 
-            emit!(
-                sender,
-                CandleCollectionChunk {
-                    items: typing_users,
-                    error_message: None,
-                }
-            );
-        })
+            let result = CandleCollectionChunk::new(typing_users);
+            let _ = tx.send(result);
+        }))
     }
 
     /// Start cleanup task with lock-free background processing
     #[must_use]
-    pub fn start_cleanup_task(&self) -> AsyncStream<TypingCleanupEvent> {
+    pub fn start_cleanup_task(&self) -> Pin<Box<dyn Stream<Item = TypingCleanupEvent> + Send>> {
         if self
             .cleanup_task_active
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
             .is_err()
         {
             // Task already running, return empty stream
-            return AsyncStream::with_channel(|_sender| {});
+            return Box::pin(crate::async_stream::spawn_stream(|_tx| async move {}));
         }
 
         let typing_states = self.typing_states.clone();
@@ -312,7 +308,7 @@ impl TypingIndicator {
         let active_users = self.active_users.clone();
         let cleanup_task_active = self.cleanup_task_active.clone();
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             std::thread::spawn(move || {
                 loop {
                     let cleanup_interval =
@@ -366,7 +362,7 @@ impl TypingIndicator {
                         timestamp: unix_timestamp_nanos(),
                     };
 
-                    emit!(sender, cleanup_event);
+                    let _ = tx.send(cleanup_event);
 
                     // Check if we should continue running
                     if !cleanup_task_active.load(Ordering::Acquire) {
@@ -374,7 +370,7 @@ impl TypingIndicator {
                     }
                 }
             });
-        })
+        }))
     }
 
     /// Stop cleanup task

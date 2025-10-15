@@ -4,9 +4,10 @@
 //! lock-free caching, and high-performance vector operations.
 
 use std::collections::HashMap;
+use std::pin::Pin;
+use tokio_stream::Stream;
 
 use crate::domain::memory::serialization::content_hash;
-use ystream::AsyncStream;
 
 /// Error type for vector store operations
 #[derive(Debug, thiserror::Error)]
@@ -22,13 +23,13 @@ pub enum VectorStoreError {
 /// Production-ready embedding service trait with zero-allocation methods
 pub trait EmbeddingService: Send + Sync {
     /// Get embedding for content with zero-copy return
-    fn get_embedding(&self, content: &str) -> AsyncStream<Option<Vec<f32>>>;
+    fn get_embedding(&self, content: &str) -> Pin<Box<dyn Stream<Item = Option<Vec<f32>>> + Send>>;
 
     /// Get or compute embedding with zero-allocation caching
-    fn get_or_compute_embedding(&self, content: &str) -> AsyncStream<Vec<f32>>;
+    fn get_or_compute_embedding(&self, content: &str) -> Pin<Box<dyn Stream<Item = Vec<f32>> + Send>>;
 
     /// Precompute embeddings for batch content
-    fn precompute_batch(&self, content: &[&str]) -> AsyncStream<()>;
+    fn precompute_batch(&self, content: &[&str]) -> Pin<Box<dyn Stream<Item = ()> + Send>>;
 
     /// Get embedding dimensions
     fn embedding_dimension(&self) -> usize;

@@ -24,7 +24,8 @@ pub use response::ResponseFormatter;
 pub use types::*;
 pub use validation::CommandValidator;
 
-use crate::AsyncStream;
+use std::pin::Pin;
+use tokio_stream::{Stream, StreamExt};
 
 /// Global Candle command executor instance - PURE SYNC (no futures)
 static CANDLE_COMMAND_EXECUTOR: std::sync::LazyLock<Arc<RwLock<Option<CommandExecutor>>>> =
@@ -68,16 +69,16 @@ pub fn parse_candle_command(input: &str) -> CommandResult<ImmutableChatCommand> 
 
 /// Execute Candle command using global executor - STREAMING VERSION (streams-only architecture)
 #[must_use]
-pub fn execute_candle_command_async(command: ImmutableChatCommand) -> AsyncStream<CommandEvent> {
-    AsyncStream::with_channel(move |sender| {
+pub fn execute_candle_command_async(command: ImmutableChatCommand) -> Pin<Box<dyn Stream<Item = CommandEvent> + Send>> {
+    Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
         if let Some(executor) = get_candle_command_executor() {
-            let result_stream = executor.execute_streaming(1, command);
+            let mut result_stream = executor.execute_streaming(1, command);
             // Forward all events from executor stream
-            while let Some(event) = result_stream.try_next() {
-                ystream::emit!(sender, event);
+            while let Some(event) = result_stream.next().await {
+                let _ = tx.send(event);
             }
         } else {
-            ystream::emit!(sender, CommandEvent::Failed {
+            let _ = tx.send(CommandEvent::Failed {
                 execution_id: 0,
                 error: "Candle command executor not initialized".to_string(),
                 error_code: 1001,
@@ -86,22 +87,22 @@ pub fn execute_candle_command_async(command: ImmutableChatCommand) -> AsyncStrea
                 timestamp_us: unix_timestamp_micros()
             });
         }
-    })
+    }))
 }
 
 /// Execute Candle command using global executor - STREAMING VERSION (streams-only architecture)
 /// Note: Sync version removed - use streaming architecture only
 #[must_use]
-pub fn execute_candle_command(command: ImmutableChatCommand) -> AsyncStream<CommandEvent> {
-    AsyncStream::with_channel(move |sender| {
+pub fn execute_candle_command(command: ImmutableChatCommand) -> Pin<Box<dyn Stream<Item = CommandEvent> + Send>> {
+    Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
         if let Some(executor) = get_candle_command_executor() {
-            let result_stream = executor.execute_streaming(1, command);
+            let mut result_stream = executor.execute_streaming(1, command);
             // Forward all events from executor stream
-            while let Some(event) = result_stream.try_next() {
-                ystream::emit!(sender, event);
+            while let Some(event) = result_stream.next().await {
+                let _ = tx.send(event);
             }
         } else {
-            ystream::emit!(sender, CommandEvent::Failed {
+            let _ = tx.send(CommandEvent::Failed {
                 execution_id: 0,
                 error: "Candle command executor not initialized".to_string(),
                 error_code: 1001,
@@ -110,22 +111,22 @@ pub fn execute_candle_command(command: ImmutableChatCommand) -> AsyncStream<Comm
                 timestamp_us: unix_timestamp_micros()
             });
         }
-    })
+    }))
 }
 
 /// Parse and execute Candle command using global executor - STREAMING VERSION (streams-only architecture)
 #[must_use]
-pub fn parse_and_execute_candle_command_async(input: &str) -> AsyncStream<CommandEvent> {
+pub fn parse_and_execute_candle_command_async(input: &str) -> Pin<Box<dyn Stream<Item = CommandEvent> + Send>> {
     let input_str = input.to_string();
-    AsyncStream::with_channel(move |sender| {
+    Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
         if let Some(executor) = get_candle_command_executor() {
-            let result_stream = executor.parse_and_execute(&input_str);
+            let mut result_stream = executor.parse_and_execute(&input_str);
             // Forward all events from executor stream
-            while let Some(event) = result_stream.try_next() {
-                ystream::emit!(sender, event);
+            while let Some(event) = result_stream.next().await {
+                let _ = tx.send(event);
             }
         } else {
-            ystream::emit!(sender, CommandEvent::Failed {
+            let _ = tx.send(CommandEvent::Failed {
                 execution_id: 0,
                 error: "Candle command executor not initialized".to_string(),
                 error_code: 1001,
@@ -134,23 +135,23 @@ pub fn parse_and_execute_candle_command_async(input: &str) -> AsyncStream<Comman
                 timestamp_us: unix_timestamp_micros()
             });
         }
-    })
+    }))
 }
 
 /// Parse and execute Candle command using global executor - STREAMING VERSION (streams-only architecture)
 /// Note: Sync version removed - use streaming architecture only
 #[must_use]
-pub fn parse_and_execute_candle_command(input: &str) -> AsyncStream<CommandEvent> {
+pub fn parse_and_execute_candle_command(input: &str) -> Pin<Box<dyn Stream<Item = CommandEvent> + Send>> {
     let input_str = input.to_string();
-    AsyncStream::with_channel(move |sender| {
+    Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
         if let Some(executor) = get_candle_command_executor() {
-            let result_stream = executor.parse_and_execute(&input_str);
+            let mut result_stream = executor.parse_and_execute(&input_str);
             // Forward all events from executor stream
-            while let Some(event) = result_stream.try_next() {
-                ystream::emit!(sender, event);
+            while let Some(event) = result_stream.next().await {
+                let _ = tx.send(event);
             }
         } else {
-            ystream::emit!(sender, CommandEvent::Failed {
+            let _ = tx.send(CommandEvent::Failed {
                 execution_id: 0,
                 error: "Candle command executor not initialized".to_string(),
                 error_code: 1001,
@@ -159,5 +160,5 @@ pub fn parse_and_execute_candle_command(input: &str) -> AsyncStream<CommandEvent
                 timestamp_us: unix_timestamp_micros()
             });
         }
-    })
+    }))
 }

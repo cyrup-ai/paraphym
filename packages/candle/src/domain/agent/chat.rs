@@ -7,6 +7,8 @@ use thiserror::Error;
 
 use crate::domain::memory::{Error as MemoryError, MemoryToolError};
 use crate::memory::core::MemoryNode;
+use std::pin::Pin;
+use tokio_stream::Stream;
 
 /// Maximum number of relevant memories for context injection
 const MAX_RELEVANT_MEMORIES: usize = 10;
@@ -296,13 +298,13 @@ impl CandleAgentRoleImpl {
         message: impl Into<String>,
         memory_manager: &Arc<dyn MemoryManager>,
         memory_tool: &MemoryTool,
-    ) -> ystream::AsyncStream<MemoryEnhancedChatResponse> {
+    ) -> Pin<Box<dyn Stream<Item = MemoryEnhancedChatResponse> + Send>> {
         let message = message.into();
         let self_clone = self.clone();
         let memory_manager_clone = memory_manager.clone();
         let memory_tool_clone = memory_tool.clone();
 
-        ystream::AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Inject relevant memory context with zero-allocation processing
             let context_stream = self_clone.inject_memory_context(&message, &memory_manager_clone, self_clone.memory_read_timeout());
 
@@ -322,7 +324,7 @@ impl CandleAgentRoleImpl {
                             context_injection,
                             memorized_nodes: memorized_nodes_chunk.items,
                         };
-                        let _ = sender.send(result);
+                        let _ = tx.send(result);
                     }
                 }
                 // Else: Error in AI response generation - don't send anything
@@ -398,11 +400,11 @@ impl CandleAgentRoleImpl {
         message: &str,
         memory_manager: &Arc<dyn MemoryManager>,
         timeout_ms: Option<u64>,
-    ) -> ystream::AsyncStream<ContextInjectionResult> {
+    ) -> Pin<Box<dyn Stream<Item = ContextInjectionResult> + Send>> {
         let message = message.to_string();
         let memory_manager_clone = memory_manager.clone();
 
-        ystream::AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Spawn single async task to handle all async operations without blocking
             tokio::spawn(async move {
                 // Use MemoryManager's HIGH-LEVEL API - it handles EVERYTHING internally:
@@ -502,12 +504,12 @@ impl CandleAgentRoleImpl {
         user_message: &str,
         assistant_response: &str,
         memory_tool: &MemoryTool,
-    ) -> ystream::AsyncStream<CandleCollectionChunk<ArrayVec<MemoryNode, MAX_RELEVANT_MEMORIES>>> {
+    ) -> Pin<Box<dyn Stream<Item = CandleCollectionChunk<ArrayVec<MemoryNode, MAX_RELEVANT_MEMORIES>>> + Send>> {
         let user_message = user_message.to_string();
         let assistant_response = assistant_response.to_string();
         let memory_tool_clone = memory_tool.clone();
 
-        ystream::AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             let mut memorized_nodes = ArrayVec::new();
 
             // Create memory node for user message using direct constructor

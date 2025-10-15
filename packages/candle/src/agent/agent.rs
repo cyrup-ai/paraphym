@@ -10,8 +10,10 @@ use super::{
 use crate::{
     completion::{CompletionModel, CompletionRequest, CompletionRequestBuilder, Document, Message},
     domain::tool::ToolSet,
-    runtime::{AsyncStream, AsyncTask},
+    runtime::{AsyncTask},
     vector_store::VectorStoreIndexDyn};
+use std::pin::Pin;
+use tokio_stream::Stream;
 use crate::domain::chat::message::types::{CandleMessageRole as MessageRole, CandleMessageChunk as MessageChunk, CandleConversationTrait as AgentConversation, ZeroOneOrMany as ZeroOneOrMany};
 use crate::domain::chat::CandleChatLoop;
 use crate::domain::agent::core::AgentError;
@@ -102,9 +104,9 @@ where
     pub fn prompt(
         &self,
         prompt: impl Prompt,
-    ) -> AsyncStream<PromptRequest<M>, { cfg::CHAT_CAPACITY }> {
+    ) -> impl Stream<Item = PromptRequest<M>> {
         let request = PromptRequest::new(self, prompt);
-        AsyncStream::from_single(request)
+        crate::async_stream::once(request)
     }
 
     /// Create a completion request - returns async stream
@@ -112,13 +114,11 @@ where
         &self,
         prompt: Message,
         history: Vec<Message>,
-    ) -> AsyncStream<CompletionRequestBuilder, { cfg::CHAT_CAPACITY }> {
+    ) -> impl Stream<Item = CompletionRequestBuilder> {
         let builder_result = self.create_completion_builder(prompt, history);
         match builder_result {
-            Ok(builder) => AsyncStream::from_single(builder),
-            Err(_) => AsyncStream::with_channel(|_sender| {
-                // Empty stream - no data to send on error
-            }), // Handle error case
+            Ok(builder) => crate::async_stream::once(builder),
+            Err(_) => crate::async_stream::empty(),
         }
     }
 
@@ -185,7 +185,7 @@ where
     /// - Missing or inaccessible model
     /// - Authentication failures
     /// - Configuration validation errors
-    pub fn chat(&self, message: impl Into<String>) -> Result<AsyncStream<MessageChunk, { cfg::CHAT_CAPACITY }>, AgentError> {
+    pub fn chat(&self, message: impl Into<String>) -> Result<Pin<Box<dyn Stream<Item = MessageChunk> + Send>>, AgentError> {
         let message_text = message.into();
         
         // Create a message with the chat content
@@ -230,7 +230,7 @@ where
         // Get streaming completion and convert to MessageChunk
         let completion_stream = engine.process_completion_stream(completion_request);
         
-        Ok(AsyncStream::with_channel(move |sender| {
+        Ok(Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
             let mut chunks_sent = 0u32;
             let mut completion_iter = completion_stream;
             
@@ -257,7 +257,7 @@ where
                     done: true,
                 });
             }
-        }))
+        })))
     }
 
     /// Closure-based chat loop - EXACT syntax: .chat(|conversation| CandleChatLoop) - zero allocation  
@@ -299,5 +299,5 @@ where
 // ============================================================================
 // Stream type aliases
 // ============================================================================
-pub type CompletionStream<T> = AsyncStream<T, { cfg::CHAT_CAPACITY }>;
-pub type ToolStream<T> = AsyncStream<T, { cfg::TOOL_CAPACITY }>;
+pub type CompletionStream<T> = Pin<Box<dyn Stream<Item = T> + Send>>;
+pub type ToolStream<T> = Pin<Box<dyn Stream<Item = T> + Send>>;

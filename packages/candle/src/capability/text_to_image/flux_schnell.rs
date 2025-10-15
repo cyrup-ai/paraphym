@@ -16,8 +16,9 @@ use candle_transformers::models::{
     t5::{Config as T5Config, T5EncoderModel},
 };
 use std::path::PathBuf;
+use std::pin::Pin;
 use tokenizers::Tokenizer;
-use ystream::AsyncStream;
+use tokio_stream::Stream;
 
 /// FLUX.1-schnell provider for fast 4-step text-to-image generation
 #[derive(Clone, Debug)]
@@ -54,12 +55,12 @@ impl ImageGenerationModel for FluxSchnell {
         prompt: &str,
         config: &ImageGenerationConfig,
         device: &Device,
-    ) -> AsyncStream<ImageGenerationChunk> {
+    ) -> Pin<Box<dyn Stream<Item = ImageGenerationChunk> + Send>> {
         let prompt = prompt.to_string();
         let config = config.clone();
         let device = device.clone();
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // === 1. GET CONFIGURATION VALUES ===
 
             // From ImageGenerationConfig (required fields, not optional)
@@ -75,7 +76,7 @@ impl ImageGenerationModel for FluxSchnell {
             if let Some(seed) = config.seed
                 && let Err(e) = device.set_seed(seed)
             {
-                let _ = sender.send(ImageGenerationChunk::Error(format!(
+                let _ = tx.send(ImageGenerationChunk::Error(format!(
                     "Seed setting failed: {}",
                     e
                 )));
@@ -95,7 +96,7 @@ impl ImageGenerationModel for FluxSchnell {
             let api = match Api::new() {
                 Ok(api) => api,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "Failed to initialize HF API: {}",
                         e
                     )));
@@ -108,7 +109,7 @@ impl ImageGenerationModel for FluxSchnell {
             let flux_path = match flux_repo.get("flux1-schnell.safetensors") {
                 Ok(p) => p,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "Failed to download FLUX model: {}",
                         e
                     )));
@@ -118,7 +119,7 @@ impl ImageGenerationModel for FluxSchnell {
             let vae_path = match flux_repo.get("ae.safetensors") {
                 Ok(p) => p,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "Failed to download VAE: {}",
                         e
                     )));
@@ -131,7 +132,7 @@ impl ImageGenerationModel for FluxSchnell {
             let t5_model_path = match t5_repo.get("model.safetensors") {
                 Ok(p) => p,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "Failed to download T5 model: {}",
                         e
                     )));
@@ -141,7 +142,7 @@ impl ImageGenerationModel for FluxSchnell {
             let t5_config_path = match t5_repo.get("config.json") {
                 Ok(p) => p,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "Failed to download T5 config: {}",
                         e
                     )));
@@ -154,7 +155,7 @@ impl ImageGenerationModel for FluxSchnell {
             let t5_tokenizer_path = match t5_tok_repo.get("t5-v1_1-xxl.tokenizer.json") {
                 Ok(p) => p,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "Failed to download T5 tokenizer: {}",
                         e
                     )));
@@ -167,7 +168,7 @@ impl ImageGenerationModel for FluxSchnell {
             let clip_model_path = match clip_repo.get("model.safetensors") {
                 Ok(p) => p,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "Failed to download CLIP model: {}",
                         e
                     )));
@@ -177,7 +178,7 @@ impl ImageGenerationModel for FluxSchnell {
             let clip_tokenizer_path = match clip_repo.get("tokenizer.json") {
                 Ok(p) => p,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "Failed to download CLIP tokenizer: {}",
                         e
                     )));
@@ -195,7 +196,7 @@ impl ImageGenerationModel for FluxSchnell {
             ) {
                 Ok(encoder) => encoder,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "T5 encoder load failed: {}",
                         e
                     )));
@@ -211,7 +212,7 @@ impl ImageGenerationModel for FluxSchnell {
             ) {
                 Ok(encoder) => encoder,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "CLIP encoder load failed: {}",
                         e
                     )));
@@ -223,7 +224,7 @@ impl ImageGenerationModel for FluxSchnell {
             let t5_emb = match t5_encoder.encode(&prompt, &device) {
                 Ok(emb) => emb,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "T5 encoding failed: {}",
                         e
                     )));
@@ -234,7 +235,7 @@ impl ImageGenerationModel for FluxSchnell {
             let clip_emb = match clip_encoder.encode(&prompt, &device) {
                 Ok(emb) => emb,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "CLIP encoding failed: {}",
                         e
                     )));
@@ -252,7 +253,7 @@ impl ImageGenerationModel for FluxSchnell {
             } {
                 Ok(vb) => vb,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "FLUX VarBuilder creation failed: {}",
                         e
                     )));
@@ -264,7 +265,7 @@ impl ImageGenerationModel for FluxSchnell {
                 match flux::model::Flux::new(&flux::model::Config::schnell(), vb_flux) {
                     Ok(model) => model,
                     Err(e) => {
-                        let _ = sender.send(ImageGenerationChunk::Error(format!(
+                        let _ = tx.send(ImageGenerationChunk::Error(format!(
                             "FLUX model creation failed: {}",
                             e
                         )));
@@ -278,7 +279,7 @@ impl ImageGenerationModel for FluxSchnell {
             } {
                 Ok(vb) => vb,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "VAE VarBuilder creation failed: {}",
                         e
                     )));
@@ -292,7 +293,7 @@ impl ImageGenerationModel for FluxSchnell {
             ) {
                 Ok(model) => model,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "VAE creation failed: {}",
                         e
                     )));
@@ -320,11 +321,11 @@ impl ImageGenerationModel for FluxSchnell {
                 &clip_emb,
                 &generation_config,
                 &device,
-                &sender,
+                &tx,
             ) {
                 Ok(result) => result,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "Image generation failed: {}",
                         e
                     )));
@@ -332,8 +333,8 @@ impl ImageGenerationModel for FluxSchnell {
                 }
             };
 
-            let _ = sender.send(ImageGenerationChunk::Complete { image });
-        })
+            let _ = tx.send(ImageGenerationChunk::Complete { image });
+        }))
     }
 
     fn registry_key(&self) -> &str {
@@ -353,7 +354,7 @@ fn generate_flux_image(
     clip_emb: &Tensor,
     config: &ImageGenerationConfig,
     device: &Device,
-    sender: &ystream::AsyncStreamSender<ImageGenerationChunk>,
+    sender: &tokio::sync::mpsc::UnboundedSender<ImageGenerationChunk>,
 ) -> Result<Tensor, String> {
     // 1. Initialize noise
     let img = flux::sampling::get_noise(1, config.height, config.width, device)
@@ -563,7 +564,7 @@ impl crate::capability::traits::TextToImageCapable for FluxSchnell {
         prompt: &str,
         config: &crate::domain::image_generation::ImageGenerationConfig,
         device: &candle_core::Device,
-    ) -> AsyncStream<crate::domain::image_generation::ImageGenerationChunk> {
+    ) -> Pin<Box<dyn Stream<Item = crate::domain::image_generation::ImageGenerationChunk> + Send>> {
         // Delegate to ImageGenerationModel trait
         <Self as ImageGenerationModel>::generate(self, prompt, config, device)
     }

@@ -1,9 +1,9 @@
 use std::time::SystemTime;
 use cyrup_sugars::ZeroOneOrMany;
-use ystream::{AsyncTask, spawn_task as spawn_async};
 use serde_json::Value;
 use std::sync::atomic::{AtomicU64, Ordering};
-use ystream::AsyncStream;
+use std::pin::Pin;
+use tokio_stream::Stream;
 
 #[derive(Debug)]
 pub enum VectorStoreError {
@@ -160,12 +160,12 @@ pub trait VectorStoreIndexDyn: Send + Sync {
         &self,
         query: &str,
         n: usize,
-    ) -> AsyncStream<ZeroOneOrMany<(f64, String, Value)>>;
+    ) -> Pin<Box<dyn Stream<Item = ZeroOneOrMany<(f64, String, Value)>> + Send>>;
     fn top_n_ids(
         &self,
         query: &str,
         n: usize,
-    ) -> AsyncStream<ZeroOneOrMany<(f64, String)>>;
+    ) -> Pin<Box<dyn Stream<Item = ZeroOneOrMany<(f64, String)>> + Send>>;
 }
 
 pub struct VectorStoreIndex {

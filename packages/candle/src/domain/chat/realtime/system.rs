@@ -2,7 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
-use ystream::AsyncStream;
+use std::pin::Pin;
+use tokio_stream::Stream;
 
 use super::{
     connection::ConnectionManager, events::RealTimeEvent, streaming::LiveMessageStreamer,
@@ -69,27 +70,25 @@ impl RealtimeChat {
     }
 
     /// Start the real-time chat system
-    pub fn start(&mut self) -> AsyncStream<crate::domain::context::chunk::CandleUnitChunk> {
+    pub fn start(&mut self) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunk::CandleUnitChunk> + Send>> {
         if self.is_running {
-            return AsyncStream::with_channel(|sender| {
+            return Box::pin(crate::async_stream::spawn_stream(|tx| async move {
                 // Already running - send success immediately
-                let _ = sender.send(crate::domain::context::chunk::CandleUnitChunk::Success);
-            });
+                let _ = tx.send(crate::domain::context::chunk::CandleUnitChunk::Success);
+            }));
         }
         self.is_running = true;
         self.connection_manager.start_health_check();
         let _message_processing = self.message_streamer.start_processing();
         let _typing_cleanup = self.typing_indicator.start_cleanup_task();
 
-        // Merge streams manually since AsyncStream::merge doesn't exist
-        AsyncStream::with_channel(move |sender| {
+        // Merge streams manually
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Start both streams concurrently
-            std::thread::spawn(move || {
-                // This is a simplified merge - in a full implementation you'd handle both streams properly
-                // Send success to indicate startup completed
-                let _ = sender.send(crate::domain::context::chunk::CandleUnitChunk::Success);
-            });
-        })
+            // This is a simplified merge - in a full implementation you'd handle both streams properly
+            // Send success to indicate startup completed
+            let _ = tx.send(crate::domain::context::chunk::CandleUnitChunk::Success);
+        }))
     }
 
     /// Get the current configuration

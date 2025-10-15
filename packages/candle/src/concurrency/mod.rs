@@ -2,16 +2,17 @@
 
 use std::sync::Arc;
 
-use ystream::{AsyncTask, AsyncStream};
-use std::sync::Mutex;
-use crossbeam_channel::{bounded, unbounded};
-
-use crate::core::ChannelError;
+use tokio::sync::Mutex;
+use tokio::sync::mpsc;
+use tokio_stream::Stream;
+use crate::async_stream;
+use crate::domain::concurrency::{ChannelResult, OneshotResult};
+use cyrup_sugars::prelude::MessageChunk;
 
 /// A multi-producer, single-consumer channel for sending values between tasks
 pub struct Channel<T> {
-    sender: crossbeam_channel::Sender<T>,
-    receiver: Arc<Mutex<crossbeam_channel::Receiver<T>>>}
+    sender: mpsc::UnboundedSender<T>,
+    receiver: Arc<Mutex<mpsc::UnboundedReceiver<T>>>}
 
 impl<T> Clone for Channel<T> {
     fn clone(&self) -> Self {
@@ -23,74 +24,64 @@ impl<T> Clone for Channel<T> {
 
 impl<T: Send + 'static + MessageChunk + Default> Channel<T> {
     /// Create a new channel with the given buffer size
-    pub fn new(buffer: usize) -> Self {
-        let (sender, receiver) = if buffer == 0 {
-            unbounded()
-        } else {
-            bounded(buffer)
-        };
+    pub fn new(_buffer: usize) -> Self {
+        // Note: tokio mpsc unbounded_channel is used regardless of buffer size
+        // for consistency with the async runtime
+        let (sender, receiver) = mpsc::unbounded_channel();
         Self {
             sender,
             receiver: Arc::new(Mutex::new(receiver))}
     }
 
     /// Send a value into the channel
-    pub fn send(&self, value: T) -> AsyncStream<ChannelResult> {
+    pub fn send(&self, value: T) -> impl Stream<Item = ChannelResult> {
         let sender = self.sender.clone();
-        AsyncStream::with_channel(|stream_sender| {
-            std::thread::spawn(move || {
-                let result = match sender.send(value) {
-                    Ok(()) => ChannelResult {
-                        success: true,
-                        error_message: None,
-                    },
-                    Err(_) => ChannelResult::bad_chunk("Send error".to_string()),
-                };
-                let _ = stream_sender.send(result);
-            });
+        async_stream::spawn_stream(move |tx| async move {
+            let result = match sender.send(value) {
+                Ok(()) => ChannelResult {
+                    success: true,
+                    error_message: None,
+                },
+                Err(_) => ChannelResult::bad_chunk("Send error".to_string()),
+            };
+            let _ = tx.send(result);
         })
     }
 
     /// Receive the next value from the channel
-    pub fn recv(&self) -> AsyncStream<T> {
+    pub fn recv(&self) -> impl Stream<Item = T> {
         let receiver = self.receiver.clone();
-        AsyncStream::with_channel(|stream_sender| {
-            std::thread::spawn(move || {
-                if let Ok(guard) = receiver.try_lock() {
-                    if let Ok(value) = guard.recv() {
-                        let _ = stream_sender.send(value);
-                    }
-                }
-            });
+        async_stream::spawn_stream(move |tx| async move {
+            let mut guard = receiver.lock().await;
+            if let Some(value) = guard.recv().await {
+                let _ = tx.send(value);
+            }
         })
     }
 
     /// Create a new receiver that can be used to receive values from this channel
-    pub fn subscribe(&self) -> AsyncStream<T> {
+    pub fn subscribe(&self) -> impl Stream<Item = T> {
         let receiver = self.receiver.clone();
-        AsyncStream::with_channel(|stream_sender| {
-            std::thread::spawn(move || {
-                if let Ok(guard) = receiver.try_lock() {
-                    while let Ok(value) = guard.recv() {
-                        if stream_sender.send(value).is_err() {
-                            break;
-                        }
-                    }
+        async_stream::spawn_stream(move |tx| async move {
+            let mut guard = receiver.lock().await;
+            while let Some(value) = guard.recv().await {
+                if tx.send(value).is_err() {
+                    break;
                 }
-            });
+            }
         })
     }
 }
 
 /// A oneshot channel for sending a single value between tasks
 pub struct OneshotChannel<T> {
-    sender: Option<crossbeam_channel::Sender<T>>,
-    receiver: crossbeam_channel::Receiver<T>}
+    sender: Option<tokio::sync::oneshot::Sender<T>>,
+    receiver: tokio::sync::oneshot::Receiver<T>}
 
 impl<T> OneshotChannel<T> {
     /// Create a new oneshot channel
     pub fn new() -> Self {
-        let (sender, receiver) = bounded(1);
+        let (sender, receiver) = tokio::sync::oneshot::channel();
         Self { 
             sender: Some(sender), 
             receiver 
@@ -100,20 +91,20 @@ impl<T> OneshotChannel<T> {
     /// Send a value through the channel
     pub fn send(mut self, value: T) -> Result<(), T> {
         if let Some(sender) = self.sender.take() {
-            sender.send(value).map_err(|err| err.into_inner())
+            sender.send(value).map_err(|value| value)
         } else {
             Err(value)
         }
     }
 
     /// Receive the value from the channel
-    pub fn recv(self) -> AsyncStream<T> {
-        AsyncStream::with_channel(|stream_sender| {
-            std::thread::spawn(move || {
-                if let Ok(value) = self.receiver.recv() {
-                    let _ = stream_sender.send(value);
-                }
-            });
+    pub fn recv(self) -> impl Stream<Item = OneshotResult<T>> {
+        async_stream::spawn_stream(move |tx| async move {
+            let result = match self.receiver.await {
+                Ok(value) => OneshotResult::Ok(value),
+                Err(_) => OneshotResult::Err("Channel closed".to_string()),
+            };
+            let _ = tx.send(result);
         })
     }
 }
@@ -124,30 +115,6 @@ impl<T> Default for OneshotChannel<T> {
     }
 }
 
-/// Extension trait for converting streams into tasks
-pub trait IntoTask<T> {
-    /// Convert the stream into a task
-    fn into_task(self) -> AsyncTask<T>;
-}
-
-impl<T> IntoTask<T> for AsyncStream<T>
-where
-    T: Send + 'static,
-{
-    fn into_task(self) -> AsyncTask<T> {
-        // Create a channel and consume the stream
-        let (tx, rx) = crossbeam_channel::bounded(1);
-        let mut stream = self;
-        std::thread::spawn(move || {
-            if let Some(result) = stream.try_next() {
-                let _ = tx.send(result);
-            }
-        });
-        AsyncTask::new(rx)
-    }
-}
-
 // Candle-prefixed type aliases for domain compatibility
 pub type CandleChannel<T> = Channel<T>;
 pub type CandleOneshotChannel<T> = OneshotChannel<T>;
-pub type CandleIntoTask<T> = dyn IntoTask<T>;

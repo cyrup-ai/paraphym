@@ -15,7 +15,8 @@ use candle_transformers::generation::{LogitsProcessor, Sampling};
 use candle_transformers::models::llama::Cache;
 use candle_transformers::models::llava::{LLaVA, config::LLaVAConfig as CandleLLaVAConfig};
 use tokenizers::Tokenizer;
-use ystream::AsyncStream;
+use tokio_stream::Stream;
+use std::pin::Pin;
 
 use crate::builders::image::{ImageBuilder, ResizeFilter};
 use crate::core::Engine;
@@ -673,14 +674,14 @@ impl LLaVAModel {
     ///
     /// Thread spawns lazily on first call. Uses multimodal embedding fusion
     /// and autoregressive generation.
-    pub fn describe_image(&self, image_path: &str, query: &str) -> AsyncStream<CandleStringChunk> {
+    pub fn describe_image(&self, image_path: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
         // Ensure thread is spawned (lazy initialization)
         let sender = match self.ensure_thread_spawned() {
             Ok(s) => s,
             Err(e) => {
-                return AsyncStream::with_channel(move |tx| {
+                return Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
                     let _ = tx.send(CandleStringChunk(format!("Error: {}", e)));
-                });
+                }));
             }
         };
 
@@ -691,38 +692,38 @@ impl LLaVAModel {
             question: query.to_string(),
             response_tx,
         }) {
-            return AsyncStream::with_channel(move |tx| {
+            return Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
                 let _ = tx.send(CandleStringChunk(format!("Error: {}", e)));
-            });
+            }));
         }
 
         match response_rx.recv() {
-            Ok(Ok(text)) => AsyncStream::with_channel(move |sender| {
-                let _ = sender.send(CandleStringChunk(text));
-            }),
-            Ok(Err(e)) => AsyncStream::with_channel(move |sender| {
-                let _ = sender.send(CandleStringChunk(format!("Error: {}", e)));
-            }),
-            Err(e) => AsyncStream::with_channel(move |sender| {
-                let _ = sender.send(CandleStringChunk(format!(
+            Ok(Ok(text)) => Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+                let _ = tx.send(CandleStringChunk(text));
+            })),
+            Ok(Err(e)) => Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+                let _ = tx.send(CandleStringChunk(format!("Error: {}", e)));
+            })),
+            Err(e) => Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+                let _ = tx.send(CandleStringChunk(format!(
                     "Error: Failed to receive response: {}",
                     e
                 )));
-            }),
+            })),
         }
     }
 
     /// Describe an image from URL with a text query
     ///
     /// Same as describe_image() but loads image from URL
-    pub fn describe_url(&self, image_url: &str, query: &str) -> AsyncStream<CandleStringChunk> {
+    pub fn describe_url(&self, image_url: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
         // Ensure thread is spawned (lazy initialization)
         let sender = match self.ensure_thread_spawned() {
             Ok(s) => s,
             Err(e) => {
-                return AsyncStream::with_channel(move |tx| {
+                return Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
                     let _ = tx.send(CandleStringChunk(format!("Error: {}", e)));
-                });
+                }));
             }
         };
 
@@ -733,34 +734,34 @@ impl LLaVAModel {
             question: query.to_string(),
             response_tx,
         }) {
-            return AsyncStream::with_channel(move |tx| {
+            return Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
                 let _ = tx.send(CandleStringChunk(format!("Error: {}", e)));
-            });
+            }));
         }
 
         match response_rx.recv() {
-            Ok(Ok(text)) => AsyncStream::with_channel(move |sender| {
-                let _ = sender.send(CandleStringChunk(text));
-            }),
-            Ok(Err(e)) => AsyncStream::with_channel(move |sender| {
-                let _ = sender.send(CandleStringChunk(format!("Error: {}", e)));
-            }),
-            Err(e) => AsyncStream::with_channel(move |sender| {
-                let _ = sender.send(CandleStringChunk(format!(
+            Ok(Ok(text)) => Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+                let _ = tx.send(CandleStringChunk(text));
+            })),
+            Ok(Err(e)) => Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+                let _ = tx.send(CandleStringChunk(format!("Error: {}", e)));
+            })),
+            Err(e) => Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+                let _ = tx.send(CandleStringChunk(format!(
                     "Error: Failed to receive response: {}",
                     e
                 )));
-            }),
+            })),
         }
     }
 
     /// Stream chat responses token by token
     ///
     /// **NOTE**: Due to Candle's LLaVA containing non-Send trait objects,
-    /// streaming happens after full generation. Returns buffered AsyncStream.
+    /// streaming happens after full generation. Returns buffered tokio stream.
     ///
     /// For true streaming, await the entire response then iterate the stream.
-    pub fn stream_chat(&self, image_path: &str, question: &str) -> AsyncStream<CandleStringChunk> {
+    pub fn stream_chat(&self, image_path: &str, question: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
         // Use describe_image which handles channel communication and streaming
         self.describe_image(image_path, question)
     }
@@ -807,11 +808,11 @@ impl CandleModel for LoadedLLaVAModel {
 }
 
 impl crate::capability::traits::VisionCapable for LoadedLLaVAModel {
-    fn describe_image(&self, image_path: &str, query: &str) -> AsyncStream<CandleStringChunk> {
+    fn describe_image(&self, image_path: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
         self.model.describe_image(image_path, query)
     }
 
-    fn describe_url(&self, url: &str, query: &str) -> AsyncStream<CandleStringChunk> {
+    fn describe_url(&self, url: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
         self.model.describe_url(url, query)
     }
 }

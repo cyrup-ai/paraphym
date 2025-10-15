@@ -8,7 +8,7 @@ use std::marker::PhantomData;
 
 use crate::domain::context::{CandleLoader as Loader, CandleLoaderImpl as LoaderImpl};
 use crate::util::ZeroOneOrMany;
-use ystream::{AsyncTask, AsyncStream};
+use tokio_stream::Stream;
 
 /// Local NotResult trait for candle standalone operation
 pub trait CandleNotResult: Send + Sync + 'static {}
@@ -67,7 +67,7 @@ where
         T: CandleNotResult;
     
     /// Stream files immediately - EXACT syntax: .stream()
-    fn stream(self) -> paraphym_domain::async_task::AsyncStream<T>
+    fn stream(self) -> impl Stream<Item = T>
     where
         LoaderImpl<T>: Loader<T>,
         T: CandleNotResult;
@@ -261,7 +261,7 @@ where
     }
     
     /// Stream files immediately - EXACT syntax: .stream()
-    fn stream(self) -> paraphym_domain::async_task::AsyncStream<T>
+    fn stream(self) -> impl Stream<Item = T>
     where
         LoaderImpl<T>: Loader<T>,
         T: CandleNotResult,

@@ -29,7 +29,7 @@ pub fn init_candle() {
 pub mod macros;
 
 // Candle-specific modules (minimal set for core functionality)
-/// Async stream utilities re-exporting ystream
+/// Async stream utilities using tokio streams
 pub mod async_stream;
 /// Candle builders for zero-allocation construction patterns
 pub mod builders;
@@ -106,7 +106,6 @@ pub mod prelude {
     }
 
     // Re-export tool implementation that provides static methods
-    pub use ystream::AsyncStream;
 
     // Helper function for ARCHITECTURE.md example
     pub fn process_turn() -> CandleChatLoop {
@@ -115,11 +114,16 @@ pub mod prelude {
 }
 
 // Re-export everything from prelude at root level for convenience
-// Alias for backward compatibility - people expect async_task module
-pub use ystream as async_task;
-pub use ystream::spawn_task as spawn_async;
-// Streaming primitives from paraphym-async (kept as-is per requirements)
-pub use ystream::{AsyncStream, AsyncStreamSender, AsyncTask, spawn_task};
+// Re-export tokio_stream for convenience
+pub use tokio_stream::{Stream, StreamExt};
+
+// Re-export our stream utilities
+pub use crate::async_stream::{
+    spawn_stream,
+    from_iter,
+    once,
+    empty,
+};
 // SIMD operations from paraphym-simd for high-performance ML workloads
 pub use paraphym_simd;
 pub use prelude::*;

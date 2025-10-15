@@ -1,10 +1,10 @@
 // worker_state.rs - Complete worker lifecycle management with state machine
 
-use crossbeam::channel::{Receiver, Sender};
 use prometheus::{Counter, HistogramVec, IntGauge};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tokio::sync::mpsc;
 
 /// Worker lifecycle states with atomic transitions
 #[repr(u32)]
@@ -51,12 +51,12 @@ pub struct UnifiedWorkerHandle<Req, Resp> {
     pub cpu_cores: Option<Vec<usize>>, // CPU affinity
 
     // Channels
-    pub request_tx: Sender<Req>,
-    pub response_rx: Receiver<Resp>,
-    pub priority_tx: Sender<Req>, // High-priority queue
-    pub shutdown_tx: Sender<()>,
-    pub health_tx: Sender<HealthCheck>,
-    pub health_rx: Receiver<HealthStatus>,
+    pub request_tx: mpsc::UnboundedSender<Req>,
+    pub response_rx: mpsc::UnboundedReceiver<Resp>,
+    pub priority_tx: mpsc::UnboundedSender<Req>, // High-priority queue
+    pub shutdown_tx: mpsc::UnboundedSender<()>,
+    pub health_tx: mpsc::UnboundedSender<HealthCheck>,
+    pub health_rx: mpsc::UnboundedReceiver<HealthStatus>,
 
     // Metrics
     pub metrics: WorkerMetrics,
@@ -64,8 +64,8 @@ pub struct UnifiedWorkerHandle<Req, Resp> {
     // Circuit breaker
     pub circuit_breaker: Arc<CircuitBreaker>,
 
-    // Work stealing
-    pub steal_handle: Option<crossbeam_deque::Stealer<Req>>,
+    // Work stealing (placeholder for future async work stealing implementation)
+    pub steal_handle: Option<()>,
 }
 
 /// Health check types

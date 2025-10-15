@@ -4,8 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-
-// StreamExt not currently used but may be needed for future async operations
+use tokio_stream::StreamExt;
 
 use crate::capability::text_to_text::{CandleKimiK2Model, CandleQwen3CoderModel};
 use crate::capability::traits::TextToTextCapable;
@@ -73,12 +72,12 @@ impl Committee {
         let prompt = CandlePrompt::new(&evaluation_prompt);
         let params = CandleCompletionParams::default();
 
-        // Use real model.prompt() method - consume stream synchronously to avoid !Send
+        // Use real model.prompt() method
         let mut response = String::new();
-        let stream = self.kimi_model.prompt(prompt, &params);
+        let mut stream = Box::pin(self.kimi_model.prompt(prompt, &params));
 
-        // Consume AsyncStream synchronously with try_next (no async)
-        while let Some(chunk) = stream.try_next() {
+        // Consume stream asynchronously
+        while let Some(chunk) = stream.next().await {
             match chunk {
                 CandleCompletionChunk::Text(text) => response.push_str(&text),
                 CandleCompletionChunk::Complete { text, .. } => {

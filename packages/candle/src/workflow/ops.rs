@@ -5,9 +5,10 @@
 //! zero-allocation in hot paths with extensive inlining for maximum performance.
 
 use std::marker::PhantomData;
+use std::pin::Pin;
+use tokio_stream::{Stream, StreamExt};
 
 use cyrup_sugars::prelude::MessageChunk;
-use ystream::AsyncStream;
 
 /// Object-safe operation trait for dynamic dispatch in N-way parallelism
 ///
@@ -26,7 +27,7 @@ where
     Out: Send + Sync + MessageChunk + Default + 'static,
 {
     /// Execute the operation with streaming output
-    fn call(&self, input: In) -> AsyncStream<Out>;
+    fn call(&self, input: In) -> Pin<Box<dyn Stream<Item = Out> + Send>>;
 
     /// Clone this operation as a boxed trait object
     ///
@@ -46,7 +47,7 @@ where
     In: Send + Sync + 'static,
     Out: Send + Sync + MessageChunk + Default + 'static,
 {
-    fn call(&self, input: In) -> AsyncStream<Out> {
+    fn call(&self, input: In) -> Pin<Box<dyn Stream<Item = Out> + Send>> {
         Op::call(self, input)
     }
 
@@ -64,7 +65,7 @@ where
 /// ## Architecture Constraints
 /// - Zero-allocation with PhantomData for type safety
 /// - Send + Sync + Clone for concurrent reusability
-/// - AsyncStream-only outputs (NO Future/Result wrapping)
+/// - Stream-only outputs (NO Future/Result wrapping)
 /// - All hot-path methods marked #[inline] for zero-cost abstractions
 /// - Clone for efficient operation sharing and composition
 /// - Unwrapped Stream pattern - no Result wrapping in stream values
@@ -81,22 +82,22 @@ where
 ///
 /// let double_op = map(|x: i32| x * 2);
 /// let stream = double_op.call(5);
-/// // Result: AsyncStream containing [10]
+/// // Result: Stream containing [10]
 /// ```
 pub trait Op<In, Out>: Send + Sync + Clone + 'static {
     /// Execute the operation with streaming output
     ///
     /// Takes input of type `In` and produces a stream of `Out` values
-    /// using AsyncStream. This follows the paraphym unwrapped stream
+    /// using tokio Stream. This follows the paraphym unwrapped stream
     /// architecture for maximum performance.
     ///
     /// ## Implementation Requirements
-    /// - Must use AsyncStream for return type (streams-only architecture)
-    /// - No .await on AsyncStream (streams are consumed, not awaited)  
+    /// - Must use tokio Stream for return type (streams-only architecture)
+    /// - Streams are async and should be awaited
     /// - Unwrapped stream values - no Result wrapping for performance
     /// - Real execution logic - no mocking or simulation
     /// - Hot path should be marked #[inline] for zero-cost abstractions
-    fn call(&self, input: In) -> AsyncStream<Out>;
+    fn call(&self, input: In) -> Pin<Box<dyn Stream<Item = Out> + Send>>;
 
     /// Fluent combinator: chain this operation with another
     ///
@@ -187,22 +188,22 @@ where
     Out: Send + Sync + Clone + Default + 'static + cyrup_sugars::prelude::MessageChunk,
 {
     #[inline]
-    fn call(&self, input: In) -> AsyncStream<Out> {
+    fn call(&self, input: In) -> Pin<Box<dyn Stream<Item = Out> + Send>> {
         let first = self.first.clone();
         let second = self.second.clone();
 
         // Create streaming composition using correct AsyncStream patterns
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
             // Execute first operation to get intermediate stream
             let first_stream = first.call(input);
 
             // Process each intermediate value through second operation
-            while let Some(mid_value) = first_stream.try_next() {
+            while let Some(mid_value) = first_stream.next().await {
                 // Execute second operation with intermediate value
                 let second_stream = second.call(mid_value);
 
                 // Forward all outputs from second operation
-                while let Some(output) = second_stream.try_next() {
+                while let Some(output) = second_stream.next().await {
                     if sender.send(output).is_err() {
                         log::debug!(
                             "Stream receiver dropped during sequential operation - execution terminated"
@@ -211,7 +212,7 @@ where
                     }
                 }
             }
-        })
+        }))
     }
 }
 
@@ -242,15 +243,15 @@ where
     NewOut: Send + Sync + Clone + Default + 'static + cyrup_sugars::prelude::MessageChunk,
 {
     #[inline]
-    fn call(&self, input: In) -> AsyncStream<NewOut> {
+    fn call(&self, input: In) -> Pin<Box<dyn Stream<Item = NewOut> + Send>> {
         let op = self.op.clone();
         let func = self.func.clone();
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
             let stream = op.call(input);
 
             // Apply transformation function to each output
-            while let Some(output) = stream.try_next() {
+            while let Some(output) = stream.next().await {
                 let transformed = func(output);
                 if sender.send(transformed).is_err() {
                     log::debug!(
@@ -259,7 +260,7 @@ where
                     return; // Receiver dropped
                 }
             }
-        })
+        }))
     }
 }
 
@@ -283,11 +284,11 @@ where
     T: Send + Sync + Clone + Default + 'static + cyrup_sugars::prelude::MessageChunk,
 {
     #[inline]
-    fn call(&self, input: T) -> AsyncStream<T> {
-        AsyncStream::with_channel(move |sender| {
+    fn call(&self, input: T) -> Pin<Box<dyn Stream<Item = T> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
             // Direct passthrough - no transformation
             let _ = sender.send(input);
-        })
+        }))
     }
 }
 
@@ -314,12 +315,12 @@ where
     Out: Send + Sync + Clone + Default + 'static + cyrup_sugars::prelude::MessageChunk,
 {
     #[inline]
-    fn call(&self, input: In) -> AsyncStream<Out> {
+    fn call(&self, input: In) -> Pin<Box<dyn Stream<Item = Out> + Send>> {
         let func = self.func.clone();
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
             let output = func(input);
             let _ = sender.send(output);
-        })
+        }))
     }
 }
 

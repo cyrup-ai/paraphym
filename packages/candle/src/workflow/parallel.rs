@@ -16,7 +16,8 @@ use crossbeam;
 use cyrup_sugars::prelude::MessageChunk;
 use smallvec::SmallVec;
 use std::sync::mpsc;
-use ystream::AsyncStream;
+use std::pin::Pin;
+use tokio_stream::{Stream, StreamExt};
 
 use crate::domain::context::chunk::ParallelResult;
 use crate::workflow::ops::{DynOp, Op};
@@ -162,9 +163,9 @@ where
     /// * `input` - Input value to pass to all operations
     ///
     /// ## Returns
-    /// AsyncStream of ParallelResult<Out> values in completion order
+    /// Stream of ParallelResult<Out> values in completion order
     #[inline]
-    pub fn execute(self, input: In) -> AsyncStream<ParallelResult<Out>> {
+    pub fn execute(self, input: In) -> Pin<Box<dyn Stream<Item = ParallelResult<Out>> + Send>> {
         <Self as Op<In, ParallelResult<Out>>>::call(&self, input)
     }
 }
@@ -204,21 +205,21 @@ where
     /// - Thread panics converted to error results
     /// - Individual operation failures don't stop others
     /// - Graceful degradation on resource exhaustion
-    fn call(&self, input: In) -> AsyncStream<ParallelResult<Out>> {
+    fn call(&self, input: In) -> Pin<Box<dyn Stream<Item = ParallelResult<Out>> + Send>> {
         let operations: SmallVec<Box<dyn DynOp<In, Out> + Send + Sync>, 16> =
             self.operations.iter().map(|op| op.clone_boxed()).collect();
         let operation_count = operations.len();
 
         // Handle edge case: no operations
         if operation_count == 0 {
-            return AsyncStream::with_channel(|_sender| {
+            return Box::pin(crate::async_stream::spawn_stream(|_tx| async move {
                 // No operations to execute, stream completes immediately
-            });
+            }));
         }
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Use crossbeam scoped threads for bounded resource management
-            let sender_clone = sender.clone();
+            let stream_tx = tx.clone();
             let scope_result = crossbeam::thread::scope(move |scope| {
                 // Create channel for streaming results as they complete
                 let (result_tx, result_rx) = mpsc::channel::<ParallelResult<Out>>();
@@ -226,18 +227,19 @@ where
                 // Spawn each operation in separate thread
                 for (op_index, operation) in operations.into_iter().enumerate() {
                     let input_clone = input.clone();
-                    let tx_clone = result_tx.clone();
+                    let result_tx_clone = result_tx.clone();
 
                     scope.spawn(move |_| {
                         // Execute operation and stream all results
                         let op_stream = operation.call(input_clone);
+                        tokio::pin!(op_stream);
 
                         // Stream all results from this operation with index tracking
-                        while let Some(result) = op_stream.try_next() {
+                        while let Some(result) = op_stream.next().await {
                             let parallel_result = ParallelResult::new(op_index, result);
 
                             // Send result with operation index for correlation
-                            if tx_clone.send(parallel_result).is_err() {
+                            if result_tx_clone.send(parallel_result).is_err() {
                                 // Receiver dropped, stop processing this operation
                                 log::debug!(
                                     "Parallel operation {} receiver dropped - terminating",
@@ -254,7 +256,7 @@ where
 
                 // Collect and stream results as they arrive from any operation
                 while let Ok(parallel_result) = result_rx.recv() {
-                    if sender_clone.send(parallel_result).is_err() {
+                    if stream_tx.send(parallel_result).is_err() {
                         // Main receiver dropped, stop streaming all results
                         log::debug!("Main parallel receiver dropped - terminating all operations");
                         break;
@@ -271,9 +273,9 @@ where
                 // Send error result for graceful degradation
                 let error_msg = format!("Parallel execution failed: {:?}", panic_err);
                 let error_result = ParallelResult::new(0, Out::bad_chunk(error_msg));
-                let _ = sender.send(error_result);
+                let _ = tx.send(error_result);
             }
-        })
+        }))
     }
 }
 
@@ -372,9 +374,9 @@ where
     /// * `input` - Input value to pass to all operations
     ///
     /// ## Returns
-    /// AsyncStream of ParallelResult<Out> values
+    /// Stream of ParallelResult<Out> values
     #[inline]
-    pub fn execute(self, input: In) -> AsyncStream<ParallelResult<Out>> {
+    pub fn execute(self, input: In) -> Pin<Box<dyn Stream<Item = ParallelResult<Out>> + Send>> {
         self.parallel.execute(input)
     }
 

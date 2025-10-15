@@ -1,7 +1,7 @@
 //! Live message streaming system with zero-allocation patterns
 //!
 //! This module provides high-performance message streaming using lock-free queues,
-//! atomic counters, and `AsyncStream` patterns for blazing-fast real-time updates.
+//! atomic counters, and tokio Stream patterns for blazing-fast real-time updates.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -13,7 +13,8 @@ use crossbeam_skiplist::SkipMap;
 use cyrup_sugars::prelude::MessageChunk;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
-use ystream::{AsyncStream, emit};
+use std::pin::Pin;
+use tokio_stream::Stream;
 
 use super::events::RealTimeEvent;
 // Use the domain's RealTimeError
@@ -377,7 +378,7 @@ impl LiveMessageStreamer {
 
     /// Send live update message with backpressure handling
     #[must_use]
-    pub fn send_message(&self, mut message: LiveUpdateMessage) -> AsyncStream<StreamingResult> {
+    pub fn send_message(&self, mut message: LiveUpdateMessage) -> Pin<Box<dyn Stream<Item = StreamingResult> + Send>> {
         let message_queue = if message.priority >= MessagePriority::High {
             self.priority_queue.clone()
         } else {
@@ -397,7 +398,7 @@ impl LiveMessageStreamer {
         let bytes_processed = self.bytes_processed.clone();
         let event_broadcaster = self.event_broadcaster.clone();
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Check for backpressure
             let current_queue_size = counter.load(Ordering::Acquire);
             let queue_limit = queue_size_limit.load(Ordering::Acquire);
@@ -412,7 +413,7 @@ impl LiveMessageStreamer {
                     limit: queue_limit,
                     message_id: message.id.clone(),
                 };
-                emit!(sender, result);
+                let _ = tx.send(result);
                 return;
             }
 
@@ -423,7 +424,7 @@ impl LiveMessageStreamer {
                     threshold: bp_threshold,
                     message_id: message.id.clone(),
                 };
-                emit!(sender, warning_result);
+                let _ = tx.send(warning_result);
             }
 
             // Assign sequence number
@@ -442,13 +443,13 @@ impl LiveMessageStreamer {
                 sequence_number: message.sequence_number,
                 queue_position: current_queue_size + 1,
             };
-            emit!(sender, result);
-        })
+            let _ = tx.send(result);
+        }))
     }
 
     /// Subscribe to live updates with filtering
     #[must_use]
-    pub fn subscribe(&self, subscriber: StreamSubscriber) -> AsyncStream<LiveUpdateMessage> {
+    pub fn subscribe(&self, subscriber: StreamSubscriber) -> Pin<Box<dyn Stream<Item = LiveUpdateMessage> + Send>> {
         let subscriber_arc = Arc::new(subscriber);
         let subscriber_id = subscriber_arc.id.clone();
 
@@ -456,17 +457,17 @@ impl LiveMessageStreamer {
         self.subscriber_counter.inc();
 
         // Return empty stream - messages will be delivered via processing task
-        AsyncStream::with_channel(|_sender| {})
+        Box::pin(crate::async_stream::spawn_stream(|_tx| async move {}))
     }
 
     /// Unsubscribe from live updates
     #[must_use]
-    pub fn unsubscribe(&self, subscriber_id: &str) -> AsyncStream<UnsubscribeResult> {
+    pub fn unsubscribe(&self, subscriber_id: &str) -> Pin<Box<dyn Stream<Item = UnsubscribeResult> + Send>> {
         let subscribers = self.subscribers.clone();
         let subscriber_counter = self.subscriber_counter.clone();
         let id = subscriber_id.to_string();
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             let result = if subscribers.remove(&id).is_some() {
                 // Decrement counter efficiently
                 let current = subscriber_counter.get();
@@ -485,21 +486,21 @@ impl LiveMessageStreamer {
                 UnsubscribeResult::NotFound { subscriber_id: id }
             };
 
-            emit!(sender, result);
-        })
+            let _ = tx.send(result);
+        }))
     }
 
     /// Start message processing task with lock-free distribution
     #[allow(clippy::cast_precision_loss)] // Acceptable for rate calculations
     #[must_use]
-    pub fn start_processing(&self) -> AsyncStream<ProcessingEvent> {
+    pub fn start_processing(&self) -> Pin<Box<dyn Stream<Item = ProcessingEvent> + Send>> {
         if self
             .processing_active
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
             .is_err()
         {
             // Already running
-            return AsyncStream::with_channel(|_sender| {});
+            return Box::pin(crate::async_stream::spawn_stream(|_tx| async move {}));
         }
 
         let message_queue = self.message_queue.clone();
@@ -510,7 +511,7 @@ impl LiveMessageStreamer {
         let processing_rate = self.processing_rate.clone();
         let processing_active = self.processing_active.clone();
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             std::thread::spawn(move || {
                 let mut messages_processed = 0u64;
                 let mut last_rate_check = std::time::Instant::now();
@@ -558,7 +559,7 @@ impl LiveMessageStreamer {
                             total_bytes,
                             priority: message.priority,
                         };
-                        emit!(sender, event);
+                        let _ = tx.send(event);
 
                         // Rate limiting with nanosecond precision
                         std::thread::sleep(Duration::from_nanos(delay_nanos));
@@ -577,7 +578,7 @@ impl LiveMessageStreamer {
                             messages_processed,
                             active_subscribers: subscribers.len() as u64,
                         };
-                        emit!(sender, event);
+                        let _ = tx.send(event);
 
                         messages_processed = 0;
                         last_rate_check = std::time::Instant::now();
@@ -589,7 +590,7 @@ impl LiveMessageStreamer {
                     }
                 }
             });
-        })
+        }))
     }
 
     /// Stop processing task

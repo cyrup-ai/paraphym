@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 
 use super::commands::{CommandExecutionResult, ImmutableChatCommand, OutputType};
 use super::metadata::ResourceUsage;
-use crate::AsyncStreamSender;
 use crate::domain::util::unix_timestamp_micros;
 
 /// Command execution context with owned strings allocated once for performance
@@ -462,7 +461,7 @@ pub struct StreamingCommandExecutor {
     /// Failed executions (atomic) - failure count
     failed_executions: AtomicU64,
     /// Event stream sender for broadcasting events
-    event_sender: Option<AsyncStreamSender<CommandEvent>>,
+    event_sender: Option<tokio::sync::mpsc::UnboundedSender<CommandEvent>>,
 }
 
 impl StreamingCommandExecutor {
@@ -483,7 +482,7 @@ impl StreamingCommandExecutor {
     /// Create with event sender for streaming events
     #[inline]
     #[must_use]
-    pub fn with_event_sender(event_sender: AsyncStreamSender<CommandEvent>) -> Self {
+    pub fn with_event_sender(event_sender: tokio::sync::mpsc::UnboundedSender<CommandEvent>) -> Self {
         Self {
             execution_counter: AtomicU64::new(0),
             active_executions: AtomicUsize::new(0),

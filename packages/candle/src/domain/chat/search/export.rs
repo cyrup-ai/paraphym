@@ -1,7 +1,8 @@
 //! Search result export functionality
 
 use serde_json;
-use ystream::AsyncStream;
+use std::pin::Pin;
+use tokio_stream::Stream;
 
 use super::types::{ExportFormat, ExportOptions, SearchError, SearchResult};
 use crate::domain::context::chunk::CandleJsonChunk;
@@ -34,7 +35,7 @@ impl SearchExporter {
         &self,
         results: Vec<SearchResult>,
         options: Option<ExportOptions>,
-    ) -> AsyncStream<CandleJsonChunk> {
+    ) -> Pin<Box<dyn Stream<Item = CandleJsonChunk> + Send>> {
         let export_options = options.unwrap_or_else(|| self.default_options.clone());
         let limited_results = if let Some(max) = export_options.max_results {
             results.into_iter().take(max).collect()
@@ -45,20 +46,20 @@ impl SearchExporter {
         // Clone self to avoid borrowing issues
         let _self_clone = self.clone();
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             if let ExportFormat::Json = export_options.format {
                 if let Ok(json) =
                     SearchExporter::export_json_sync(&limited_results, &export_options)
                     && let Ok(value) = serde_json::from_str(&json)
                 {
-                    let _ = sender.send(CandleJsonChunk(value));
+                    let _ = tx.send(CandleJsonChunk(value));
                 }
             } else {
                 // Other formats not implemented in simplified version
                 let error_value = serde_json::json!({"error": "Export format not supported"});
-                let _ = sender.send(CandleJsonChunk(error_value));
+                let _ = tx.send(CandleJsonChunk(error_value));
             }
-        })
+        }))
     }
 
     /// Export to JSON format

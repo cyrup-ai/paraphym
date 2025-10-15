@@ -3,7 +3,8 @@
 //! This module implements the core search algorithms with SIMD optimization
 //! for high-performance text search and matching.
 
-use ystream::AsyncStream;
+use std::pin::Pin;
+use tokio_stream::Stream;
 
 use super::index::ChatSearchIndex;
 use super::types::{MatchPosition, SearchResult, SearchResultMetadata};
@@ -14,11 +15,11 @@ impl ChatSearchIndex {
         &self,
         terms: &[String],
         _fuzzy_matching: bool,
-    ) -> AsyncStream<SearchResult> {
+    ) -> Pin<Box<dyn Stream<Item = SearchResult> + Send>> {
         let self_clone = self.clone();
         let terms_clone = terms.to_vec();
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             if terms_clone.is_empty() {
                 return;
             }
@@ -65,11 +66,11 @@ impl ChatSearchIndex {
                                 total_matches: 1,
                             }),
                         };
-                        let _ = sender.send(result);
+                        let _ = tx.send(result);
                     }
                 }
             }
-        })
+        }))
     }
 
     /// Search with OR operator (any term must match)
@@ -77,11 +78,11 @@ impl ChatSearchIndex {
         &self,
         terms: &[String],
         _fuzzy_matching: bool,
-    ) -> AsyncStream<SearchResult> {
+    ) -> Pin<Box<dyn Stream<Item = SearchResult> + Send>> {
         let self_clone = self.clone();
         let terms_clone = terms.to_vec();
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             let mut all_docs = std::collections::HashSet::new();
 
             for term in &terms_clone {
@@ -125,10 +126,10 @@ impl ChatSearchIndex {
                             total_matches: 1,
                         }),
                     };
-                    let _ = sender.send(result);
+                    let _ = tx.send(result);
                 }
             }
-        })
+        }))
     }
 
     /// Calculate relevance score using TF-IDF
@@ -183,11 +184,11 @@ impl ChatSearchIndex {
         &self,
         terms: &[String],
         _fuzzy_matching: bool,
-    ) -> AsyncStream<SearchResult> {
+    ) -> Pin<Box<dyn Stream<Item = SearchResult> + Send>> {
         let self_clone = self.clone();
         let terms_clone = terms.to_vec();
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             let mut excluded_docs = std::collections::HashSet::new();
 
             // Collect all documents that contain any of the terms
@@ -217,10 +218,10 @@ impl ChatSearchIndex {
                             total_matches: 1,
                         }),
                     };
-                    let _ = sender.send(result);
+                    let _ = tx.send(result);
                 }
             }
-        })
+        }))
     }
 
     /// Search for exact phrase matching
@@ -228,11 +229,11 @@ impl ChatSearchIndex {
         &self,
         terms: &[String],
         _fuzzy_matching: bool,
-    ) -> AsyncStream<SearchResult> {
+    ) -> Pin<Box<dyn Stream<Item = SearchResult> + Send>> {
         let self_clone = self.clone();
         let terms_clone = terms.to_vec();
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             if terms_clone.is_empty() {
                 return;
             }
@@ -264,10 +265,10 @@ impl ChatSearchIndex {
                             total_matches: 1,
                         }),
                     };
-                    let _ = sender.send(result);
+                    let _ = tx.send(result);
                 }
             }
-        })
+        }))
     }
 
     /// Search with proximity constraint (terms within specified distance)
@@ -276,11 +277,11 @@ impl ChatSearchIndex {
         terms: &[String],
         distance: u32,
         _fuzzy_matching: bool,
-    ) -> AsyncStream<SearchResult> {
+    ) -> Pin<Box<dyn Stream<Item = SearchResult> + Send>> {
         let self_clone = self.clone();
         let terms_clone = terms.to_vec();
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             if terms_clone.len() < 2 {
                 // Proximity search requires at least 2 terms
                 return;
@@ -311,10 +312,10 @@ impl ChatSearchIndex {
                             total_matches: 1,
                         }),
                     };
-                    let _ = sender.send(result);
+                    let _ = tx.send(result);
                 }
             }
-        })
+        }))
     }
 
     /// Find exact phrase positions in content

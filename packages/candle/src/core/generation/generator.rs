@@ -1,11 +1,12 @@
 //! Core text generation engine with SIMD acceleration
 //!
-//! This module contains the TextGenerator implementation with AsyncStream token streaming,
+//! This module contains the TextGenerator implementation with tokio stream token streaming,
 //! SIMD-optimized sampling methods, and pure SIMD delegation without scalar fallbacks.
 
 use candle_core::{Device, Tensor};
 use tokenizers::Tokenizer;
-use ystream::{AsyncStream, emit, handle_error};
+use tokio_stream::Stream;
+use crate::async_stream;
 
 use crate::domain::context::chunk::CandleStringChunk;
 use paraphym_simd::logits::LogitsProcessor as LogitsProcessorTrait;
@@ -25,7 +26,7 @@ use paraphym_simd::logits::constraints::{JsonConstraint, json::JsonState};
 
 /// Core text generation engine with SIMD acceleration
 ///
-/// Provides AsyncStream-based token generation with comprehensive SIMD optimization,
+/// Provides tokio stream-based token generation with comprehensive SIMD optimization,
 /// statistics tracking, and configurable sampling parameters. Uses pure SIMD
 /// delegation without scalar fallbacks for maximum performance.
 pub struct TextGenerator {
@@ -79,20 +80,23 @@ impl TextGenerator {
         }
     }
 
-    /// Generate text using AsyncStream with SIMD acceleration
+    /// Generate text using tokio stream with SIMD acceleration
     pub fn generate(
         mut self,
         prompt: String,
         max_tokens: u32,
         special_tokens: SpecialTokens,
-    ) -> AsyncStream<crate::domain::context::chunk::CandleStringChunk> {
-        AsyncStream::with_channel(move |sender| {
+    ) -> impl Stream<Item = crate::domain::context::chunk::CandleStringChunk> {
+        async_stream::spawn_stream(move |tx| async move {
             self.stats.start_generation();
 
             // Encode prompt to tokens using tokenizer
             let tokens = match self.tokenizer.encode(prompt.as_str(), true) {
                 Ok(encoded) => encoded.get_ids().to_vec(),
-                Err(e) => handle_error!(e, "prompt encoding"),
+                Err(e) => {
+                    log::error!("Prompt encoding error: {}", e);
+                    return;
+                }
             };
 
             self.stats.set_input_tokens(tokens.len() as u64);
@@ -103,27 +107,45 @@ impl TextGenerator {
             let initial_input = match Tensor::new(tokens.as_slice(), &self.device) {
                 Ok(tensor) => match tensor.unsqueeze(0) {
                     Ok(unsqueezed) => unsqueezed,
-                    Err(e) => handle_error!(e, "initial tensor creation"),
+                    Err(e) => {
+                        log::error!("Initial tensor creation error: {}", e);
+                        return;
+                    }
                 },
-                Err(e) => handle_error!(e, "initial tensor from slice"),
+                Err(e) => {
+                    log::error!("Initial tensor from slice error: {}", e);
+                    return;
+                }
             };
 
             let initial_logits = match self.model.forward(&initial_input, position) {
                 Ok(logits) => match logits.squeeze(0) {
                     Ok(squeezed) => squeezed,
-                    Err(e) => handle_error!(e, "initial logits squeeze"),
+                    Err(e) => {
+                        log::error!("Initial logits squeeze error: {}", e);
+                        return;
+                    }
                 },
-                Err(e) => handle_error!(e, "initial forward pass"),
+                Err(e) => {
+                    log::error!("Initial forward pass error: {}", e);
+                    return;
+                }
             };
 
             self.stats.record_forward_pass();
             let logits_vec = match initial_logits.to_vec1::<f32>() {
                 Ok(v) => v,
-                Err(e) => handle_error!(e, "converting initial logits to vector"),
+                Err(e) => {
+                    log::error!("Converting initial logits to vector error: {}", e);
+                    return;
+                }
             };
             let mut next_token = match self.sample_token(&logits_vec, &tokens) {
                 Ok(token) => token,
-                Err(e) => handle_error!(e, "initial SIMD sampling"),
+                Err(e) => {
+                    log::error!("Initial SIMD sampling error: {}", e);
+                    return;
+                }
             };
             all_tokens.push(next_token);
             self.token_history.push(next_token);
@@ -143,8 +165,13 @@ impl TextGenerator {
 
             // Decode and emit initial token
             match self.tokenizer.decode(&[next_token], false) {
-                Ok(token_str) => emit!(sender, CandleStringChunk(token_str)),
-                Err(e) => handle_error!(e, "initial token decoding"),
+                Ok(token_str) => {
+                    let _ = tx.send(CandleStringChunk(token_str));
+                }
+                Err(e) => {
+                    log::error!("Initial token decoding error: {}", e);
+                    return;
+                }
             };
 
             // Generation loop - stream each token as generated
@@ -153,29 +180,47 @@ impl TextGenerator {
                 let input = match Tensor::new(&[next_token], &self.device) {
                     Ok(tensor) => match tensor.unsqueeze(0) {
                         Ok(unsqueezed) => unsqueezed,
-                        Err(e) => handle_error!(e, "tensor creation in loop"),
+                        Err(e) => {
+                            log::error!("Tensor creation in loop error: {}", e);
+                            break;
+                        }
                     },
-                    Err(e) => handle_error!(e, "tensor from single token"),
+                    Err(e) => {
+                        log::error!("Tensor from single token error: {}", e);
+                        break;
+                    }
                 };
 
                 // Forward pass using model
                 let logits = match self.model.forward(&input, position) {
                     Ok(logits) => match logits.squeeze(0) {
                         Ok(squeezed) => squeezed,
-                        Err(e) => handle_error!(e, "logits squeeze in loop"),
+                        Err(e) => {
+                            log::error!("Logits squeeze in loop error: {}", e);
+                            break;
+                        }
                     },
-                    Err(e) => handle_error!(e, "forward pass in loop"),
+                    Err(e) => {
+                        log::error!("Forward pass in loop error: {}", e);
+                        break;
+                    }
                 };
 
                 self.stats.record_forward_pass();
                 // SIMD sampling using existing infrastructure
                 let logits_vec = match logits.to_vec1::<f32>() {
                     Ok(v) => v,
-                    Err(e) => handle_error!(e, "converting logits to vector in loop"),
+                    Err(e) => {
+                        log::error!("Converting logits to vector in loop error: {}", e);
+                        break;
+                    }
                 };
                 next_token = match self.sample_token(&logits_vec, &all_tokens) {
                     Ok(token) => token,
-                    Err(e) => handle_error!(e, "SIMD sampling in loop"),
+                    Err(e) => {
+                        log::error!("SIMD sampling in loop error: {}", e);
+                        break;
+                    }
                 };
                 all_tokens.push(next_token);
                 self.token_history.push(next_token);
@@ -194,8 +239,13 @@ impl TextGenerator {
 
                 // Decode and emit individual token
                 match self.tokenizer.decode(&[next_token], false) {
-                    Ok(token_str) => emit!(sender, CandleStringChunk(token_str)), // Individual token streaming
-                    Err(e) => handle_error!(e, "token decoding in loop"),
+                    Ok(token_str) => {
+                        let _ = tx.send(CandleStringChunk(token_str)); // Individual token streaming
+                    }
+                    Err(e) => {
+                        log::error!("Token decoding in loop error: {}", e);
+                        break;
+                    }
                 };
 
                 self.stats.add_tokens(1);

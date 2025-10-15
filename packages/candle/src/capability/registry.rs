@@ -86,7 +86,8 @@ use crate::domain::context::chunk::CandleStringChunk;
 use crate::domain::image_generation::{ImageGenerationChunk, ImageGenerationConfig};
 use crate::domain::prompt::CandlePrompt;
 use candle_core::Device;
-use ystream::{AsyncStream, spawn_stream};
+use tokio_stream::Stream;
+use std::pin::Pin;
 
 // Pool imports
 use crate::pool::capabilities::{
@@ -228,7 +229,7 @@ impl TextToTextCapable for TextToTextModel {
         &self,
         prompt: CandlePrompt,
         params: &CandleCompletionParams,
-    ) -> AsyncStream<CandleCompletionChunk> {
+    ) -> Pin<Box<dyn Stream<Item = CandleCompletionChunk> + Send>> {
         match self {
             Self::KimiK2(m) => {
                 let registry_key = m.info().registry_key;
@@ -254,9 +255,9 @@ impl TextToTextCapable for TextToTextModel {
                         )
                     },
                 ) {
-                    return spawn_stream(move |sender| {
-                        ystream::emit!(sender, CandleCompletionChunk::Error(e.to_string()));
-                    });
+                    return Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+                        let _ = tx.send(CandleCompletionChunk::Error(e.to_string()));
+                    }));
                 }
 
                 // Route through pool
@@ -286,9 +287,9 @@ impl TextToTextCapable for TextToTextModel {
                         )
                     },
                 ) {
-                    return spawn_stream(move |sender| {
-                        ystream::emit!(sender, CandleCompletionChunk::Error(e.to_string()));
-                    });
+                    return Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+                        let _ = tx.send(CandleCompletionChunk::Error(e.to_string()));
+                    }));
                 }
 
                 // Route through pool
@@ -318,9 +319,9 @@ impl TextToTextCapable for TextToTextModel {
                         )
                     },
                 ) {
-                    return spawn_stream(move |sender| {
-                        ystream::emit!(sender, CandleCompletionChunk::Error(e.to_string()));
-                    });
+                    return Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+                        let _ = tx.send(CandleCompletionChunk::Error(e.to_string()));
+                    }));
                 }
 
                 // Route through pool
@@ -908,7 +909,7 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
 }
 
 impl VisionCapable for VisionModel {
-    fn describe_image(&self, image_path: &str, query: &str) -> AsyncStream<CandleStringChunk> {
+    fn describe_image(&self, image_path: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
         match self {
             Self::LLaVA(m) => {
                 let registry_key = m.info().registry_key;
@@ -934,9 +935,9 @@ impl VisionCapable for VisionModel {
                         )
                     },
                 ) {
-                    return AsyncStream::with_channel(move |tx| {
+                    return Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
                         let _ = tx.send(CandleStringChunk(format!("Error: {}", e)));
-                    });
+                    }));
                 }
 
                 // Route through pool
@@ -945,7 +946,7 @@ impl VisionCapable for VisionModel {
         }
     }
 
-    fn describe_url(&self, url: &str, query: &str) -> AsyncStream<CandleStringChunk> {
+    fn describe_url(&self, url: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
         match self {
             Self::LLaVA(m) => {
                 let registry_key = m.info().registry_key;
@@ -971,9 +972,9 @@ impl VisionCapable for VisionModel {
                         )
                     },
                 ) {
-                    return AsyncStream::with_channel(move |tx| {
+                    return Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
                         let _ = tx.send(CandleStringChunk(format!("Error: {}", e)));
-                    });
+                    }));
                 }
 
                 // Route through pool
@@ -989,7 +990,7 @@ impl TextToImageCapable for TextToImageModel {
         prompt: &str,
         config: &ImageGenerationConfig,
         device: &Device,
-    ) -> AsyncStream<ImageGenerationChunk> {
+    ) -> Pin<Box<dyn Stream<Item = ImageGenerationChunk> + Send>> {
         match self {
             Self::FluxSchnell(m) => {
                 let registry_key = m.info().registry_key;
@@ -1012,9 +1013,9 @@ impl TextToImageCapable for TextToImageModel {
                         )
                     },
                 ) {
-                    return AsyncStream::with_channel(move |sender| {
-                        let _ = sender.send(ImageGenerationChunk::Error(e.to_string()));
-                    });
+                    return Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+                        let _ = tx.send(ImageGenerationChunk::Error(e.to_string()));
+                    }));
                 }
 
                 // Route through pool
@@ -1041,9 +1042,9 @@ impl TextToImageCapable for TextToImageModel {
                         )
                     },
                 ) {
-                    return AsyncStream::with_channel(move |sender| {
-                        let _ = sender.send(ImageGenerationChunk::Error(e.to_string()));
-                    });
+                    return Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+                        let _ = tx.send(ImageGenerationChunk::Error(e.to_string()));
+                    }));
                 }
 
                 // Route through pool

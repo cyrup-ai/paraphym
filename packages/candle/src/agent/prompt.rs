@@ -9,7 +9,8 @@
 // ============================================================================
 
 
-use ystream::AsyncStream;
+use std::pin::Pin;
+use tokio_stream::Stream;
 
 use super::Agent;
 use crate::completion::{CompletionModel, Message, PromptError};
@@ -116,14 +117,14 @@ impl<'a, M: CompletionModel> PromptRequest<'a, M> {
     // ---------------------------------------------------------------------
     
     /// Execute the prompt request using streams-only architecture
-    pub fn execute(self) -> AsyncStream<String> {
-        AsyncStream::with_channel(move |sender| {
-            self.drive_streams(sender);
+    pub fn execute(self) -> impl Stream<Item = String> {
+        crate::async_stream::spawn_stream(move |tx| async move {
+            self.drive_streams(tx);
         })
     }
     
     /// Internal driver using streams-only architecture
-    fn drive_streams(mut self, sender: ystream::AsyncStreamSender<String>) {
+    fn drive_streams(mut self, sender: tokio::sync::mpsc::UnboundedSender<String>) {
         std::thread::spawn(move || {
             use crate::completion::Chat;
 

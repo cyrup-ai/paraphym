@@ -3,7 +3,6 @@
 //! All message construction logic and builder patterns.
 
 use crate::domain::chat::message::{CandleMessage as Message}; // Core message types from chat
-use ystream::{AsyncTask, spawn_task as spawn_async};
 use crate::domain::{CandleAudio as Audio, CandleDocument as Document, context::CandleImageChunk as Image};
 use serde::Serialize;
 use serde_json::Value;

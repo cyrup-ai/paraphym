@@ -13,7 +13,8 @@ pub use self::{
     actions::*, code_execution::*, commands::*, errors::*, events::*, metadata::ResourceUsage,
     metadata::*, parameters::*,
 };
-use crate::AsyncStream;
+use std::pin::Pin;
+use tokio_stream::Stream;
 
 // Type aliases for backwards compatibility and consistent naming
 pub type CommandContext = CommandExecutionContext;

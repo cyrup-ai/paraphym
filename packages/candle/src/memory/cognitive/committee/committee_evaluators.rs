@@ -9,6 +9,7 @@ use crate::domain::{
 use crate::memory::cognitive::committee::committee_types::{Committee, CommitteeConfig};
 use crate::memory::cognitive::types::CognitiveError;
 use std::sync::Arc;
+use tokio_stream::StreamExt;
 
 /// Committee evaluator using existing models (CandleKimiK2Model, CandleQwen3CoderModel)
 #[derive(Debug)]
@@ -63,12 +64,12 @@ impl ModelCommitteeEvaluator {
         let prompt = CandlePrompt::new(&batch_prompt);
         let params = CandleCompletionParams::default();
 
-        // Get response from KimiK2 provider - consume synchronously to avoid !Send
+        // Get response from KimiK2 provider
         let mut response = String::new();
-        let stream = self.committee.kimi_model.prompt(prompt, &params);
+        let mut stream = Box::pin(self.committee.kimi_model.prompt(prompt, &params));
 
-        // Consume AsyncStream synchronously with try_next (no async)
-        while let Some(chunk) = stream.try_next() {
+        // Consume stream asynchronously
+        while let Some(chunk) = stream.next().await {
             match chunk {
                 CandleCompletionChunk::Text(text) => response.push_str(&text),
                 CandleCompletionChunk::Complete { text, .. } => {
@@ -112,10 +113,10 @@ impl ModelCommitteeEvaluator {
         let params = CandleCompletionParams::default();
 
         let mut response = String::new();
-        let stream = self.committee.kimi_model.prompt(prompt, &params);
+        let mut stream = Box::pin(self.committee.kimi_model.prompt(prompt, &params));
 
-        // Consume synchronously with try_next to maintain Send
-        while let Some(chunk) = stream.try_next() {
+        // Consume stream asynchronously
+        while let Some(chunk) = stream.next().await {
             match chunk {
                 CandleCompletionChunk::Text(text) => response.push_str(&text),
                 CandleCompletionChunk::Complete { text, .. } => {
@@ -140,10 +141,10 @@ impl ModelCommitteeEvaluator {
         let params = CandleCompletionParams::default();
 
         let mut response = String::new();
-        let stream = self.committee.qwen_model.prompt(prompt, &params);
+        let mut stream = Box::pin(self.committee.qwen_model.prompt(prompt, &params));
 
-        // Consume synchronously with try_next to maintain Send
-        while let Some(chunk) = stream.try_next() {
+        // Consume stream asynchronously
+        while let Some(chunk) = stream.next().await {
             match chunk {
                 CandleCompletionChunk::Text(text) => response.push_str(&text),
                 CandleCompletionChunk::Complete { text, .. } => {
@@ -170,10 +171,10 @@ impl ModelCommitteeEvaluator {
 
         // Evaluate with KimiK2 provider
         let mut kimi_response = String::new();
-        let kimi_stream = self.committee.kimi_model.prompt(prompt.clone(), &params);
+        let mut kimi_stream = Box::pin(self.committee.kimi_model.prompt(prompt.clone(), &params));
 
-        // Consume synchronously with try_next to maintain Send
-        while let Some(chunk) = kimi_stream.try_next() {
+        // Consume stream asynchronously
+        while let Some(chunk) = kimi_stream.next().await {
             match chunk {
                 CandleCompletionChunk::Text(text) => kimi_response.push_str(&text),
                 CandleCompletionChunk::Complete { text, .. } => {
@@ -189,10 +190,10 @@ impl ModelCommitteeEvaluator {
 
         // Evaluate with Qwen provider
         let mut qwen_response = String::new();
-        let qwen_stream = self.committee.qwen_model.prompt(prompt, &params);
+        let mut qwen_stream = Box::pin(self.committee.qwen_model.prompt(prompt, &params));
 
-        // Consume synchronously with try_next to maintain Send
-        while let Some(chunk) = qwen_stream.try_next() {
+        // Consume stream asynchronously
+        while let Some(chunk) = qwen_stream.next().await {
             match chunk {
                 CandleCompletionChunk::Text(text) => qwen_response.push_str(&text),
                 CandleCompletionChunk::Complete { text, .. } => {

@@ -8,7 +8,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde_json::Value;
-use ystream::AsyncStream;
+use std::pin::Pin;
+use tokio_stream::Stream;
 
 use crate::domain::context::chunk::CandleJsonChunk;
 use cylo::{BackendConfig, Cylo, ExecutionRequest, ExecutionResult, create_backend};
@@ -171,12 +172,12 @@ impl SweetMcpRouter {
         &self,
         tool_name: &str,
         args: JsonValue,
-    ) -> AsyncStream<CandleJsonChunk> {
+    ) -> Pin<Box<dyn Stream<Item = CandleJsonChunk> + Send>> {
         let tool_name = tool_name.to_string();
         let router = self.clone_for_async();
 
         // Spawn async work without blocking - sender is moved into spawned task
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             let Some(runtime) = crate::runtime::shared_runtime() else {
                 let error_value = Value::Object(
                     [(
@@ -186,14 +187,14 @@ impl SweetMcpRouter {
                     .into_iter()
                     .collect::<serde_json::Map<_, _>>(),
                 );
-                ystream::emit!(sender, CandleJsonChunk(error_value));
+                let _ = tx.send(CandleJsonChunk(error_value));
                 return;
             };
 
             runtime.spawn(async move {
                 match router.call_tool(&tool_name, args).await {
                     Ok(result) => {
-                        ystream::emit!(sender, CandleJsonChunk(result));
+                        let _ = tx.send(CandleJsonChunk(result));
                     }
                     Err(e) => {
                         let error_value = Value::Object(
@@ -201,11 +202,11 @@ impl SweetMcpRouter {
                                 .into_iter()
                                 .collect::<serde_json::Map<_, _>>(),
                         );
-                        ystream::emit!(sender, CandleJsonChunk(error_value));
+                        let _ = tx.send(CandleJsonChunk(error_value));
                     }
                 }
             });
-        })
+        }))
     }
 
     /// Discover `SweetMCP` `WASM` plugins from user configuration

@@ -3,7 +3,8 @@ use std::marker::PhantomData;
 
 use cyrup_sugars::prelude::MessageChunk;
 use serde::de::DeserializeOwned;
-use ystream::AsyncStream;
+use tokio_stream::Stream;
+use crate::async_stream;
 
 use super::error::{_ExtractionResult as ExtractionResult, ExtractionError};
 use crate::builders::completion::CompletionRequestBuilder;
@@ -24,7 +25,7 @@ where
     fn system_prompt(&self) -> Option<&str>;
 
     /// Extract structured data from text with comprehensive error handling
-    fn extract_from(&self, text: &str) -> AsyncStream<T>;
+    fn extract_from(&self, text: &str) -> impl Stream<Item = T>;
 
     /// Set system prompt for extraction guidance
     #[must_use]
@@ -70,21 +71,21 @@ where
         self
     }
 
-    fn extract_from(&self, text: &str) -> AsyncStream<T> {
+    fn extract_from(&self, text: &str) -> impl Stream<Item = T> {
         let text = text.to_string();
         let provider = self.provider.clone();
         let system_prompt = self.system_prompt.clone().unwrap_or_else(|| {
             format!("Extract structured data from the following text. Return ONLY valid JSON matching the expected schema. Text: {text}")
         });
 
-        AsyncStream::with_channel(move |sender| {
+        async_stream::spawn_stream(move |tx| async move {
             let completion_request = match CompletionRequestBuilder::new()
                 .system_prompt(system_prompt.clone())
                 .build()
             {
                 Ok(req) => req,
                 Err(_e) => {
-                    let _ = sender.send(T::default());
+                    let _ = tx.send(T::default());
                     return;
                 }
             };
@@ -131,7 +132,7 @@ where
                         break;
                     }
                     CandleCompletionChunk::Error(_err) => {
-                        let _ = sender.send(T::default());
+                        let _ = tx.send(T::default());
                         return;
                     }
                     _ => {}
@@ -142,14 +143,14 @@ where
             if finish_reason == Some(FinishReason::Stop) || !full_response.is_empty() {
                 match Self::parse_json_response(&full_response) {
                     Ok(result) => {
-                        let _ = sender.send(result);
+                        let _ = tx.send(result);
                     }
                     Err(_e) => {
-                        let _ = sender.send(T::default());
+                        let _ = tx.send(T::default());
                     }
                 }
             } else {
-                let _ = sender.send(T::default());
+                let _ = tx.send(T::default());
             }
         })
     }

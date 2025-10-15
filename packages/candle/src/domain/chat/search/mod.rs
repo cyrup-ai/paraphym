@@ -6,7 +6,8 @@
 
 use std::sync::Arc;
 
-use ystream::AsyncStream;
+use std::pin::Pin;
+use tokio_stream::Stream;
 
 // Submodules
 pub mod algorithms;
@@ -58,13 +59,13 @@ impl ChatSearcher {
 
     /// Search messages with SIMD optimization (streaming individual results)
     #[must_use]
-    pub fn search_stream(&self, query: SearchQuery) -> AsyncStream<SearchResult> {
+    pub fn search_stream(&self, query: SearchQuery) -> Pin<Box<dyn Stream<Item = SearchResult> + Send>> {
         let self_clone = self.clone();
         let query_terms = query.terms.clone();
         let query_operator = query.operator.clone();
         let query_fuzzy_matching = query.fuzzy_matching;
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             let results = match query_operator {
                 QueryOperator::And => self_clone
                     .index
@@ -96,12 +97,12 @@ impl ChatSearcher {
 
             // Stream results
             for result in paginated_results {
-                let _ = sender.send(result);
+                let _ = tx.send(result);
             }
 
             // Update query statistics
             Self::update_query_statistics();
-        })
+        }))
     }
 
     /// Apply comprehensive filtering system (date, user, session, tag, content)
@@ -251,7 +252,7 @@ impl ChatSearcher {
     pub fn add_message_stream(
         &self,
         message: SearchChatMessage,
-    ) -> AsyncStream<index::IndexResult> {
+    ) -> Pin<Box<dyn Stream<Item = index::IndexResult> + Send>> {
         self.index.add_message_stream(message)
     }
 
@@ -261,7 +262,7 @@ impl ChatSearcher {
         &self,
         results: Vec<SearchResult>,
         options: Option<ExportOptions>,
-    ) -> AsyncStream<crate::domain::context::chunk::CandleJsonChunk> {
+    ) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunk::CandleJsonChunk> + Send>> {
         self.exporter.export_stream(results, options)
     }
 

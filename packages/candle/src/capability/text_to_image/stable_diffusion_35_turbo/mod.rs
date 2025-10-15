@@ -21,8 +21,9 @@ use candle_transformers::models::{
     t5::{Config as T5Config, T5EncoderModel},
 };
 use std::path::PathBuf;
+use std::pin::Pin;
 use tokenizers::Tokenizer;
-use ystream::AsyncStream;
+use tokio_stream::Stream;
 
 mod clip_g_tokenizer;
 mod clip_l_tokenizer;
@@ -92,18 +93,18 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
         prompt: &str,
         config: &ImageGenerationConfig,
         device: &Device,
-    ) -> AsyncStream<ImageGenerationChunk> {
+    ) -> Pin<Box<dyn Stream<Item = ImageGenerationChunk> + Send>> {
         let prompt = prompt.to_string();
         let config = config.clone();
         let device = device.clone();
         let model_self = self.clone();
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Get model-specific config from ModelInfo
             let time_shift = match model_self.info().time_shift {
                 Some(ts) => ts,
                 None => {
-                    let _ = sender.send(ImageGenerationChunk::Error(
+                    let _ = tx.send(ImageGenerationChunk::Error(
                         "time_shift not configured in ModelInfo".to_string(),
                     ));
                     return;
@@ -118,7 +119,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
             ) {
                 Ok(p) => p,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "CLIP-G download failed: {}",
                         e
                     )));
@@ -132,7 +133,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
             ) {
                 Ok(p) => p,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "CLIP-L download failed: {}",
                         e
                     )));
@@ -146,7 +147,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
             ) {
                 Ok(p) => p,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "T5-XXL download failed: {}",
                         e
                     )));
@@ -160,7 +161,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
             ) {
                 Ok(p) => p,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "MMDiT download failed: {}",
                         e
                     )));
@@ -174,7 +175,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
             {
                 Ok(p) => p,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "CLIP-L tokenizer download failed: {}",
                         e
                     )));
@@ -187,7 +188,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
             {
                 Ok(p) => p,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "CLIP-G tokenizer download failed: {}",
                         e
                     )));
@@ -200,7 +201,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
             {
                 Ok(p) => p,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "T5 config download failed: {}",
                         e
                     )));
@@ -214,7 +215,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
             ) {
                 Ok(p) => p,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "T5 tokenizer download failed: {}",
                         e
                     )));
@@ -226,7 +227,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
             if let Some(seed) = config.seed
                 && let Err(e) = device.set_seed(seed)
             {
-                let _ = sender.send(ImageGenerationChunk::Error(format!(
+                let _ = tx.send(ImageGenerationChunk::Error(format!(
                     "Seed setting failed: {e}"
                 )));
                 return;
@@ -245,7 +246,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
             }) {
                 Ok(encoder) => encoder,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "Triple CLIP load failed: {}",
                         e
                     )));
@@ -257,7 +258,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
             let (context, y) = match triple_clip.encode_prompt(&prompt, &device) {
                 Ok(result) => result,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "Text encoding failed: {}",
                         e
                     )));
@@ -275,7 +276,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
                         ) {
                             (Ok(ctx), Ok(y_cat)) => (ctx, y_cat),
                             (Err(e), _) | (_, Err(e)) => {
-                                let _ = sender.send(ImageGenerationChunk::Error(format!(
+                                let _ = tx.send(ImageGenerationChunk::Error(format!(
                                     "Context concatenation failed: {}",
                                     e
                                 )));
@@ -284,7 +285,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
                         }
                     }
                     Err(e) => {
-                        let _ = sender.send(ImageGenerationChunk::Error(format!(
+                        let _ = tx.send(ImageGenerationChunk::Error(format!(
                             "Negative prompt encoding failed: {}",
                             e
                         )));
@@ -298,7 +299,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
                 ) {
                     (Ok(ctx), Ok(y_cat)) => (ctx, y_cat),
                     (Err(e), _) | (_, Err(e)) => {
-                        let _ = sender.send(ImageGenerationChunk::Error(format!(
+                        let _ = tx.send(ImageGenerationChunk::Error(format!(
                             "Context duplication failed: {}",
                             e
                         )));
@@ -313,7 +314,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
             } {
                 Ok(vb) => vb,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "VarBuilder creation failed: {}",
                         e
                     )));
@@ -328,7 +329,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
             ) {
                 Ok(model) => model,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "MMDiT creation failed: {}",
                         e
                     )));
@@ -350,7 +351,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
             let vae = match AutoEncoderKL::new(vb.pp("first_stage_model"), 3, 3, vae_config) {
                 Ok(model) => model,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "VAE creation failed: {}",
                         e
                     )));
@@ -360,10 +361,10 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
 
             // Euler sampling
             let latent =
-                match euler_sample(&mmdit, &y, &context, &config, time_shift, &device, &sender) {
+                match euler_sample(&mmdit, &y, &context, &config, time_shift, &device, &tx) {
                     Ok(result) => result,
                     Err(e) => {
-                        let _ = sender.send(ImageGenerationChunk::Error(format!(
+                        let _ = tx.send(ImageGenerationChunk::Error(format!(
                             "Sampling failed: {}",
                             e
                         )));
@@ -375,7 +376,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
             let image = match decode_latent(&vae, &latent) {
                 Ok(result) => result,
                 Err(e) => {
-                    let _ = sender.send(ImageGenerationChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "VAE decode failed: {}",
                         e
                     )));
@@ -383,8 +384,8 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
                 }
             };
 
-            let _ = sender.send(ImageGenerationChunk::Complete { image });
-        })
+            let _ = tx.send(ImageGenerationChunk::Complete { image });
+        }))
     }
 
     fn registry_key(&self) -> &str {
@@ -404,7 +405,7 @@ fn euler_sample(
     config: &ImageGenerationConfig,
     time_shift: f64,
     device: &Device,
-    sender: &ystream::AsyncStreamSender<ImageGenerationChunk>,
+    sender: &tokio::sync::mpsc::UnboundedSender<ImageGenerationChunk>,
 ) -> Result<Tensor, String> {
     let mut x = flux::sampling::get_noise(1, config.height, config.width, device)
         .map_err(|e| format!("Noise generation failed: {}", e))?
@@ -739,7 +740,7 @@ impl crate::capability::traits::TextToImageCapable for StableDiffusion35Turbo {
         prompt: &str,
         config: &crate::domain::image_generation::ImageGenerationConfig,
         device: &candle_core::Device,
-    ) -> AsyncStream<crate::domain::image_generation::ImageGenerationChunk> {
+    ) -> Pin<Box<dyn Stream<Item = crate::domain::image_generation::ImageGenerationChunk> + Send>> {
         // Delegate to ImageGenerationModel trait
         <Self as ImageGenerationModel>::generate(self, prompt, config, device)
     }

@@ -9,6 +9,8 @@
 //! - SpeechToText
 //! - Vision
 
+use std::pin::Pin;
+
 use crate::domain::completion::CandleCompletionChunk;
 use crate::domain::completion::types::CandleCompletionParams;
 use crate::domain::context::chunk::CandleStringChunk;
@@ -16,7 +18,7 @@ use crate::domain::image_generation::{ImageGenerationChunk, ImageGenerationConfi
 use crate::domain::model::traits::{CandleModel, GenerationParams};
 use crate::domain::prompt::CandlePrompt;
 use candle_core::Device;
-use ystream::AsyncStream;
+use tokio_stream::Stream;
 
 /// Trait for models capable of text-to-text generation
 pub trait TextToTextCapable: CandleModel {
@@ -25,7 +27,7 @@ pub trait TextToTextCapable: CandleModel {
         &self,
         prompt: CandlePrompt,
         params: &CandleCompletionParams,
-    ) -> AsyncStream<CandleCompletionChunk>;
+    ) -> Pin<Box<dyn Stream<Item = CandleCompletionChunk> + Send>>;
 
     /// Get the default generation parameters for this model
     fn default_generation_params(&self) -> GenerationParams {
@@ -290,10 +292,10 @@ pub trait ImageEmbeddingCapable: CandleModel {
 /// Trait for models capable of vision/multimodal understanding
 pub trait VisionCapable: CandleModel {
     /// Describe an image with a text query, streaming tokens as generated
-    fn describe_image(&self, image_path: &str, query: &str) -> AsyncStream<CandleStringChunk>;
+    fn describe_image(&self, image_path: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>>;
 
     /// Describe an image from URL with a text query, streaming tokens as generated
-    fn describe_url(&self, url: &str, query: &str) -> AsyncStream<CandleStringChunk>;
+    fn describe_url(&self, url: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>>;
 }
 
 /// Trait for models capable of text-to-image generation
@@ -304,7 +306,7 @@ pub trait TextToImageCapable: CandleModel {
         prompt: &str,
         config: &ImageGenerationConfig,
         device: &Device,
-    ) -> AsyncStream<ImageGenerationChunk>;
+    ) -> Pin<Box<dyn Stream<Item = ImageGenerationChunk> + Send>>;
 
     /// Get the model's name
     fn registry_key(&self) -> &str;

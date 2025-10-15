@@ -1,11 +1,11 @@
 use candle_core::Device;
-use crossbeam::channel::{Receiver, Sender, bounded};
-use crossbeam::select;
 use once_cell::sync::Lazy;
+use tokio::sync::{mpsc, oneshot};
 use std::sync::Arc;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use ystream::{AsyncStream, spawn_stream};
+use tokio_stream::Stream;
 
 use crate::capability::traits::TextToImageCapable;
 use crate::domain::image_generation::{ImageGenerationChunk, ImageGenerationConfig};
@@ -18,14 +18,14 @@ pub struct GenerateImageRequest {
     pub prompt: String,
     pub config: ImageGenerationConfig,
     pub device: Device,
-    pub response: Sender<Result<AsyncStream<ImageGenerationChunk>, PoolError>>,
+    pub response: oneshot::Sender<Result<Pin<Box<dyn Stream<Item = ImageGenerationChunk> + Send>>, PoolError>>,
 }
 
 /// TextToImage-specific worker handle with channel
 pub struct TextToImageWorkerHandle {
     pub core: WorkerHandle,
-    pub generate_image_tx: Sender<GenerateImageRequest>,
-    pub shutdown_tx: Sender<()>,
+    pub generate_image_tx: mpsc::UnboundedSender<GenerateImageRequest>,
+    pub shutdown_tx: mpsc::UnboundedSender<()>,
     pub registry_key: String, // Added to enable cleanup on drop
 }
 
@@ -54,14 +54,14 @@ impl std::ops::Deref for TextToImageWorkerHandle {
 /// Worker loop for TextToImage models
 ///
 /// Processes streaming requests. Worker calls trait method which
-/// returns AsyncStream<ImageGenerationChunk>. Stream is sent back to caller
+/// returns Pin<Box<dyn Stream<Item = ImageGenerationChunk> + Send>>. Stream is sent back to caller
 /// who forwards chunks to end user.
-pub fn text_to_image_worker<T: TextToImageCapable>(
+pub async fn text_to_image_worker<T: TextToImageCapable>(
     model: T,
-    generate_image_rx: Receiver<GenerateImageRequest>,
-    shutdown_rx: Receiver<()>,
-    health_rx: Receiver<HealthPing>,
-    health_tx: Sender<HealthPong>,
+    mut generate_image_rx: mpsc::UnboundedReceiver<GenerateImageRequest>,
+    mut shutdown_rx: mpsc::UnboundedReceiver<()>,
+    mut health_rx: mpsc::UnboundedReceiver<HealthPing>,
+    health_tx: mpsc::UnboundedSender<HealthPong>,
     worker_id: usize,
     state: Arc<AtomicU32>,
 ) {
@@ -86,37 +86,33 @@ pub fn text_to_image_worker<T: TextToImageCapable>(
             }
         }
 
-        select! {
-            recv(generate_image_rx) -> req => {
-                if let Ok(req) = req {
-                    // Transition: Ready/Idle → Processing
-                    state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
+        tokio::select! {
+            Some(req) = generate_image_rx.recv() => {
+                // Transition: Ready/Idle → Processing
+                state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
 
-                    let stream = model.generate_image(&req.prompt, &req.config, &req.device);
-                    let _ = req.response.send(Ok(stream));
+                let stream = model.generate_image(&req.prompt, &req.config, &req.device);
+                let _ = req.response.send(Ok(stream));
 
-                    // Transition: Processing → Ready
-                    state.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
-                    last_activity = SystemTime::now();
-                }
+                // Transition: Processing → Ready
+                state.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
+                last_activity = SystemTime::now();
             }
-            recv(health_rx) -> ping => {
-                if ping.is_ok() {
-                    let now = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .map(|d| d.as_secs())
-                        .unwrap_or(0);
+            Some(_ping) = health_rx.recv() => {
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
 
-                    let pong = HealthPong {
-                        worker_id,
-                        timestamp: now,
-                        queue_depth: generate_image_rx.len(),
-                    };
+                let pong = HealthPong {
+                    worker_id,
+                    timestamp: now,
+                    queue_depth: 0, // Note: tokio mpsc doesn't expose len()
+                };
 
-                    let _ = health_tx.send(pong);
-                }
+                let _ = health_tx.send(pong);
             }
-            recv(shutdown_rx) -> _ => {
+            Some(_) = shutdown_rx.recv() => {
                 log::info!("TextToImage worker {} shutting down", worker_id);
                 // Transition: Ready/Idle → Evicting
                 state.store(WorkerState::Evicting as u32, std::sync::atomic::Ordering::Release);
@@ -148,20 +144,15 @@ impl Pool<TextToImageWorkerHandle> {
         T: TextToImageCapable + Send + 'static,
         F: FnOnce() -> Result<T, PoolError> + Send + 'static,
     {
-        // Create BOUNDED channels (prevent OOM)
-        let (generate_image_tx, generate_image_rx) =
-            bounded(self.config().image_gen_queue_capacity);
-        let (shutdown_tx, shutdown_rx) = bounded(1);
-        let (health_tx_worker, health_rx_worker) = bounded::<HealthPing>(1);
-        let (health_tx_main, health_rx_main) = bounded::<HealthPong>(1);
+        // Create unbounded channels for worker communication
+        let (generate_image_tx, generate_image_rx) = mpsc::unbounded_channel();
+        let (shutdown_tx, shutdown_rx) = mpsc::unbounded_channel();
+        let (health_tx_main, health_rx_worker) = mpsc::unbounded_channel();
+        let (health_tx_worker, health_rx_main) = mpsc::unbounded_channel();
 
         // Get worker ID before moving into thread
         let worker_id = self.next_worker_id();
         let registry_key_clone = registry_key.to_string();
-
-        // Clone channels for worker thread
-        let health_rx_worker_clone = health_rx_worker.clone();
-        let health_tx_main_clone = health_tx_main.clone();
         let per_worker_mb_clone = per_worker_mb;
 
         // Create state before spawning thread so we can clone it
@@ -169,11 +160,11 @@ impl Pool<TextToImageWorkerHandle> {
         let state = Arc::new(AtomicU32::new(0)); // Spawning state
         let state_clone = Arc::clone(&state);
 
-        // Spawn worker thread
-        std::thread::spawn(move || {
+        // Spawn worker task
+        tokio::spawn(async move {
             use crate::pool::core::worker_state::WorkerState;
 
-            // Guard held by worker thread - will drop on exit
+            // Guard held by worker task - will drop on exit
             let _memory_guard = allocation_guard;
 
             // Transition: Spawning → Loading
@@ -216,11 +207,11 @@ impl Pool<TextToImageWorkerHandle> {
                 model,
                 generate_image_rx,
                 shutdown_rx,
-                health_rx_worker_clone,
-                health_tx_main_clone,
+                health_rx_worker,
+                health_tx_worker,
                 worker_id,
                 Arc::clone(&state_clone),
-            );
+            ).await;
 
             // Transition: Ready → Dead (when worker loop exits)
             state_clone.store(
@@ -246,8 +237,8 @@ impl Pool<TextToImageWorkerHandle> {
                 worker_id,
                 shutdown_tx: shutdown_tx.clone(),
                 per_worker_mb,
-                health_tx: health_tx_worker,
-                health_rx: health_rx_main,
+                health_tx: health_tx_main,
+                health_rx: Arc::new(tokio::sync::Mutex::new(health_rx_main)),
                 state,
             },
             generate_image_tx,
@@ -264,14 +255,14 @@ impl Pool<TextToImageWorkerHandle> {
         Ok(())
     }
 
-    /// Generate image using pooled worker (returns AsyncStream)
+    /// Generate image using pooled worker (returns tokio Stream)
     pub fn generate_image(
         &self,
         registry_key: &str,
         prompt: &str,
         config: &ImageGenerationConfig,
         device: &Device,
-    ) -> AsyncStream<ImageGenerationChunk> {
+    ) -> Pin<Box<dyn Stream<Item = ImageGenerationChunk> + Send>> {
         // Clone for move into closure
         let registry_key = registry_key.to_string();
         let prompt = prompt.to_string();
@@ -280,13 +271,10 @@ impl Pool<TextToImageWorkerHandle> {
         let is_shutting_down = self.is_shutting_down();
         let request_timeout_secs = self.config().request_timeout_secs;
 
-        spawn_stream(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Check shutdown
             if is_shutting_down {
-                ystream::emit!(
-                    sender,
-                    ImageGenerationChunk::Error("Pool shutting down".to_string())
-                );
+                let _ = tx.send(ImageGenerationChunk::Error("Pool shutting down".to_string()));
                 return;
             }
 
@@ -295,13 +283,10 @@ impl Pool<TextToImageWorkerHandle> {
             let circuit = pool.get_circuit_breaker(&registry_key);
 
             if !circuit.can_request() {
-                ystream::emit!(
-                    sender,
-                    ImageGenerationChunk::Error(format!(
-                        "Circuit breaker open for {}",
-                        registry_key
-                    ))
-                );
+                let _ = tx.send(ImageGenerationChunk::Error(format!(
+                    "Circuit breaker open for {}",
+                    registry_key
+                )));
                 // Update metrics
                 pool.metrics()
                     .circuit_rejections
@@ -313,19 +298,13 @@ impl Pool<TextToImageWorkerHandle> {
             let workers = match pool.workers().get(&registry_key) {
                 Some(w) => w,
                 None => {
-                    ystream::emit!(
-                        sender,
-                        ImageGenerationChunk::Error(format!("No workers for {}", registry_key))
-                    );
+                    let _ = tx.send(ImageGenerationChunk::Error(format!("No workers for {}", registry_key)));
                     return;
                 }
             };
 
             if workers.is_empty() {
-                ystream::emit!(
-                    sender,
-                    ImageGenerationChunk::Error("No workers available".to_string())
-                );
+                let _ = tx.send(ImageGenerationChunk::Error("No workers available".to_string()));
                 return;
             }
 
@@ -334,13 +313,10 @@ impl Pool<TextToImageWorkerHandle> {
             let worker = match select_worker_power_of_two(&alive_workers, |w| &w.core) {
                 Some(w) => w,
                 None => {
-                    ystream::emit!(
-                        sender,
-                        ImageGenerationChunk::Error(format!(
-                            "No alive workers for {}",
-                            registry_key
-                        ))
-                    );
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
+                        "No alive workers for {}",
+                        registry_key
+                    )));
                     return;
                 }
             };
@@ -350,65 +326,66 @@ impl Pool<TextToImageWorkerHandle> {
             worker.core.touch();
 
             // Send request to worker
-            let (response_tx, response_rx) = crossbeam::channel::bounded(1);
+            let (response_tx, response_rx) = oneshot::channel();
             if let Err(e) = worker.generate_image_tx.send(GenerateImageRequest {
                 prompt,
                 config,
                 device,
                 response: response_tx,
             }) {
-                ystream::emit!(
-                    sender,
-                    ImageGenerationChunk::Error(format!("Failed to send request: {}", e))
-                );
+                let _ = tx.send(ImageGenerationChunk::Error(format!("Failed to send request: {}", e)));
                 worker.core.pending_requests.fetch_sub(1, Ordering::Release);
                 return;
             }
 
-            // Wait for worker's AsyncStream with timeout
+            // Wait for worker's stream with timeout
             let timeout = Duration::from_secs(request_timeout_secs);
-            let worker_stream = match response_rx.recv_timeout(timeout) {
-                Ok(Ok(stream)) => {
-                    // Record success on circuit breaker
+            let mut worker_stream = match tokio::time::timeout(timeout, response_rx).await {
+                Ok(Ok(Ok(stream))) => {
+                    // timeout Ok, recv Ok, result Ok
                     circuit.record_success();
                     stream
                 }
-                Ok(Err(e)) => {
-                    // Record failure on circuit breaker
+                Ok(Ok(Err(e))) => {
+                    // timeout Ok, recv Ok, result Err
                     circuit.record_failure();
                     pool.metrics().total_errors.fetch_add(1, Ordering::Relaxed);
 
-                    ystream::emit!(
-                        sender,
-                        ImageGenerationChunk::Error(format!("Worker error: {}", e))
-                    );
+                    let _ = tx.send(ImageGenerationChunk::Error(format!("Worker error: {}", e)));
                     worker.core.pending_requests.fetch_sub(1, Ordering::Release);
                     return;
                 }
-                Err(e) => {
-                    // Record timeout as failure
+                Ok(Err(_)) => {
+                    // timeout Ok, recv Err (channel closed)
+                    circuit.record_failure();
+                    pool.metrics().total_errors.fetch_add(1, Ordering::Relaxed);
+
+                    let _ = tx.send(ImageGenerationChunk::Error("Response channel closed".to_string()));
+                    worker.core.pending_requests.fetch_sub(1, Ordering::Release);
+                    return;
+                }
+                Err(_) => {
+                    // timeout Err
                     circuit.record_failure();
                     pool.metrics()
                         .total_timeouts
                         .fetch_add(1, Ordering::Relaxed);
 
-                    ystream::emit!(
-                        sender,
-                        ImageGenerationChunk::Error(format!("Request timeout: {}", e))
-                    );
+                    let _ = tx.send(ImageGenerationChunk::Error("Request timeout".to_string()));
                     worker.core.pending_requests.fetch_sub(1, Ordering::Release);
                     return;
                 }
             };
 
             // Forward chunks from worker stream to caller as they arrive
-            // We're already in a background thread, so blocking iteration is fine
-            // into_iter() gives us blocking iteration over the stream
-            for chunk in worker_stream {
-                ystream::emit!(sender, chunk);
+            use tokio_stream::StreamExt;
+            while let Some(chunk) = worker_stream.next().await {
+                if tx.send(chunk).is_err() {
+                    break;
+                }
             }
 
             worker.core.pending_requests.fetch_sub(1, Ordering::Release);
-        })
+        }))
     }
 }

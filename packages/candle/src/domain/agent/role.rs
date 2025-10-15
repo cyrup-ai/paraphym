@@ -229,7 +229,7 @@ pub trait CandleConversationHistoryArgs {
 /// Convert `serde_json::Value` to `sweet_mcp_type::JsonValue`
 ///
 /// This function bridges the gap between `serde_json` and `sweet_mcp_type` for
-/// compatibility with existing `ystream`-based architecture while using
+/// compatibility with existing tokio-based streaming architecture while using
 /// high-performance simd-json internally.
 pub fn convert_serde_to_sweet_json(value: Value) -> SweetJsonValue {
     match value {

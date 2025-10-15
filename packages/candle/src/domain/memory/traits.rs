@@ -4,7 +4,8 @@
 //! enabling trait composition, testability, and 'room to move' architecture benefits.
 
 use serde::{Deserialize, Serialize};
-use ystream::AsyncStream;
+use std::pin::Pin;
+use tokio_stream::Stream;
 
 use super::primitives::MemoryNode;
 
@@ -54,11 +55,11 @@ pub trait CandleMemory: Send + Sync + 'static {
     /// * `memory_node` - The memory node to store
     ///
     /// # Returns
-    /// `AsyncStream` that completes when the memory is stored
+    /// tokio Stream that completes when the memory is stored
     fn store_memory(
         &self,
         memory_node: &MemoryNode,
-    ) -> AsyncStream<crate::domain::context::chunk::CandleUnit>;
+    ) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunk::CandleUnit> + Send>>;
 
     /// Retrieve memory nodes by similarity search
     ///
@@ -67,8 +68,8 @@ pub trait CandleMemory: Send + Sync + 'static {
     /// * `limit` - Maximum number of results to return
     ///
     /// # Returns
-    /// `AsyncStream` of memory nodes ranked by similarity
-    fn search_memory(&self, query: &str, limit: usize) -> AsyncStream<MemoryNode>;
+    /// tokio Stream of memory nodes ranked by similarity
+    fn search_memory(&self, query: &str, limit: usize) -> Pin<Box<dyn Stream<Item = MemoryNode> + Send>>;
 
     /// Get memory node by ID
     ///
@@ -76,8 +77,8 @@ pub trait CandleMemory: Send + Sync + 'static {
     /// * `id` - The unique ID of the memory node
     ///
     /// # Returns
-    /// `AsyncStream` containing the memory lookup result
-    fn get_memory(&self, id: &str) -> AsyncStream<MemoryLookupResult>;
+    /// tokio Stream containing the memory lookup result
+    fn get_memory(&self, id: &str) -> Pin<Box<dyn Stream<Item = MemoryLookupResult> + Send>>;
 
     /// Delete memory node by ID
     ///
@@ -85,17 +86,17 @@ pub trait CandleMemory: Send + Sync + 'static {
     /// * `id` - The unique ID of the memory node to delete
     ///
     /// # Returns
-    /// `AsyncStream` that completes when the memory is deleted
+    /// tokio Stream that completes when the memory is deleted
     fn delete_memory(
         &self,
         id: &str,
-    ) -> AsyncStream<crate::domain::context::chunk::CandleMemoryOperationResult>;
+    ) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunk::CandleMemoryOperationResult> + Send>>;
 
     /// Get memory statistics
     ///
     /// # Returns
-    /// `AsyncStream` containing memory system statistics
-    fn get_stats(&self) -> AsyncStream<CandleMemoryStats>;
+    /// tokio Stream containing memory system statistics
+    fn get_stats(&self) -> Pin<Box<dyn Stream<Item = CandleMemoryStats> + Send>>;
 }
 
 /// Memory statistics for monitoring and debugging

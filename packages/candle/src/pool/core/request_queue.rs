@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use std::collections::{BinaryHeap, HashMap, VecDeque};
 use std::cmp::Ordering as CmpOrdering;
 use parking_lot::RwLock;
-use crossbeam::channel::{Sender, Receiver, bounded, unbounded};
+use tokio::sync::mpsc;
 use tokio::time::interval;
 use dashmap::DashMap;
 use xxhash_rust::xxh3::Xxh3;
