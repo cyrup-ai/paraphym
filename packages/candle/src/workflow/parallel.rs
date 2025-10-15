@@ -1,38 +1,36 @@
-//! N-way concurrent execution with thread-based parallelism for blazing-fast performance
+//! N-way concurrent execution with tokio task-based parallelism for blazing-fast performance
 //!
 //! This module provides parallel execution for arbitrary numbers of operations using
-//! std::thread for true concurrent execution without tokio dependency. Results stream
-//! in completion order for maximum throughput and minimum latency.
+//! tokio async tasks for concurrent execution. Results stream in completion order 
+//! for maximum throughput and minimum latency.
 //!
 //! ## Performance Characteristics
 //! - Zero allocation for ≤16 operations using SmallVec
-//! - True concurrent execution on separate CPU cores
-//! - Lock-free result streaming via channels
+//! - Concurrent execution via tokio task scheduler
+//! - Async result streaming via tokio channels
 //! - Results emit immediately when ready (no blocking on slowest)
-//! - Scales linearly with CPU core count
-//! - Thread-safe operation sharing with Arc optimization
+//! - Efficient resource usage via tokio runtime
+//! - Operation sharing with dynamic dispatch
 
-use crossbeam;
 use cyrup_sugars::prelude::MessageChunk;
 use smallvec::SmallVec;
-use std::sync::mpsc;
 use std::pin::Pin;
 use tokio_stream::{Stream, StreamExt};
 
 use crate::domain::context::chunk::ParallelResult;
 use crate::workflow::ops::{DynOp, Op};
 
-/// N-way parallel execution combinator for true concurrent processing
+/// N-way parallel execution combinator for concurrent processing
 ///
-/// Executes multiple operations concurrently using actual OS threads for maximum
-/// performance. Results stream in completion order, enabling immediate processing
+/// Executes multiple operations concurrently using tokio async tasks.
+/// Results stream in completion order, enabling immediate processing
 /// of fast operations without waiting for slower ones.
 ///
 /// ## Architecture
 /// - Uses SmallVec for zero heap allocation with ≤16 operations
 /// - Dynamic dispatch via trait objects for operation heterogeneity  
-/// - Crossbeam scoped threads for bounded resource management
-/// - Lock-free result collection via mpsc channels
+/// - Tokio async tasks for concurrent execution
+/// - Async result collection via tokio mpsc channels
 /// - Streaming results preserve operation ordering information
 ///
 /// ## Type Parameters
@@ -218,62 +216,46 @@ where
         }
 
         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-            // Use crossbeam scoped threads for bounded resource management
-            let stream_tx = tx.clone();
-            let scope_result = crossbeam::thread::scope(move |scope| {
-                // Create channel for streaming results as they complete
-                let (result_tx, result_rx) = mpsc::channel::<ParallelResult<Out>>();
+            // Use tokio async tasks for concurrent execution
+            let (result_tx, mut result_rx) = tokio::sync::mpsc::unbounded_channel::<ParallelResult<Out>>();
 
-                // Spawn each operation in separate thread
-                for (op_index, operation) in operations.into_iter().enumerate() {
-                    let input_clone = input.clone();
-                    let result_tx_clone = result_tx.clone();
+            // Spawn each operation in separate async task
+            for (op_index, operation) in operations.into_iter().enumerate() {
+                let input_clone = input.clone();
+                let result_tx_clone = result_tx.clone();
 
-                    scope.spawn(move |_| {
-                        // Execute operation and stream all results
-                        let op_stream = operation.call(input_clone);
-                        tokio::pin!(op_stream);
+                tokio::spawn(async move {
+                    // Execute operation and stream all results
+                    let op_stream = operation.call(input_clone);
+                    tokio::pin!(op_stream);
 
-                        // Stream all results from this operation with index tracking
-                        while let Some(result) = op_stream.next().await {
-                            let parallel_result = ParallelResult::new(op_index, result);
+                    // Stream all results from this operation with index tracking
+                    while let Some(result) = op_stream.next().await {
+                        let parallel_result = ParallelResult::new(op_index, result);
 
-                            // Send result with operation index for correlation
-                            if result_tx_clone.send(parallel_result).is_err() {
-                                // Receiver dropped, stop processing this operation
-                                log::debug!(
-                                    "Parallel operation {} receiver dropped - terminating",
-                                    op_index
-                                );
-                                break;
-                            }
+                        // Send result with operation index for correlation
+                        if result_tx_clone.send(parallel_result).is_err() {
+                            // Receiver dropped, stop processing this operation
+                            log::debug!(
+                                "Parallel operation {} receiver dropped - terminating",
+                                op_index
+                            );
+                            break;
                         }
-                    });
-                }
-
-                // Drop the original sender to signal no more senders
-                drop(result_tx);
-
-                // Collect and stream results as they arrive from any operation
-                while let Ok(parallel_result) = result_rx.recv() {
-                    if stream_tx.send(parallel_result).is_err() {
-                        // Main receiver dropped, stop streaming all results
-                        log::debug!("Main parallel receiver dropped - terminating all operations");
-                        break;
                     }
+                });
+            }
+
+            // Drop the original sender to signal no more senders
+            drop(result_tx);
+
+            // Collect and stream results as they arrive from any operation
+            while let Some(parallel_result) = result_rx.recv().await {
+                if tx.send(parallel_result).is_err() {
+                    // Main receiver dropped, stop streaming all results
+                    log::debug!("Main parallel receiver dropped - terminating all operations");
+                    break;
                 }
-
-                Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
-            });
-
-            // Handle thread scope errors (resource exhaustion, panics, etc.)
-            if let Err(panic_err) = scope_result {
-                log::error!("Parallel execution failed: {:?}", panic_err);
-
-                // Send error result for graceful degradation
-                let error_msg = format!("Parallel execution failed: {:?}", panic_err);
-                let error_result = ParallelResult::new(0, Out::bad_chunk(error_msg));
-                let _ = tx.send(error_result);
             }
         }))
     }

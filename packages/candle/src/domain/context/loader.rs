@@ -54,7 +54,7 @@ where
     fn recursive(&self) -> bool;
 
     /// Load all files matching the criteria
-    fn load_all(&self) -> AsyncTask<ZeroOneOrMany<T>>
+    fn load_all(&self) -> tokio::task::JoinHandle<ZeroOneOrMany<T>>
     where
         T: Send + 'static;
 
@@ -62,7 +62,7 @@ where
     fn stream_files(&self) -> impl Stream<Item = CandlePathChunk>;
 
     /// Process each file with a processor function
-    fn process_each<F, U>(&self, processor: F) -> AsyncTask<ZeroOneOrMany<U>>
+    fn process_each<F, U>(&self, processor: F) -> tokio::task::JoinHandle<ZeroOneOrMany<U>>
     where
         F: Fn(&T) -> U + Send + Sync + 'static,
         U: Send + Sync + fmt::Debug + Clone + 'static + Send + 'static;
@@ -122,7 +122,7 @@ impl Loader<PathBuf> for LoaderImpl<PathBuf> {
         self.recursive
     }
 
-    fn load_all(&self) -> AsyncTask<ZeroOneOrMany<PathBuf>>
+    fn load_all(&self) -> tokio::task::JoinHandle<ZeroOneOrMany<PathBuf>>
     where
         PathBuf: Send + 'static,
     {
@@ -130,7 +130,7 @@ impl Loader<PathBuf> for LoaderImpl<PathBuf> {
         let recursive = self.recursive;
         let filter_fn = self.filter_fn.clone();
 
-        ystream::spawn_task(move || {
+        tokio::task::spawn_blocking(move || {
             let mut results: Vec<PathBuf> = match pattern {
                 Some(p) => {
                     let glob_pattern = if recursive && !p.contains("**") {
@@ -200,18 +200,18 @@ impl Loader<PathBuf> for LoaderImpl<PathBuf> {
         })
     }
 
-    fn process_each<F, U>(&self, processor: F) -> AsyncTask<ZeroOneOrMany<U>>
+    fn process_each<F, U>(&self, processor: F) -> tokio::task::JoinHandle<ZeroOneOrMany<U>>
     where
         F: Fn(&PathBuf) -> U + Send + Sync + 'static,
         U: Send + Sync + fmt::Debug + Clone + 'static + Send + 'static,
     {
         let load_task = self.load_all();
-        ystream::spawn_task(move || {
-            let paths = load_task.collect();
+        tokio::task::spawn(async move {
+            let paths = load_task.await.unwrap_or(ZeroOneOrMany::None);
             let results: Vec<U> = match paths {
-                Ok(ZeroOneOrMany::None) | Err(_) => Vec::new(),
-                Ok(ZeroOneOrMany::One(path)) => vec![processor(&path)],
-                Ok(ZeroOneOrMany::Many(paths)) => paths.iter().map(processor).collect(),
+                ZeroOneOrMany::None => Vec::new(),
+                ZeroOneOrMany::One(path) => vec![processor(&path)],
+                ZeroOneOrMany::Many(paths) => paths.iter().map(processor).collect(),
             };
 
             // Convert Vec<U> to ZeroOneOrMany<U> without unwrap

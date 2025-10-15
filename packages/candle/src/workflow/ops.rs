@@ -196,11 +196,13 @@ where
         Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
             // Execute first operation to get intermediate stream
             let first_stream = first.call(input);
+            tokio::pin!(first_stream);
 
             // Process each intermediate value through second operation
             while let Some(mid_value) = first_stream.next().await {
                 // Execute second operation with intermediate value
                 let second_stream = second.call(mid_value);
+                tokio::pin!(second_stream);
 
                 // Forward all outputs from second operation
                 while let Some(output) = second_stream.next().await {
@@ -249,6 +251,7 @@ where
 
         Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
             let stream = op.call(input);
+            tokio::pin!(stream);
 
             // Apply transformation function to each output
             while let Some(output) = stream.next().await {
