@@ -159,7 +159,7 @@ pub fn text_to_text_pool() -> &'static Pool<TextToTextWorkerHandle> {
 
 impl Pool<TextToTextWorkerHandle> {
     /// Spawn worker for TextToText model
-    pub fn spawn_text_to_text_worker<T, F>(
+    pub fn spawn_text_to_text_worker<T, F, Fut>(
         &self,
         registry_key: &str,
         model_loader: F,
@@ -168,7 +168,8 @@ impl Pool<TextToTextWorkerHandle> {
     ) -> Result<(), PoolError>
     where
         T: TextToTextCapable + Send + 'static,
-        F: FnOnce() -> Result<T, PoolError> + Send + 'static,
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = Result<T, PoolError>> + Send + 'static,
     {
         // Create unbounded channels for worker communication
         let (prompt_tx, prompt_rx) = mpsc::unbounded_channel();
