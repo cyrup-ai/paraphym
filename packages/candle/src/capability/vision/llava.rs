@@ -4,8 +4,8 @@
 //! Supports visual question answering, image description, and multi-turn conversations.
 
 use std::num::NonZeroU32;
-use std::sync::{Arc, Mutex, mpsc};
-use std::thread;
+use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc;
 
 use log;
 
@@ -29,12 +29,12 @@ enum LLaVARequest {
     Ask {
         image_path: String,
         question: String,
-        response_tx: mpsc::Sender<Result<String, String>>,
+        response_tx: mpsc::UnboundedSender<Result<String, String>>,
     },
     AskUrl {
         image_url: String,
         question: String,
-        response_tx: mpsc::Sender<Result<String, String>>,
+        response_tx: mpsc::UnboundedSender<Result<String, String>>,
     },
     #[allow(dead_code)] // Reserved for graceful shutdown implementation
     Shutdown,
@@ -66,7 +66,7 @@ struct GenerationConfig {
 /// Thread spawns lazily on first use.
 #[derive(Debug, Clone)]
 pub struct LLaVAModel {
-    request_tx: Arc<Mutex<Option<mpsc::Sender<LLaVARequest>>>>,
+    request_tx: Arc<Mutex<Option<mpsc::UnboundedSender<LLaVARequest>>>>,
     _engine: Engine,
 }
 
@@ -118,12 +118,6 @@ struct LLaVAModelConfig {
     gen_config: GenerationConfig,
 }
 
-/// Context for LLaVA model thread
-struct LLaVAThreadContext {
-    request_rx: mpsc::Receiver<LLaVARequest>,
-    rt: &'static tokio::runtime::Runtime,
-}
-
 /// References to LLaVA model components
 struct LLaVAModelRefs<'a> {
     model: &'a LLaVA,
@@ -156,7 +150,7 @@ impl LLaVAModel {
     /// Thread spawns on first call, subsequent calls return cached sender.
     async fn ensure_thread_spawned(
         &self,
-    ) -> Result<mpsc::Sender<LLaVARequest>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<mpsc::UnboundedSender<LLaVARequest>, Box<dyn std::error::Error + Send + Sync>> {
         // Check if thread already spawned (quick check without holding lock across await)
         {
             let tx_guard = self
@@ -184,8 +178,8 @@ impl LLaVAModel {
         .map_err(|e| format!("Failed to parse config: {}", e))?;
 
         // Step 3: Create channels for request/response
-        let (request_tx, request_rx) = mpsc::channel();
-        let (init_tx, init_rx) = mpsc::channel();
+        let (request_tx, request_rx) = mpsc::unbounded_channel();
+        let (init_tx, mut init_rx) = mpsc::unbounded_channel();
 
         // Step 4: Determine device
         let device = Device::cuda_if_available(0).unwrap_or(Device::Cpu);
@@ -212,16 +206,20 @@ impl LLaVAModel {
             .get() as usize;
         let use_kv_cache = self.info().supports_kv_cache;
 
-        // Step 6: Spawn dedicated thread with shared async runtime
-        thread::spawn(move || {
-            // Get shared runtime reference
+        // Step 6: Spawn blocking task with LocalSet for !Send model
+        tokio::task::spawn_blocking(move || {
+            // Get shared runtime
             let Some(rt) = crate::runtime::shared_runtime() else {
                 log::error!("Shared runtime unavailable for LLaVA worker initialization");
                 let _ = init_tx.send(Err("Runtime unavailable".to_string()));
                 return;
             };
-
-            // Load tokenizer INSIDE thread
+            
+            // Create LocalSet for !Send futures
+            let local = tokio::task::LocalSet::new();
+            
+            rt.block_on(local.run_until(async move {
+                // Load tokenizer
             let tokenizer = match Tokenizer::from_file(&tokenizer_path) {
                 Ok(t) => t,
                 Err(e) => {
@@ -254,36 +252,39 @@ impl LLaVAModel {
                 }
             };
 
-            // Signal successful initialization
-            let _ = init_tx.send(Ok(()));
+                // Signal successful initialization
+                let _ = init_tx.send(Ok(()));
 
-            // Run model thread with config parameters and runtime
-            Self::model_thread_with_config(
-                model,
-                tokenizer,
-                LLaVAModelConfig {
-                    llava_config,
-                    device,
-                    image_config: ImageProcessingConfig {
-                        image_size,
-                        image_mean,
-                        image_std,
-                    },
-                    gen_config: GenerationConfig {
-                        temperature,
-                        max_new_tokens,
-                        use_kv_cache,
-                    },
-                },
-                LLaVAThreadContext { request_rx, rt },
-            );
+                // Spawn local task for !Send model
+                tokio::task::spawn_local(async move {
+                    Self::model_task_with_config(
+                        model,
+                        tokenizer,
+                        LLaVAModelConfig {
+                            llava_config,
+                            device,
+                            image_config: ImageProcessingConfig {
+                                image_size,
+                                image_mean,
+                                image_std,
+                            },
+                            gen_config: GenerationConfig {
+                                temperature,
+                                max_new_tokens,
+                                use_kv_cache,
+                            },
+                        },
+                        request_rx,
+                    ).await;
+                }).await.ok();
+            }));
         });
 
         // Step 7: Wait for initialization to complete
-        match init_rx.recv() {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => return Err(e.into()),
-            Err(e) => return Err(format!("Init channel failed: {}", e).into()),
+        match init_rx.recv().await {
+            Some(Ok(())) => {}
+            Some(Err(e)) => return Err(e.into()),
+            None => return Err("Init channel closed unexpectedly".into()),
         };
 
         // Step 8: Store sender for future calls
@@ -297,14 +298,15 @@ impl LLaVAModel {
         Ok(request_tx)
     }
 
-    /// Model thread that processes requests (runs forever until shutdown)
+    /// Async task that processes requests (runs forever until shutdown)
     ///
     /// All config values passed as parameters (from ModelInfo via ensure_thread_spawned)
-    fn model_thread_with_config(
+    /// Runs in LocalSet context to handle !Send model
+    async fn model_task_with_config(
         model: LLaVA,
         tokenizer: Tokenizer,
         config: LLaVAModelConfig,
-        context: LLaVAThreadContext,
+        mut request_rx: mpsc::UnboundedReceiver<LLaVARequest>,
     ) {
         let LLaVAModelConfig {
             llava_config,
@@ -312,32 +314,29 @@ impl LLaVAModel {
             image_config,
             gen_config,
         } = config;
-        let LLaVAThreadContext { request_rx, rt } = context;
 
-        while let Ok(request) = request_rx.recv() {
+        while let Some(request) = request_rx.recv().await {
             match request {
                 LLaVARequest::Ask {
                     image_path,
                     question,
                     response_tx,
                 } => {
-                    let result = rt.block_on(async {
-                        Self::process_ask(
-                            LLaVAModelRefs {
-                                model: &model,
-                                tokenizer: &tokenizer,
-                                llava_config: &llava_config,
-                                device: &device,
-                            },
-                            &image_path,
-                            &question,
-                            LLaVAConfigs {
-                                image_config,
-                                gen_config,
-                            },
-                        )
-                        .await
-                    });
+                    let result = Self::process_ask(
+                        LLaVAModelRefs {
+                            model: &model,
+                            tokenizer: &tokenizer,
+                            llava_config: &llava_config,
+                            device: &device,
+                        },
+                        &image_path,
+                        &question,
+                        LLaVAConfigs {
+                            image_config,
+                            gen_config,
+                        },
+                    )
+                    .await;
                     let _ = response_tx.send(result);
                 }
                 LLaVARequest::AskUrl {
@@ -345,23 +344,21 @@ impl LLaVAModel {
                     question,
                     response_tx,
                 } => {
-                    let result = rt.block_on(async {
-                        Self::process_ask_url(
-                            LLaVAModelRefs {
-                                model: &model,
-                                tokenizer: &tokenizer,
-                                llava_config: &llava_config,
-                                device: &device,
-                            },
-                            &image_url,
-                            &question,
-                            LLaVAConfigs {
-                                image_config,
-                                gen_config,
-                            },
-                        )
-                        .await
-                    });
+                    let result = Self::process_ask_url(
+                        LLaVAModelRefs {
+                            model: &model,
+                            tokenizer: &tokenizer,
+                            llava_config: &llava_config,
+                            device: &device,
+                        },
+                        &image_url,
+                        &question,
+                        LLaVAConfigs {
+                            image_config,
+                            gen_config,
+                        },
+                    )
+                    .await;
                     let _ = response_tx.send(result);
                 }
                 LLaVARequest::Shutdown => break,
@@ -692,7 +689,7 @@ impl LLaVAModel {
             }
         };
 
-        let (response_tx, response_rx) = mpsc::channel();
+        let (response_tx, mut response_rx) = mpsc::unbounded_channel();
 
         if let Err(e) = sender.send(LLaVARequest::Ask {
             image_path: image_path.to_string(),
@@ -704,18 +701,17 @@ impl LLaVAModel {
             }));
         }
 
-        match response_rx.recv() {
-            Ok(Ok(text)) => Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+        match response_rx.recv().await {
+            Some(Ok(text)) => Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
                 let _ = tx.send(CandleStringChunk(text));
             })),
-            Ok(Err(e)) => Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+            Some(Err(e)) => Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
                 let _ = tx.send(CandleStringChunk(format!("Error: {}", e)));
             })),
-            Err(e) => Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-                let _ = tx.send(CandleStringChunk(format!(
-                    "Error: Failed to receive response: {}",
-                    e
-                )));
+            None => Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+                let _ = tx.send(CandleStringChunk(
+                    "Error: Failed to receive response".to_string()
+                ));
             })),
         }
     }
@@ -734,7 +730,7 @@ impl LLaVAModel {
             }
         };
 
-        let (response_tx, response_rx) = mpsc::channel();
+        let (response_tx, mut response_rx) = mpsc::unbounded_channel();
 
         if let Err(e) = sender.send(LLaVARequest::AskUrl {
             image_url: image_url.to_string(),
@@ -746,18 +742,17 @@ impl LLaVAModel {
             }));
         }
 
-        match response_rx.recv() {
-            Ok(Ok(text)) => Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+        match response_rx.recv().await {
+            Some(Ok(text)) => Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
                 let _ = tx.send(CandleStringChunk(text));
             })),
-            Ok(Err(e)) => Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+            Some(Err(e)) => Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
                 let _ = tx.send(CandleStringChunk(format!("Error: {}", e)));
             })),
-            Err(e) => Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-                let _ = tx.send(CandleStringChunk(format!(
-                    "Error: Failed to receive response: {}",
-                    e
-                )));
+            None => Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+                let _ = tx.send(CandleStringChunk(
+                    "Error: Failed to receive response".to_string()
+                ));
             })),
         }
     }
