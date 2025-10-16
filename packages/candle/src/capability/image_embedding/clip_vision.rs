@@ -111,6 +111,7 @@ impl ClipVisionModel {
         // 3. LAZY MODEL LOADING - Load model file on-demand
         let model_path = self
             .huggingface_file(self.info().registry_key, "model.safetensors")
+            .await
             .map_err(|e| format!("Failed to get model file: {}", e))?;
 
         // 4. BUILD CLIP CONFIG - Select configs based on dimension
@@ -171,6 +172,7 @@ impl ClipVisionModel {
         // 3. LAZY MODEL LOADING
         let model_path = self
             .huggingface_file(self.info().registry_key, "model.safetensors")
+            .await
             .map_err(|e| format!("Failed to get model file: {}", e))?;
 
         // 4. BUILD CLIP CONFIG - Select configs based on dimension
@@ -231,6 +233,7 @@ impl ClipVisionModel {
         // 3. LAZY MODEL LOADING
         let model_path = self
             .huggingface_file(self.info().registry_key, "model.safetensors")
+            .await
             .map_err(|e| format!("Failed to get model file: {}", e))?;
 
         // 4. BUILD CLIP CONFIG - Select configs based on dimension
@@ -291,6 +294,7 @@ impl ClipVisionModel {
         // 3. LAZY MODEL LOADING
         let model_path = self
             .huggingface_file(self.info().registry_key, "model.safetensors")
+            .await
             .map_err(|e| format!("Failed to get model file: {}", e))?;
 
         // 4. BUILD CLIP CONFIG - Select configs based on dimension

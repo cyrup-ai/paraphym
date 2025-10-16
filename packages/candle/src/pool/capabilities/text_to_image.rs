@@ -133,7 +133,7 @@ pub fn text_to_image_pool() -> &'static Pool<TextToImageWorkerHandle> {
 
 impl Pool<TextToImageWorkerHandle> {
     /// Spawn worker for TextToImage model
-    pub fn spawn_text_to_image_worker<T, F>(
+    pub fn spawn_text_to_image_worker<T, F, Fut>(
         &self,
         registry_key: &str,
         model_loader: F,
@@ -142,7 +142,8 @@ impl Pool<TextToImageWorkerHandle> {
     ) -> Result<(), PoolError>
     where
         T: TextToImageCapable + Send + 'static,
-        F: FnOnce() -> Result<T, PoolError> + Send + 'static,
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = Result<T, PoolError>> + Send + 'static,
     {
         // Create unbounded channels for worker communication
         let (generate_image_tx, generate_image_rx) = mpsc::unbounded_channel();
@@ -173,7 +174,7 @@ impl Pool<TextToImageWorkerHandle> {
                 std::sync::atomic::Ordering::Release,
             );
 
-            let model = match model_loader() {
+            let model = match model_loader().await {
                 Ok(m) => {
                     log::info!("TextToImage worker {} ready", worker_id);
                     // Transition: Loading → Ready

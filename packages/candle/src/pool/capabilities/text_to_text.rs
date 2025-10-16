@@ -202,7 +202,7 @@ impl Pool<TextToTextWorkerHandle> {
             );
 
             // Load model
-            let model = match model_loader() {
+            let model = match model_loader().await {
                 Ok(m) => {
                     log::info!("TextToText worker {} ready", worker_id);
                     // Transition: Loading → Ready

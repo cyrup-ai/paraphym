@@ -170,7 +170,7 @@ pub fn vision_pool() -> &'static Pool<VisionWorkerHandle> {
 
 impl Pool<VisionWorkerHandle> {
     /// Spawn worker for Vision model
-    pub fn spawn_vision_worker<T, F>(
+    pub fn spawn_vision_worker<T, F, Fut>(
         &self,
         registry_key: &str,
         model_loader: F,
@@ -179,7 +179,8 @@ impl Pool<VisionWorkerHandle> {
     ) -> Result<(), PoolError>
     where
         T: VisionCapable + Send + 'static,
-        F: FnOnce() -> Result<T, PoolError> + Send + 'static,
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = Result<T, PoolError>> + Send + 'static,
     {
         // Create unbounded channels for worker communication
         let (describe_image_tx, describe_image_rx) = mpsc::unbounded_channel();
@@ -211,7 +212,7 @@ impl Pool<VisionWorkerHandle> {
                 std::sync::atomic::Ordering::Release,
             );
 
-            let model = match model_loader() {
+            let model = match model_loader().await {
                 Ok(m) => {
                     log::info!("Vision worker {} ready", worker_id);
                     // Transition: Loading → Ready

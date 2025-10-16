@@ -246,15 +246,16 @@ impl TextToTextCapable for TextToTextModel {
                         let m_clone = m.clone();
                         pool.spawn_text_to_text_worker(
                             registry_key,
-                            move || {
+                            move || async move {
                                 LoadedKimiK2Model::load(&m_clone)
+                                    .await
                                     .map_err(|e| PoolError::SpawnFailed(e.to_string()))
                             },
                             per_worker_mb,
                             allocation_guard,
                         )
                     },
-                ) {
+                ).await {
                     return Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
                         let _ = tx.send(CandleCompletionChunk::Error(e.to_string()));
                     }));
@@ -278,7 +279,7 @@ impl TextToTextCapable for TextToTextModel {
                         let m_clone = m.clone();
                         pool.spawn_text_to_text_worker(
                             registry_key,
-                            move || {
+                            move || async move {
                                 LoadedQwen3CoderModel::load(&m_clone)
                                     .map_err(|e| PoolError::SpawnFailed(e.to_string()))
                             },
@@ -286,7 +287,7 @@ impl TextToTextCapable for TextToTextModel {
                             allocation_guard,
                         )
                     },
-                ) {
+                ).await {
                     return Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
                         let _ = tx.send(CandleCompletionChunk::Error(e.to_string()));
                     }));
@@ -310,19 +311,16 @@ impl TextToTextCapable for TextToTextModel {
                         let m_clone = m.clone();
                         pool.spawn_text_to_text_worker(
                             registry_key,
-                            move || {
-                                tokio::task::block_in_place(|| {
-                                    tokio::runtime::Handle::current().block_on(async {
-                                        LoadedPhi4ReasoningModel::load(&m_clone).await
-                                            .map_err(|e| PoolError::SpawnFailed(e.to_string()))
-                                    })
-                                })
+                            move || async move {
+                                LoadedPhi4ReasoningModel::load(&m_clone)
+                                    .await
+                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
                             },
                             per_worker_mb,
                             allocation_guard,
                         )
                     },
-                ) {
+                ).await {
                     return Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
                         let _ = tx.send(CandleCompletionChunk::Error(e.to_string()));
                     }));
@@ -369,19 +367,17 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || {
-                                tokio::task::block_in_place(|| {
-                                    tokio::runtime::Handle::current().block_on(async {
-                                        LoadedGteQwenModel::load(&m_clone).await
-                                            .map_err(|e| PoolError::SpawnFailed(e.to_string()))
-                                    })
-                                })
+                            move || async move {
+                                LoadedGteQwenModel::load(&m_clone)
+                                    .await
+                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
                             },
                             per_worker_mb,
                             allocation_guard,
                         )
                     },
                 )
+                .await
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
                 // Route through pool
@@ -405,8 +401,9 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || {
+                            move || async move {
                                 LoadedJinaBertModel::load(&m_clone)
+                                    .await
                                     .map_err(|e| PoolError::SpawnFailed(e.to_string()))
                             },
                             per_worker_mb,
@@ -414,6 +411,7 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                         )
                     },
                 )
+                .await
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
                 pool.embed_text(registry_key, &text, task)
@@ -436,8 +434,9 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || {
+                            move || async move {
                                 LoadedNvEmbedModel::load(&m_clone)
+                                    .await
                                     .map_err(|e| PoolError::SpawnFailed(e.to_string()))
                             },
                             per_worker_mb,
@@ -445,6 +444,7 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                         )
                     },
                 )
+                .await
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
                 pool.embed_text(registry_key, &text, task)
@@ -467,19 +467,17 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || {
-                                tokio::task::block_in_place(|| {
-                                    tokio::runtime::Handle::current().block_on(async {
-                                        LoadedStellaModel::load(&m_clone).await
-                                            .map_err(|e| PoolError::SpawnFailed(e.to_string()))
-                                    })
-                                })
+                            move || async move {
+                                LoadedStellaModel::load(&m_clone)
+                                    .await
+                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
                             },
                             per_worker_mb,
                             allocation_guard,
                         )
                     },
                 )
+                .await
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
                 pool.embed_text(registry_key, &text, task)
@@ -502,8 +500,9 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || {
+                            move || async move {
                                 LoadedBertModel::load(&m_clone)
+                                    .await
                                     .map_err(|e| PoolError::SpawnFailed(e.to_string()))
                             },
                             per_worker_mb,
@@ -511,6 +510,7 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                         )
                     },
                 )
+                .await
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
                 pool.embed_text(registry_key, &text, task)
@@ -554,19 +554,17 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || {
-                                tokio::task::block_in_place(|| {
-                                    tokio::runtime::Handle::current().block_on(async {
-                                        LoadedGteQwenModel::load(&m_clone).await
-                                            .map_err(|e| PoolError::SpawnFailed(e.to_string()))
-                                    })
-                                })
+                            move || async move {
+                                LoadedGteQwenModel::load(&m_clone)
+                                    .await
+                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
                             },
                             per_worker_mb,
                             allocation_guard,
                         )
                     },
                 )
+                .await
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
                 pool.batch_embed_text(registry_key, &texts, task)
@@ -588,8 +586,9 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || {
+                            move || async move {
                                 LoadedJinaBertModel::load(&m_clone)
+                                    .await
                                     .map_err(|e| PoolError::SpawnFailed(e.to_string()))
                             },
                             per_worker_mb,
@@ -597,6 +596,7 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                         )
                     },
                 )
+                .await
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
                 pool.batch_embed_text(registry_key, &texts, task)
@@ -618,8 +618,9 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || {
+                            move || async move {
                                 LoadedNvEmbedModel::load(&m_clone)
+                                    .await
                                     .map_err(|e| PoolError::SpawnFailed(e.to_string()))
                             },
                             per_worker_mb,
@@ -627,6 +628,7 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                         )
                     },
                 )
+                .await
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
                 pool.batch_embed_text(registry_key, &texts, task)
@@ -648,19 +650,17 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || {
-                                tokio::task::block_in_place(|| {
-                                    tokio::runtime::Handle::current().block_on(async {
-                                        LoadedStellaModel::load(&m_clone).await
-                                            .map_err(|e| PoolError::SpawnFailed(e.to_string()))
-                                    })
-                                })
+                            move || async move {
+                                LoadedStellaModel::load(&m_clone)
+                                    .await
+                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
                             },
                             per_worker_mb,
                             allocation_guard,
                         )
                     },
                 )
+                .await
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
                 pool.batch_embed_text(registry_key, &texts, task)
@@ -682,8 +682,9 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                         let m_clone = m.clone();
                         pool.spawn_text_embedding_worker(
                             registry_key,
-                            move || {
+                            move || async move {
                                 LoadedBertModel::load(&m_clone)
+                                    .await
                                     .map_err(|e| PoolError::SpawnFailed(e.to_string()))
                             },
                             per_worker_mb,
@@ -691,6 +692,7 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                         )
                     },
                 )
+                .await
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
                 pool.batch_embed_text(registry_key, &texts, task)
@@ -748,12 +750,13 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
                             let model = (*m_clone).clone();
                             pool.spawn_image_embedding_worker(
                                 registry_key,
-                                move || Ok(model),
+                                move || async move { Ok(model) },
                                 per_worker_mb,
                                 allocation_guard,
                             )
                         },
                     )
+                    .await
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
                     // Route through pool
@@ -800,12 +803,13 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
                             let model = (*m_clone).clone();
                             pool.spawn_image_embedding_worker(
                                 registry_key,
-                                move || Ok(model),
+                                move || async move { Ok(model) },
                                 per_worker_mb,
                                 allocation_guard,
                             )
                         },
                     )
+                    .await
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
                     // Route through pool
@@ -852,12 +856,13 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
                             let model = (*m_clone).clone();
                             pool.spawn_image_embedding_worker(
                                 registry_key,
-                                move || Ok(model),
+                                move || async move { Ok(model) },
                                 per_worker_mb,
                                 allocation_guard,
                             )
                         },
                     )
+                    .await
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
                     // Route through pool
@@ -904,12 +909,13 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
                             let model = (*m_clone).clone();
                             pool.spawn_image_embedding_worker(
                                 registry_key,
-                                move || Ok(model),
+                                move || async move { Ok(model) },
                                 per_worker_mb,
                                 allocation_guard,
                             )
                         },
                     )
+                    .await
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
                     // Route through pool
@@ -946,7 +952,7 @@ impl VisionCapable for VisionModel {
                         let m_clone = m.clone();
                         pool.spawn_vision_worker(
                             registry_key,
-                            move || {
+                            move || async move {
                                 LoadedLLaVAModel::load(&m_clone)
                                     .map_err(|e| PoolError::SpawnFailed(e.to_string()))
                             },
@@ -954,7 +960,7 @@ impl VisionCapable for VisionModel {
                             allocation_guard,
                         )
                     },
-                ) {
+                ).await {
                     return Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
                         let _ = tx.send(CandleStringChunk(format!("Error: {}", e)));
                     }));
@@ -983,7 +989,7 @@ impl VisionCapable for VisionModel {
                         let m_clone = m.clone();
                         pool.spawn_vision_worker(
                             registry_key,
-                            move || {
+                            move || async move {
                                 LoadedLLaVAModel::load(&m_clone)
                                     .map_err(|e| PoolError::SpawnFailed(e.to_string()))
                             },
@@ -991,7 +997,7 @@ impl VisionCapable for VisionModel {
                             allocation_guard,
                         )
                     },
-                ) {
+                ).await {
                     return Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
                         let _ = tx.send(CandleStringChunk(format!("Error: {}", e)));
                     }));
@@ -1027,12 +1033,12 @@ impl TextToImageCapable for TextToImageModel {
                         let m_inner = (**m).clone();
                         pool.spawn_text_to_image_worker(
                             registry_key,
-                            move || Ok(m_inner),
+                            move || async move { Ok(m_inner) },
                             per_worker_mb,
                             allocation_guard,
                         )
                     },
-                ) {
+                ).await {
                     return Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
                         let _ = tx.send(ImageGenerationChunk::Error(e.to_string()));
                     }));
@@ -1056,12 +1062,12 @@ impl TextToImageCapable for TextToImageModel {
                         let m_inner = (**m).clone();
                         pool.spawn_text_to_image_worker(
                             registry_key,
-                            move || Ok(m_inner),
+                            move || async move { Ok(m_inner) },
                             per_worker_mb,
                             allocation_guard,
                         )
                     },
-                ) {
+                ).await {
                     return Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
                         let _ = tx.send(ImageGenerationChunk::Error(e.to_string()));
                     }));

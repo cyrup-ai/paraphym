@@ -434,7 +434,7 @@ impl LoadedJinaBertModel {
     /// Extracts all initialization logic that was previously done on each
     /// embed() call. The loaded model can then be used for many inferences
     /// without reloading from disk.
-    pub fn load(
+    pub async fn load(
         base_model: &CandleJinaBertEmbeddingModel,
     ) -> std::result::Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Get configuration from ModelInfo
@@ -459,9 +459,9 @@ impl LoadedJinaBertModel {
 
         // Get file paths via huggingface_file
         let tokenizer_path =
-            base_model.huggingface_file(base_model.info().registry_key, "tokenizer.json")?;
+            base_model.huggingface_file(base_model.info().registry_key, "tokenizer.json").await?;
         let weights_path =
-            base_model.huggingface_file(base_model.info().registry_key, "model.safetensors")?;
+            base_model.huggingface_file(base_model.info().registry_key, "model.safetensors").await?;
 
         // Load tokenizer
         let mut tokenizer = Tokenizer::from_file(&tokenizer_path)

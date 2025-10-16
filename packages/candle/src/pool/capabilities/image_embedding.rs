@@ -220,7 +220,7 @@ pub fn image_embedding_pool() -> &'static Pool<ImageEmbeddingWorkerHandle> {
 
 impl Pool<ImageEmbeddingWorkerHandle> {
     /// Spawn worker for ImageEmbedding model
-    pub fn spawn_image_embedding_worker<T, F>(
+    pub fn spawn_image_embedding_worker<T, F, Fut>(
         &self,
         registry_key: &str,
         model_loader: F,
@@ -229,7 +229,8 @@ impl Pool<ImageEmbeddingWorkerHandle> {
     ) -> Result<(), PoolError>
     where
         T: ImageEmbeddingCapable + Send + 'static,
-        F: FnOnce() -> Result<T, PoolError> + Send + 'static,
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = Result<T, PoolError>> + Send + 'static,
     {
         // Create unbounded channels for worker communication
         let (embed_image_tx, embed_image_rx) = mpsc::unbounded_channel();
@@ -266,7 +267,7 @@ impl Pool<ImageEmbeddingWorkerHandle> {
                 std::sync::atomic::Ordering::Release,
             );
 
-            let model = match model_loader() {
+            let model = match model_loader().await {
                 Ok(m) => {
                     log::info!("ImageEmbedding worker {} ready", worker_id);
                     // Transition: Loading → Ready

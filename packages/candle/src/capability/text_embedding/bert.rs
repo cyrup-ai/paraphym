@@ -481,7 +481,7 @@ impl LoadedBertModel {
     ///
     /// This extracts the loading logic from embed() (lines 197-259) so it can be called
     /// once during worker spawn instead of on every inference.
-    pub fn load(
+    pub async fn load(
         base_model: &CandleBertEmbeddingModel,
     ) -> std::result::Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Get configuration from ModelInfo
@@ -506,11 +506,11 @@ impl LoadedBertModel {
 
         // Get file paths via huggingface_file
         let model_weights_path =
-            base_model.huggingface_file(base_model.info().registry_key, "model.safetensors")?;
+            base_model.huggingface_file(base_model.info().registry_key, "model.safetensors").await?;
         let tokenizer_path =
-            base_model.huggingface_file(base_model.info().registry_key, "tokenizer.json")?;
+            base_model.huggingface_file(base_model.info().registry_key, "tokenizer.json").await?;
         let config_path =
-            base_model.huggingface_file(base_model.info().registry_key, "config.json")?;
+            base_model.huggingface_file(base_model.info().registry_key, "config.json").await?;
 
         // Load tokenizer
         let mut tokenizer = Tokenizer::from_file(&tokenizer_path)

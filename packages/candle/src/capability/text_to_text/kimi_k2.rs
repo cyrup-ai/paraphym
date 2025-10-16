@@ -400,12 +400,13 @@ impl LoadedKimiK2Model {
     ///
     /// This method loads the tokenizer and detects the device once,
     /// storing them for reuse across multiple requests.
-    pub fn load(
+    pub async fn load(
         base: &CandleKimiK2Model,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Get file paths
         let gguf_file_path = base
             .huggingface_file(base.info().registry_key, "*.gguf")
+            .await
             .map_err(|e| {
                 Box::from(format!("Failed to get GGUF file: {}", e))
                     as Box<dyn std::error::Error + Send + Sync>
@@ -413,6 +414,7 @@ impl LoadedKimiK2Model {
 
         let tokenizer_path = base
             .huggingface_file(base.info().registry_key, "tokenizer.json")
+            .await
             .map_err(|e| {
                 Box::from(format!("Failed to get tokenizer file: {}", e))
                     as Box<dyn std::error::Error + Send + Sync>

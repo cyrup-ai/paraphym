@@ -181,7 +181,7 @@ pub fn text_embedding_pool() -> &'static Pool<TextEmbeddingWorkerHandle> {
 
 impl Pool<TextEmbeddingWorkerHandle> {
     /// Spawn worker for TextEmbedding model
-    pub fn spawn_text_embedding_worker<T, F>(
+    pub fn spawn_text_embedding_worker<T, F, Fut>(
         &self,
         registry_key: &str,
         model_loader: F,
@@ -190,7 +190,8 @@ impl Pool<TextEmbeddingWorkerHandle> {
     ) -> Result<(), PoolError>
     where
         T: TextEmbeddingCapable + Send + 'static,
-        F: FnOnce() -> Result<T, PoolError> + Send + 'static,
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = Result<T, PoolError>> + Send + 'static,
     {
         // Create unbounded channels for worker communication
         let (embed_tx, embed_rx) = mpsc::unbounded_channel();
@@ -227,7 +228,7 @@ impl Pool<TextEmbeddingWorkerHandle> {
             );
 
             // Load model
-            let model = match model_loader() {
+            let model = match model_loader().await {
                 Ok(m) => {
                     log::info!("TextEmbedding worker {} ready", worker_id);
                     // Transition: Loading → Ready
