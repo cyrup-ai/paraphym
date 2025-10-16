@@ -118,7 +118,7 @@ pub async fn vision_worker<T: VisionCapable>(
                 // Transition: Ready/Idle → Processing
                 state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
 
-                let stream = model.describe_image(&req.image_path, &req.query).await;
+                let stream = model.describe_image(&req.image_path, &req.query);
                 let _ = req.response.send(Ok(stream));
 
                 // Transition: Processing → Ready
@@ -129,7 +129,7 @@ pub async fn vision_worker<T: VisionCapable>(
                 // Transition: Ready/Idle → Processing
                 state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
 
-                let stream = model.describe_url(&req.url, &req.query).await;
+                let stream = model.describe_url(&req.url, &req.query);
                 let _ = req.response.send(Ok(stream));
 
                 // Transition: Processing → Ready

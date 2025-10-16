@@ -1097,30 +1097,39 @@ impl TextToImageCapable for TextToImageModel {
                 let registry_key = m.info().registry_key;
                 let pool = text_to_image_pool();
                 let per_worker_mb = m.info().est_memory_allocation_mb;
+                let m_clone = (**m).clone();
+                let prompt = prompt.to_string();
+                let config = config.clone();
+                let device = device.clone();
 
-                // Cold start: spawn workers if needed
-                if let Err(e) = ensure_workers_spawned_adaptive(
-                    pool,
-                    registry_key,
-                    per_worker_mb,
-                    pool.config().max_workers_per_model,
-                    |_, allocation_guard| {
-                        let m_inner = (**m).clone();
-                        pool.spawn_text_to_image_worker(
-                            registry_key,
-                            move || async move { Ok(m_inner) },
-                            per_worker_mb,
-                            allocation_guard,
-                        )
-                    },
-                ).await {
-                    return Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+                Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+                    // Cold start: spawn workers if needed
+                    if let Err(e) = ensure_workers_spawned_adaptive(
+                        pool,
+                        registry_key,
+                        per_worker_mb,
+                        pool.config().max_workers_per_model,
+                        |_, allocation_guard| {
+                            let m_inner = m_clone.clone();
+                            pool.spawn_text_to_image_worker(
+                                registry_key,
+                                move || async move { Ok(m_inner) },
+                                per_worker_mb,
+                                allocation_guard,
+                            )
+                        },
+                    ).await {
                         let _ = tx.send(ImageGenerationChunk::Error(e.to_string()));
-                    }));
-                }
+                        return;
+                    }
 
-                // Route through pool
-                pool.generate_image(registry_key, prompt, config, device).await
+                    // Route through pool
+                    let mut stream = pool.generate_image(registry_key, &prompt, &config, &device);
+                    use tokio_stream::StreamExt;
+                    while let Some(chunk) = stream.next().await {
+                        let _ = tx.send(chunk);
+                    }
+                }))
             }
         }
     }

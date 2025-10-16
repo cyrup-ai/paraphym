@@ -74,7 +74,7 @@ impl Committee {
 
         // Use real model.prompt() method
         let mut response = String::new();
-        let mut stream = Box::pin(self.kimi_model.prompt(prompt, &params).await);
+        let mut stream = Box::pin(self.kimi_model.prompt(prompt, &params));
 
         // Consume stream asynchronously
         while let Some(chunk) = stream.next().await {

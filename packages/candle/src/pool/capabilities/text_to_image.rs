@@ -91,7 +91,7 @@ pub async fn text_to_image_worker<T: TextToImageCapable>(
                 // Transition: Ready/Idle → Processing
                 state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
 
-                let stream = model.generate_image(&req.prompt, &req.config, &req.device).await;
+                let stream = model.generate_image(&req.prompt, &req.config, &req.device);
                 let _ = req.response.send(Ok(stream));
 
                 // Transition: Processing → Ready

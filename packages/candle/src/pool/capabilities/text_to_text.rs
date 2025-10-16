@@ -117,7 +117,7 @@ pub async fn text_to_text_worker<T: TextToTextCapable>(
                 state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
 
                 // Model method returns tokio Stream directly
-                let stream = model.prompt(req.prompt, &req.params).await;
+                let stream = model.prompt(req.prompt, &req.params);
                 let _ = req.response.send(Ok(stream));
 
                 // Transition: Processing → Ready

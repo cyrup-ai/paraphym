@@ -108,7 +108,7 @@ where
             };
 
             // Get the stream and process chunks asynchronously
-            let stream = model.prompt(prompt, &params).await;
+            let stream = model.prompt(prompt, &params);
             tokio::pin!(stream);
 
             // Process chunks to build response
