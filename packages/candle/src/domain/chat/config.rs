@@ -848,16 +848,15 @@ impl CandleConfigurationManager {
             configuration_locks: Arc::new(RwLock::new(HashMap::new())),
         };
 
-        // Initialize default validators using shared references
-        let validation_rules = manager.validation_rules.clone();
-        std::thread::spawn(move || {
-            let mut rules = validation_rules
+        // Initialize default validators
+        {
+            let mut rules = manager.validation_rules
                 .write()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             rules.insert("personality".into(), Arc::new(CandlePersonalityValidator));
             rules.insert("behavior".into(), Arc::new(CandleBehaviorValidator));
             rules.insert("ui".into(), Arc::new(CandleUIValidator));
-        });
+        }
 
         manager
     }

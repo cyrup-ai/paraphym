@@ -54,10 +54,11 @@ pub fn initialize_timestamp_cache() {
         // Initial timestamp update
         update_cached_timestamp();
 
-        // Start background thread for periodic updates
-        std::thread::spawn(|| {
+        // Start background task for periodic updates
+        tokio::spawn(async {
+            let mut interval = tokio::time::interval(std::time::Duration::from_millis(100));
             loop {
-                std::thread::sleep(std::time::Duration::from_millis(100));
+                interval.tick().await;
                 update_cached_timestamp();
             }
         });

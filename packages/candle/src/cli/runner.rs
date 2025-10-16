@@ -58,21 +58,20 @@ impl CliRunner {
         crate::pool::init_maintenance();
 
         // Setup Ctrl+C handler for graceful shutdown
-        use std::sync::mpsc::channel;
-        let (shutdown_tx, shutdown_rx) = channel();
+        let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel(1);
 
         ctrlc::set_handler(move || {
             // Send shutdown signal (handler is called each time Ctrl+C pressed)
-            if shutdown_tx.send(()).is_err() {
+            if shutdown_tx.blocking_send(()).is_err() {
                 // Channel closed - main thread already exiting
                 eprintln!("Shutdown already in progress");
             }
         })
         .map_err(|e| anyhow::anyhow!("Failed to set Ctrl-C handler: {}", e))?;
 
-        // Spawn shutdown monitor thread
-        std::thread::spawn(move || {
-            if shutdown_rx.recv().is_ok() {
+        // Spawn shutdown monitor task
+        tokio::spawn(async move {
+            if shutdown_rx.recv().await.is_some() {
                 eprintln!("\nShutdown signal received, draining pools...");
                 crate::pool::begin_shutdown(5); // 5 second timeout
                 std::process::exit(0);

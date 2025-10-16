@@ -1788,26 +1788,23 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                             let user_pending = memory_manager.create_memory(user_memory);
                             let assistant_pending = memory_manager.create_memory(assistant_memory);
 
-                            // Use shared runtime to properly await the PendingMemory futures
-                            if let Some(runtime) = crate::runtime::shared_runtime() {
-                                // Spawn tasks on the runtime to handle the async operations
-                                runtime.spawn(async move {
-                                    if let Err(e) = user_pending.await {
-                                        log::error!(
-                                            "Failed to store user memory to database: {:?}",
+                            // Spawn tasks to handle the async operations
+                            tokio::spawn(async move {
+                                if let Err(e) = user_pending.await {
+                                    log::error!(
+                                        "Failed to store user memory to database: {:?}",
+                                        e
+                                    );
+                                }
+                            });
+                            tokio::spawn(async move {
+                                if let Err(e) = assistant_pending.await {
+                                    log::error!(
+                                        "Failed to store assistant memory to database: {:?}",
                                             e
                                         );
                                     }
                                 });
-                                runtime.spawn(async move {
-                                    if let Err(e) = assistant_pending.await {
-                                        log::error!(
-                                            "Failed to store assistant memory to database: {:?}",
-                                            e
-                                        );
-                                    }
-                                });
-                            }
                         }
 
                         // Invoke on_conversation_turn handler if configured

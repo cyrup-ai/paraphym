@@ -518,15 +518,13 @@ impl CandleAgentRoleImpl {
 
             // Store user memory - spawn task to execute the PendingMemory future
             let user_pending = memory_tool_clone.memory().create_memory(user_memory.clone());
-            if let Some(runtime) = crate::runtime::shared_runtime() {
-                runtime.spawn(async move {
-                    if let Err(e) = user_pending.await {
-                        log::error!(
-                            "Failed to store user memory to database: {e:?}"
-                        );
-                    }
-                });
-            }
+            tokio::spawn(async move {
+                if let Err(e) = user_pending.await {
+                    log::error!(
+                        "Failed to store user memory to database: {e:?}"
+                    );
+                }
+            });
 
             if memorized_nodes.try_push(user_memory).is_ok() {
                 // Create memory node for assistant response
@@ -537,15 +535,13 @@ impl CandleAgentRoleImpl {
 
                 // Store assistant memory - spawn task to execute the PendingMemory future
                 let assistant_pending = memory_tool_clone.memory().create_memory(assistant_memory.clone());
-                if let Some(runtime) = crate::runtime::shared_runtime() {
-                    runtime.spawn(async move {
-                        if let Err(e) = assistant_pending.await {
-                            log::error!(
-                                "Failed to store assistant memory to database: {e:?}"
-                            );
-                        }
-                    });
-                }
+                tokio::spawn(async move {
+                    if let Err(e) = assistant_pending.await {
+                        log::error!(
+                            "Failed to store assistant memory to database: {e:?}"
+                        );
+                    }
+                });
 
                 if memorized_nodes.try_push(assistant_memory).is_ok() {
                     // Create contextual memory node linking the conversation
@@ -558,15 +554,13 @@ impl CandleAgentRoleImpl {
 
                     // Store context memory - spawn task to execute the PendingMemory future
                     let context_pending = memory_tool_clone.memory().create_memory(context_memory.clone());
-                    if let Some(runtime) = crate::runtime::shared_runtime() {
-                        runtime.spawn(async move {
-                            if let Err(e) = context_pending.await {
-                                log::error!(
-                                    "Failed to store context memory to database: {e:?}"
-                                );
-                            }
-                        });
-                    }
+                    tokio::spawn(async move {
+                        if let Err(e) = context_pending.await {
+                            log::error!(
+                                "Failed to store context memory to database: {e:?}"
+                            );
+                        }
+                    });
 
                     if memorized_nodes.try_push(context_memory).is_ok() {
                         let _ = sender.send(CandleCollectionChunk {

@@ -298,10 +298,13 @@ impl ConnectionManager {
         let failed_checks = Arc::clone(&self.failed_health_checks);
         let active_connections_counter = Arc::clone(&self.active_connections);
 
-        std::thread::spawn(move || {
-            log::info!("Health check thread started (interval: 1s, timeout: {heartbeat_timeout}s)");
+        tokio::spawn(async move {
+            log::info!("Health check task started (interval: 1s, timeout: {heartbeat_timeout}s)");
 
+            let mut interval = tokio::time::interval(Duration::from_secs(1));
             while running.load(Ordering::Acquire) {
+                interval.tick().await;
+
                 // Step 1: Identify stale connections
                 let stale_connections: Vec<(String, String, usize)> = connections
                     .iter()
@@ -363,12 +366,9 @@ impl ConnectionManager {
                         }
                     }
                 }
-
-                // Sleep for check interval
-                std::thread::sleep(Duration::from_secs(1));
             }
 
-            log::info!("Health check thread stopped");
+            log::info!("Health check task stopped");
         });
 
         true

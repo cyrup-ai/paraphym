@@ -324,26 +324,24 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
     ) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunk::CandleResult<Self, AgentError>> + Send>> {
         let system_prompt = system_prompt.into();
         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-            std::thread::spawn(move || {
-                // Create memory tool with zero-allocation initialization
-                let memory_tool = MemoryTool::new(Arc::clone(&memory));
+            // Create memory tool with zero-allocation initialization
+            let memory_tool = MemoryTool::new(Arc::clone(&memory));
 
-                let agent = Self {
-                    model,
-                    system_prompt,
-                    context: ZeroOneOrMany::None,
-                    tools: ZeroOneOrMany::None,
-                    memory: Some(Arc::clone(&memory)),
-                    memory_tool: Some(memory_tool),
-                    temperature: None,
-                    max_tokens: None,
-                    additional_params: None,
-                    error: None,
-                };
+            let agent = Self {
+                model,
+                system_prompt,
+                context: ZeroOneOrMany::None,
+                tools: ZeroOneOrMany::None,
+                memory: Some(Arc::clone(&memory)),
+                memory_tool: Some(memory_tool),
+                temperature: None,
+                max_tokens: None,
+                additional_params: None,
+                error: None,
+            };
 
-                let _ =
-                    tx.send(crate::domain::context::chunk::CandleResult { result: Ok(agent) });
-            });
+            let _ =
+                tx.send(crate::domain::context::chunk::CandleResult { result: Ok(agent) });
         }))
     }
 

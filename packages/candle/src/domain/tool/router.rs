@@ -178,20 +178,7 @@ impl SweetMcpRouter {
 
         // Spawn async work without blocking - sender is moved into spawned task
         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-            let Some(runtime) = crate::runtime::shared_runtime() else {
-                let error_value = Value::Object(
-                    [(
-                        "error".to_string(),
-                        Value::String("Runtime unavailable for tool execution".to_string()),
-                    )]
-                    .into_iter()
-                    .collect::<serde_json::Map<_, _>>(),
-                );
-                let _ = tx.send(CandleJsonChunk(error_value));
-                return;
-            };
-
-            runtime.spawn(async move {
+            tokio::spawn(async move {
                 match router.call_tool(&tool_name, args).await {
                     Ok(result) => {
                         let _ = tx.send(CandleJsonChunk(result));

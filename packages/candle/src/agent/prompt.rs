@@ -119,13 +119,13 @@ impl<'a, M: CompletionModel> PromptRequest<'a, M> {
     /// Execute the prompt request using streams-only architecture
     pub fn execute(self) -> impl Stream<Item = String> {
         crate::async_stream::spawn_stream(move |tx| async move {
-            self.drive_streams(tx);
+            self.drive_streams(tx).await;
         })
     }
     
     /// Internal driver using streams-only architecture
-    fn drive_streams(mut self, sender: tokio::sync::mpsc::UnboundedSender<String>) {
-        std::thread::spawn(move || {
+    async fn drive_streams(mut self, sender: tokio::sync::mpsc::UnboundedSender<String>) {
+        tokio::spawn(async move {
             use crate::completion::Chat;
 
             // Obtain mutable history reference (external or local scratch).

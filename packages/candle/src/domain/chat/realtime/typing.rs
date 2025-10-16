@@ -312,11 +312,11 @@ impl TypingIndicator {
         let cleanup_task_active = self.cleanup_task_active.clone();
 
         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-            std::thread::spawn(move || {
+            tokio::spawn(async move {
                 loop {
                     let cleanup_interval =
                         Duration::from_nanos(cleanup_interval_nanos.load(Ordering::Acquire));
-                    std::thread::sleep(cleanup_interval);
+                    tokio::time::sleep(cleanup_interval).await;
 
                     let expiry_nanos = expiry_duration_nanos.load(Ordering::Acquire);
                     let mut expired_keys = Vec::with_capacity(64); // Pre-allocate

@@ -428,9 +428,10 @@ impl MemoryGovernor {
         let governor = self.clone();
         let interval = self.config.pressure_check_interval;
 
-        std::thread::spawn(move || {
+        tokio::spawn(async move {
+            let mut interval_timer = tokio::time::interval(interval);
             loop {
-                std::thread::sleep(interval);
+                interval_timer.tick().await;
 
                 // Refresh system memory info
                 {
