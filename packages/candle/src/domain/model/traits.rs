@@ -89,21 +89,23 @@ pub trait CandleModel: Send + Sync + std::fmt::Debug + 'static {
     ///
     /// # Errors
     /// Returns error if file download or access fails
-    async fn huggingface_file(
+    fn huggingface_file(
         &self,
         repo_key: &str,
         filename: &str,
-    ) -> Result<std::path::PathBuf, Box<dyn std::error::Error + Send + Sync>>
+    ) -> impl std::future::Future<Output = Result<std::path::PathBuf, Box<dyn std::error::Error + Send + Sync>>> + Send
     where
         Self: Sized,
     {
-        use hf_hub::api::tokio::Api;
+        async {
+            use hf_hub::api::tokio::Api;
 
-        let api = Api::new()?;
-        let repo = api.model(repo_key.to_string());
-        let path = repo.get(filename).await?;
+            let api = Api::new()?;
+            let repo = api.model(repo_key.to_string());
+            let path = repo.get(filename).await?;
 
-        Ok(path)
+            Ok(path)
+        }
     }
 }
 

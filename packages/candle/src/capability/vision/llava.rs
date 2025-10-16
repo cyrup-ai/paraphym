@@ -7,8 +7,6 @@ use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
-use log;
-
 use candle_core::{Device, IndexOp, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::generation::{LogitsProcessor, Sampling};

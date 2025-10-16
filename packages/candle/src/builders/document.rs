@@ -723,9 +723,9 @@ where
                     Err(e) => {
                         last_error = format!("Attempt {}: {}", attempt + 1, e);
                         if attempt < builder.retry_attempts {
-                            std::thread::sleep(std::time::Duration::from_millis(
+                            tokio::time::sleep(std::time::Duration::from_millis(
                                 100 * (1 << attempt), // Exponential backoff
-                            ));
+                            )).await;
                         }
                     }
                 }
@@ -782,9 +782,9 @@ where
 
                 if let Some(error) = response.error() {
                     if attempt < builder.retry_attempts {
-                        std::thread::sleep(std::time::Duration::from_millis(
+                        tokio::time::sleep(std::time::Duration::from_millis(
                             100 * (1 << attempt), // Exponential backoff
-                        ));
+                        )).await;
                         continue;
                     }
                     // Final attempt failed, log error and send error chunk

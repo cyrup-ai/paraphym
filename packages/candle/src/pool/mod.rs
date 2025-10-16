@@ -229,7 +229,6 @@ pub use maintenance::start_maintenance_thread;
 pub use shutdown::begin_shutdown;
 
 use once_cell::sync::Lazy;
-use std::thread::JoinHandle;
 
 /// Global maintenance thread handle
 ///
@@ -240,7 +239,7 @@ use std::thread::JoinHandle;
 /// - **Start**: On first call to `init_maintenance()`
 /// - **Run**: Every 60 seconds (configurable via `PoolConfig.maintenance_interval_secs`)
 /// - **Stop**: When all pools signal shutdown via `begin_shutdown()`
-static MAINTENANCE_THREAD: Lazy<Option<JoinHandle<()>>> =
+static MAINTENANCE_THREAD: Lazy<Option<tokio::task::JoinHandle<()>>> =
     Lazy::new(|| match start_maintenance_thread() {
         Ok(handle) => {
             log::info!("Pool maintenance thread started");

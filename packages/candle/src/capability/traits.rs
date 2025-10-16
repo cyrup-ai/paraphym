@@ -20,6 +20,26 @@ use crate::domain::prompt::CandlePrompt;
 use candle_core::Device;
 use tokio_stream::Stream;
 
+/// Type alias for single embedding future
+pub type EmbeddingFuture<'a> = Pin<
+    Box<
+        dyn std::future::Future<
+                Output = std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>>,
+            > + Send
+            + 'a,
+    >,
+>;
+
+/// Type alias for batch embedding future
+pub type BatchEmbeddingFuture<'a> = Pin<
+    Box<
+        dyn std::future::Future<
+                Output = std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>>,
+            > + Send
+            + 'a,
+    >,
+>;
+
 /// Trait for models capable of text-to-text generation
 pub trait TextToTextCapable: CandleModel {
     /// Generate completion from prompt - the actual work method
@@ -47,34 +67,14 @@ pub trait TextEmbeddingCapable: CandleModel {
         &self,
         text: &str,
         task: Option<String>,
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<
-                    Output = std::result::Result<
-                        Vec<f32>,
-                        Box<dyn std::error::Error + Send + Sync>,
-                    >,
-                > + Send
-                + '_,
-        >,
-    >;
+    ) -> EmbeddingFuture<'_>;
 
     /// Generate embeddings for multiple texts in batch
     fn batch_embed(
         &self,
         texts: &[String],
         task: Option<String>,
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<
-                    Output = std::result::Result<
-                        Vec<Vec<f32>>,
-                        Box<dyn std::error::Error + Send + Sync>,
-                    >,
-                > + Send
-                + '_,
-        >,
-    >;
+    ) -> BatchEmbeddingFuture<'_>;
 
     /// Get the dimensionality of embeddings produced by this model
     fn embedding_dimension(&self) -> usize;
@@ -187,17 +187,7 @@ pub trait TextEmbeddingCapable: CandleModel {
         &self,
         texts: &[String],
         task: Option<String>,
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<
-                    Output = std::result::Result<
-                        Vec<Vec<f32>>,
-                        Box<dyn std::error::Error + Send + Sync>,
-                    >,
-                > + Send
-                + '_,
-        >,
-    > {
+    ) -> BatchEmbeddingFuture<'_> {
         let texts = texts.to_vec();
         Box::pin(async move {
             if texts.is_empty() {
@@ -220,65 +210,25 @@ pub trait ImageEmbeddingCapable: CandleModel {
     fn embed_image(
         &self,
         image_path: &str,
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<
-                    Output = std::result::Result<
-                        Vec<f32>,
-                        Box<dyn std::error::Error + Send + Sync>,
-                    >,
-                > + Send
-                + '_,
-        >,
-    >;
+    ) -> EmbeddingFuture<'_>;
 
     /// Generate embedding for an image from URL
     fn embed_image_url(
         &self,
         url: &str,
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<
-                    Output = std::result::Result<
-                        Vec<f32>,
-                        Box<dyn std::error::Error + Send + Sync>,
-                    >,
-                > + Send
-                + '_,
-        >,
-    >;
+    ) -> EmbeddingFuture<'_>;
 
     /// Generate embedding for an image from base64-encoded data
     fn embed_image_base64(
         &self,
         base64_data: &str,
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<
-                    Output = std::result::Result<
-                        Vec<f32>,
-                        Box<dyn std::error::Error + Send + Sync>,
-                    >,
-                > + Send
-                + '_,
-        >,
-    >;
+    ) -> EmbeddingFuture<'_>;
 
     /// Generate embeddings for multiple images in batch
     fn batch_embed_images(
         &self,
         image_paths: Vec<&str>,
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<
-                    Output = std::result::Result<
-                        Vec<Vec<f32>>,
-                        Box<dyn std::error::Error + Send + Sync>,
-                    >,
-                > + Send
-                + '_,
-        >,
-    >;
+    ) -> BatchEmbeddingFuture<'_>;
 
     /// Get the dimensionality of embeddings produced by this model
     fn embedding_dimension(&self) -> usize;

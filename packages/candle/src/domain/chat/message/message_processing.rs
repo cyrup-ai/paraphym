@@ -40,7 +40,6 @@ pub enum SanitizationError {
 /// # Returns
 /// Returns a tokio Stream that will emit the processed message.
 /// The `on_chunk` handler should validate the processed message.
-#[must_use]
 pub fn process_message(message: CandleMessage) -> impl tokio_stream::Stream<Item = CandleMessage> {
     crate::async_stream::spawn_stream(move |sender| async move {
         let mut processed_message = message;
@@ -76,7 +75,6 @@ pub fn process_message(message: CandleMessage) -> impl tokio_stream::Stream<Item
 /// # Returns
 /// Returns a tokio Stream that will emit the message if valid.
 /// Invalid messages will be handled by the `on_chunk` error handler.
-#[must_use]
 pub fn validate_message(message: CandleMessage) -> impl tokio_stream::Stream<Item = CandleMessage> {
     crate::async_stream::spawn_stream(move |sender| async move {
         // Always emit the message - the `on_chunk` handler decides validation behavior
@@ -167,6 +165,7 @@ pub fn validate_message_sync(message: &CandleMessage) -> Result<(), String> {
 mod tests {
     use super::super::types::{CandleMessage, CandleMessageRole};
     use super::*;
+    use tokio_stream::StreamExt;
 
     #[tokio::test]
     async fn test_process_message() {
@@ -177,7 +176,7 @@ mod tests {
             timestamp: None,
         };
 
-        let processed: Vec<_> = process_message(message).collect();
+        let processed: Vec<_> = process_message(message).collect().await;
         assert_eq!(processed.len(), 1);
         assert_eq!(processed[0].content, "Hello, world!");
     }
@@ -199,11 +198,11 @@ mod tests {
         };
 
         let valid_stream = validate_message(valid_message);
-        let valid_results: Vec<CandleMessage> = valid_stream.collect();
+        let valid_results: Vec<CandleMessage> = valid_stream.collect().await;
         assert_eq!(valid_results[0].content, "Hello, world!");
 
         let empty_stream = validate_message(empty_message);
-        let empty_results: Vec<CandleMessage> = empty_stream.collect();
+        let empty_results: Vec<CandleMessage> = empty_stream.collect().await;
         assert_eq!(empty_results[0].content, "   "); // Validation is now handled by on_chunk handler
     }
 

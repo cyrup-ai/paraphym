@@ -13,12 +13,17 @@ use crate::pool::core::memory_governor::AllocationGuard;
 use crate::pool::core::types::{HealthPing, HealthPong, select_worker_power_of_two};
 use crate::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
 
+/// Type alias for image generation streaming response sender
+type ImageGenerationResponse = oneshot::Sender<
+    Result<Pin<Box<dyn Stream<Item = ImageGenerationChunk> + Send>>, PoolError>
+>;
+
 /// Request for generate_image() operation (streaming response)
 pub struct GenerateImageRequest {
     pub prompt: String,
     pub config: ImageGenerationConfig,
     pub device: Device,
-    pub response: oneshot::Sender<Result<Pin<Box<dyn Stream<Item = ImageGenerationChunk> + Send>>, PoolError>>,
+    pub response: ImageGenerationResponse,
 }
 
 /// TextToImage-specific worker handle with channel

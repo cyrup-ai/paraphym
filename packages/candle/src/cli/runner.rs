@@ -73,7 +73,7 @@ impl CliRunner {
         tokio::spawn(async move {
             if shutdown_rx.recv().await.is_some() {
                 eprintln!("\nShutdown signal received, draining pools...");
-                crate::pool::begin_shutdown(5); // 5 second timeout
+                crate::pool::begin_shutdown(5).await; // 5 second timeout
                 std::process::exit(0);
             }
         });

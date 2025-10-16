@@ -22,7 +22,7 @@ use crate::domain::util::unix_timestamp_nanos;
 /// - UUID-based node identification with inline generation
 /// - SIMD-aligned embedding vectors for AVX2/NEON optimization
 /// - `AtomicU64` for concurrent access statistics and version tracking
-/// tokio async tasks-skiplist
+///   tokio async tasks-skiplist
 #[derive(Debug, Clone)]
 pub struct MemoryNode {
     /// Base memory with core data

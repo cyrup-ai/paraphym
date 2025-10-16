@@ -152,7 +152,6 @@ impl<T: Send + 'static + MessageChunk + Default> Channel<T> {
     }
 
     /// Receive status from the channel (value access requires separate method)
-    #[must_use]
     pub fn recv_status(&self) -> impl Stream<Item = ChannelResult> {
         let receiver = self.receiver.clone();
         async_stream::spawn_stream(move |tx| async move {
@@ -168,7 +167,6 @@ impl<T: Send + 'static + MessageChunk + Default> Channel<T> {
     }
 
     /// Create a new receiver that can be used to receive values from this channel
-    #[must_use]
     pub fn subscribe(&self) -> impl Stream<Item = T> {
         let receiver = self.receiver.clone();
         async_stream::spawn_stream(move |tx| async move {
@@ -208,14 +206,13 @@ impl<T: Send + Clone + 'static> OneshotChannel<T> {
     /// Returns the value if the receiver has been dropped or sending fails
     pub fn send(mut self, value: T) -> Result<(), T> {
         if let Some(sender) = self.sender.take() {
-            sender.send(value).map_err(|value| value)
+            sender.send(value)
         } else {
             Err(value)
         }
     }
 
     /// Receive the value from the channel
-    #[must_use]
     pub fn recv(self) -> impl Stream<Item = OneshotResult<T>> {
         async_stream::spawn_stream(move |tx| async move {
             let result = match self.receiver.await {

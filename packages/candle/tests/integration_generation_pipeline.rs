@@ -8,7 +8,7 @@
 
 use paraphym_candle::core::engine::{Engine, EngineConfig};
 use paraphym_candle::domain::context::chunk::{CandleCompletionChunk, CandleStringChunk};
-use ystream::AsyncStream;
+use paraphym_candle::StreamExt;
 
 /// Test 1: Provider Type Verification
 ///
@@ -51,7 +51,7 @@ fn test_engine_metrics_tracking() {
 
     // Coordinate a mock generation
     let _stream = engine.coordinate_generation(move || {
-        AsyncStream::with_channel(|sender| {
+        paraphym_candle::async_stream::spawn_stream(|sender| async move {
             let _ = sender.send(CandleStringChunk("test".to_string()));
         })
     });
@@ -92,14 +92,14 @@ async fn test_stream_conversion() {
 
     // Create stream with test data
     let completion_stream = engine.coordinate_generation(move || {
-        AsyncStream::with_channel(|sender| {
+        paraphym_candle::async_stream::spawn_stream(|sender| async move {
             let _ = sender.send(CandleStringChunk("Hello".to_string()));
             let _ = sender.send(CandleStringChunk(" World".to_string()));
         })
     });
 
     // Collect chunks
-    let chunks: Vec<CandleCompletionChunk> = completion_stream.collect();
+    let chunks: Vec<CandleCompletionChunk> = completion_stream.collect().await;
 
     // Verify conversion happened
     assert!(
@@ -252,7 +252,7 @@ async fn test_text_generator_with_mock_model() {
     // Generate with mock model
     let stream = generator.generate("Test prompt".to_string(), 5, special_tokens);
 
-    let chunks: Vec<CandleStringChunk> = stream.collect();
+    let chunks: Vec<CandleStringChunk> = stream.collect().await;
 
     // Verify generation produced output
     assert!(
@@ -327,13 +327,13 @@ async fn test_error_handling() {
     let config = EngineConfig::new("test-model", "test-provider");
     if let Ok(engine) = Engine::new(config) {
         let error_stream = engine.coordinate_generation(move || {
-            AsyncStream::with_channel(|sender| {
+            paraphym_candle::async_stream::spawn_stream(|sender| async move {
                 let _ = sender.send(CandleStringChunk("text".to_string()));
                 // Stream completes normally - errors would be CandleCompletionChunk::Error
             })
         });
 
-        let chunks: Vec<CandleCompletionChunk> = error_stream.collect();
+        let chunks: Vec<CandleCompletionChunk> = error_stream.collect().await;
 
         // Verify stream completed (even with potential errors)
         assert!(

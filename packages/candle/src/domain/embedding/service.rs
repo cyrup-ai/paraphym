@@ -70,6 +70,7 @@ impl EmbeddingPool {
 
     /// Get vector from pool or create new one (zero-allocation in common case)
     #[inline]
+    #[must_use]
     pub fn acquire(&self) -> Vec<f32> {
         if let Ok(mut receiver) = self.receiver.lock() {
             receiver.try_recv().unwrap_or_else(|_| vec![0.0; self.dimension])

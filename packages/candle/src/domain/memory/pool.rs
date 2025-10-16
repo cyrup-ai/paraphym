@@ -40,6 +40,7 @@ impl MemoryNodePool {
 
     /// Acquire a node from the pool (zero-allocation in common case)
     #[inline]
+    #[must_use]
     pub fn acquire(&self) -> PooledMemoryNode<'_> {
         let mut node = if let Ok(mut receiver) = self.receiver.lock() {
             receiver.try_recv().unwrap_or_else(|_| {

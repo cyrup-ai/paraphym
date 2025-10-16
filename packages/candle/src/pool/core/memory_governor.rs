@@ -314,13 +314,16 @@ impl MemoryGovernor {
 
     /// Register model allocation
     pub async fn register_model_allocation(&self, model_name: &str, worker_id: u64, size_mb: usize) {
+        // Get NUMA node before acquiring lock to avoid holding lock across await
+        let numa_node = self.get_numa_node().await;
+        
         let mut allocations = self.allocations.write();
 
         let allocation = AllocationInfo {
             worker_id,
             size_mb,
             allocated_at: Instant::now(),
-            numa_node: self.get_numa_node().await,
+            numa_node,
             huge_pages: self.config.enable_huge_pages,
         };
 

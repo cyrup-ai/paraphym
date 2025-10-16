@@ -18,7 +18,7 @@ use crate::pool::core::Pool;
 ///
 /// # Arguments
 /// * `timeout_secs` - Maximum seconds to wait for drain (typically 5)
-pub fn begin_shutdown(timeout_secs: u64) {
+pub async fn begin_shutdown(timeout_secs: u64) {
     info!(
         "Shutdown signal received, draining pools (timeout: {}s)...",
         timeout_secs
@@ -57,7 +57,7 @@ pub fn begin_shutdown(timeout_secs: u64) {
         }
 
         // Brief sleep before next check
-        std::thread::sleep(Duration::from_millis(100));
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
 

@@ -187,7 +187,7 @@ where
     ///
     /// ## Execution Model
     /// 1. Clone input for each operation to avoid borrowing issues
-    /// tokio async tasks
+    ///    tokio async tasks
     /// 3. Stream results immediately as operations complete
     /// 4. Preserve operation index for result correlation
     /// 5. Handle thread panics gracefully with error results

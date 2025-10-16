@@ -598,18 +598,18 @@ impl CandleStreamingContextProcessor {
 
             // Validate input
             if let Err(validation_error) = Self::validate_file_context(&context) {
-                let _error = CandleContextError::ValidationError(validation_error.to_string());
+                let error = CandleContextError::ValidationError(validation_error.to_string());
 
                 // Emit validation failed event before terminating
                 if let Some(ref events) = event_sender {
                     let _ = events.send(CandleContextEvent::ValidationFailed {
                         validation_type: "FileContext".to_string(),
-                        error: _error.to_string(),
+                        error: error.to_string(),
                         timestamp: SystemTime::now(),
                     });
                 }
 
-                log::error!("File context validation failed: {}", _error);
+                log::error!("File context validation failed: {error}");
                 return;
             }
 
@@ -1523,8 +1523,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_load_text_file() {
+    #[tokio::test]
+    async fn test_load_text_file() {
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
         let test_content = "Hello, this is a test text file!";
         temp_file
@@ -1534,15 +1534,15 @@ mod tests {
 
         let path = temp_file.path().to_string_lossy().to_string();
         let context = create_test_context(path);
-        let document = CandleStreamingContextProcessor::load_file_document(&context);
+        let document = CandleStreamingContextProcessor::load_file_document(&context).await;
 
         assert_eq!(document.data, test_content);
         assert!(matches!(document.format, Some(CandleContentFormat::Text)));
         assert!(document.error().is_none());
     }
 
-    #[test]
-    fn test_load_json_file() {
+    #[tokio::test]
+    async fn test_load_json_file() {
         let mut temp_file =
             NamedTempFile::with_suffix(".json").expect("Failed to create temp file");
         let test_content = r#"{"key": "value", "number": 42}"#;
@@ -1553,7 +1553,7 @@ mod tests {
 
         let path = temp_file.path().to_string_lossy().to_string();
         let context = create_test_context(path);
-        let document = CandleStreamingContextProcessor::load_file_document(&context);
+        let document = CandleStreamingContextProcessor::load_file_document(&context).await;
 
         assert_eq!(document.data, test_content);
         assert!(matches!(document.format, Some(CandleContentFormat::Json)));
@@ -1564,8 +1564,8 @@ mod tests {
         assert!(document.error().is_none());
     }
 
-    #[test]
-    fn test_load_html_file() {
+    #[tokio::test]
+    async fn test_load_html_file() {
         let mut temp_file =
             NamedTempFile::with_suffix(".html").expect("Failed to create temp file");
         let test_content = "<html><body><h1>Test</h1></body></html>";
@@ -1576,7 +1576,7 @@ mod tests {
 
         let path = temp_file.path().to_string_lossy().to_string();
         let context = create_test_context(path);
-        let document = CandleStreamingContextProcessor::load_file_document(&context);
+        let document = CandleStreamingContextProcessor::load_file_document(&context).await;
 
         assert_eq!(document.data, test_content);
         assert!(matches!(document.format, Some(CandleContentFormat::Html)));
@@ -1587,8 +1587,8 @@ mod tests {
         assert!(document.error().is_none());
     }
 
-    #[test]
-    fn test_load_markdown_file() {
+    #[tokio::test]
+    async fn test_load_markdown_file() {
         let mut temp_file = NamedTempFile::with_suffix(".md").expect("Failed to create temp file");
         let test_content = "# Heading\n\nThis is **markdown** content.";
         temp_file
@@ -1598,7 +1598,7 @@ mod tests {
 
         let path = temp_file.path().to_string_lossy().to_string();
         let context = create_test_context(path);
-        let document = CandleStreamingContextProcessor::load_file_document(&context);
+        let document = CandleStreamingContextProcessor::load_file_document(&context).await;
 
         assert_eq!(document.data, test_content);
         assert!(matches!(
@@ -1612,8 +1612,8 @@ mod tests {
         assert!(document.error().is_none());
     }
 
-    #[test]
-    fn test_load_binary_file() {
+    #[tokio::test]
+    async fn test_load_binary_file() {
         let mut temp_file = NamedTempFile::with_suffix(".pdf").expect("Failed to create temp file");
         let binary_data: Vec<u8> = vec![0x25, 0x50, 0x44, 0x46, 0x2D];
         temp_file.write_all(&binary_data).expect("Failed to write");
@@ -1621,7 +1621,7 @@ mod tests {
 
         let path = temp_file.path().to_string_lossy().to_string();
         let context = create_test_context(path);
-        let document = CandleStreamingContextProcessor::load_file_document(&context);
+        let document = CandleStreamingContextProcessor::load_file_document(&context).await;
 
         let expected_base64 = general_purpose::STANDARD.encode(&binary_data);
         assert_eq!(document.data, expected_base64);
@@ -1633,8 +1633,8 @@ mod tests {
         assert!(document.error().is_none());
     }
 
-    #[test]
-    fn test_utf8_fallback() {
+    #[tokio::test]
+    async fn test_utf8_fallback() {
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
         let invalid_utf8: Vec<u8> = vec![0xFF, 0xFE, 0xFD, 0x80, 0x81];
         temp_file.write_all(&invalid_utf8).expect("Failed to write");
@@ -1642,7 +1642,7 @@ mod tests {
 
         let path = temp_file.path().to_string_lossy().to_string();
         let context = create_test_context(path);
-        let document = CandleStreamingContextProcessor::load_file_document(&context);
+        let document = CandleStreamingContextProcessor::load_file_document(&context).await;
 
         let expected_base64 = general_purpose::STANDARD.encode(&invalid_utf8);
         assert_eq!(document.data, expected_base64);
@@ -1650,28 +1650,28 @@ mod tests {
         assert!(document.error().is_none());
     }
 
-    #[test]
-    fn test_missing_file() {
+    #[tokio::test]
+    async fn test_missing_file() {
         let context = create_test_context("/path/to/nonexistent/file.txt".to_string());
-        let document = CandleStreamingContextProcessor::load_file_document(&context);
+        let document = CandleStreamingContextProcessor::load_file_document(&context).await;
 
         assert!(document.error().is_some());
         assert!(document.data.starts_with("ERROR: Failed to access file"));
     }
 
-    #[test]
-    fn test_directory_not_file() {
+    #[tokio::test]
+    async fn test_directory_not_file() {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let path = temp_dir.path().to_string_lossy().to_string();
         let context = create_test_context(path);
-        let document = CandleStreamingContextProcessor::load_file_document(&context);
+        let document = CandleStreamingContextProcessor::load_file_document(&context).await;
 
         assert!(document.error().is_some());
         assert!(document.data.contains("Path is not a file"));
     }
 
-    #[test]
-    fn test_extension_fallback() {
+    #[tokio::test]
+    async fn test_extension_fallback() {
         let mut temp_file =
             NamedTempFile::with_suffix(".custom").expect("Failed to create temp file");
         let test_content = "Custom file content";
@@ -1682,15 +1682,15 @@ mod tests {
 
         let path = temp_file.path().to_string_lossy().to_string();
         let context = create_test_context(path);
-        let document = CandleStreamingContextProcessor::load_file_document(&context);
+        let document = CandleStreamingContextProcessor::load_file_document(&context).await;
 
         assert_eq!(document.data, test_content);
         assert!(matches!(document.format, Some(CandleContentFormat::Text)));
         assert!(document.error().is_none());
     }
 
-    #[test]
-    fn test_metadata_preservation() {
+    #[tokio::test]
+    async fn test_metadata_preservation() {
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
         let test_content = "Test content for metadata";
         temp_file
@@ -1710,7 +1710,7 @@ mod tests {
             memory_integration: None,
         };
 
-        let document = CandleStreamingContextProcessor::load_file_document(&context);
+        let document = CandleStreamingContextProcessor::load_file_document(&context).await;
 
         assert!(document.additional_props.contains_key("path"));
         assert!(document.additional_props.contains_key("hash"));
@@ -1732,8 +1732,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_csv_file() -> Result<(), Box<dyn std::error::Error>> {
+    #[tokio::test]
+    async fn test_csv_file() -> Result<(), Box<dyn std::error::Error>> {
         let mut temp_file = NamedTempFile::with_suffix(".csv")?;
         let test_content = "name,age,city\nAlice,30,NYC\nBob,25,LA";
         temp_file.write_all(test_content.as_bytes())?;
@@ -1741,7 +1741,7 @@ mod tests {
 
         let path = temp_file.path().to_string_lossy().to_string();
         let context = create_test_context(path);
-        let document = CandleStreamingContextProcessor::load_file_document(&context);
+        let document = CandleStreamingContextProcessor::load_file_document(&context).await;
 
         assert_eq!(document.data, test_content);
         assert!(matches!(document.format, Some(CandleContentFormat::Csv)));
@@ -1753,8 +1753,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_xml_file() -> Result<(), Box<dyn std::error::Error>> {
+    #[tokio::test]
+    async fn test_xml_file() -> Result<(), Box<dyn std::error::Error>> {
         let mut temp_file = NamedTempFile::with_suffix(".xml")?;
         let test_content = r#"<?xml version="1.0"?><root><item>Test</item></root>"#;
         temp_file.write_all(test_content.as_bytes())?;
@@ -1762,7 +1762,7 @@ mod tests {
 
         let path = temp_file.path().to_string_lossy().to_string();
         let context = create_test_context(path);
-        let document = CandleStreamingContextProcessor::load_file_document(&context);
+        let document = CandleStreamingContextProcessor::load_file_document(&context).await;
 
         assert_eq!(document.data, test_content);
         assert!(matches!(document.format, Some(CandleContentFormat::Xml)));
@@ -1774,8 +1774,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_yaml_file() -> Result<(), Box<dyn std::error::Error>> {
+    #[tokio::test]
+    async fn test_yaml_file() -> Result<(), Box<dyn std::error::Error>> {
         let mut temp_file = NamedTempFile::with_suffix(".yaml")?;
         let test_content = "key: value\nlist:\n  - item1\n  - item2";
         temp_file.write_all(test_content.as_bytes())?;
@@ -1783,7 +1783,7 @@ mod tests {
 
         let path = temp_file.path().to_string_lossy().to_string();
         let context = create_test_context(path);
-        let document = CandleStreamingContextProcessor::load_file_document(&context);
+        let document = CandleStreamingContextProcessor::load_file_document(&context).await;
 
         assert_eq!(document.data, test_content);
         assert!(matches!(document.format, Some(CandleContentFormat::Yaml)));
@@ -1795,8 +1795,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_image_file() -> Result<(), Box<dyn std::error::Error>> {
+    #[tokio::test]
+    async fn test_image_file() -> Result<(), Box<dyn std::error::Error>> {
         let mut temp_file = NamedTempFile::with_suffix(".png")?;
         let png_header: Vec<u8> = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
         temp_file.write_all(&png_header)?;
@@ -1804,7 +1804,7 @@ mod tests {
 
         let path = temp_file.path().to_string_lossy().to_string();
         let context = create_test_context(path);
-        let document = CandleStreamingContextProcessor::load_file_document(&context);
+        let document = CandleStreamingContextProcessor::load_file_document(&context).await;
 
         let expected_base64 = general_purpose::STANDARD.encode(&png_header);
         assert_eq!(document.data, expected_base64);
@@ -1817,15 +1817,15 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_file_size_limit() -> Result<(), Box<dyn std::error::Error>> {
+    #[tokio::test]
+    async fn test_file_size_limit() -> Result<(), Box<dyn std::error::Error>> {
         let mut temp_file = NamedTempFile::new()?;
         temp_file.write_all(b"small content")?;
         temp_file.flush()?;
 
         let path = temp_file.path().to_string_lossy().to_string();
         let context = create_test_context(path);
-        let document = CandleStreamingContextProcessor::load_file_document(&context);
+        let document = CandleStreamingContextProcessor::load_file_document(&context).await;
 
         assert!(document.error().is_none());
         assert_eq!(document.data, "small content");

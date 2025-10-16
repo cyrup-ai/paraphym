@@ -7,7 +7,7 @@ use super::memory_governor::{AllocationGuard, MemoryGovernor};
 use super::{Pool, PoolError, SpawnGuard};
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, info, instrument};
 
 /// Ensure workers are spawned for a model (cold-start helper with race protection)
 ///
@@ -236,7 +236,7 @@ pub trait MemoryGovernorAccess {
 /// Trait for pools that support spawn locking
 pub trait SpawnLock {
     fn try_acquire_spawn_lock(&self, registry_key: &str) -> Option<SpawnGuard>;
-    async fn wait_for_workers(&self, registry_key: &str, timeout: Duration) -> Result<(), PoolError>;
+    fn wait_for_workers(&self, registry_key: &str, timeout: Duration) -> impl std::future::Future<Output = Result<(), PoolError>> + Send;
 }
 
 /// Trait for pools that provide worker metrics

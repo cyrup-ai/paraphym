@@ -13,6 +13,7 @@ use paraphym_candle::domain::completion::{
 };
 use paraphym_candle::domain::prompt::CandlePrompt;
 use paraphym_candle::domain::model::CandleModel;
+use paraphym_candle::StreamExt;
 
 // use fluent_ai::{FluentAi, Providers, Models}; // Temporarily disabled due to dependency issues
 use super::model::*;
@@ -116,7 +117,7 @@ pub fn sampling_create_message_pending(request: CreateMessageRequest) -> AsyncSa
 
         // Perform inference with streaming collection
         let completion_stream = provider.prompt(prompt, &params);
-        let completion_results: Vec<CandleCompletionChunk> = completion_stream.collect();
+        let completion_results: Vec<CandleCompletionChunk> = completion_stream.collect().await;
 
         // Accumulate response text and extract usage
         let mut response_text = String::new();
@@ -233,10 +234,10 @@ pub fn sampling_create_message_stream(request: CreateMessageRequest) -> Sampling
         let model_name = provider.name().to_string();
 
         // Stream tokens as they're generated
-        let completion_stream = provider.prompt(prompt, &params);
+        let mut completion_stream = provider.prompt(prompt, &params);
         let mut accumulated_text = String::new();
 
-        for chunk in completion_stream {
+        while let Some(chunk) = completion_stream.next().await {
             match chunk {
                 CandleCompletionChunk::Text(text) => {
                     accumulated_text.push_str(&text);

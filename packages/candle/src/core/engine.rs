@@ -355,69 +355,7 @@ impl Engine {
         self.is_healthy.store(healthy, Ordering::Relaxed);
     }
 
-    /// Process completion request with zero allocations in hot path
-    #[inline]
-    pub fn process_completion(
-        &self,
-        request: CompletionRequest<'_>,
-    ) -> tokio::task::JoinHandle<EngineResult<CompletionResponse<'static>>> {
-        // Validate request first
-        if let Err(e) = request.validate() {
-            return tokio::task::spawn_blocking(move || Err(e));
-        }
 
-        // Atomic operations for metrics (lock-free)
-        let request_id = self.request_count.fetch_add(1, Ordering::Relaxed);
-        self.active_requests.fetch_add(1, Ordering::Relaxed);
-
-        // Clone necessary data for async processing
-        let registry_key = self.config.registry_key.clone();
-        let provider = self.config.provider.clone();
-        let api_key = self.config.api_key.clone();
-        let timeout = self.config.timeout_seconds;
-        let max_tokens = self.config.max_tokens;
-        let temperature = self.config.temperature;
-        let streaming = self.config.enable_streaming;
-        let endpoint = self.config.endpoint_url.clone();
-
-        // Convert borrowed request data to owned for async processing
-        let prompt = request.prompt.to_string();
-        let system_prompt = request.system_prompt.map(|s| s.to_string());
-        let history: Vec<String> = request
-            .conversation_history
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        let tools: Vec<String> = request.tools.iter().map(|s| s.to_string()).collect();
-        let metadata = request.metadata.map(|s| s.to_string());
-
-        // We'll update metrics after the task completes, not during
-
-        tokio::task::spawn_blocking(move || {
-            // Create streaming completion and collect first result for backward compatibility
-            let _params = CompletionParams {
-                request_id,
-                registry_key,
-                provider,
-                api_key,
-                timeout,
-                max_tokens,
-                temperature,
-                streaming,
-                endpoint,
-                prompt,
-                system_prompt,
-                history,
-                tools,
-                metadata,
-            };
-            // Legacy method - routing logic has been moved to orchestration utilities
-            // Providers should now use coordinate_generation() method directly
-            Err(EngineError::InternalError(
-                "Direct engine completion processing deprecated. Use provider orchestration instead.".to_string(),
-            ))
-        })
-    }
 
     /// Coordinate text generation with metrics and streaming management
     ///

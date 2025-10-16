@@ -169,7 +169,7 @@ impl CommandExecutor {
                         });
 
                         // Simulate realistic export processing time
-                        std::thread::sleep(std::time::Duration::from_millis(250));
+                        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
                     }
 
                     // Build final export message
@@ -221,7 +221,7 @@ impl CommandExecutor {
                         });
 
                         // Simulate realistic search processing time
-                        std::thread::sleep(std::time::Duration::from_millis(150));
+                        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
                     }
 
                     // Build search result message

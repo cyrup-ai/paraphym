@@ -25,6 +25,12 @@ use crate::domain::agent::role::convert_serde_to_sweet_json;
 use crate::domain::error::ZeroAllocError;
 use sweet_mcp_type::ToolInfo;
 
+/// Type alias for memory node result queue channel pair
+type MemoryNodeQueue = (
+    mpsc::UnboundedSender<MemoryNode>,
+    Arc<Mutex<mpsc::UnboundedReceiver<MemoryNode>>>,
+);
+
 /// Maximum number of memory nodes in result collections
 const MAX_MEMORY_TOOL_RESULTS: usize = 1000;
 
@@ -36,7 +42,7 @@ static TOOL_STATS: LazyLock<AtomicUsize> =
     LazyLock::new(|| AtomicUsize::new(0));
 
 /// Result queue for aggregation
-static RESULT_QUEUE: LazyLock<(mpsc::UnboundedSender<MemoryNode>, Arc<Mutex<mpsc::UnboundedReceiver<MemoryNode>>>)> = LazyLock::new(|| {
+static RESULT_QUEUE: LazyLock<MemoryNodeQueue> = LazyLock::new(|| {
     let (sender, receiver) = mpsc::unbounded_channel();
     (sender, Arc::new(Mutex::new(receiver)))
 });
@@ -190,6 +196,7 @@ impl MemoryTool {
 
     /// Get next result from queue
     #[inline]
+    #[must_use]
     pub fn dequeue_result() -> Option<MemoryNode> {
         let (_sender, receiver) = &*RESULT_QUEUE;
         if let Ok(mut rx) = receiver.lock() {
@@ -213,6 +220,7 @@ impl MemoryTool {
 
     /// Get result queue length for monitoring
     #[inline]
+    #[must_use]
     pub fn result_queue_length() -> usize {
         0 // tokio mpsc channels don't expose queue length
     }

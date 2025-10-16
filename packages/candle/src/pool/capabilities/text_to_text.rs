@@ -14,11 +14,16 @@ use crate::pool::core::memory_governor::AllocationGuard;
 use crate::pool::core::types::{HealthPing, HealthPong, select_worker_power_of_two};
 use crate::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
 
+/// Type alias for text completion streaming response sender
+type CompletionResponse = oneshot::Sender<
+    Result<Pin<Box<dyn Stream<Item = CandleCompletionChunk> + Send>>, PoolError>
+>;
+
 /// Request for prompt() operation (streaming response)
 pub struct PromptRequest {
     pub prompt: CandlePrompt,
     pub params: CandleCompletionParams,
-    pub response: oneshot::Sender<Result<Pin<Box<dyn Stream<Item = CandleCompletionChunk> + Send>>, PoolError>>,
+    pub response: CompletionResponse,
 }
 
 /// TextToText-specific worker handle with channel

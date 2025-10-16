@@ -10,7 +10,6 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::thread;
 
 use tokio::sync::mpsc;
 use serde::{Deserialize, Serialize};
@@ -589,7 +588,7 @@ impl VectorSearch {
             let embedding_model = self.embedding_model.clone();
             let options = options.clone();
 
-            let handle = thread::spawn(move || {
+            let handle = tokio::task::spawn_blocking(move || {
                 // Use the actual embedding model for consistency
                 // Even though we don't need it for pure vector search, it's available
                 let processor_config = CognitiveProcessorConfig::default();
@@ -610,11 +609,11 @@ impl VectorSearch {
         // Drop the original sender so receiver can finish
         drop(sender);
 
-        // Wait for all threads and collect results
+        // Wait for all blocking tasks to complete
         for handle in handles {
-            if handle.join().is_err() {
+            if let Err(e) = handle.await {
                 return Err(crate::memory::utils::error::Error::Other(
-                    "Thread execution failed during batch search".to_string(),
+                    format!("Blocking task execution failed during batch search: {}", e)
                 ));
             }
         }

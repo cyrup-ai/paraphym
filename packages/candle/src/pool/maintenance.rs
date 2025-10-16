@@ -1,5 +1,4 @@
 use std::sync::atomic::Ordering;
-use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::{debug, info, instrument, warn};
 
@@ -278,54 +277,51 @@ fn log_memory_usage() {
 /// - Log eviction events
 ///
 /// The thread continues until all pools signal shutdown.
-pub fn start_maintenance_thread() -> Result<thread::JoinHandle<()>, String> {
-    thread::Builder::new()
-        .name("pool-maintenance".to_string())
-        .spawn(move || {
-            // Get interval from config (default 60 seconds)
-            let config = text_embedding_pool().config();
-            let interval = Duration::from_secs(config.maintenance_interval_secs);
-            let idle_threshold = config.cooldown_idle_minutes * 60; // Convert minutes to seconds
+pub fn start_maintenance_thread() -> Result<tokio::task::JoinHandle<()>, String> {
+    // Get interval from config (default 60 seconds)
+    let config = text_embedding_pool().config();
+    let interval = Duration::from_secs(config.maintenance_interval_secs);
+    let idle_threshold = config.cooldown_idle_minutes * 60; // Convert minutes to seconds
 
-            info!(
-                interval_secs = interval.as_secs(),
-                idle_threshold_secs = idle_threshold,
-                "Maintenance thread started"
-            );
+    info!(
+        interval_secs = interval.as_secs(),
+        idle_threshold_secs = idle_threshold,
+        "Maintenance thread started"
+    );
 
-            loop {
-                thread::sleep(interval);
+    Ok(tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(interval).await;
 
-                // Check if shutting down (check all pools, exit if any shutting down)
-                if text_embedding_pool().is_shutting_down()
-                    || text_to_text_pool().is_shutting_down()
-                    || image_embedding_pool().is_shutting_down()
-                    || vision_pool().is_shutting_down()
-                    || text_to_image_pool().is_shutting_down()
-                {
-                    info!("Maintenance thread shutting down");
-                    break;
-                }
-
-                // Validate worker health (remove dead workers)
-                validate_pool_health(text_embedding_pool(), "TextEmbedding");
-                validate_pool_health(text_to_text_pool(), "TextToText");
-                validate_pool_health(image_embedding_pool(), "ImageEmbedding");
-                validate_pool_health(vision_pool(), "Vision");
-                validate_pool_health(text_to_image_pool(), "TextToImage");
-
-                // Process each pool (evict idle workers)
-                process_pool_maintenance(text_embedding_pool(), idle_threshold, "TextEmbedding");
-                process_pool_maintenance(text_to_text_pool(), idle_threshold, "TextToText");
-                process_pool_maintenance(image_embedding_pool(), idle_threshold, "ImageEmbedding");
-                process_pool_maintenance(vision_pool(), idle_threshold, "Vision");
-                process_pool_maintenance(text_to_image_pool(), idle_threshold, "TextToImage");
-
-                // Log memory usage
-                log_memory_usage();
+            // Check if shutting down (check all pools, exit if any shutting down)
+            if text_embedding_pool().is_shutting_down()
+                || text_to_text_pool().is_shutting_down()
+                || image_embedding_pool().is_shutting_down()
+                || vision_pool().is_shutting_down()
+                || text_to_image_pool().is_shutting_down()
+            {
+                info!("Maintenance thread shutting down");
+                break;
             }
 
-            info!("Maintenance thread exited");
-        })
-        .map_err(|e| format!("Failed to spawn maintenance thread: {}", e))
+            // Validate worker health (remove dead workers)
+            validate_pool_health(text_embedding_pool(), "TextEmbedding");
+            validate_pool_health(text_to_text_pool(), "TextToText");
+            validate_pool_health(image_embedding_pool(), "ImageEmbedding");
+            validate_pool_health(vision_pool(), "Vision");
+            validate_pool_health(text_to_image_pool(), "TextToImage");
+
+            // Process each pool (evict idle workers)
+            process_pool_maintenance(text_embedding_pool(), idle_threshold, "TextEmbedding");
+            process_pool_maintenance(text_to_text_pool(), idle_threshold, "TextToText");
+            process_pool_maintenance(image_embedding_pool(), idle_threshold, "ImageEmbedding");
+            process_pool_maintenance(vision_pool(), idle_threshold, "Vision");
+            process_pool_maintenance(text_to_image_pool(), idle_threshold, "TextToImage");
+
+            // Log memory usage
+            log_memory_usage();
+        }
+
+        info!("Maintenance thread exited");
+    }))
 }

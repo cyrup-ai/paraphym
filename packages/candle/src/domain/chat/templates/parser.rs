@@ -35,6 +35,16 @@ impl Default for ParserConfig {
     }
 }
 
+/// Result of parsing a block tag
+enum BlockTagResult {
+    /// Successfully parsed a block tag with the AST and new position
+    Parsed(TemplateAst, usize),
+    /// Encountered an end tag (endif, endfor, etc.)
+    EndTag,
+    /// Skip this tag and move to the new position
+    Skip(usize),
+}
+
 /// Template parser implementation
 #[derive(Debug)]
 pub struct TemplateParser {
@@ -75,129 +85,148 @@ impl TemplateParser {
             });
         }
 
+        let chars: Vec<char> = content.chars().collect();
+        let nodes = self.parse_template_nodes(content, depth, &chars)?;
+
+        match nodes.len() {
+            0 => Ok(TemplateAst::Text(String::new())),
+            1 => Ok(nodes.into_iter().next().unwrap_or(TemplateAst::Text(String::new()))),
+            _ => Ok(TemplateAst::Block(nodes.into())),
+        }
+    }
+
+    /// Parse template nodes from character stream
+    fn parse_template_nodes(
+        &self,
+        content: &str,
+        depth: usize,
+        chars: &[char],
+    ) -> TemplateResult<Vec<TemplateAst>> {
         let mut nodes = Vec::new();
         let mut current_text = String::new();
         let mut i = 0;
-        let chars: Vec<char> = content.chars().collect();
 
         while i < chars.len() {
             // Check for {% block start %}
             if i + 1 < chars.len() && chars[i] == '{' && chars[i + 1] == '%' {
-                // Save accumulated text
                 if !current_text.is_empty() {
                     nodes.push(TemplateAst::Text(current_text.clone()));
                     current_text.clear();
                 }
 
-                // Find closing %}
-                let block_start = i + 2;
-                let mut block_end = block_start;
-                while block_end + 1 < chars.len() {
-                    if chars[block_end] == '%' && chars[block_end + 1] == '}' {
-                        break;
+                let parse_result = self.parse_block_tag(content, i, depth, chars)?;
+                match parse_result {
+                    BlockTagResult::Parsed(ast, new_i) => {
+                        nodes.push(ast);
+                        i = new_i;
                     }
-                    block_end += 1;
+                    BlockTagResult::EndTag => break,
+                    BlockTagResult::Skip(new_i) => {
+                        i = new_i;
+                    }
                 }
-
-                if block_end + 1 >= chars.len() {
-                    return Err(TemplateError::ParseError {
-                        message: "Unclosed block tag".to_string(),
-                    });
-                }
-
-                let block_content: String = chars[block_start..block_end].iter().collect();
-                let block_content = block_content.trim();
-
-                // Parse block based on tag
-                if let Some(_tag_content) = block_content.strip_prefix("if ") {
-                    let (ast, new_i) = self.parse_conditional_block(content, i, depth)?;
-                    nodes.push(ast);
-                    i = new_i;
-                    continue;
-                } else if let Some(_tag_content) = block_content.strip_prefix("for ") {
-                    let (ast, new_i) = self.parse_loop_block(content, i, depth)?;
-                    nodes.push(ast);
-                    i = new_i;
-                    continue;
-                } else if block_content == "endif"
-                    || block_content == "endfor"
-                    || block_content == "elif"
-                    || block_content.starts_with("elif ")
-                    || block_content == "else"
-                {
-                    // End tags handled by parent parser
-                    break;
-                }
-
-                i = block_end + 2;
             }
             // Check for {{ expression }}
             else if i + 1 < chars.len() && chars[i] == '{' && chars[i + 1] == '{' {
-                // Save accumulated text
                 if !current_text.is_empty() {
                     nodes.push(TemplateAst::Text(current_text.clone()));
                     current_text.clear();
                 }
 
-                // Find closing }}
-                let expr_start = i + 2;
-                let mut expr_end = expr_start;
-                let mut brace_count = 0;
-
-                while expr_end < chars.len() {
-                    if expr_end + 1 < chars.len()
-                        && chars[expr_end] == '}'
-                        && chars[expr_end + 1] == '}'
-                    {
-                        if brace_count == 0 {
-                            break;
-                        }
-                        brace_count -= 1;
-                        expr_end += 1;
-                    } else if expr_end + 1 < chars.len()
-                        && chars[expr_end] == '{'
-                        && chars[expr_end + 1] == '{'
-                    {
-                        brace_count += 1;
-                        expr_end += 1;
-                    }
-                    expr_end += 1;
-                }
-
-                if expr_end >= chars.len() {
-                    return Err(TemplateError::ParseError {
-                        message: "Unclosed expression".to_string(),
-                    });
-                }
-
-                let expr_content: String = chars[expr_start..expr_end].iter().collect();
-                let ast_node = self.parse_variable_or_expression(&expr_content, depth + 1)?;
+                let (ast_node, new_i) = self.parse_expression_tag(chars, i, depth)?;
                 nodes.push(ast_node);
-
-                i = expr_end + 2;
+                i = new_i;
             } else {
                 current_text.push(chars[i]);
                 i += 1;
             }
         }
 
-        // Add remaining text
         if !current_text.is_empty() {
             nodes.push(TemplateAst::Text(current_text));
         }
 
-        // Return single node or block
-        match nodes.len() {
-            0 => Ok(TemplateAst::Text(String::new())),
-            1 => {
-                if let Some(node) = nodes.into_iter().next() {
-                    Ok(node)
-                } else {
-                    Ok(TemplateAst::Text(String::new()))
-                }
+        Ok(nodes)
+    }
+
+    /// Parse a block tag like {% if %}, {% for %}, etc.
+    fn parse_block_tag(
+        &self,
+        content: &str,
+        i: usize,
+        depth: usize,
+        chars: &[char],
+    ) -> TemplateResult<BlockTagResult> {
+        let block_start = i + 2;
+        let mut block_end = block_start;
+        while block_end + 1 < chars.len() {
+            if chars[block_end] == '%' && chars[block_end + 1] == '}' {
+                break;
             }
-            _ => Ok(TemplateAst::Block(nodes.into())),
+            block_end += 1;
         }
+
+        if block_end + 1 >= chars.len() {
+            return Err(TemplateError::ParseError {
+                message: "Unclosed block tag".to_string(),
+            });
+        }
+
+        let block_content: String = chars[block_start..block_end].iter().collect();
+        let block_content = block_content.trim();
+
+        if let Some(_tag_content) = block_content.strip_prefix("if ") {
+            let (ast, new_i) = self.parse_conditional_block(content, i, depth)?;
+            Ok(BlockTagResult::Parsed(ast, new_i))
+        } else if let Some(_tag_content) = block_content.strip_prefix("for ") {
+            let (ast, new_i) = self.parse_loop_block(content, i, depth)?;
+            Ok(BlockTagResult::Parsed(ast, new_i))
+        } else if block_content == "endif"
+            || block_content == "endfor"
+            || block_content == "elif"
+            || block_content.starts_with("elif ")
+            || block_content == "else"
+        {
+            Ok(BlockTagResult::EndTag)
+        } else {
+            Ok(BlockTagResult::Skip(block_end + 2))
+        }
+    }
+
+    /// Parse an expression tag like {{ variable }}
+    fn parse_expression_tag(
+        &self,
+        chars: &[char],
+        i: usize,
+        depth: usize,
+    ) -> TemplateResult<(TemplateAst, usize)> {
+        let expr_start = i + 2;
+        let mut expr_end = expr_start;
+        let mut brace_count = 0;
+
+        while expr_end < chars.len() {
+            if expr_end + 1 < chars.len() && chars[expr_end] == '}' && chars[expr_end + 1] == '}' {
+                if brace_count == 0 {
+                    break;
+                }
+                brace_count -= 1;
+                expr_end += 1;
+            } else if expr_end + 1 < chars.len() && chars[expr_end] == '{' && chars[expr_end + 1] == '{' {
+                brace_count += 1;
+                expr_end += 1;
+            }
+            expr_end += 1;
+        }
+
+        if expr_end >= chars.len() {
+            return Err(TemplateError::ParseError {
+                message: "Unclosed expression".to_string(),
+            });
+        }
+
+        let expr_content: String = chars[expr_start..expr_end].iter().collect();
+        let ast_node = self.parse_variable_or_expression(&expr_content, depth + 1)?;
+        Ok((ast_node, expr_end + 2))
     }
 
     fn parse_conditional_block(

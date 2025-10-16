@@ -19,6 +19,7 @@ use paraphym_candle::{
         completion::CandleCompletionParams, context::chunk::CandleCompletionChunk,
         prompt::CandlePrompt,
     },
+    StreamExt,
 };
 use std::io::Write;
 use std::num::NonZeroU64;
@@ -79,7 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     writeln!(&mut stdout, "\n🤔 Generating response with reasoning...\n")?;
     stdout.reset()?;
 
-    let stream = model.prompt(prompt, &params);
+    let mut stream = model.prompt(prompt, &params);
     let mut full_response = String::new();
 
     while let Some(chunk) = stream.next().await {
@@ -131,12 +132,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// Extract reasoning (in <think> tags) and solution from response
 fn extract_reasoning(response: &str) -> (Option<String>, String) {
     // Find <think>...</think> section
-    if let Some(think_start) = response.find("<think>") {
-        if let Some(think_end) = response.find("</think>") {
-            let reasoning = response[think_start + 7..think_end].trim().to_string();
-            let solution = response[think_end + 8..].trim().to_string();
-            return (Some(reasoning), solution);
-        }
+    if let Some(think_start) = response.find("<think>")
+        && let Some(think_end) = response.find("</think>")
+    {
+        let reasoning = response[think_start + 7..think_end].trim().to_string();
+        let solution = response[think_end + 8..].trim().to_string();
+        return (Some(reasoning), solution);
     }
 
     // No thinking tags found - entire response is solution

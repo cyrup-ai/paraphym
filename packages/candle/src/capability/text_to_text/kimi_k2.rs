@@ -115,7 +115,7 @@ impl crate::capability::traits::TextToTextCapable for CandleKimiK2Model {
             };
 
             // Extract model directory from tokenizer path
-            let model_path = match tokenizer_path.parent() {
+            let _model_path = match tokenizer_path.parent() {
                 Some(p) => p.to_string_lossy().to_string(),
                 None => {
                     let _ = tx.send(CandleCompletionChunk::Error(

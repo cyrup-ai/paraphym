@@ -850,6 +850,9 @@ impl std::fmt::Debug for StreamingMessageFormatter {
     }
 }
 
+/// Type alias for formatter with streaming result
+type FormatterWithStream = (StreamingMessageFormatter, Pin<Box<dyn Stream<Item = FormattingEvent> + Send>>);
+
 impl StreamingMessageFormatter {
     /// Create new streaming message formatter
     ///
@@ -878,7 +881,7 @@ impl StreamingMessageFormatter {
     #[inline]
     pub fn with_streaming(
         options: ImmutableFormatOptions,
-    ) -> FormatResult<(Self, Pin<Box<dyn Stream<Item = FormattingEvent> + Send>>)> {
+    ) -> FormatResult<FormatterWithStream> {
         options.validate()?;
         let stream = Box::pin(crate::async_stream::spawn_stream(|_sender| async move {
             // Stream is created but not used directly

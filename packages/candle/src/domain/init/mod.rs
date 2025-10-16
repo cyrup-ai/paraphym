@@ -11,6 +11,12 @@ use surrealdb::engine::any;
 
 use crate::domain::core::DomainInitError;
 
+/// Type alias for memory manager connection pool channel pair
+type MemoryManagerPool = (
+    mpsc::UnboundedSender<Arc<SurrealDBMemoryManager>>,
+    Arc<Mutex<mpsc::UnboundedReceiver<Arc<SurrealDBMemoryManager>>>>,
+);
+
 /// Initialize memory service with default configuration
 ///
 /// Returns a properly configured memory manager service (not streamed)
@@ -84,7 +90,7 @@ pub fn get_default_memory_config() -> MemoryConfig {
 /// Memory service connection pool for efficient resource management
 ///
 /// Uses Arc<SurrealDBMemoryManager> for shared ownership across threads
-static MEMORY_SERVICE_POOL: LazyLock<(mpsc::UnboundedSender<Arc<SurrealDBMemoryManager>>, Arc<Mutex<mpsc::UnboundedReceiver<Arc<SurrealDBMemoryManager>>>>)> =
+static MEMORY_SERVICE_POOL: LazyLock<MemoryManagerPool> =
     LazyLock::new(|| {
         let (sender, receiver) = mpsc::unbounded_channel();
         (sender, Arc::new(Mutex::new(receiver)))
@@ -113,6 +119,7 @@ pub fn return_to_pool(memory: Arc<SurrealDBMemoryManager>) {
 ///
 /// # Returns
 /// Number of available managers in the pool (note: tokio mpsc doesn't expose queue length)
+#[must_use]
 pub fn pool_size() -> usize {
     0 // tokio mpsc channels don't expose queue length
 }

@@ -168,7 +168,7 @@ impl CandleQwen3CoderModel {
         let info_vocab_size = QWEN3_CODER_MODEL_INFO.vocab_size.unwrap_or(151936);
 
         // Read GGUF file metadata for real model configuration
-        let mut file = tokio::fs::File::open(&gguf_file_path).await?;
+        let file = tokio::fs::File::open(&gguf_file_path).await?;
         let content = gguf_file::Content::read(&mut file.into_std().await)?;
 
         // Extract Qwen3-specific metadata with Llama fallbacks - zero allocation parsing

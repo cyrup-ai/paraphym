@@ -1,0 +1,20 @@
+    Checking paraphym_candle v0.1.0 (/Volumes/samsung_t9/paraphym/packages/candle)
+   Compiling sweetmcp-pingora v0.3.1 (/Volumes/samsung_t9/paraphym/packages/sweetmcp/packages/pingora)
+error: this `continue` expression is redundant
+   --> packages/candle/src/domain/chat/templates/parser.rs:122:25
+    |
+122 |                         continue;
+    |                         ^^^^^^^^
+    |
+    = help: consider dropping the `continue` expression
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#needless_continue
+note: the lint level is defined here
+   --> packages/candle/src/domain/mod.rs:10:9
+    |
+ 10 | #![deny(clippy::pedantic)]
+    |         ^^^^^^^^^^^^^^^^
+    = note: `#[deny(clippy::needless_continue)]` implied by `#[deny(clippy::pedantic)]`
+
+error: could not compile `paraphym_candle` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `paraphym_candle` (lib test) due to 1 previous error

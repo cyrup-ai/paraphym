@@ -553,12 +553,9 @@ impl LiveMessageStreamer {
                     // If no priority message, check normal queue
                     if message.is_none() {
                         let mut rx = message_queue_rx.lock().await;
-                        match tokio::time::timeout(Duration::from_micros(100), rx.recv()).await {
-                            Ok(Some(normal_msg)) => {
-                                message_counter.fetch_sub(1, Ordering::AcqRel);
-                                message = Some(normal_msg);
-                            }
-                            _ => {}
+                        if let Ok(Some(normal_msg)) = tokio::time::timeout(Duration::from_micros(100), rx.recv()).await {
+                            message_counter.fetch_sub(1, Ordering::AcqRel);
+                            message = Some(normal_msg);
                         }
                     }
 

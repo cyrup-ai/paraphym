@@ -1013,7 +1013,7 @@ impl MacroSystem {
     /// Returns `MacroSystemError` if:
     /// - Playback session with the given ID does not exist
     /// - Action execution fails
-    pub fn execute_next_action(
+    pub async fn execute_next_action(
         &self,
         session_id: Uuid,
     ) -> Result<MacroPlaybackResult, MacroSystemError> {
@@ -1054,7 +1054,7 @@ impl MacroSystem {
                 }
             }
             ActionExecutionResult::Wait(duration) => {
-                std::thread::sleep(duration);
+                tokio::time::sleep(duration).await;
                 Ok(MacroPlaybackResult::ActionExecuted)
             }
             ActionExecutionResult::SkipToAction(index) => {
@@ -1189,7 +1189,7 @@ impl MacroSystem {
                                 return;
                             }
                             Err(e) => {
-                                error!("Action execution failed: {}", e);
+                                error!("Action execution failed: {e}");
                             }
                             _ => {}
                         }
@@ -1221,7 +1221,7 @@ impl MacroSystem {
                                 }
                                 Err(e) => {
                                     ctx.loop_stack.pop();
-                                    error!("Loop action execution failed: {}", e);
+                                    error!("Loop action execution failed: {e}");
                                 }
                                 _ => {}
                             }
@@ -1238,7 +1238,7 @@ impl MacroSystem {
                     let _ = sender.send(action_result);
                 }
                 Err(e) => {
-                    error!("Action execution failed: {}", e);
+                    error!("Action execution failed: {e}");
                 }
             }
         }))
@@ -1679,7 +1679,7 @@ impl MacroProcessor {
 
             let mut performance = MacroPerformanceMetrics::default();
             let (success, actions_executed, error_message) =
-                Self::execute_macro_actions(&macro_def, &mut context, &mut performance);
+                Self::execute_macro_actions(&macro_def, &mut context, &mut performance).await;
 
             let execution_duration = Utc::now()
                 .signed_duration_since(start_time)
@@ -1718,7 +1718,7 @@ impl MacroProcessor {
         }))
     }
 
-    fn execute_macro_actions(
+    async fn execute_macro_actions(
         macro_def: &ChatMacro,
         context: &mut MacroExecutionContext,
         performance: &mut MacroPerformanceMetrics,
@@ -1739,7 +1739,7 @@ impl MacroProcessor {
                     context.current_action += 1;
                 }
                 Ok(ActionExecutionResult::Wait(duration)) => {
-                    std::thread::sleep(duration);
+                    tokio::time::sleep(duration).await;
                     actions_executed += 1;
                     context.current_action += 1;
                 }
@@ -1914,7 +1914,7 @@ fn execute_action_sync(
             // Note: Sync command execution not supported - commands require async streams
             // This sync helper is only used for conditional/loop actions
             // Real command execution happens in the async _execute_action function
-            warn!("Command execution skipped in sync context: {:?}", command);
+            warn!("Command execution skipped in sync context: {command:?}");
             Ok(ActionExecutionResult::Success)
         }
         MacroAction::Wait { duration, .. } => Ok(ActionExecutionResult::Wait(*duration)),

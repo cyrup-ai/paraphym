@@ -94,12 +94,18 @@ use crate::domain::error::SimpleCircuitBreaker;
 use crate::domain::memory::MemoryConfig;
 use crate::memory::core::manager::surreal::SurrealDBMemoryManager;
 
+/// Type alias for memory manager connection pool channel pair
+type MemoryManagerPool = (
+    mpsc::UnboundedSender<Arc<SurrealDBMemoryManager>>,
+    Arc<Mutex<mpsc::UnboundedReceiver<Arc<SurrealDBMemoryManager>>>>,
+);
+
 /// Global configuration cache with copy-on-write semantics for zero-allocation access
 pub static CONFIG_CACHE: LazyLock<ArcSwap<MemoryConfig>> =
     LazyLock::new(|| ArcSwap::new(Arc::new(create_default_config())));
 
 /// Connection pool for zero-allocation connection management
-pub static CONNECTION_POOL: LazyLock<(mpsc::UnboundedSender<Arc<SurrealDBMemoryManager>>, Arc<Mutex<mpsc::UnboundedReceiver<Arc<SurrealDBMemoryManager>>>>)> =
+pub static CONNECTION_POOL: LazyLock<MemoryManagerPool> =
     LazyLock::new(|| {
         let (sender, receiver) = mpsc::unbounded_channel();
         (sender, Arc::new(Mutex::new(receiver)))
@@ -266,27 +272,16 @@ fn apply_env_overrides(config: &mut MemoryConfig) {
 fn load_config_file() -> Option<MemoryConfig> {
     let config_path = std::env::var("PARAPHYM_CONFIG_PATH").ok()?;
 
-    let content = tokio::runtime::Handle::try_current()
-        .ok()
-        .and_then(|handle| {
-            handle.block_on(async {
-                tokio::fs::read_to_string(&config_path).await.ok()
-            })
-        });
+    // Use std::fs for genuine static initialization (not a bridge)
+    let content = std::fs::read_to_string(&config_path).ok()?;
     
-    match content {
-        Some(content) => match toml::from_str::<MemoryConfig>(&content) {
-            Ok(config) => {
-                log::info!("Configuration loaded from: {config_path}");
-                Some(config)
-            }
-            Err(e) => {
-                log::error!("Failed to parse config file {config_path}: {e}");
-                None
-            }
-        },
-        None => {
-            log::warn!("Config file not readable or no tokio runtime: {config_path}");
+    match toml::from_str::<MemoryConfig>(&content) {
+        Ok(config) => {
+            log::info!("Configuration loaded from: {config_path}");
+            Some(config)
+        }
+        Err(e) => {
+            log::error!("Failed to parse config file {config_path}: {e}");
             None
         }
     }

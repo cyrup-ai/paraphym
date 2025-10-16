@@ -1263,8 +1263,7 @@ impl CandleConfigurationManager {
     /// Get Candle configuration change history
     pub async fn get_change_history(&self) -> Vec<CandleConfigurationChangeEvent> {
         let mut events = self.change_events.lock().await;
-        let history = events.drain(..).collect();
-        history
+        events.drain(..).collect()
     }
 
     /// Get Candle configuration statistics

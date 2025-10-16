@@ -10,6 +10,7 @@ use candle_core::Device;
 use log::error;
 use paraphym_candle::{
     FluxSchnell, ImageGenerationChunk, ImageGenerationConfig, ImageGenerationModel, tensor_to_image,
+    StreamExt,
 };
 use std::io::Write;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
@@ -68,7 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     stdout.reset()?;
 
     // 4. Generate image
-    let stream = provider.generate(prompt, &config, &device);
+    let mut stream = provider.generate(prompt, &config, &device);
 
     let mut final_image = None;
     while let Some(chunk) = stream.next().await {

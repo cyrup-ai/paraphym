@@ -12,18 +12,23 @@ use crate::pool::core::memory_governor::AllocationGuard;
 use crate::pool::core::types::{HealthPing, HealthPong, select_worker_power_of_two};
 use crate::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
 
+/// Type alias for vision streaming response sender
+type VisionResponse = oneshot::Sender<
+    Result<Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>>, PoolError>
+>;
+
 /// Request for describe_image() operation (streaming response)
 pub struct DescribeImageRequest {
     pub image_path: String,
     pub query: String,
-    pub response: oneshot::Sender<Result<Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>>, PoolError>>,
+    pub response: VisionResponse,
 }
 
 /// Request for describe_url() operation (streaming response)
 pub struct DescribeUrlRequest {
     pub url: String,
     pub query: String,
-    pub response: oneshot::Sender<Result<Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>>, PoolError>>,
+    pub response: VisionResponse,
 }
 
 /// Vision-specific worker handle with channels

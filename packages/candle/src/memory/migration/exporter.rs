@@ -236,10 +236,7 @@ impl DataExporter {
         let duration = start_time.elapsed();
 
         // Calculate approximate bytes written (file size)
-        if let Some(metadata) = tokio::runtime::Handle::try_current()
-            .ok()
-            .and_then(|h| h.block_on(async { tokio::fs::metadata(path).await.ok() }))
-        {
+        if let Ok(metadata) = std::fs::metadata(path) {
             bytes_written.store(metadata.len(), Ordering::Relaxed);
         }
 

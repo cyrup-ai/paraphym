@@ -1603,7 +1603,7 @@ pub struct DecisionEngine {
     /// Decision history sender
     history_tx: mpsc::UnboundedSender<Decision>,
     /// Decision history receiver
-    history_rx: Arc<Mutex<mpsc::UnboundedReceiver<Decision>>>,
+    _history_rx: Arc<Mutex<mpsc::UnboundedReceiver<Decision>>>,
 }
 
 /// Represents a cognitive decision
@@ -1940,7 +1940,7 @@ impl DecisionEngine {
         Self {
             threshold,
             history_tx,
-            history_rx: Arc::new(Mutex::new(history_rx)),
+            _history_rx: Arc::new(Mutex::new(history_rx)),
         }
     }
 
@@ -1964,7 +1964,7 @@ impl DecisionEngine {
         };
 
         self.history_tx.send(decision.clone()).map_err(|e| {
-            CognitiveError::OperationFailed(format!("Decision history channel closed: {}", e))
+            CognitiveError::OperationFailed(format!("Decision history channel closed: {e}"))
         })?;
         Ok(decision)
     }
