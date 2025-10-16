@@ -80,14 +80,15 @@ impl CandleKimiK2Model {
     // Helper methods removed - configuration now comes from ModelInfo
 }
 
+#[async_trait::async_trait]
 impl crate::capability::traits::TextToTextCapable for CandleKimiK2Model {
-    fn prompt(
+    async fn prompt(
         &self,
         prompt: CandlePrompt,
         params: &CandleCompletionParams,
     ) -> Pin<Box<dyn Stream<Item = CandleCompletionChunk> + Send>> {
         // Get file paths BEFORE the closure (self is available here)
-        let gguf_file_path = match self.huggingface_file(self.info().registry_key, "*.gguf") {
+        let gguf_file_path = match self.huggingface_file(self.info().registry_key, "*.gguf").await {
             Ok(p) => p,
             Err(e) => {
                 return Box::pin(async_stream::spawn_stream(move |tx| async move {
@@ -99,7 +100,7 @@ impl crate::capability::traits::TextToTextCapable for CandleKimiK2Model {
             }
         };
 
-        let tokenizer_path = match self.huggingface_file(self.info().registry_key, "tokenizer.json")
+        let tokenizer_path = match self.huggingface_file(self.info().registry_key, "tokenizer.json").await
         {
             Ok(p) => p,
             Err(e) => {

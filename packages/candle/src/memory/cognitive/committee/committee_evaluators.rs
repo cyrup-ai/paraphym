@@ -66,7 +66,7 @@ impl ModelCommitteeEvaluator {
 
         // Get response from KimiK2 provider
         let mut response = String::new();
-        let mut stream = Box::pin(self.committee.kimi_model.prompt(prompt, &params));
+        let mut stream = Box::pin(self.committee.kimi_model.prompt(prompt, &params).await);
 
         // Consume stream asynchronously
         while let Some(chunk) = stream.next().await {
@@ -113,7 +113,7 @@ impl ModelCommitteeEvaluator {
         let params = CandleCompletionParams::default();
 
         let mut response = String::new();
-        let mut stream = Box::pin(self.committee.kimi_model.prompt(prompt, &params));
+        let mut stream = Box::pin(self.committee.kimi_model.prompt(prompt, &params).await);
 
         // Consume stream asynchronously
         while let Some(chunk) = stream.next().await {
@@ -141,7 +141,7 @@ impl ModelCommitteeEvaluator {
         let params = CandleCompletionParams::default();
 
         let mut response = String::new();
-        let mut stream = Box::pin(self.committee.qwen_model.prompt(prompt, &params));
+        let mut stream = Box::pin(self.committee.qwen_model.prompt(prompt, &params).await);
 
         // Consume stream asynchronously
         while let Some(chunk) = stream.next().await {
@@ -171,7 +171,7 @@ impl ModelCommitteeEvaluator {
 
         // Evaluate with KimiK2 provider
         let mut kimi_response = String::new();
-        let mut kimi_stream = Box::pin(self.committee.kimi_model.prompt(prompt.clone(), &params));
+        let mut kimi_stream = Box::pin(self.committee.kimi_model.prompt(prompt.clone(), &params).await);
 
         // Consume stream asynchronously
         while let Some(chunk) = kimi_stream.next().await {
@@ -190,7 +190,7 @@ impl ModelCommitteeEvaluator {
 
         // Evaluate with Qwen provider
         let mut qwen_response = String::new();
-        let mut qwen_stream = Box::pin(self.committee.qwen_model.prompt(prompt, &params));
+        let mut qwen_stream = Box::pin(self.committee.qwen_model.prompt(prompt, &params).await);
 
         // Consume stream asynchronously
         while let Some(chunk) = qwen_stream.next().await {

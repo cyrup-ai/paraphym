@@ -154,7 +154,7 @@ impl LLaVAModel {
     ///
     /// Returns sender for communication with model thread.
     /// Thread spawns on first call, subsequent calls return cached sender.
-    fn ensure_thread_spawned(
+    async fn ensure_thread_spawned(
         &self,
     ) -> Result<mpsc::Sender<LLaVARequest>, Box<dyn std::error::Error + Send + Sync>> {
         // Lock the Option<Sender> - prevents race conditions
@@ -172,9 +172,9 @@ impl LLaVAModel {
 
         // Step 1: Get model files via huggingface_file() BEFORE spawning
         // This downloads files if needed and returns cached paths
-        let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json")?;
-        let weights_path = self.huggingface_file(self.info().registry_key, "model.safetensors")?;
-        let config_path = self.huggingface_file(self.info().registry_key, "config.json")?;
+        let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json").await?;
+        let weights_path = self.huggingface_file(self.info().registry_key, "model.safetensors").await?;
+        let config_path = self.huggingface_file(self.info().registry_key, "config.json").await?;
 
         // Step 2: Load LLaVA config (CandleLLaVAConfig, not our deleted LLaVAConfig!)
         let llava_config: CandleLLaVAConfig = serde_json::from_slice(
@@ -674,9 +674,9 @@ impl LLaVAModel {
     ///
     /// Thread spawns lazily on first call. Uses multimodal embedding fusion
     /// and autoregressive generation.
-    pub fn describe_image(&self, image_path: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
+    pub async fn describe_image(&self, image_path: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
         // Ensure thread is spawned (lazy initialization)
-        let sender = match self.ensure_thread_spawned() {
+        let sender = match self.ensure_thread_spawned().await {
             Ok(s) => s,
             Err(e) => {
                 return Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
@@ -716,9 +716,9 @@ impl LLaVAModel {
     /// Describe an image from URL with a text query
     ///
     /// Same as describe_image() but loads image from URL
-    pub fn describe_url(&self, image_url: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
+    pub async fn describe_url(&self, image_url: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
         // Ensure thread is spawned (lazy initialization)
-        let sender = match self.ensure_thread_spawned() {
+        let sender = match self.ensure_thread_spawned().await {
             Ok(s) => s,
             Err(e) => {
                 return Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
@@ -807,12 +807,13 @@ impl CandleModel for LoadedLLaVAModel {
     }
 }
 
+#[async_trait::async_trait]
 impl crate::capability::traits::VisionCapable for LoadedLLaVAModel {
-    fn describe_image(&self, image_path: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
-        self.model.describe_image(image_path, query)
+    async fn describe_image(&self, image_path: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
+        self.model.describe_image(image_path, query).await
     }
 
-    fn describe_url(&self, url: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
-        self.model.describe_url(url, query)
+    async fn describe_url(&self, url: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
+        self.model.describe_url(url, query).await
     }
 }
