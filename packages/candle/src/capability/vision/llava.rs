@@ -807,13 +807,32 @@ impl CandleModel for LoadedLLaVAModel {
     }
 }
 
-#[async_trait::async_trait]
 impl crate::capability::traits::VisionCapable for LoadedLLaVAModel {
-    async fn describe_image(&self, image_path: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
-        self.model.describe_image(image_path, query).await
+    fn describe_image(&self, image_path: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
+        let model = self.model.clone();
+        let image_path = image_path.to_string();
+        let query = query.to_string();
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+            let stream = model.describe_image(&image_path, &query).await;
+            tokio::pin!(stream);
+            use tokio_stream::StreamExt;
+            while let Some(chunk) = stream.next().await {
+                let _ = tx.send(chunk);
+            }
+        }))
     }
 
-    async fn describe_url(&self, url: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
-        self.model.describe_url(url, query).await
+    fn describe_url(&self, url: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
+        let model = self.model.clone();
+        let url = url.to_string();
+        let query = query.to_string();
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+            let stream = model.describe_url(&url, &query).await;
+            tokio::pin!(stream);
+            use tokio_stream::StreamExt;
+            while let Some(chunk) = stream.next().await {
+                let _ = tx.send(chunk);
+            }
+        }))
     }
 }

@@ -224,9 +224,8 @@ impl CandleModel for AnyModel {
 // CAPABILITY TRAIT IMPLEMENTATIONS
 //==============================================================================
 
-#[async_trait::async_trait]
 impl TextToTextCapable for TextToTextModel {
-    async fn prompt(
+    fn prompt(
         &self,
         prompt: CandlePrompt,
         params: &CandleCompletionParams,
@@ -236,34 +235,41 @@ impl TextToTextCapable for TextToTextModel {
                 let registry_key = m.info().registry_key;
                 let pool = text_to_text_pool();
                 let per_worker_mb = m.info().est_memory_allocation_mb;
+                let m_clone = m.clone();
+                let params_clone = params.clone();
 
-                // Cold start: spawn workers if needed
-                if let Err(e) = ensure_workers_spawned_adaptive(
-                    pool,
-                    registry_key,
-                    per_worker_mb,
-                    pool.config().max_workers_per_model,
-                    |_, allocation_guard| {
-                        let m_clone = m.clone();
-                        pool.spawn_text_to_text_worker(
-                            registry_key,
-                            move || async move {
-                                LoadedKimiK2Model::load(&m_clone)
-                                    .await
-                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
-                            },
-                            per_worker_mb,
-                            allocation_guard,
-                        )
-                    },
-                ).await {
-                    return Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+                Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+                    // Cold start: spawn workers if needed
+                    if let Err(e) = ensure_workers_spawned_adaptive(
+                        pool,
+                        registry_key,
+                        per_worker_mb,
+                        pool.config().max_workers_per_model,
+                        |_, allocation_guard| {
+                            let m_clone = m_clone.clone();
+                            pool.spawn_text_to_text_worker(
+                                registry_key,
+                                move || async move {
+                                    LoadedKimiK2Model::load(&m_clone)
+                                        .await
+                                        .map_err(|e| PoolError::SpawnFailed(e.to_string()))
+                                },
+                                per_worker_mb,
+                                allocation_guard,
+                            )
+                        },
+                    ).await {
                         let _ = tx.send(CandleCompletionChunk::Error(e.to_string()));
-                    }));
-                }
+                        return;
+                    }
 
-                // Route through pool
-                pool.prompt(registry_key, prompt, params.clone()).await
+                    // Route through pool
+                    let mut stream = pool.prompt(registry_key, prompt, &params_clone);
+                    use tokio_stream::StreamExt;
+                    while let Some(chunk) = stream.next().await {
+                        let _ = tx.send(chunk);
+                    }
+                }))
             }
             Self::Qwen3Coder(m) => {
                 let registry_key = m.info().registry_key;
@@ -935,9 +941,8 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
     }
 }
 
-#[async_trait::async_trait]
 impl VisionCapable for VisionModel {
-    async fn describe_image(&self, image_path: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
+    fn describe_image(&self, image_path: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
         match self {
             Self::LLaVA(m) => {
                 let registry_key = m.info().registry_key;
@@ -974,7 +979,7 @@ impl VisionCapable for VisionModel {
         }
     }
 
-    async fn describe_url(&self, url: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
+    fn describe_url(&self, url: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
         match self {
             Self::LLaVA(m) => {
                 let registry_key = m.info().registry_key;
@@ -1012,9 +1017,8 @@ impl VisionCapable for VisionModel {
     }
 }
 
-#[async_trait::async_trait]
 impl TextToImageCapable for TextToImageModel {
-    async fn generate_image(
+    fn generate_image(
         &self,
         prompt: &str,
         config: &ImageGenerationConfig,

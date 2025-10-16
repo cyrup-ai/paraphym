@@ -80,9 +80,8 @@ impl CandleKimiK2Model {
     // Helper methods removed - configuration now comes from ModelInfo
 }
 
-#[async_trait::async_trait]
 impl crate::capability::traits::TextToTextCapable for CandleKimiK2Model {
-    async fn prompt(
+    fn prompt(
         &self,
         prompt: CandlePrompt,
         params: &CandleCompletionParams,
