@@ -70,7 +70,7 @@ The current code works because:
 1. HuggingFace file downloads happen during **initialization**, not hot path
 2. Files are cached after first download
 3. Models are loaded once per worker, not per request
-4. The blocking is acceptable in initialization phase
+4. **Blocking is NEVER acceptable - even in initialization. Must use async.**
 
 **If we must make it async**: Use `tokio::task::spawn_blocking()` to run blocking code in async context:
 

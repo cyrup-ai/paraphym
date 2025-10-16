@@ -45,7 +45,7 @@ use tracing::{debug, info, instrument, warn};
 /// )?;
 /// ```
 #[instrument(skip(pool, spawn_fn), fields(registry_key = %registry_key, per_worker_mb = per_worker_mb))]
-pub fn ensure_workers_spawned<P, F>(
+pub async fn ensure_workers_spawned<P, F>(
     pool: &P,
     registry_key: &str,
     per_worker_mb: usize,
@@ -105,7 +105,7 @@ where
         Ok(())
     } else {
         // Another thread is spawning - wait for it to complete (30s timeout)
-        pool.wait_for_workers(registry_key, Duration::from_secs(30))
+        pool.wait_for_workers(registry_key, Duration::from_secs(30)).await
     }
 }
 
@@ -126,7 +126,7 @@ where
 /// - `Ok(())` if workers exist, spawned, or at max capacity
 /// - `Err(PoolError)` if memory exhausted or spawn failed
 #[instrument(skip(pool, spawn_fn), fields(registry_key = %registry_key, max_workers = max_workers))]
-pub fn ensure_workers_spawned_adaptive<P, F>(
+pub async fn ensure_workers_spawned_adaptive<P, F>(
     pool: &P,
     registry_key: &str,
     per_worker_mb: usize,
@@ -182,7 +182,7 @@ where
 
             return Ok(());
         } else {
-            return pool.wait_for_workers(registry_key, Duration::from_secs(30));
+            return pool.wait_for_workers(registry_key, Duration::from_secs(30)).await;
         }
     }
 
@@ -236,7 +236,7 @@ pub trait MemoryGovernorAccess {
 /// Trait for pools that support spawn locking
 pub trait SpawnLock {
     fn try_acquire_spawn_lock(&self, registry_key: &str) -> Option<SpawnGuard>;
-    fn wait_for_workers(&self, registry_key: &str, timeout: Duration) -> Result<(), PoolError>;
+    async fn wait_for_workers(&self, registry_key: &str, timeout: Duration) -> Result<(), PoolError>;
 }
 
 /// Trait for pools that provide worker metrics
@@ -263,8 +263,8 @@ impl<W: super::types::PoolWorkerHandle> SpawnLock for Pool<W> {
         Pool::try_acquire_spawn_lock(self, registry_key)
     }
 
-    fn wait_for_workers(&self, registry_key: &str, timeout: Duration) -> Result<(), PoolError> {
-        Pool::wait_for_workers(self, registry_key, timeout)
+    async fn wait_for_workers(&self, registry_key: &str, timeout: Duration) -> Result<(), PoolError> {
+        Pool::wait_for_workers(self, registry_key, timeout).await
     }
 }
 

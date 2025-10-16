@@ -274,13 +274,13 @@ impl<W: PoolWorkerHandle> Pool<W> {
         }
     }
 
-    /// Wait for workers to become available (blocking)
+    /// Wait for workers to become available (async)
     ///
     /// Called by threads that lose the spawn race. Polls until:
     /// - Workers become available (success)
     /// - Spawning thread releases lock without creating workers (spawn failed)
     /// - Timeout exceeded (spawn timeout)
-    pub fn wait_for_workers(&self, registry_key: &str, timeout: Duration) -> Result<(), PoolError> {
+    pub async fn wait_for_workers(&self, registry_key: &str, timeout: Duration) -> Result<(), PoolError> {
         let start = Instant::now();
 
         loop {
@@ -311,7 +311,7 @@ impl<W: PoolWorkerHandle> Pool<W> {
             }
 
             // Sleep briefly before next poll (50ms balances latency vs CPU)
-            std::thread::sleep(Duration::from_millis(50));
+            tokio::time::sleep(Duration::from_millis(50)).await;
         }
     }
 
