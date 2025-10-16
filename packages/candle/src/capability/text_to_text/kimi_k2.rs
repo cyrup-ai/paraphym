@@ -86,101 +86,102 @@ impl crate::capability::traits::TextToTextCapable for CandleKimiK2Model {
         prompt: CandlePrompt,
         params: &CandleCompletionParams,
     ) -> Pin<Box<dyn Stream<Item = CandleCompletionChunk> + Send>> {
-        // Get file paths BEFORE the closure (self is available here)
-        let gguf_file_path = match self.huggingface_file(self.info().registry_key, "*.gguf").await {
-            Ok(p) => p,
-            Err(e) => {
-                return Box::pin(async_stream::spawn_stream(move |tx| async move {
+        let model = self.clone();
+        let params = params.clone();
+
+        Box::pin(async_stream::spawn_stream(move |tx| async move {
+            // Get file paths inside async context
+            let gguf_file_path = match model.huggingface_file(model.info().registry_key, "*.gguf").await {
+                Ok(p) => p,
+                Err(e) => {
                     let _ = tx.send(CandleCompletionChunk::Error(format!(
                         "Failed to get GGUF file: {}",
                         e
                     )));
-                }));
-            }
-        };
+                    return;
+                }
+            };
 
-        let tokenizer_path = match self.huggingface_file(self.info().registry_key, "tokenizer.json").await
-        {
-            Ok(p) => p,
-            Err(e) => {
-                return Box::pin(async_stream::spawn_stream(move |tx| async move {
+            let tokenizer_path = match model.huggingface_file(model.info().registry_key, "tokenizer.json").await
+            {
+                Ok(p) => p,
+                Err(e) => {
                     let _ = tx.send(CandleCompletionChunk::Error(format!(
                         "Failed to get tokenizer file: {}",
                         e
                     )));
-                }));
-            }
-        };
+                    return;
+                }
+            };
 
-        // Extract model directory from tokenizer path
-        let model_path = match tokenizer_path.parent() {
-            Some(p) => p.to_string_lossy().to_string(),
-            None => {
-                return Box::pin(async_stream::spawn_stream(move |tx| async move {
+            // Extract model directory from tokenizer path
+            let model_path = match tokenizer_path.parent() {
+                Some(p) => p.to_string_lossy().to_string(),
+                None => {
                     let _ = tx.send(CandleCompletionChunk::Error(
                         "Failed to determine model directory".to_string(),
                     ));
-                }));
+                    return;
+                }
+            };
+
+            // Convert gguf_file_path to string
+            let gguf_file_path = gguf_file_path.to_string_lossy().to_string();
+
+            // Clone engine Arc for the coordinate_generation call
+            let engine = Arc::clone(&model.engine);
+            
+            // Clone data needed for the generation closure
+            let model_config = model.model_config.clone();
+
+            // Get configuration from ModelInfo
+            let max_context = model
+                .info()
+                .max_input_tokens
+                .map(|t| t.get())
+                .unwrap_or(131072);
+            let _use_kv_cache = model.info().supports_kv_cache;
+            let _vocab_size = model.info().vocab_size.unwrap_or(32000);
+
+            // Extract top_k and top_p with priority: params > ModelInfo > None
+            // This allows runtime override via additional_params while respecting ModelInfo defaults
+            let top_k = params
+                .additional_params
+                .as_ref()
+                .and_then(|p| p.get("top_k"))
+                .and_then(|v| v.as_u64())
+                .map(|v| v as usize)
+                .or(model.info().default_top_k.map(|k| k as usize));
+
+            let top_p = params
+                .additional_params
+                .as_ref()
+                .and_then(|p| p.get("top_p"))
+                .and_then(|v| v.as_f64())
+                .or(model.info().default_top_p);
+
+            // Build sampling config with extracted parameters
+            let mut sampling_config =
+                crate::core::generation::SamplingConfig::new(params.temperature as f32);
+
+            if let Some(k) = top_k {
+                sampling_config = sampling_config.with_top_k(k);
             }
-        };
+            if let Some(p) = top_p {
+                sampling_config = sampling_config.with_top_p(p);
+            }
 
-        // Convert gguf_file_path to string
-        let gguf_file_path = gguf_file_path.to_string_lossy().to_string();
+            sampling_config = sampling_config
+                .with_repetition_penalty(1.0)
+                .with_frequency_penalty(0.0)
+                .with_presence_penalty(0.0);
 
-        // Clone engine Arc for the coordinate_generation call
-        let engine = Arc::clone(&self.engine);
-        
-        // Clone data needed for the generation closure
-        let model_config = self.model_config.clone();
+            // Format prompt
+            let prompt_text = format!("User: {}\nAssistant: ", prompt);
+            let max_tokens = params.max_tokens.map(|n| n.get()).unwrap_or(1000);
 
-        // Get configuration from ModelInfo
-        let max_context = self
-            .info()
-            .max_input_tokens
-            .map(|t| t.get())
-            .unwrap_or(131072);
-        let _use_kv_cache = self.info().supports_kv_cache;
-        let _vocab_size = self.info().vocab_size.unwrap_or(32000);
-
-        // Extract top_k and top_p with priority: params > ModelInfo > None
-        // This allows runtime override via additional_params while respecting ModelInfo defaults
-        let top_k = params
-            .additional_params
-            .as_ref()
-            .and_then(|p| p.get("top_k"))
-            .and_then(|v| v.as_u64())
-            .map(|v| v as usize)
-            .or(self.info().default_top_k.map(|k| k as usize));
-
-        let top_p = params
-            .additional_params
-            .as_ref()
-            .and_then(|p| p.get("top_p"))
-            .and_then(|v| v.as_f64())
-            .or(self.info().default_top_p);
-
-        // Build sampling config with extracted parameters
-        let mut sampling_config =
-            crate::core::generation::SamplingConfig::new(params.temperature as f32);
-
-        if let Some(k) = top_k {
-            sampling_config = sampling_config.with_top_k(k);
-        }
-        if let Some(p) = top_p {
-            sampling_config = sampling_config.with_top_p(p);
-        }
-
-        sampling_config = sampling_config
-            .with_repetition_penalty(1.0)
-            .with_frequency_penalty(0.0)
-            .with_presence_penalty(0.0);
-
-        // Format prompt
-        let prompt_text = format!("User: {}\nAssistant: ", prompt);
-        let max_tokens = params.max_tokens.map(|n| n.get()).unwrap_or(1000);
-
-        // Use Engine's coordinate_generation for automatic metrics and stream conversion
-        Box::pin(engine.coordinate_generation(move || {
+            // Use Engine's coordinate_generation for automatic metrics and stream conversion
+            let mut stream = engine.coordinate_generation(move || {
             use crate::core::ModelConfig as CandleConfig;
             use crate::core::generation::{
                 generator::TextGenerator, models::CandleQuantizedLlamaModel, tokens::SpecialTokens,
@@ -293,7 +294,13 @@ impl crate::capability::traits::TextToTextCapable for CandleKimiK2Model {
                         break;
                     }
                 }
-            })
+            });
+
+            // Forward chunks from the coordinate_generation stream
+            use tokio_stream::StreamExt;
+            while let Some(chunk) = stream.next().await {
+                let _ = tx.send(chunk);
+            }
         }))
     }
 }
