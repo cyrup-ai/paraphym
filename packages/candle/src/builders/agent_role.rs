@@ -1333,7 +1333,7 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                         .join("agent.db");
 
                     if let Some(parent) = db_path.parent() {
-                        let _ = std::fs::create_dir_all(parent);
+                        let _ = tokio::fs::create_dir_all(parent).await;
                     }
 
                     let db_url = format!("surrealkv://{}", db_path.display());

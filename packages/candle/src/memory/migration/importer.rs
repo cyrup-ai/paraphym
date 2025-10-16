@@ -1,8 +1,7 @@
 //! Import functionality for memory data
 
-use std::fs::File;
-use std::io::Read;
 use std::path::Path;
+use tokio::io::AsyncReadExt;
 
 use serde::{Deserialize, Serialize};
 
@@ -22,9 +21,9 @@ impl DataImporter {
     where
         T: for<'de> Deserialize<'de> + Send + 'static,
     {
-        let mut file = File::open(path)?;
+        let mut file = tokio::fs::File::open(path).await?;
         let mut contents = String::new();
-        file.read_to_string(&mut contents)?;
+        file.read_to_string(&mut contents).await?;
 
         let data: Vec<T> = serde_json::from_str(&contents)?;
         Ok(data)
@@ -88,9 +87,9 @@ impl DataImporter {
     where
         T: bincode::Decode<()>,
     {
-        let mut file = File::open(path)?;
+        let mut file = tokio::fs::File::open(path).await?;
         let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer)?;
+        file.read_to_end(&mut buffer).await?;
 
         let data: Vec<T> = bincode::decode_from_slice(&buffer, bincode::config::standard())
             .map_err(|e| MigrationError::UnsupportedFormat(format!("Binary decoding failed: {e}")))?

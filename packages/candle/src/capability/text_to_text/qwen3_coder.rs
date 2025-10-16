@@ -138,7 +138,7 @@ impl CandleQwen3CoderModel {
                     Box::<dyn std::error::Error + Send + Sync>::from("Invalid GGUF file path")
                 })?
                 .to_string(),
-        )
+        ).await
     }
 
     /// Create provider from GGUF file with metadata extraction for Qwen3-Coder
@@ -147,7 +147,7 @@ impl CandleQwen3CoderModel {
     /// instead of using hardcoded values, ensuring accurate model parameters for code generation.
     /// All configuration values come from QWEN3_CODER_MODEL_INFO (self.info()).
     #[inline]
-    pub fn from_gguf(
+    pub async fn from_gguf(
         model_cache_dir: String,
         gguf_file_path: String,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
@@ -168,8 +168,8 @@ impl CandleQwen3CoderModel {
         let info_vocab_size = QWEN3_CODER_MODEL_INFO.vocab_size.unwrap_or(151936);
 
         // Read GGUF file metadata for real model configuration
-        let mut file = std::fs::File::open(&gguf_file_path)?;
-        let content = gguf_file::Content::read(&mut file)?;
+        let mut file = tokio::fs::File::open(&gguf_file_path).await?;
+        let content = gguf_file::Content::read(&mut file.into_std().await)?;
 
         // Extract Qwen3-specific metadata with Llama fallbacks - zero allocation parsing
         let hidden_size = content

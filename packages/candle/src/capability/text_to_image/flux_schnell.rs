@@ -416,7 +416,7 @@ fn generate_flux_image(
 
 /// T5-XXL encoder with tokenizer
 impl T5WithTokenizer {
-    fn load(
+    async fn load(
         model_file: &PathBuf,
         config_file: &PathBuf,
         tokenizer_file: &PathBuf, // NEW: Accept as parameter instead of downloading
@@ -424,7 +424,7 @@ impl T5WithTokenizer {
         device: &Device,
     ) -> Result<Self, String> {
         // Load T5 config
-        let config_str = std::fs::read_to_string(config_file)
+        let config_str = tokio::fs::read_to_string(config_file).await
             .map_err(|e| format!("T5 config read failed: {}", e))?;
         let config: T5Config = serde_json::from_str(&config_str)
             .map_err(|e| format!("T5 config parse failed: {}", e))?;

@@ -313,14 +313,14 @@ impl MemoryGovernor {
     }
 
     /// Register model allocation
-    pub fn register_model_allocation(&self, model_name: &str, worker_id: u64, size_mb: usize) {
+    pub async fn register_model_allocation(&self, model_name: &str, worker_id: u64, size_mb: usize) {
         let mut allocations = self.allocations.write();
 
         let allocation = AllocationInfo {
             worker_id,
             size_mb,
             allocated_at: Instant::now(),
-            numa_node: self.get_numa_node(),
+            numa_node: self.get_numa_node().await,
             huge_pages: self.config.enable_huge_pages,
         };
 
@@ -530,11 +530,12 @@ impl MemoryGovernor {
         }
     }
 
-    fn get_numa_node(&self) -> Option<usize> {
+    async fn get_numa_node(&self) -> Option<usize> {
         #[cfg(target_os = "linux")]
         if self.config.enable_numa_aware {
             // Get current NUMA node
-            std::fs::read_to_string("/proc/self/numa_node")
+            tokio::fs::read_to_string("/proc/self/numa_node")
+                .await
                 .ok()
                 .and_then(|s| s.trim().parse().ok())
         } else {

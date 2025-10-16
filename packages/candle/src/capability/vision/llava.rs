@@ -173,7 +173,7 @@ impl LLaVAModel {
 
         // Step 2: Load LLaVA config (CandleLLaVAConfig, not our deleted LLaVAConfig!)
         let llava_config: CandleLLaVAConfig = serde_json::from_slice(
-            &std::fs::read(&config_path).map_err(|e| format!("Failed to read config: {}", e))?,
+            &tokio::fs::read(&config_path).await.map_err(|e| format!("Failed to read config: {}", e))?,
         )
         .map_err(|e| format!("Failed to parse config: {}", e))?;
 
@@ -206,18 +206,18 @@ impl LLaVAModel {
             .get() as usize;
         let use_kv_cache = self.info().supports_kv_cache;
 
-        // Step 6: Spawn blocking task with LocalSet for !Send model
+        // Step 6: Spawn task for !Send model
+        // Note: spawn_blocking is required because model is !Send and cannot use tokio::spawn
+        // Model loading also involves blocking I/O (file reads, GPU memory allocation)
         tokio::task::spawn_blocking(move || {
-            // Get shared runtime
-            let Some(rt) = crate::runtime::shared_runtime() else {
-                log::error!("Shared runtime unavailable for LLaVA worker initialization");
-                let _ = init_tx.send(Err("Runtime unavailable".to_string()));
-                return;
-            };
+            // Create a new tokio runtime for this blocking thread
+            // This allows async operations without depending on shared runtime
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create worker runtime");
             
-            // Create LocalSet for !Send futures
             let local = tokio::task::LocalSet::new();
-            
             rt.block_on(local.run_until(async move {
                 // Load tokenizer
             let tokenizer = match Tokenizer::from_file(&tokenizer_path) {

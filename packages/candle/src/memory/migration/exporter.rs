@@ -1,8 +1,8 @@
 //! Export functionality for memory data
 
-use std::fs::File;
-use std::io::Write;
 use std::path::Path;
+use tokio::io::AsyncWriteExt;
+use std::fs::File; // Used for synchronous CSV writing
 
 use serde::{Deserialize, Serialize};
 
@@ -142,10 +142,10 @@ impl DataExporter {
     }
 
     /// Export as JSON
-    fn export_json<T: Serialize>(&self, data: &[T], path: &Path) -> Result<()> {
+    async fn export_json<T: Serialize>(&self, data: &[T], path: &Path) -> Result<()> {
         let json = serde_json::to_string_pretty(data)?;
-        let mut file = File::create(path)?;
-        file.write_all(json.as_bytes())?;
+        let mut file = tokio::fs::File::create(path).await?;
+        file.write_all(json.as_bytes()).await?;
         Ok(())
     }
 

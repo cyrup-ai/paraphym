@@ -290,7 +290,7 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleBertEmbeddingMode
         }
 
         // Load BERT model configuration
-        let config_json = std::fs::read_to_string(&config_path)
+        let config_json = tokio::fs::read_to_string(&config_path).await
             .map_err(|e| format!("Failed to read config.json: {}", e))?;
         let bert_config: Config = serde_json::from_str(&config_json)
             .map_err(|e| format!("Failed to parse config.json: {}", e))?;
@@ -392,7 +392,7 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleBertEmbeddingMode
         }
 
         // Load BERT model configuration
-        let config_json = std::fs::read_to_string(&config_path)
+        let config_json = tokio::fs::read_to_string(&config_path).await
             .map_err(|e| format!("Failed to read config.json: {}", e))?;
         let bert_config: Config = serde_json::from_str(&config_json)
             .map_err(|e| format!("Failed to parse config.json: {}", e))?;
@@ -542,7 +542,7 @@ impl LoadedBertModel {
         }
 
         // Load BERT model configuration
-        let config_json = std::fs::read_to_string(&config_path)
+        let config_json = tokio::fs::read_to_string(&config_path).await
             .map_err(|e| format!("Failed to read config.json: {}", e))?;
         let bert_config: Config = serde_json::from_str(&config_json)
             .map_err(|e| format!("Failed to parse config.json: {}", e))?;

@@ -250,7 +250,7 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleGteQwenEmbeddingM
             .map_err(|e| format!("Failed to set truncation: {}", e))?;
 
         // Load config.json
-        let config_str = std::fs::read_to_string(&config_path)
+        let config_str = tokio::fs::read_to_string(&config_path).await
             .map_err(|e| format!("Failed to read config: {}", e))?;
         let qwen_config: Config = serde_json::from_str(&config_str)
             .map_err(|e| format!("Failed to parse config: {}", e))?;
@@ -258,7 +258,7 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleGteQwenEmbeddingM
         // Load model weights from index
         let model_dir = index_path.parent().ok_or("Failed to get model directory")?;
 
-        let index_content = std::fs::read_to_string(&index_path)
+        let index_content = tokio::fs::read_to_string(&index_path).await
             .map_err(|e| format!("Failed to read index: {}", e))?;
         let index: serde_json::Value = serde_json::from_str(&index_content)
             .map_err(|e| format!("Failed to parse index: {}", e))?;
@@ -378,7 +378,7 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleGteQwenEmbeddingM
             .map_err(|e| format!("Failed to set truncation: {}", e))?;
 
         // Load config.json
-        let config_str = std::fs::read_to_string(&config_path)
+        let config_str = tokio::fs::read_to_string(&config_path).await
             .map_err(|e| format!("Failed to read config: {}", e))?;
         let qwen_config: Config = serde_json::from_str(&config_str)
             .map_err(|e| format!("Failed to parse config: {}", e))?;
@@ -386,7 +386,7 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleGteQwenEmbeddingM
         // Load model weights from index
         let model_dir = index_path.parent().ok_or("Failed to get model directory")?;
 
-        let index_content = std::fs::read_to_string(&index_path)
+        let index_content = tokio::fs::read_to_string(&index_path).await
             .map_err(|e| format!("Failed to read index: {}", e))?;
         let index: serde_json::Value = serde_json::from_str(&index_content)
             .map_err(|e| format!("Failed to parse index: {}", e))?;
@@ -534,7 +534,7 @@ impl LoadedGteQwenModel {
             .map_err(|e| format!("Failed to set truncation: {}", e))?;
 
         // Load config.json
-        let config_str = std::fs::read_to_string(&config_path)
+        let config_str = tokio::fs::read_to_string(&config_path).await
             .map_err(|e| format!("Failed to read config: {}", e))?;
         let qwen_config: Config = serde_json::from_str(&config_str)
             .map_err(|e| format!("Failed to parse config: {}", e))?;
@@ -542,7 +542,7 @@ impl LoadedGteQwenModel {
         // Load model weights from index
         let model_dir = index_path.parent().ok_or("Failed to get model directory")?;
 
-        let index_content = std::fs::read_to_string(&index_path)
+        let index_content = tokio::fs::read_to_string(&index_path).await
             .map_err(|e| format!("Failed to read index: {}", e))?;
         let index: serde_json::Value = serde_json::from_str(&index_content)
             .map_err(|e| format!("Failed to parse index: {}", e))?;

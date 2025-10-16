@@ -643,13 +643,13 @@ impl ClipWithTokenizer {
 }
 
 impl T5WithTokenizer {
-    fn new(
-        vb: VarBuilder,
+    async fn new(
+        vb: VarBuilder<'_>,
         config_path: &PathBuf,
         tokenizer_path: &PathBuf,
         max_tokens: usize,
     ) -> Result<Self, String> {
-        let config_str = std::fs::read_to_string(config_path)
+        let config_str = tokio::fs::read_to_string(config_path).await
             .map_err(|e| format!("T5 config read failed: {}", e))?;
         let config: T5Config = serde_json::from_str(&config_str)
             .map_err(|e| format!("T5 config parse failed: {}", e))?;

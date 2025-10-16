@@ -286,7 +286,7 @@ impl CandleNvEmbedEmbeddingModel {
         // Load model weights
         let model_dir = index_path.parent().ok_or("Failed to get model directory")?;
 
-        let index_content = std::fs::read_to_string(&index_path)
+        let index_content = tokio::fs::read_to_string(&index_path).await
             .map_err(|e| format!("Failed to read index: {}", e))?;
         let index: serde_json::Value = serde_json::from_str(&index_content)
             .map_err(|e| format!("Failed to parse index: {}", e))?;
@@ -540,7 +540,7 @@ impl LoadedNvEmbedModel {
         // Load model weights using index.json to find all shards
         let model_dir = index_path.parent().ok_or("Failed to get model directory")?;
 
-        let index_content = std::fs::read_to_string(&index_path)
+        let index_content = tokio::fs::read_to_string(&index_path).await
             .map_err(|e| format!("Failed to read index: {}", e))?;
         let index: serde_json::Value = serde_json::from_str(&index_content)
             .map_err(|e| format!("Failed to parse index: {}", e))?;
