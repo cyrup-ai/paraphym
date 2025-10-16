@@ -214,7 +214,7 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
 
                     // Load the quantized MixFormer model
                     let quantized_model =
-                        match CandleQuantizedMixFormerModel::from_gguf_path(&gguf_path, device.clone()) {
+                        match CandleQuantizedMixFormerModel::from_gguf_path(&gguf_path, device.clone()).await {
                             Ok(model) => model,
                             Err(e) => {
                                 let _ = tx.send(CandleStringChunk(format!(
@@ -443,7 +443,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedPhi4ReasoningModel {
             async_stream::spawn_stream(move |tx| async move {
                 // Load the quantized MixFormer model
                 let quantized_model =
-                    match CandleQuantizedMixFormerModel::from_gguf_path(&gguf_path, device.clone()) {
+                    match CandleQuantizedMixFormerModel::from_gguf_path(&gguf_path, device.clone()).await {
                         Ok(model) => model,
                         Err(e) => {
                             let _ = tx.send(CandleStringChunk(format!(

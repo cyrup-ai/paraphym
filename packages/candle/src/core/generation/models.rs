@@ -80,7 +80,7 @@ impl CandleLlamaModel {
     }
 
     /// Load a Llama model from the specified path
-    pub fn from_path<P: AsRef<std::path::Path>>(
+    pub async fn from_path<P: AsRef<std::path::Path>>(
         model_path: P,
         device: Device,
         config: Arc<CandleConfig>,
@@ -105,7 +105,7 @@ impl CandleLlamaModel {
             // Check for index file first (multi-file model)
             let index_path = model_path.join("model.safetensors.index.json");
             if index_path.exists() {
-                discover_multi_file_model(&index_path)?
+                discover_multi_file_model(&index_path).await?
             } else {
                 // Single file in directory
                 let single_file = model_path.join("model.safetensors");
@@ -222,16 +222,17 @@ impl CandleQuantizedLlamaModel {
     }
 
     /// Load a quantized Llama model from a GGUF file
-    pub fn from_gguf_path<P: AsRef<std::path::Path>>(
+    pub async fn from_gguf_path<P: AsRef<std::path::Path>>(
         model_path: P,
         device: Device,
         config: Arc<CandleConfig>,
     ) -> CandleResult<Self> {
-        let mut file = std::fs::File::open(&model_path).map_err(|e| {
+        let file = tokio::fs::File::open(&model_path).await.map_err(|e| {
             crate::domain::model::error::CandleModelError::InvalidConfiguration(
                 format!("Failed to open GGUF file: {}", e).into(),
             )
         })?;
+        let mut file = file.into_std().await;
 
         let gguf_content = gguf_file::Content::read(&mut file).map_err(|e| {
             crate::domain::model::error::CandleModelError::InvalidConfiguration(
@@ -314,7 +315,7 @@ impl CandleQuantizedMixFormerModel {
     }
 
     /// Load a quantized MixFormer model from a GGUF file
-    pub fn from_gguf_path<P: AsRef<std::path::Path>>(
+    pub async fn from_gguf_path<P: AsRef<std::path::Path>>(
         model_path: P,
         device: Device,
     ) -> CandleResult<Self> {
@@ -323,11 +324,12 @@ impl CandleQuantizedMixFormerModel {
         use candle_transformers::quantized_var_builder::VarBuilder as QuantizedVarBuilder;
 
         // First, read GGUF file to extract metadata
-        let mut file = std::fs::File::open(model_path.as_ref()).map_err(|e| {
+        let file = tokio::fs::File::open(model_path.as_ref()).await.map_err(|e| {
             crate::domain::model::error::CandleModelError::InvalidConfiguration(
                 format!("Failed to open GGUF file: {}", e).into(),
             )
         })?;
+        let mut file = file.into_std().await;
 
         let gguf_content = gguf_file::Content::read(&mut file).map_err(|e| {
             crate::domain::model::error::CandleModelError::InvalidConfiguration(
@@ -424,12 +426,12 @@ impl CandleModel for CandleQuantizedMixFormerModel {
 /// Parses a `model.safetensors.index.json` file to find all weight files
 /// referenced in the weight_map, enabling loading of large models split
 /// across multiple safetensors files.
-fn discover_multi_file_model(index_path: &Path) -> CandleResult<Vec<PathBuf>> {
-    let file = std::fs::File::open(index_path).map_err(|e| {
-        CandleModelError::InvalidConfiguration(format!("Failed to open index file: {}", e).into())
+async fn discover_multi_file_model(index_path: &Path) -> CandleResult<Vec<PathBuf>> {
+    let content = tokio::fs::read_to_string(index_path).await.map_err(|e| {
+        CandleModelError::InvalidConfiguration(format!("Failed to read index file: {}", e).into())
     })?;
 
-    let json: serde_json::Value = serde_json::from_reader(&file).map_err(|e| {
+    let json: serde_json::Value = serde_json::from_str(&content).map_err(|e| {
         CandleModelError::InvalidConfiguration(format!("Failed to parse index JSON: {}", e).into())
     })?;
 

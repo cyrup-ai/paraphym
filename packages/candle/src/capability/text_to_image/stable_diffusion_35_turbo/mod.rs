@@ -243,7 +243,7 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
                 t5_config_path: &t5_config_path,
                 t5_tokenizer_path: &t5_tokenizer_path,
                 device: &device,
-            }) {
+            }).await {
                 Ok(encoder) => encoder,
                 Err(e) => {
                     let _ = tx.send(ImageGenerationChunk::Error(format!(
@@ -491,7 +491,7 @@ fn decode_latent(vae: &AutoEncoderKL, latent: &Tensor) -> Result<Tensor, String>
 }
 
 impl TripleClipEncoder {
-    fn load(config: TripleClipEncoderConfig<'_>) -> Result<Self, String> {
+    async fn load(config: TripleClipEncoderConfig<'_>) -> Result<Self, String> {
         let TripleClipEncoderConfig {
             clip_g_file,
             clip_l_file,
@@ -528,7 +528,7 @@ impl TripleClipEncoder {
             VarBuilder::from_mmaped_safetensors(&[t5xxl_file], DType::F16, device)
                 .map_err(|e| format!("T5 VarBuilder failed: {}", e))?
         };
-        let t5 = T5WithTokenizer::new(vb_t5, t5_config_path, t5_tokenizer_path, 77)?;
+        let t5 = T5WithTokenizer::new(vb_t5, t5_config_path, t5_tokenizer_path, 77).await?;
 
         Ok(Self {
             clip_l,

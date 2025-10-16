@@ -266,8 +266,16 @@ fn apply_env_overrides(config: &mut MemoryConfig) {
 fn load_config_file() -> Option<MemoryConfig> {
     let config_path = std::env::var("PARAPHYM_CONFIG_PATH").ok()?;
 
-    match std::fs::read_to_string(&config_path) {
-        Ok(content) => match toml::from_str::<MemoryConfig>(&content) {
+    let content = tokio::runtime::Handle::try_current()
+        .ok()
+        .and_then(|handle| {
+            handle.block_on(async {
+                tokio::fs::read_to_string(&config_path).await.ok()
+            })
+        });
+    
+    match content {
+        Some(content) => match toml::from_str::<MemoryConfig>(&content) {
             Ok(config) => {
                 log::info!("Configuration loaded from: {config_path}");
                 Some(config)
@@ -277,8 +285,8 @@ fn load_config_file() -> Option<MemoryConfig> {
                 None
             }
         },
-        Err(e) => {
-            log::error!("Failed to read config file {config_path}: {e}");
+        None => {
+            log::warn!("Config file not readable or no tokio runtime: {config_path}");
             None
         }
     }

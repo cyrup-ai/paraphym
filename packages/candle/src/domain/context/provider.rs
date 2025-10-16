@@ -614,7 +614,7 @@ impl CandleStreamingContextProcessor {
             }
 
             // Process file context
-            let document = Self::load_file_document(&context);
+            let document = Self::load_file_document(&context).await;
             let duration = start_time.elapsed().unwrap_or(Duration::ZERO);
             let _ = tx.send(document);
 
@@ -655,14 +655,14 @@ impl CandleStreamingContextProcessor {
     /// Load file document with production-quality file reading
     #[inline]
     #[allow(clippy::too_many_lines)]
-    fn load_file_document(context: &CandleImmutableFileContext) -> Document {
+    async fn load_file_document(context: &CandleImmutableFileContext) -> Document {
         const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024; // 100MB default
         const LARGE_FILE_WARNING_THRESHOLD: u64 = 10 * 1024 * 1024; // 10MB
 
         let file_path = Path::new(&context.path);
 
         // Validate path exists and is a file
-        let metadata = match std::fs::metadata(file_path) {
+        let metadata = match tokio::fs::metadata(file_path).await {
             Ok(meta) => {
                 if !meta.is_file() {
                     log::error!(
@@ -760,7 +760,7 @@ impl CandleStreamingContextProcessor {
         let data = match format {
             crate::domain::context::CandleContentFormat::Base64 => {
                 // Binary file - read as bytes and encode
-                match std::fs::read(file_path) {
+                match tokio::fs::read(file_path).await {
                     Ok(bytes) => general_purpose::STANDARD.encode(&bytes),
                     Err(e) => {
                         log::error!("Failed to read binary file: {e}");
@@ -770,11 +770,11 @@ impl CandleStreamingContextProcessor {
             }
             _ => {
                 // Try to read as UTF-8 text first
-                match std::fs::read_to_string(file_path) {
+                match tokio::fs::read_to_string(file_path).await {
                     Ok(text) => text,
                     Err(_) => {
                         // If UTF-8 fails, try as binary
-                        match std::fs::read(file_path) {
+                        match tokio::fs::read(file_path).await {
                             Ok(bytes) => {
                                 // Successfully read as binary, encode it
                                 log::warn!(
@@ -1017,26 +1017,26 @@ impl<T> CandleContext<T> {
 impl CandleContext<CandleFile> {
     /// Load single file - EXACT syntax: `CandleContext`<CandleFile>`::of("/path/to/file.txt`")
     #[inline]
-    pub fn of(path: impl AsRef<Path>) -> Self {
+    pub async fn of(path: impl AsRef<Path>) -> Self {
         use sha2::{Digest, Sha256};
-        use std::io::Read;
+        use tokio::io::AsyncReadExt;
 
         let path_ref = path.as_ref();
         let path_str = path_ref.to_string_lossy().to_string();
 
         // Read file metadata and content to compute hash
-        let (size_bytes, modified, content_hash) = match std::fs::metadata(path_ref) {
+        let (size_bytes, modified, content_hash) = match tokio::fs::metadata(path_ref).await {
             Ok(metadata) => {
                 let size = metadata.len();
                 let modified_time = metadata.modified().unwrap_or_else(|_| SystemTime::now());
 
                 // Compute content hash
-                let hash = match std::fs::File::open(path_ref) {
+                let hash = match tokio::fs::File::open(path_ref).await {
                     Ok(mut file) => {
                         let mut hasher = Sha256::new();
                         let mut buffer = vec![0u8; 8192];
                         loop {
-                            match file.read(&mut buffer) {
+                            match file.read(&mut buffer).await {
                                 Ok(0) | Err(_) => break,
                                 Ok(n) => hasher.update(&buffer[..n]),
                             }
@@ -1170,28 +1170,29 @@ impl CandleContext<CandleDirectory> {
     #[inline]
     pub fn load(self) -> Pin<Box<dyn Stream<Item = Document> + Send>> {
         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-            // Use spawn_blocking for CPU-bound directory traversal
-            let _ = tokio::task::spawn_blocking(move || {
+            // Use spawn for async directory traversal
+            let _ = tokio::task::spawn(async move {
                 match self.source {
                     CandleContextSourceType::Directory(directory_context) => {
                         // Traverse directory and load files
 
                         fn traverse_dir(
-                            path: &str,
+                            path: String,
                             recursive: bool,
-                            extensions: &[String],
+                            extensions: Vec<String>,
                             max_depth: Option<usize>,
                             current_depth: usize,
-                            sender: &tokio::sync::mpsc::UnboundedSender<Document>,
-                        ) -> Result<(), std::io::Error> {
+                            sender: tokio::sync::mpsc::UnboundedSender<Document>,
+                        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), std::io::Error>> + Send>> {
+                            Box::pin(async move {
                             if let Some(max) = max_depth
                                 && current_depth > max
                             {
                                 return Ok(());
                             }
 
-                            for entry in std::fs::read_dir(path)? {
-                                let entry = entry?;
+                            let mut entries = tokio::fs::read_dir(&path).await?;
+                            while let Some(entry) = entries.next_entry().await? {
                                 let path = entry.path();
 
                                 if path.is_file() {
@@ -1204,7 +1205,7 @@ impl CandleContext<CandleDirectory> {
                                     };
 
                                     if should_include
-                                        && let Ok(content) = std::fs::read_to_string(&path)
+                                        && let Ok(content) = tokio::fs::read_to_string(&path).await
                                     {
                                         let document = Document {
                                                 data: content,
@@ -1235,26 +1236,27 @@ impl CandleContext<CandleDirectory> {
                                     && let Some(path_str) = path.to_str()
                                 {
                                     traverse_dir(
-                                        path_str,
+                                        path_str.to_string(),
                                         recursive,
-                                        extensions,
+                                        extensions.clone(),
                                         max_depth,
                                         current_depth + 1,
-                                        sender,
-                                    )?;
+                                        sender.clone(),
+                                    ).await?;
                                 }
                             }
                             Ok(())
+                            })
                         }
 
                         match traverse_dir(
-                            &directory_context.path,
+                            directory_context.path.clone(),
                             directory_context.recursive,
-                            &directory_context.extensions,
+                            directory_context.extensions.clone(),
                             directory_context.max_depth,
                             0,
-                            &tx,
-                        ) {
+                            tx.clone(),
+                        ).await {
                             Ok(()) => {
                                 // Documents are sent directly by traverse_dir
                             }
@@ -1402,7 +1404,7 @@ impl CandleContext<CandleGithub> {
         repo_path: &Path,
         cache_dir: &Path,
     ) -> Result<PathBuf, GitGixError> {
-        std::fs::create_dir_all(cache_dir).ok();
+        tokio::fs::create_dir_all(cache_dir).await.ok();
 
         // Build authenticated URL
         let auth_url = Self::build_auth_url(repo_url, auth_token);

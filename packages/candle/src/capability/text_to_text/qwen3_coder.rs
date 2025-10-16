@@ -465,7 +465,7 @@ impl crate::capability::traits::TextToTextCapable for CandleQwen3CoderModel {
                         &gguf_file_path,
                         device.clone(),
                         candle_model_config,
-                    ) {
+                    ).await {
                         Ok(model) => model,
                         Err(e) => {
                             let _ = tx.send(CandleStringChunk(format!(
@@ -717,7 +717,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3CoderModel {
                     &gguf_file_path,
                     device.clone(),
                     candle_model_config,
-                ) {
+                ).await {
                     Ok(model) => model,
                     Err(e) => {
                         let _ = tx.send(CandleStringChunk(format!(

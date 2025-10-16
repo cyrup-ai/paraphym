@@ -344,7 +344,7 @@ impl CandleContext for CandleFileContext {
         let path = self.path.clone();
 
         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-            if let Ok(content) = std::fs::read_to_string(&path) {
+            if let Ok(content) = tokio::fs::read_to_string(&path).await {
                 let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
                 let content_type = match extension {
                     "rs" | "py" | "js" | "ts" | "go" | "java" | "cpp" | "c" | "h" => {

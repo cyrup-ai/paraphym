@@ -136,7 +136,7 @@ impl DataExporter {
         T: Serialize,
     {
         match self.format {
-            ExportFormat::Json => self.export_json(data, path),
+            ExportFormat::Json => self.export_json(data, path).await,
             ExportFormat::Csv => self.export_csv(data, path),
         }
     }
@@ -236,7 +236,10 @@ impl DataExporter {
         let duration = start_time.elapsed();
 
         // Calculate approximate bytes written (file size)
-        if let Ok(metadata) = std::fs::metadata(path) {
+        if let Some(metadata) = tokio::runtime::Handle::try_current()
+            .ok()
+            .and_then(|h| h.block_on(async { tokio::fs::metadata(path).await.ok() }))
+        {
             bytes_written.store(metadata.len(), Ordering::Relaxed);
         }
 
@@ -350,15 +353,14 @@ impl DataExporter {
     }
 
     /// Export as binary
-    pub fn export_binary<T>(&self, data: &[T], path: &Path) -> Result<()>
+    pub async fn export_binary<T>(&self, data: &[T], path: &Path) -> Result<()>
     where
         T: bincode::Encode,
     {
         let bytes = bincode::encode_to_vec(data, bincode::config::standard()).map_err(|e| {
             MigrationError::UnsupportedFormat(format!("Binary encoding failed: {e}"))
         })?;
-        let mut file = File::create(path)?;
-        file.write_all(&bytes)?;
+        tokio::fs::write(path, &bytes).await.map_err(MigrationError::IoError)?;
         Ok(())
     }
 }

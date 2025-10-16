@@ -13,7 +13,7 @@ use axum::{
 use chrono::{DateTime, Utc};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
 use log::info;
-use once_cell::sync::Lazy;
+use tokio::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tower_http::cors::{Any, CorsLayer};
@@ -110,12 +110,12 @@ pub struct ApiKeyManager {
 
 impl ApiKeyManager {
     /// Load API keys from secure configuration
-    pub fn from_env() -> Result<Self, SecurityConfigError> {
+    pub async fn from_env() -> Result<Self, SecurityConfigError> {
         let config_file = std::env::var("API_KEYS_FILE")
             .unwrap_or_else(|_| "/etc/paraphym/api-keys.json".to_string());
 
         if std::path::Path::new(&config_file).exists() {
-            Self::from_file(&config_file)
+            Self::from_file(&config_file).await
         } else {
             // In development/testing, create minimal secure config
             log::warn!(
@@ -127,8 +127,8 @@ impl ApiKeyManager {
     }
 
     /// Load from encrypted configuration file
-    fn from_file(path: &str) -> Result<Self, SecurityConfigError> {
-        let content = std::fs::read_to_string(path)?;
+    async fn from_file(path: &str) -> Result<Self, SecurityConfigError> {
+        let content = tokio::fs::read_to_string(path).await?;
         let configs: Vec<ApiKeyConfig> = serde_json::from_str(&content)?;
 
         let mut keys = HashMap::new();
@@ -222,11 +222,10 @@ impl ApiKeyManager {
 }
 
 /// Global secure JWT configuration
-static JWT_CONFIG: Lazy<Result<JwtConfig, SecurityConfigError>> = Lazy::new(JwtConfig::from_env);
+static JWT_CONFIG: OnceCell<Result<JwtConfig, SecurityConfigError>> = OnceCell::const_new();
 
 /// Global secure API key manager
-static API_KEY_MANAGER: Lazy<Result<ApiKeyManager, SecurityConfigError>> =
-    Lazy::new(ApiKeyManager::from_env);
+static API_KEY_MANAGER: OnceCell<Result<ApiKeyManager, SecurityConfigError>> = OnceCell::const_new();
 
 /// User context extracted from authentication
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -352,7 +351,7 @@ async fn validate_jwt_token(auth_header: &str) -> Result<UserContext, AuthError>
     };
 
     // Get secure JWT configuration
-    let jwt_config = JWT_CONFIG.as_ref().map_err(|e| {
+    let jwt_config = JWT_CONFIG.get_or_init(|| async { JwtConfig::from_env() }).await.as_ref().map_err(|e| {
         log::error!("JWT configuration error: {}", e);
         AuthError::InvalidToken
     })?;
@@ -389,7 +388,7 @@ async fn validate_jwt_token(auth_header: &str) -> Result<UserContext, AuthError>
 /// Validate API key and return associated user context
 async fn validate_api_key(provided_key: &str) -> Result<UserContext, AuthError> {
     // Get secure API key manager
-    let api_manager = API_KEY_MANAGER.as_ref().map_err(|e| {
+    let api_manager = API_KEY_MANAGER.get_or_init(|| async { ApiKeyManager::from_env().await }).await.as_ref().map_err(|e| {
         log::error!("API key manager configuration error: {}", e);
         AuthError::InvalidApiKey
     })?;

@@ -1122,7 +1122,7 @@ impl CandleConfigurationManager {
                 let _ = sender.send(save_start);
 
                 // Perform file save using sync implementation
-                let success = manager.save_to_file_sync().is_ok();
+                let success = manager.save_to_file_sync().await.is_ok();
 
                 // Emit save completion update
                 let save_complete = CandleConfigUpdate {
@@ -1141,21 +1141,25 @@ impl CandleConfigurationManager {
         }))
     }
 
-    /// Synchronous implementation of `save_to_file` for streams-only architecture
-    fn save_to_file_sync(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    /// Asynchronous implementation of `save_to_file` for streams-only architecture
+    async fn save_to_file_sync(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let config = self.get_config();
 
-        // Access persistence configuration synchronously
-        let persistence = self
-            .persistence
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Access persistence configuration synchronously and clone needed values
+        let (format, compression, config_file_path) = {
+            let persistence = self
+                .persistence
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        let format = persistence.format.as_str();
-        let compression = persistence.compression;
-        let config_file_path = persistence.config_file_path.as_str();
+            (
+                persistence.format.clone(),
+                persistence.compression,
+                persistence.config_file_path.clone(),
+            )
+        }; // Drop the RwLock guard here
 
-        let serialized = match format {
+        let serialized = match format.as_str() {
             "json" => serde_json::to_string_pretty(&*config)?,
             "yaml" => yyaml::to_string(&*config)?,
             "toml" => toml::to_string(&*config)?,
@@ -1172,7 +1176,7 @@ impl CandleConfigurationManager {
             serialized
         };
 
-        std::fs::write(config_file_path, data)?;
+        tokio::fs::write(&config_file_path, data).await?;
 
         Ok(())
     }
@@ -1195,7 +1199,7 @@ impl CandleConfigurationManager {
             let _ = sender.send(load_start);
 
             // Perform file load using sync implementation
-            let success = manager.load_from_file_sync().is_ok();
+            let success = manager.load_from_file_sync().await.is_ok();
 
             // Emit load completion update
             let load_complete = CandleConfigUpdate {
@@ -1214,14 +1218,23 @@ impl CandleConfigurationManager {
         }))
     }
 
-    /// Synchronous implementation of `load_from_file` for streams-only architecture
-    fn load_from_file_sync(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // For sync version, use defaults instead of async persistence access
-        let format = "json"; // Default format
-        let compression = false; // Default no compression
-        let config_file_path = "./config.json"; // Default path
+    /// Asynchronous implementation of `load_from_file` for streams-only architecture
+    async fn load_from_file_sync(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Access persistence configuration and clone needed values
+        let (format, compression, config_file_path) = {
+            let persistence = self
+                .persistence
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        let data = std::fs::read_to_string(config_file_path)?;
+            (
+                persistence.format.clone(),
+                persistence.compression,
+                persistence.config_file_path.clone(),
+            )
+        }; // Drop the RwLock guard here
+
+        let data = tokio::fs::read_to_string(&config_file_path).await?;
 
         let content = if compression {
             let compressed = {
@@ -1234,7 +1247,7 @@ impl CandleConfigurationManager {
             data
         };
 
-        let config: CandleChatConfig = match format {
+        let config: CandleChatConfig = match format.as_str() {
             "json" => serde_json::from_str(&content)?,
             "yaml" => yyaml::from_str(&content)?,
             "toml" => toml::from_str(&content)?,

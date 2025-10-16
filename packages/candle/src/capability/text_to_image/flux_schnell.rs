@@ -193,7 +193,7 @@ impl ImageGenerationModel for FluxSchnell {
                 &t5_tokenizer_path, // Now passed as parameter
                 dtype,
                 &device,
-            ) {
+            ).await {
                 Ok(encoder) => encoder,
                 Err(e) => {
                     let _ = tx.send(ImageGenerationChunk::Error(format!(
