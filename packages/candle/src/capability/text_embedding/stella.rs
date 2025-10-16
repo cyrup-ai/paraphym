@@ -195,16 +195,16 @@ impl crate::capability::traits::TextEmbeddingCapable for StellaEmbeddingModel {
         // ═══════════════════════════════════════════════════════════════
 
         // Base model weights
-        let base_weights = self.huggingface_file(self.info().registry_key, "model.safetensors")?;
+        let base_weights = self.huggingface_file(self.info().registry_key, "model.safetensors").await?;
 
         // MRL projection head (dimension-specific)
         let projection_head = self.huggingface_file(
             self.info().registry_key,
             &format!("2_Dense_{}/model.safetensors", dimension),
-        )?;
+        ).await?;
 
         // Tokenizer
-        let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json")?;
+        let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json").await?;
 
         // ═══════════════════════════════════════════════════════════════
         // STEP 4: Load tokenizer with variant-specific padding
@@ -371,12 +371,12 @@ impl crate::capability::traits::TextEmbeddingCapable for StellaEmbeddingModel {
         };
 
         // Load files
-        let base_weights = self.huggingface_file(self.info().registry_key, "model.safetensors")?;
+        let base_weights = self.huggingface_file(self.info().registry_key, "model.safetensors").await?;
         let projection_head = self.huggingface_file(
             self.info().registry_key,
             &format!("2_Dense_{}/model.safetensors", dimension),
-        )?;
-        let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json")?;
+        ).await?;
+        let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json").await?;
 
         // Load and configure tokenizer (variant-specific padding)
         let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
@@ -546,7 +546,7 @@ impl LoadedStellaModel {
     ///
     /// This extracts the loading logic from embed() (lines 136-255) so it can be called
     /// once during worker spawn instead of on every inference.
-    pub fn load(
+    pub async fn load(
         base_model: &StellaEmbeddingModel,
     ) -> std::result::Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Get config from ModelInfo
@@ -578,13 +578,13 @@ impl LoadedStellaModel {
 
         // Load files from HuggingFace
         let base_weights =
-            base_model.huggingface_file(base_model.info().registry_key, "model.safetensors")?;
+            base_model.huggingface_file(base_model.info().registry_key, "model.safetensors").await?;
         let projection_head = base_model.huggingface_file(
             base_model.info().registry_key,
             &format!("2_Dense_{}/model.safetensors", dimension),
-        )?;
+        ).await?;
         let tokenizer_path =
-            base_model.huggingface_file(base_model.info().registry_key, "tokenizer.json")?;
+            base_model.huggingface_file(base_model.info().registry_key, "tokenizer.json").await?;
 
         // Load tokenizer with variant-specific padding
         let mut tokenizer = Tokenizer::from_file(&tokenizer_path)

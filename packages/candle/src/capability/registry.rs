@@ -464,8 +464,12 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                         pool.spawn_text_embedding_worker(
                             registry_key,
                             move || {
-                                LoadedStellaModel::load(&m_clone)
-                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
+                                tokio::task::block_in_place(|| {
+                                    tokio::runtime::Handle::current().block_on(async {
+                                        LoadedStellaModel::load(&m_clone).await
+                                            .map_err(|e| PoolError::SpawnFailed(e.to_string()))
+                                    })
+                                })
                             },
                             per_worker_mb,
                             allocation_guard,
@@ -641,8 +645,12 @@ impl TextEmbeddingCapable for TextEmbeddingModel {
                         pool.spawn_text_embedding_worker(
                             registry_key,
                             move || {
-                                LoadedStellaModel::load(&m_clone)
-                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
+                                tokio::task::block_in_place(|| {
+                                    tokio::runtime::Handle::current().block_on(async {
+                                        LoadedStellaModel::load(&m_clone).await
+                                            .map_err(|e| PoolError::SpawnFailed(e.to_string()))
+                                    })
+                                })
                             },
                             per_worker_mb,
                             allocation_guard,
