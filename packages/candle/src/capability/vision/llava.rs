@@ -769,8 +769,19 @@ impl LLaVAModel {
     ///
     /// For true streaming, await the entire response then iterate the stream.
     pub fn stream_chat(&self, image_path: &str, question: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
-        // Use describe_image which handles channel communication and streaming
-        self.describe_image(image_path, question)
+        let model = self.clone();
+        let image_path = image_path.to_string();
+        let question = question.to_string();
+        
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+            // Call describe_image and forward its stream
+            let stream = model.describe_image(&image_path, &question).await;
+            use tokio_stream::StreamExt;
+            tokio::pin!(stream);
+            while let Some(chunk) = stream.next().await {
+                let _ = tx.send(chunk);
+            }
+        }))
     }
 }
 
