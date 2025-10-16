@@ -114,34 +114,8 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
         prompt: CandlePrompt,
         params: &CandleCompletionParams,
     ) -> Pin<Box<dyn Stream<Item = CandleCompletionChunk> + Send>> {
-        // Get file paths before the closure
-        let gguf_path = match self.huggingface_file(
-            self.info().quantization_url.unwrap(),
-            "phi-4-reasoning-Q4_K_M.gguf",
-        ) {
-            Ok(path) => path,
-            Err(e) => {
-                return Box::pin(async_stream::spawn_stream(move |tx| async move {
-                    let _ = tx.send(CandleCompletionChunk::Error(format!(
-                        "Failed to get GGUF file: {}",
-                        e
-                    )));
-                }));
-            }
-        };
-
-        let tokenizer_path = match self.huggingface_file(self.info().registry_key, "tokenizer.json")
-        {
-            Ok(path) => path,
-            Err(e) => {
-                return Box::pin(async_stream::spawn_stream(move |tx| async move {
-                    let _ = tx.send(CandleCompletionChunk::Error(format!(
-                        "Failed to get tokenizer file: {}",
-                        e
-                    )));
-                }));
-            }
-        };
+        // Clone self for async context
+        let model_clone = self.clone();
 
         // Build sampling config
         let temperature = if params.temperature != 1.0 {
@@ -194,6 +168,32 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
                 use tokio_stream::StreamExt;
 
                 async_stream::spawn_stream(move |tx| async move {
+                    // Load file paths asynchronously
+                    let gguf_path = match model_clone.huggingface_file(
+                        model_clone.info().quantization_url.unwrap(),
+                        "phi-4-reasoning-Q4_K_M.gguf",
+                    ).await {
+                        Ok(path) => path,
+                        Err(e) => {
+                            let _ = tx.send(CandleStringChunk(format!(
+                                "ERROR: Failed to get GGUF file: {}",
+                                e
+                            )));
+                            return;
+                        }
+                    };
+
+                    let tokenizer_path = match model_clone.huggingface_file(model_clone.info().registry_key, "tokenizer.json").await {
+                        Ok(path) => path,
+                        Err(e) => {
+                            let _ = tx.send(CandleStringChunk(format!(
+                                "ERROR: Failed to get tokenizer file: {}",
+                                e
+                            )));
+                            return;
+                        }
+                    };
+
                     // Load device (prefer GPU if available)
                     let device = crate::core::device_util::detect_best_device().unwrap_or_else(|e| {
                         log::warn!("Device detection failed: {}. Using CPU.", e);
@@ -341,7 +341,7 @@ impl LoadedPhi4ReasoningModel {
     ///
     /// This method loads the tokenizer and detects the device once,
     /// storing them for reuse across multiple requests.
-    pub fn load(
+    pub async fn load(
         base: &CandlePhi4ReasoningModel,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Get file paths
@@ -349,14 +349,14 @@ impl LoadedPhi4ReasoningModel {
             .huggingface_file(
                 base.info().quantization_url.unwrap(),
                 "phi-4-reasoning-Q4_K_M.gguf",
-            )
+            ).await
             .map_err(|e| {
                 Box::from(format!("Failed to get GGUF file: {}", e))
                     as Box<dyn std::error::Error + Send + Sync>
             })?;
 
         let tokenizer_path = base
-            .huggingface_file(base.info().registry_key, "tokenizer.json")
+            .huggingface_file(base.info().registry_key, "tokenizer.json").await
             .map_err(|e| {
                 Box::from(format!("Failed to get tokenizer file: {}", e))
                     as Box<dyn std::error::Error + Send + Sync>

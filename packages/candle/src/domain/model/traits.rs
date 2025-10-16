@@ -99,7 +99,7 @@ pub trait CandleModel: Send + Sync + std::fmt::Debug + 'static {
     {
         use hf_hub::api::tokio::Api;
 
-        let api = Api::new().await?;
+        let api = Api::new()?;
         let repo = api.model(repo_key.to_string());
         let path = repo.get(filename).await?;
 

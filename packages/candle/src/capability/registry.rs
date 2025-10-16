@@ -311,8 +311,12 @@ impl TextToTextCapable for TextToTextModel {
                         pool.spawn_text_to_text_worker(
                             registry_key,
                             move || {
-                                LoadedPhi4ReasoningModel::load(&m_clone)
-                                    .map_err(|e| PoolError::SpawnFailed(e.to_string()))
+                                tokio::task::block_in_place(|| {
+                                    tokio::runtime::Handle::current().block_on(async {
+                                        LoadedPhi4ReasoningModel::load(&m_clone).await
+                                            .map_err(|e| PoolError::SpawnFailed(e.to_string()))
+                                    })
+                                })
                             },
                             per_worker_mb,
                             allocation_guard,
