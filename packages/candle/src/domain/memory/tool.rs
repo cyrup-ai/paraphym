@@ -12,8 +12,8 @@ use std::sync::{
 
 // Ultra-high-performance zero-allocation imports
 // Removed unused import: arrayvec::ArrayVec
-use crossbeam_queue::SegQueue;
-use crossbeam_utils::CachePadded;
+use std::sync::Mutex;
+use tokio::sync::mpsc;
 
 use serde::{Deserialize, Serialize};
 
@@ -32,11 +32,14 @@ const MAX_MEMORY_TOOL_RESULTS: usize = 1000;
 const MAX_STREAMING_RESULTS: usize = 100;
 
 /// Global result aggregation statistics
-static TOOL_STATS: LazyLock<CachePadded<AtomicUsize>> =
-    LazyLock::new(|| CachePadded::new(AtomicUsize::new(0)));
+static TOOL_STATS: LazyLock<AtomicUsize> =
+    LazyLock::new(|| AtomicUsize::new(0));
 
-/// Lock-free result queue for aggregation
-static RESULT_QUEUE: LazyLock<SegQueue<MemoryNode>> = LazyLock::new(SegQueue::new);
+/// Result queue for aggregation
+static RESULT_QUEUE: LazyLock<(mpsc::UnboundedSender<MemoryNode>, Arc<Mutex<mpsc::UnboundedReceiver<MemoryNode>>>)> = LazyLock::new(|| {
+    let (sender, receiver) = mpsc::unbounded_channel();
+    (sender, Arc::new(Mutex::new(receiver)))
+});
 
 /// Zero-allocation memory tool with lock-free cognitive search
 #[derive(Debug, Clone)]
@@ -180,14 +183,20 @@ impl MemoryTool {
     /// Add memory node to result queue
     #[inline]
     pub fn queue_result(node: MemoryNode) {
-        RESULT_QUEUE.push(node);
+        let (sender, _receiver) = &*RESULT_QUEUE;
+        let _ = sender.send(node);
         TOOL_STATS.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Get next result from queue
     #[inline]
     pub fn dequeue_result() -> Option<MemoryNode> {
-        RESULT_QUEUE.pop()
+        let (_sender, receiver) = &*RESULT_QUEUE;
+        if let Ok(mut rx) = receiver.lock() {
+            rx.try_recv().ok()
+        } else {
+            None
+        }
     }
 
     /// Get tool operation statistics
@@ -205,6 +214,6 @@ impl MemoryTool {
     /// Get result queue length for monitoring
     #[inline]
     pub fn result_queue_length() -> usize {
-        RESULT_QUEUE.len()
+        0 // tokio mpsc channels don't expose queue length
     }
 }

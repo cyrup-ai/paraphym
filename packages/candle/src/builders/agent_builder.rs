@@ -2,10 +2,10 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::pin::Pin;
 
 use arrayvec::ArrayVec;
-use crossbeam_utils::CachePadded;
-use ystream::AsyncStream;
+use tokio_stream::Stream;
 
 use super::core::{Agent, AgentError, AgentResult, MAX_AGENT_TOOLS};
 use crate::memory::Memory;
@@ -15,7 +15,7 @@ use crate::domain::model::traits::CandleModel;
 use sweet_mcp_type::ToolInfo;
 
 /// Agent statistics for performance monitoring
-static AGENT_STATS: CachePadded<AtomicUsize> = CachePadded::new(AtomicUsize::new(0));
+static AGENT_STATS: AtomicUsize = AtomicUsize::new(0);
 
 /// Zero-allocation agent builder with const generics
 #[derive(Debug)]
@@ -107,8 +107,8 @@ impl<const TOOLS_CAPACITY: usize> AgentBuilder<TOOLS_CAPACITY> {
     }
 
     /// Build agent with comprehensive error handling
-    pub fn build(self) -> AsyncStream<AgentResult<Agent>> {
-        AsyncStream::with_channel(|stream_sender| {
+    pub fn build(self) -> Pin<Box<dyn Stream<Item = AgentResult<Agent>> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(|stream_sender| async move {
             let result = (|| {
                 // Validate required fields
                 let model = self
@@ -132,7 +132,7 @@ impl<const TOOLS_CAPACITY: usize> AgentBuilder<TOOLS_CAPACITY> {
                         embedding_dimension: comprehensive_config.vector_store.dimension};
                     let mut memory_stream = Memory::new(memory_config);
 
-                    // Use AsyncStream's try_next method (NO FUTURES architecture)
+                    // Use stream's try_next method
                     let memory_instance = match memory_stream.try_next() {
                         Some(memory) => memory,
                         None => {
@@ -178,7 +178,7 @@ impl<const TOOLS_CAPACITY: usize> AgentBuilder<TOOLS_CAPACITY> {
             })();
             
             let _ = stream_sender.send(result);
-        })
+        }))
     }
 }
 

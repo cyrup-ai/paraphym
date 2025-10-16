@@ -166,7 +166,7 @@ impl SweetMcpRouter {
         tools.clone()
     }
 
-    /// Execute tool and return `ystream` for compatibility
+    /// Execute tool and return tokio stream
     #[must_use]
     pub fn call_tool_stream(
         &self,

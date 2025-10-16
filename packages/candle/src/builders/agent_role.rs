@@ -2,10 +2,10 @@
 
 use std::num::NonZeroU64;
 use std::sync::Arc;
+use std::pin::Pin;
 
 use cyrup_sugars::ZeroOneOrMany;
-
-use ystream::AsyncStream;
+use tokio_stream::{Stream, StreamExt};
 
 use crate::capability::registry::{TextEmbeddingModel, TextToTextModel};
 use crate::capability::traits::TextToTextCapable;
@@ -32,7 +32,7 @@ use crate::memory::core::manager::surreal::Result as MemoryResult;
 // Type aliases to reduce complexity warnings
 type OnToolResultHandler = Arc<dyn Fn(&[String]) + Send + Sync>;
 type OnConversationTurnHandler = Arc<
-    dyn Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> AsyncStream<CandleMessageChunk>
+    dyn Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>
         + Send
         + Sync,
 >;
@@ -46,9 +46,9 @@ pub struct CandleAgentRoleAgent {
 
 impl CandleAgentRoleAgent {
     /// Chat method for use in on_conversation_turn closure - enables recursion
-    pub fn chat(&self, chat_loop: CandleChatLoop) -> AsyncStream<CandleMessageChunk> {
+    pub fn chat(&self, chat_loop: CandleChatLoop) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>> {
         match chat_loop {
-            CandleChatLoop::Break => AsyncStream::with_channel(|sender| {
+            CandleChatLoop::Break => Box::pin(crate::async_stream::spawn_stream(|sender| async move {
                 let final_chunk = CandleMessageChunk::Complete {
                     text: String::new(),
                     finish_reason: Some("break".to_string()),
@@ -58,20 +58,17 @@ impl CandleAgentRoleAgent {
                     tokens_per_sec: None,
                 };
                 let _ = sender.send(final_chunk);
-            }),
+            })),
             CandleChatLoop::UserPrompt(user_message) | CandleChatLoop::Reprompt(user_message) => {
                 self.run_inference_cycle(user_message)
             }
         }
     }
 
-    fn run_inference_cycle(&self, user_message: String) -> AsyncStream<CandleMessageChunk> {
+    fn run_inference_cycle(&self, user_message: String) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>> {
         let state = self.state.clone();
 
-        AsyncStream::with_channel(move |stream_sender| {
-            // Spawn async task to handle operations with native async/await
-            if let Some(runtime) = crate::runtime::shared_runtime() {
-                runtime.spawn(async move {
+        Box::pin(crate::async_stream::spawn_stream(move |stream_sender| async move {
                     // Extract handlers from state for recursive inference
                     let on_chunk_handler = state.on_chunk_handler.clone();
                     let on_tool_result_handler = state.on_tool_result_handler.clone();
@@ -142,7 +139,7 @@ impl CandleAgentRoleAgent {
             }
 
             let completion_stream = state.text_to_text_model.prompt(prompt, &params);
-            let completion_results = completion_stream.collect();
+            tokio::pin!(completion_stream);
             let mut assistant_response = String::new();
 
             // Track metrics for performance visibility
@@ -150,7 +147,7 @@ impl CandleAgentRoleAgent {
             let mut token_count = 0u32;
 
             // Stream chunks
-            for completion_chunk in completion_results {
+            while let Some(completion_chunk) = completion_stream.next().await {
                 let message_chunk = match completion_chunk {
                     CandleCompletionChunk::Text(ref text) => {
                         token_count += 1;
@@ -253,18 +250,12 @@ impl CandleAgentRoleAgent {
                     state: state.clone(),
                 };
                 let handler_stream = handler(&conversation, &agent);
-                let handler_chunks = handler_stream.collect();
-                for chunk in handler_chunks {
+                tokio::pin!(handler_stream);
+                while let Some(chunk) = handler_stream.next().await {
                     let _ = stream_sender.send(chunk);
                 }
             }
-                });
-            } else {
-                let _ = stream_sender.send(CandleMessageChunk::Error(
-                    "Runtime unavailable for async operations".to_string(),
-                ));
-            }
-        })
+        }))
     }
 }
 
@@ -374,7 +365,7 @@ pub trait CandleAgentRoleBuilder: Sized + Send {
     #[must_use]
     fn on_conversation_turn<F>(self, handler: F) -> impl CandleAgentRoleBuilder
     where
-        F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> AsyncStream<CandleMessageChunk>
+        F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>
             + Send
             + Sync
             + 'static;
@@ -391,12 +382,12 @@ pub trait CandleAgentRoleBuilder: Sized + Send {
     ) -> impl CandleAgentRoleBuilder;
 
     /// Chat with closure - EXACT syntax: .chat(|conversation| ChatLoop)
-    fn chat<F>(self, handler: F) -> Result<AsyncStream<CandleMessageChunk>, AgentError>
+    fn chat<F>(self, handler: F) -> Result<Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>, AgentError>
     where
         F: FnOnce(&CandleAgentConversation) -> CandleChatLoop + Send + 'static;
 
     /// Chat with message - EXACT syntax: .chat_with_message("message")
-    fn chat_with_message(self, message: impl Into<String>) -> AsyncStream<CandleMessageChunk>;
+    fn chat_with_message(self, message: impl Into<String>) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>;
 }
 
 /// MCP server builder for fluent chaining
@@ -490,7 +481,7 @@ pub trait CandleAgentBuilder: Sized + Send + Sync {
     #[must_use]
     fn on_conversation_turn<F>(self, handler: F) -> Self
     where
-        F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> AsyncStream<CandleMessageChunk>
+        F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>
             + Send
             + Sync
             + 'static;
@@ -501,12 +492,12 @@ pub trait CandleAgentBuilder: Sized + Send + Sync {
     fn conversation_history(self, history: impl ConversationHistoryArgs) -> Self;
 
     /// Chat with closure - EXACT syntax: .chat(|conversation| ChatLoop)
-    fn chat<F>(self, handler: F) -> Result<AsyncStream<CandleMessageChunk>, AgentError>
+    fn chat<F>(self, handler: F) -> Result<Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>, AgentError>
     where
         F: FnOnce(&CandleAgentConversation) -> CandleChatLoop + Send + 'static;
 
     /// Chat with message - EXACT syntax: .chat_with_message("message")
-    fn chat_with_message(self, message: impl Into<String>) -> AsyncStream<CandleMessageChunk>;
+    fn chat_with_message(self, message: impl Into<String>) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>;
 }
 
 /// MCP server builder implementation
@@ -823,7 +814,7 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
     /// Set conversation turn handler - EXACT syntax: .on_conversation_turn(|conversation, agent| { ... })
     fn on_conversation_turn<F>(self, _handler: F) -> impl CandleAgentRoleBuilder
     where
-        F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> AsyncStream<CandleMessageChunk>
+        F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>
             + Send
             + Sync
             + 'static,
@@ -840,25 +831,25 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
     }
 
     /// Chat with closure - EXACT syntax: .chat(|conversation| ChatLoop)
-    fn chat<F>(self, _handler: F) -> Result<AsyncStream<CandleMessageChunk>, AgentError>
+    fn chat<F>(self, _handler: F) -> Result<Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>, AgentError>
     where
         F: FnOnce(&CandleAgentConversation) -> CandleChatLoop + Send + 'static,
     {
-        Ok(AsyncStream::with_channel(|sender| {
+        Ok(Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let _ = sender.send(CandleMessageChunk::Error(
                 "No provider configured".to_string(),
             ));
-        }))
+        })))
     }
 
-    fn chat_with_message(self, message: impl Into<String>) -> AsyncStream<CandleMessageChunk> {
+    fn chat_with_message(self, message: impl Into<String>) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>> {
         let msg = message.into();
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
             let _ = sender.send(CandleMessageChunk::Error(format!(
                 "No provider configured for message: {}",
                 msg
             )));
-        })
+        }))
     }
 
     /// Convert to agent - EXACT syntax: .into_agent()
@@ -1078,7 +1069,7 @@ impl CandleAgentRoleBuilder for CandleAgentBuilderImpl {
     /// Set conversation turn handler - EXACT syntax: .on_conversation_turn(|conversation, agent| { ... })
     fn on_conversation_turn<F>(mut self, handler: F) -> impl CandleAgentRoleBuilder
     where
-        F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> AsyncStream<CandleMessageChunk>
+        F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>
             + Send
             + Sync
             + 'static,
@@ -1095,23 +1086,23 @@ impl CandleAgentRoleBuilder for CandleAgentBuilderImpl {
     }
 
     /// Chat with closure - EXACT syntax: .chat(|conversation| ChatLoop)
-    fn chat<F>(self, _handler: F) -> Result<AsyncStream<CandleMessageChunk>, AgentError>
+    fn chat<F>(self, _handler: F) -> Result<Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>, AgentError>
     where
         F: FnOnce(&CandleAgentConversation) -> CandleChatLoop + Send + 'static,
     {
-        Ok(AsyncStream::with_channel(|sender| {
+        Ok(Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let _ = sender.send(CandleMessageChunk::Text("Hello from Candle!".to_string()));
-        }))
+        })))
     }
 
-    fn chat_with_message(self, message: impl Into<String>) -> AsyncStream<CandleMessageChunk> {
+    fn chat_with_message(self, message: impl Into<String>) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>> {
         let msg = message.into();
         // Use CandleAgentRoleBuilder::chat explicitly to avoid ambiguity
         CandleAgentRoleBuilder::chat(self, move |_| CandleChatLoop::UserPrompt(msg)).unwrap_or_else(
             |_| {
-                AsyncStream::with_channel(|sender| {
+                Box::pin(crate::async_stream::spawn_stream(|sender| async move {
                     let _ = sender.send(CandleMessageChunk::Error("Chat failed".to_string()));
-                })
+                }))
             },
         )
     }
@@ -1270,7 +1261,7 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
 
     fn on_conversation_turn<F>(mut self, handler: F) -> Self
     where
-        F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> AsyncStream<CandleMessageChunk>
+        F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>
             + Send
             + Sync
             + 'static,
@@ -1284,7 +1275,7 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
     }
 
     /// Chat with closure - EXACT syntax: .chat(|conversation| ChatLoop)
-    fn chat<F>(self, handler: F) -> Result<AsyncStream<CandleMessageChunk>, AgentError>
+    fn chat<F>(self, handler: F) -> Result<Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>, AgentError>
     where
         F: FnOnce(&CandleAgentConversation) -> CandleChatLoop + Send + 'static,
     {
@@ -1305,7 +1296,7 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
         let additional_params = self.additional_params;
         let metadata = self.metadata;
 
-        Ok(AsyncStream::with_channel(move |sender| {
+        Ok(Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
             // Create initial empty conversation for handler to inspect
             let initial_conversation = CandleAgentConversation::new();
 
@@ -1328,9 +1319,6 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                 }
                 CandleChatLoop::UserPrompt(user_message)
                 | CandleChatLoop::Reprompt(user_message) => {
-                    // Spawn async task to handle operations with native async/await
-                    if let Some(runtime) = crate::runtime::shared_runtime() {
-                        runtime.spawn(async move {
                             // ALWAYS create memory internally - WE GUARANTEE MEMORY
                             // Database connection and memory manager initialization
                             use surrealdb::engine::any::connect;
@@ -1394,8 +1382,9 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                     if let Some(ref mem_mgr) = memory {
                         // Load from context_file
                         if let Some(ctx) = context_file {
-                            let docs = ctx.load().collect();
-                            for doc in docs {
+                            let doc_stream = ctx.load();
+                            tokio::pin!(doc_stream);
+                            while let Some(doc) = doc_stream.next().await {
                                 let content_hash = crate::domain::memory::serialization::content_hash(&doc.data);
                                 let memory_node = MemoryNode {
                                     id: format!("doc_{}", content_hash),
@@ -1417,8 +1406,9 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
 
                         // Load from context_files
                         if let Some(ctx) = context_files {
-                            let docs = ctx.load().collect();
-                            for doc in docs {
+                            let doc_stream = ctx.load();
+                            tokio::pin!(doc_stream);
+                            while let Some(doc) = doc_stream.next().await {
                                 let content_hash = crate::domain::memory::serialization::content_hash(&doc.data);
                                 let memory_node = MemoryNode {
                                     id: format!("doc_{}", content_hash),
@@ -1440,8 +1430,9 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
 
                         // Load from context_directory
                         if let Some(ctx) = context_directory {
-                            let docs = ctx.load().collect();
-                            for doc in docs {
+                            let doc_stream = ctx.load();
+                            tokio::pin!(doc_stream);
+                            while let Some(doc) = doc_stream.next().await {
                                 let content_hash = crate::domain::memory::serialization::content_hash(&doc.data);
                                 let memory_node = MemoryNode {
                                     id: format!("doc_{}", content_hash),
@@ -1463,8 +1454,9 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
 
                         // Load from context_github
                         if let Some(ctx) = context_github {
-                            let docs = ctx.load().collect();
-                            for doc in docs {
+                            let doc_stream = ctx.load();
+                            tokio::pin!(doc_stream);
+                            while let Some(doc) = doc_stream.next().await {
                                 let content_hash = crate::domain::memory::serialization::content_hash(&doc.data);
                                 let memory_node = MemoryNode {
                                     id: format!("doc_{}", content_hash),
@@ -1569,8 +1561,9 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
 
                             // Use native async/await with timeout protection
                             let results: Vec<MemoryResult<MemoryNode>> = match tokio::time::timeout(timeout_duration, async {
-                                use futures_util::StreamExt;
-                                memory_stream.take(5).collect().await
+                                use futures_util::StreamExt as FuturesStreamExt;
+                                let limited = FuturesStreamExt::take(memory_stream, 5);
+                                FuturesStreamExt::collect(limited).await
                             }).await {
                                 Ok(results) => results,
                                 Err(_) => {
@@ -1634,17 +1627,17 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
 
                         // Call REAL provider inference
                         let completion_stream = provider.prompt(prompt, &params);
+                        tokio::pin!(completion_stream);
 
                         // Convert CandleCompletionChunk to CandleMessageChunk and forward
                         // Handle tool calls if they occur
-                        let completion_results = completion_stream.collect();
                         let mut assistant_response = String::new();
 
                         // Track metrics for performance visibility
                         let start_time = std::time::Instant::now();
                         let mut token_count = 0u32;
 
-                        for completion_chunk in completion_results {
+                        while let Some(completion_chunk) = completion_stream.next().await {
                             let message_chunk = match completion_chunk {
                                 CandleCompletionChunk::Text(ref text) => {
                                     token_count += 1;
@@ -1856,23 +1849,17 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
 
                             // Call handler and forward its stream
                             let handler_stream = handler(&conversation, &agent);
-                            let handler_chunks = handler_stream.collect();
-                            for chunk in handler_chunks {
+                            tokio::pin!(handler_stream);
+                            while let Some(chunk) = handler_stream.next().await {
                                 let _ = sender.send(chunk);
                             }
                         }
-                        });
-                    } else {
-                        let _ = sender.send(CandleMessageChunk::Error(
-                            "Runtime unavailable for async operations".to_string(),
-                        ));
-                    }
                 }
             }
-        }))
+        })))
     }
 
-    fn chat_with_message(self, message: impl Into<String>) -> AsyncStream<CandleMessageChunk> {
+    fn chat_with_message(self, message: impl Into<String>) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>> {
         let provider = self.text_to_text_model;
         let temperature = self.temperature;
         let max_tokens = self.max_tokens;
@@ -1880,7 +1867,7 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
         let on_chunk_handler = self.on_chunk_handler;
         let user_message = message.into();
 
-        AsyncStream::with_channel(move |_sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
             let full_prompt = format!("{}\n\nUser: {}", system_prompt, user_message);
 
             let prompt = CandlePrompt::new(full_prompt);
@@ -1891,72 +1878,68 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
             };
 
             let completion_stream = provider.prompt(prompt, &params);
+            tokio::pin!(completion_stream);
 
-            // Use ystream spawn pattern instead of tokio::spawn for proper thread safety
-            let _background_stream = ystream::spawn_stream(move |stream_sender| {
-                let completion_results = completion_stream.collect();
+            // Track metrics for performance visibility
+            let start_time = std::time::Instant::now();
+            let mut token_count = 0u32;
 
-                // Track metrics for performance visibility
-                let start_time = std::time::Instant::now();
-                let mut token_count = 0u32;
+            while let Some(completion_chunk) = completion_stream.next().await {
+                let message_chunk = match completion_chunk {
+                    CandleCompletionChunk::Text(text) => {
+                        token_count += 1;
+                        CandleMessageChunk::Text(text)
+                    }
+                    CandleCompletionChunk::Complete {
+                        text,
+                        finish_reason,
+                        usage,
+                    } => {
+                        // Calculate performance metrics
+                        let elapsed = start_time.elapsed();
+                        let elapsed_secs = elapsed.as_secs_f64();
+                        let tokens_per_sec = if elapsed_secs > 0.0 {
+                            Some(token_count as f64 / elapsed_secs)
+                        } else {
+                            None
+                        };
 
-                for completion_chunk in completion_results {
-                    let message_chunk = match completion_chunk {
-                        CandleCompletionChunk::Text(text) => {
-                            token_count += 1;
-                            CandleMessageChunk::Text(text)
-                        }
-                        CandleCompletionChunk::Complete {
+                        CandleMessageChunk::Complete {
                             text,
-                            finish_reason,
-                            usage,
-                        } => {
-                            // Calculate performance metrics
-                            let elapsed = start_time.elapsed();
-                            let elapsed_secs = elapsed.as_secs_f64();
-                            let tokens_per_sec = if elapsed_secs > 0.0 {
-                                Some(token_count as f64 / elapsed_secs)
-                            } else {
-                                None
-                            };
+                            finish_reason: finish_reason.map(|f| format!("{:?}", f)),
+                            usage: usage.map(|u| format!("{:?}", u)),
+                            token_count: Some(token_count),
+                            elapsed_secs: Some(elapsed_secs),
+                            tokens_per_sec,
+                        }
+                    }
+                    CandleCompletionChunk::ToolCallStart { id, name } => {
+                        CandleMessageChunk::ToolCallStart { id, name }
+                    }
+                    CandleCompletionChunk::ToolCall {
+                        id,
+                        name,
+                        partial_input,
+                    } => CandleMessageChunk::ToolCall {
+                        id,
+                        name,
+                        partial_input,
+                    },
+                    CandleCompletionChunk::ToolCallComplete { id, name, input } => {
+                        CandleMessageChunk::ToolCallComplete { id, name, input }
+                    }
+                    CandleCompletionChunk::Error(error) => CandleMessageChunk::Error(error),
+                };
 
-                            CandleMessageChunk::Complete {
-                                text,
-                                finish_reason: finish_reason.map(|f| format!("{:?}", f)),
-                                usage: usage.map(|u| format!("{:?}", u)),
-                                token_count: Some(token_count),
-                                elapsed_secs: Some(elapsed_secs),
-                                tokens_per_sec,
-                            }
-                        }
-                        CandleCompletionChunk::ToolCallStart { id, name } => {
-                            CandleMessageChunk::ToolCallStart { id, name }
-                        }
-                        CandleCompletionChunk::ToolCall {
-                            id,
-                            name,
-                            partial_input,
-                        } => CandleMessageChunk::ToolCall {
-                            id,
-                            name,
-                            partial_input,
-                        },
-                        CandleCompletionChunk::ToolCallComplete { id, name, input } => {
-                            CandleMessageChunk::ToolCallComplete { id, name, input }
-                        }
-                        CandleCompletionChunk::Error(error) => CandleMessageChunk::Error(error),
-                    };
-
-                    // Apply chunk handler if configured (zero allocation for None)
-                    let final_chunk = if let Some(ref handler) = on_chunk_handler {
-                        handler(message_chunk)
-                    } else {
-                        message_chunk
-                    };
-                    ystream::emit!(stream_sender, final_chunk);
-                }
-            });
-        })
+                // Apply chunk handler if configured (zero allocation for None)
+                let final_chunk = if let Some(ref handler) = on_chunk_handler {
+                    handler(message_chunk)
+                } else {
+                    message_chunk
+                };
+                let _ = sender.send(final_chunk);
+            }
+        }))
     }
 }
 

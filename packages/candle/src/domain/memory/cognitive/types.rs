@@ -4,9 +4,8 @@ use std::sync::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
 
-use crossbeam_queue::SegQueue;
+use tokio::sync::{mpsc, Mutex};
 use crossbeam_skiplist::SkipMap;
-use crossbeam_utils::CachePadded;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -19,7 +18,7 @@ use crate::domain::util::unix_timestamp_nanos;
 /// Features:
 /// - Attention tracking with atomic f32 values for concurrent updates
 /// - Working memory slots with lock-free queue implementation  
-/// - Long-term memory mapping with crossbeam-skiplist for O(log n) access
+/// - Long-term memory mapping with tokio async primitives
 /// - Confidence scoring with statistical aggregation functions
 /// - Quantum signature tracking for quantum-enhanced routing and entanglement
 #[derive(Debug, Clone)]
@@ -33,10 +32,10 @@ pub struct CognitiveState {
     activation_pattern: AlignedActivationPattern,
 
     /// Atomic attention weights for concurrent updates
-    attention_weights: Arc<CachePadded<AtomicAttentionWeights>>,
+    attention_weights: Arc<AtomicAttentionWeights>,
 
-    /// Lock-free working memory queue
-    working_memory: Arc<SegQueue<WorkingMemoryItem>>,
+    /// Working memory queue
+    working_memory: Arc<(mpsc::UnboundedSender<WorkingMemoryItem>, Mutex<mpsc::UnboundedReceiver<WorkingMemoryItem>>)>,
 
     /// Long-term memory skip-list for O(log n) access
     long_term_memory: Arc<SkipMap<Uuid, CognitiveMemoryEntry>>,
@@ -47,18 +46,18 @@ pub struct CognitiveState {
     /// and memory consolidation timing. Updated via `update_temporal_window()`.
     /// Remains `#[allow(dead_code)]` until cognitive system fully activated.
     #[allow(dead_code)] // TODO: Implement in cognitive state system
-    temporal_context: Arc<CachePadded<TemporalContext>>,
+    temporal_context: Arc<TemporalContext>,
 
     /// Quantum signature for quantum-enhanced memory routing
     quantum_signature: Arc<QuantumSignature>,
 
     /// Atomic uncertainty and confidence tracking
-    uncertainty: Arc<CachePadded<AtomicF32>>,
-    confidence: Arc<CachePadded<AtomicF32>>,
-    meta_awareness: Arc<CachePadded<AtomicF32>>,
+    uncertainty: Arc<AtomicF32>,
+    confidence: Arc<AtomicF32>,
+    meta_awareness: Arc<AtomicF32>,
 
     /// Statistics for monitoring cognitive performance
-    stats: Arc<CachePadded<CognitiveStats>>,
+    stats: Arc<CognitiveStats>,
 }
 
 /// SIMD-aligned activation pattern for vectorized operations
@@ -1005,13 +1004,14 @@ impl Default for CognitiveStats {
 
 /// Default functions for `CognitiveState` fields
 #[allow(dead_code)] // TODO: Implement cognitive attention weights defaults
-fn default_attention_weights() -> Arc<CachePadded<AtomicAttentionWeights>> {
-    Arc::new(CachePadded::new(AtomicAttentionWeights::new()))
+fn default_attention_weights() -> Arc<AtomicAttentionWeights> {
+    Arc::new(AtomicAttentionWeights::new())
 }
 
 #[allow(dead_code)] // TODO: Implement working memory defaults
-fn default_working_memory() -> Arc<SegQueue<WorkingMemoryItem>> {
-    Arc::new(SegQueue::new())
+fn default_working_memory() -> Arc<(mpsc::UnboundedSender<WorkingMemoryItem>, Mutex<mpsc::UnboundedReceiver<WorkingMemoryItem>>)> {
+    let (sender, receiver) = mpsc::unbounded_channel();
+    Arc::new((sender, Mutex::new(receiver)))
 }
 
 #[allow(dead_code)] // TODO: Implement long term memory defaults
@@ -1020,28 +1020,28 @@ fn default_long_term_memory() -> Arc<SkipMap<Uuid, CognitiveMemoryEntry>> {
 }
 
 #[allow(dead_code)] // TODO: Implement temporal context defaults
-fn default_temporal_context() -> Arc<CachePadded<TemporalContext>> {
-    Arc::new(CachePadded::new(TemporalContext::default()))
+fn default_temporal_context() -> Arc<TemporalContext> {
+    Arc::new(TemporalContext::default())
 }
 
 #[allow(dead_code)] // TODO: Implement uncertainty defaults
-fn default_uncertainty() -> Arc<CachePadded<AtomicF32>> {
-    Arc::new(CachePadded::new(AtomicF32::new(0.5)))
+fn default_uncertainty() -> Arc<AtomicF32> {
+    Arc::new(AtomicF32::new(0.5))
 }
 
 #[allow(dead_code)] // TODO: Implement confidence defaults
-fn default_confidence() -> Arc<CachePadded<AtomicF32>> {
-    Arc::new(CachePadded::new(AtomicF32::new(0.5)))
+fn default_confidence() -> Arc<AtomicF32> {
+    Arc::new(AtomicF32::new(0.5))
 }
 
 #[allow(dead_code)] // TODO: Implement meta awareness defaults
-fn default_meta_awareness() -> Arc<CachePadded<AtomicF32>> {
-    Arc::new(CachePadded::new(AtomicF32::new(0.5)))
+fn default_meta_awareness() -> Arc<AtomicF32> {
+    Arc::new(AtomicF32::new(0.5))
 }
 
 #[allow(dead_code)] // TODO: Implement cognitive stats defaults
-fn default_cognitive_stats() -> Arc<CachePadded<CognitiveStats>> {
-    Arc::new(CachePadded::new(CognitiveStats::new()))
+fn default_cognitive_stats() -> Arc<CognitiveStats> {
+    Arc::new(CognitiveStats::new())
 }
 
 impl CognitiveState {
@@ -1063,19 +1063,20 @@ impl CognitiveState {
         }
     }
 
-    /// Add item to working memory with lock-free operation
+    /// Add item to working memory
     #[inline]
     pub fn add_working_memory(&self, content: impl Into<Arc<str>>, activation: f32, ttl: Duration) {
         let item = WorkingMemoryItem::new(content, activation, ttl);
-        self.working_memory.push(item);
+        let _ = self.working_memory.0.send(item);
         self.stats.record_working_memory_access();
     }
 
     /// Get item from working memory with automatic cleanup
     #[must_use]
-    pub fn get_working_memory(&self) -> Option<WorkingMemoryItem> {
+    pub async fn get_working_memory(&self) -> Option<WorkingMemoryItem> {
         // Clean up expired items
-        while let Some(item) = self.working_memory.pop() {
+        let mut rx = self.working_memory.1.lock().await;
+        while let Some(item) = rx.recv().await {
             if !item.is_expired() {
                 self.stats.record_working_memory_access();
                 return Some(item);
@@ -1415,8 +1416,7 @@ impl CognitiveState {
     pub fn update_temporal_window(&mut self) {
         // Get mutable access to temporal context
         let temporal_ctx = Arc::make_mut(&mut self.temporal_context);
-        let ctx_mut = &mut **temporal_ctx;
-        ctx_mut.slide_window();
+        temporal_ctx.slide_window();
     }
 
     /// Add causal link between memories with temporal awareness
@@ -1443,8 +1443,7 @@ impl CognitiveState {
 
         // Add using existing infrastructure
         let temporal_ctx_mut = Arc::make_mut(&mut self.temporal_context);
-        let ctx_mut = &mut **temporal_ctx_mut;
-        ctx_mut.add_causal_dependency(link);
+        temporal_ctx_mut.add_causal_dependency(link);
     }
 }
 
@@ -1472,6 +1471,8 @@ pub enum CognitiveError {
     LockPoisoned(String),
     #[error("Dimension mismatch: expected {expected}, got {got}")]
     DimensionMismatch { expected: usize, got: usize },
+    #[error("Operation failed: {0}")]
+    OperationFailed(String),
 }
 
 /// Result type for cognitive operations
@@ -1491,7 +1492,7 @@ pub struct CognitiveMemory {
     /// Memory storage for cognitive patterns
     pattern_storage: Arc<SkipMap<Uuid, CognitivePattern>>,
     /// Performance metrics
-    metrics: Arc<CachePadded<CognitiveMetrics>>,
+    metrics: Arc<CognitiveMetrics>,
     /// Configuration settings
     config: CognitiveMemoryConfig,
 }
@@ -1509,7 +1510,7 @@ pub struct CognitiveProcessor {
     #[allow(dead_code)] // TODO: Implement cognitive processor configuration usage
     config: CognitiveProcessorConfig,
     /// Current processing state
-    state: Arc<CachePadded<ProcessingState>>,
+    state: Arc<ProcessingState>,
     /// Pattern matcher for cognitive patterns
     pattern_matcher: Arc<PatternMatcher>,
     /// Decision engine for cognitive decisions
@@ -1599,8 +1600,10 @@ pub struct PatternMatcher {
 pub struct DecisionEngine {
     /// Decision threshold
     threshold: f32,
-    /// Decision history
-    history: Arc<SegQueue<Decision>>,
+    /// Decision history sender
+    history_tx: mpsc::UnboundedSender<Decision>,
+    /// Decision history receiver
+    history_rx: Arc<Mutex<mpsc::UnboundedReceiver<Decision>>>,
 }
 
 /// Represents a cognitive decision
@@ -1636,7 +1639,7 @@ impl CognitiveMemory {
         Self {
             state: Arc::new(CognitiveState::new()),
             pattern_storage: Arc::new(SkipMap::new()),
-            metrics: Arc::new(CachePadded::new(CognitiveMetrics::new())),
+            metrics: Arc::new(CognitiveMetrics::new()),
             config,
         }
     }
@@ -1688,7 +1691,7 @@ impl CognitiveProcessor {
     pub fn new(config: CognitiveProcessorConfig) -> Self {
         Self {
             config,
-            state: Arc::new(CachePadded::new(ProcessingState::new())),
+            state: Arc::new(ProcessingState::new()),
             pattern_matcher: Arc::new(PatternMatcher::new(0.8)),
             decision_engine: Arc::new(DecisionEngine::new(0.7)),
         }
@@ -1933,9 +1936,11 @@ impl DecisionEngine {
     /// Create new decision engine
     #[must_use]
     pub fn new(threshold: f32) -> Self {
+        let (history_tx, history_rx) = mpsc::unbounded_channel();
         Self {
             threshold,
-            history: Arc::new(SegQueue::new()),
+            history_tx,
+            history_rx: Arc::new(Mutex::new(history_rx)),
         }
     }
 
@@ -1943,7 +1948,7 @@ impl DecisionEngine {
     ///
     /// # Errors
     ///
-    /// Currently infallible - returns Ok with decision based on pattern strength
+    /// Returns `CognitiveError::Other` if decision history channel is closed
     pub fn make_decision(&self, pattern_strength: f32) -> CognitiveResult<Decision> {
         let decision = Decision {
             id: Uuid::new_v4(),
@@ -1958,7 +1963,9 @@ impl DecisionEngine {
             },
         };
 
-        self.history.push(decision.clone());
+        self.history_tx.send(decision.clone()).map_err(|e| {
+            CognitiveError::OperationFailed(format!("Decision history channel closed: {}", e))
+        })?;
         Ok(decision)
     }
 }

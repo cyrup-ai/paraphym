@@ -2,7 +2,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime};
 
-use crossbeam_utils::CachePadded;
 use serde::{Deserialize, Serialize};
 
 use super::super::primitives::types::{MemoryError, MemoryResult};
@@ -257,15 +256,15 @@ impl HealthCheckConfig {
 #[derive(Debug)]
 pub struct DatabaseHealthStatus {
     /// Current health status
-    is_healthy: CachePadded<AtomicBool>,
+    is_healthy: AtomicBool,
     /// Consecutive failure count
-    failure_count: CachePadded<AtomicUsize>,
+    failure_count: AtomicUsize,
     /// Consecutive success count
-    success_count: CachePadded<AtomicUsize>,
+    success_count: AtomicUsize,
     /// Last health check timestamp
-    last_check_nanos: CachePadded<AtomicU64>,
+    last_check_nanos: AtomicU64,
     /// Total health checks performed
-    total_checks: CachePadded<AtomicUsize>,
+    total_checks: AtomicUsize,
 }
 
 impl DatabaseHealthStatus {
@@ -274,11 +273,11 @@ impl DatabaseHealthStatus {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            is_healthy: CachePadded::new(AtomicBool::new(true)),
-            failure_count: CachePadded::new(AtomicUsize::new(0)),
-            success_count: CachePadded::new(AtomicUsize::new(0)),
-            last_check_nanos: CachePadded::new(AtomicU64::new(0)),
-            total_checks: CachePadded::new(AtomicUsize::new(0)),
+            is_healthy: AtomicBool::new(true),
+            failure_count: AtomicUsize::new(0),
+            success_count: AtomicUsize::new(0),
+            last_check_nanos: AtomicU64::new(0),
+            total_checks: AtomicUsize::new(0),
         }
     }
 

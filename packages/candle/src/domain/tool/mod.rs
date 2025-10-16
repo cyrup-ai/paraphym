@@ -8,7 +8,7 @@
 //! Key components:
 //! - `SweetMcpRouter`: Tool routing and execution via WASM/Cylo
 //! - OpenAI-style function calling experience
-//! - Full `ystream::AsyncStream` compatibility
+//! - Full `tokio_stream::Stream` compatibility
 
 pub mod router;
 

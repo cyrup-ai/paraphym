@@ -4,6 +4,7 @@
 //! architecture. The engine routes requests to appropriate AI providers using atomic
 //! operations and borrowed data to eliminate allocations in hot paths.
 
+use std::pin::Pin;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicU64, Ordering},
@@ -36,14 +37,6 @@ pub struct CompletionParams {
     pub history: Vec<String>,
     pub tools: Vec<String>,
     pub metadata: Option<String>,
-}
-
-/// Handle errors in streaming context without panicking
-macro_rules! handle_error {
-    ($error:expr, $context:literal) => {
-        log::error!("Streaming error in {}: {}", $context, $error)
-        // Continue processing instead of returning error
-    };
 }
 
 /// Engine-specific error types with minimal allocations
@@ -571,12 +564,12 @@ impl Engine {
     pub fn process_completion_stream(
         &self,
         request: CompletionRequest<'_>,
-    ) -> impl Stream<Item = CompletionResponse<'static>> {
+    ) -> Pin<Box<dyn Stream<Item = CompletionResponse<'static>> + Send>> {
         // Validate request first
         if let Err(e) = request.validate() {
-            return async_stream::spawn_stream(move |_tx| async move {
+            return Box::pin(async_stream::spawn_stream::<CompletionResponse<'static>, _, _>(move |_tx: tokio::sync::mpsc::UnboundedSender<CompletionResponse<'static>>| async move {
                 log::error!("process_completion_stream validation: {}", e);
-            });
+            }));
         }
 
         // Atomic operations for metrics (lock-free)
@@ -604,7 +597,7 @@ impl Engine {
         let tools: Vec<String> = request.tools.iter().map(|s| s.to_string()).collect();
         let metadata = request.metadata.map(|s| s.to_string());
 
-        async_stream::spawn_stream(move |tx| async move {
+        Box::pin(async_stream::spawn_stream::<CompletionResponse<'static>, _, _>(move |tx: tokio::sync::mpsc::UnboundedSender<CompletionResponse<'static>>| async move {
             let params = CompletionParams {
                 request_id,
                 registry_key,
@@ -633,7 +626,7 @@ impl Engine {
                 tokens_per_second: Some(0.0),
             };
             let _ = tx.send(error_response);
-        })
+        }))
     }
 
     /// Get streaming completion results (convenience method)

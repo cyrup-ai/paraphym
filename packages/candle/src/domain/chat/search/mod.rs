@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use std::pin::Pin;
-use tokio_stream::Stream;
+use tokio_stream::{Stream, StreamExt};
 
 // Submodules
 pub mod algorithms;
@@ -67,26 +67,61 @@ impl ChatSearcher {
 
         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             let results = match query_operator {
-                QueryOperator::And => self_clone
-                    .index
-                    .search_and_stream(&query_terms, query_fuzzy_matching)
-                    .collect(),
-                QueryOperator::Or => self_clone
-                    .index
-                    .search_or_stream(&query_terms, query_fuzzy_matching)
-                    .collect(),
-                QueryOperator::Not => self_clone
-                    .index
-                    .search_not_stream(&query_terms, query_fuzzy_matching)
-                    .collect(),
-                QueryOperator::Phrase => self_clone
-                    .index
-                    .search_phrase_stream(&query_terms, query_fuzzy_matching)
-                    .collect(),
-                QueryOperator::Proximity { distance } => self_clone
-                    .index
-                    .search_proximity_stream(&query_terms, distance, query_fuzzy_matching)
-                    .collect(),
+                QueryOperator::And => {
+                    let stream = self_clone
+                        .index
+                        .search_and_stream(&query_terms, query_fuzzy_matching);
+                    tokio::pin!(stream);
+                    let mut vec = Vec::new();
+                    while let Some(result) = stream.next().await {
+                        vec.push(result);
+                    }
+                    vec
+                }
+                QueryOperator::Or => {
+                    let stream = self_clone
+                        .index
+                        .search_or_stream(&query_terms, query_fuzzy_matching);
+                    tokio::pin!(stream);
+                    let mut vec = Vec::new();
+                    while let Some(result) = stream.next().await {
+                        vec.push(result);
+                    }
+                    vec
+                }
+                QueryOperator::Not => {
+                    let stream = self_clone
+                        .index
+                        .search_not_stream(&query_terms, query_fuzzy_matching);
+                    tokio::pin!(stream);
+                    let mut vec = Vec::new();
+                    while let Some(result) = stream.next().await {
+                        vec.push(result);
+                    }
+                    vec
+                }
+                QueryOperator::Phrase => {
+                    let stream = self_clone
+                        .index
+                        .search_phrase_stream(&query_terms, query_fuzzy_matching);
+                    tokio::pin!(stream);
+                    let mut vec = Vec::new();
+                    while let Some(result) = stream.next().await {
+                        vec.push(result);
+                    }
+                    vec
+                }
+                QueryOperator::Proximity { distance } => {
+                    let stream = self_clone
+                        .index
+                        .search_proximity_stream(&query_terms, distance, query_fuzzy_matching);
+                    tokio::pin!(stream);
+                    let mut vec = Vec::new();
+                    while let Some(result) = stream.next().await {
+                        vec.push(result);
+                    }
+                    vec
+                }
             };
 
             // Apply enhanced filtering, sorting and pagination
@@ -228,14 +263,19 @@ impl ChatSearcher {
         // This will be enhanced with atomic counters for thread-safe updates
     }
 
-    /// Search messages (blocking, collects all results)
+    /// Search messages (collects all results asynchronously)
     ///
     /// # Errors
     ///
     /// Returns `SearchError` if search execution fails
-    pub fn search(&self, query: SearchQuery) -> Result<Vec<SearchResult>, SearchError> {
+    pub async fn search(&self, query: SearchQuery) -> Result<Vec<SearchResult>, SearchError> {
         let stream = self.search_stream(query);
-        Ok(stream.collect())
+        tokio::pin!(stream);
+        let mut results = Vec::new();
+        while let Some(result) = stream.next().await {
+            results.push(result);
+        }
+        Ok(results)
     }
 
     /// Add message to search index
@@ -243,8 +283,8 @@ impl ChatSearcher {
     /// # Errors
     ///
     /// Returns `SearchError` if message cannot be added to the index
-    pub fn add_message(&self, message: SearchChatMessage) -> Result<(), SearchError> {
-        self.index.add_message(message)
+    pub async fn add_message(&self, message: SearchChatMessage) -> Result<(), SearchError> {
+        self.index.add_message(message).await
     }
 
     /// Add message to search index (streaming)

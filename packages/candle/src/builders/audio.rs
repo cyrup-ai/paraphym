@@ -3,7 +3,8 @@
 //! All audio construction logic and builder patterns with zero allocation.
 
 use std::collections::HashMap;
-use ystream::AsyncStream;
+use tokio_stream::Stream;
+use tokio_stream::wrappers::UnboundedReceiverStream;
 use crate::domain::audio::{CandleAudio as Audio, CandleAudioMediaType as AudioMediaType, CandleContentFormat as ContentFormat};
 use crate::domain::chunk::{CandleAudioFormat as AudioFormat, CandleSpeechChunk as SpeechChunk, CandleTranscriptionChunk as TranscriptionChunk};
 
@@ -34,10 +35,10 @@ pub trait AudioBuilder: Sized {
         F: FnMut(TranscriptionChunk) -> TranscriptionChunk + Send + 'static;
     
     /// Decode audio - EXACT syntax: .decode()
-    fn decode(self) -> impl AsyncStream<Item = TranscriptionChunk>;
+    fn decode(self) -> impl Stream<Item = TranscriptionChunk>;
     
     /// Stream audio - EXACT syntax: .stream()
-    fn stream(self) -> impl AsyncStream<Item = SpeechChunk>;
+    fn stream(self) -> impl Stream<Item = SpeechChunk>;
 }
 
 /// Hidden implementation struct - zero-allocation builder state with zero Box<dyn> usage
@@ -150,7 +151,7 @@ where
     }
     
     /// Decode audio - EXACT syntax: .decode()
-    fn decode(self) -> impl AsyncStream<Item = TranscriptionChunk> {
+    fn decode(self) -> impl Stream<Item = TranscriptionChunk> {
         // Create transcription chunks that can be collected into a Transcription
         let chunk = TranscriptionChunk {
             text: format!("Transcribed audio from: {}", self.data),
@@ -163,11 +164,11 @@ where
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let _ = tx.send(chunk);
-        AsyncStream::new(rx)
+        UnboundedReceiverStream::new(rx)
     }
     
     /// Stream audio - EXACT syntax: .stream()
-    fn stream(self) -> impl AsyncStream<Item = SpeechChunk> {
+    fn stream(self) -> impl Stream<Item = SpeechChunk> {
         // Convert audio data to bytes and create proper SpeechChunk
         let audio_data = self.data.as_bytes().to_vec();
         let format = match self.media_type.unwrap_or(AudioMediaType::MP3) {
@@ -189,6 +190,6 @@ where
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let _ = tx.send(chunk);
-        AsyncStream::new(rx)
+        UnboundedReceiverStream::new(rx)
     }
 }

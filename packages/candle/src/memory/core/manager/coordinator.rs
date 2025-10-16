@@ -1152,7 +1152,7 @@ impl MemoryCoordinator {
             version: 1,
         };
         domain_node.metadata =
-            std::sync::Arc::new(crossbeam_utils::CachePadded::new(domain_metadata));
+            std::sync::Arc::new(domain_metadata);
 
         Ok(domain_node)
     }

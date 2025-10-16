@@ -101,7 +101,7 @@ impl Loader<PathBuf> for LoaderImpl<PathBuf> {
         let recursive = self.recursive;
         let filter_fn = self.filter_fn.clone();
         
-        ystream::spawn_task(move || {
+        tokio::spawn(async move {
             let mut results: Vec<PathBuf> = match pattern {
                 Some(p) => {
                     let glob_pattern = if recursive && !p.contains("**") {
@@ -179,7 +179,7 @@ impl Loader<PathBuf> for LoaderImpl<PathBuf> {
         U: Send + Sync + fmt::Debug + Clone + 'static + Send + 'static,
     {
         let load_task = self.load_all();
-        ystream::spawn_task(move || {
+        tokio::spawn(async move {
             let paths = load_task.collect();
             let results: Vec<U> = match paths {
                 ZeroOneOrMany::None => Vec::new(),

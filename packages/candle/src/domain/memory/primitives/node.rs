@@ -4,7 +4,6 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::SystemTime;
 
 use crossbeam_skiplist::SkipMap;
-use crossbeam_utils::CachePadded;
 use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
     de::{MapAccess, Visitor},
@@ -22,9 +21,8 @@ use crate::domain::util::unix_timestamp_nanos;
 /// Features:
 /// - UUID-based node identification with inline generation
 /// - SIMD-aligned embedding vectors for AVX2/NEON optimization
-/// - `CachePadded` metadata structure to prevent false sharing
 /// - `AtomicU64` for concurrent access statistics and version tracking
-/// - Lock-free relationship tracking with crossbeam-skiplist
+/// tokio async tasks-skiplist
 #[derive(Debug, Clone)]
 pub struct MemoryNode {
     /// Base memory with core data
@@ -34,13 +32,13 @@ pub struct MemoryNode {
     pub embedding: Option<AlignedEmbedding>,
 
     /// Cache-padded metadata to prevent false sharing
-    pub metadata: Arc<CachePadded<MemoryNodeMetadata>>,
+    pub metadata: Arc<MemoryNodeMetadata>,
 
     /// Lock-free relationship tracking with skip-list
     pub relationships: Arc<SkipMap<Uuid, MemoryRelationshipEntry>>,
 
     /// Atomic access statistics for concurrent monitoring
-    pub stats: Arc<CachePadded<MemoryNodeStats>>,
+    pub stats: Arc<MemoryNodeStats>,
 }
 
 /// SIMD-aligned embedding vector for optimal performance
@@ -303,9 +301,9 @@ impl MemoryNode {
         Self {
             base_memory,
             embedding: None,
-            metadata: Arc::new(CachePadded::new(MemoryNodeMetadata::new())),
+            metadata: Arc::new(MemoryNodeMetadata::new()),
             relationships: Arc::new(SkipMap::new()),
-            stats: Arc::new(CachePadded::new(MemoryNodeStats::new())),
+            stats: Arc::new(MemoryNodeStats::new()),
         }
     }
 
@@ -317,9 +315,9 @@ impl MemoryNode {
         Self {
             base_memory,
             embedding: None,
-            metadata: Arc::new(CachePadded::new(MemoryNodeMetadata::new())),
+            metadata: Arc::new(MemoryNodeMetadata::new()),
             relationships: Arc::new(SkipMap::new()),
-            stats: Arc::new(CachePadded::new(MemoryNodeStats::new())),
+            stats: Arc::new(MemoryNodeStats::new()),
         }
     }
 
@@ -410,11 +408,11 @@ impl MemoryNode {
         self.stats.record_write();
 
         // Update metadata atomically by cloning and replacing
-        let mut new_metadata = (**self.metadata).clone();
+        let mut new_metadata = (*self.metadata).clone();
         new_metadata.importance = importance;
         new_metadata.version += 1;
 
-        self.metadata = Arc::new(CachePadded::new(new_metadata));
+        self.metadata = Arc::new(new_metadata);
         Ok(())
     }
 
@@ -422,30 +420,30 @@ impl MemoryNode {
     pub fn add_keyword(&mut self, keyword: impl Into<Arc<str>>) {
         self.stats.record_write();
 
-        let mut new_metadata = (**self.metadata).clone();
+        let mut new_metadata = (*self.metadata).clone();
         new_metadata.add_keyword(keyword);
 
-        self.metadata = Arc::new(CachePadded::new(new_metadata));
+        self.metadata = Arc::new(new_metadata);
     }
 
     /// Add tag to metadata
     pub fn add_tag(&mut self, tag: impl Into<Arc<str>>) {
         self.stats.record_write();
 
-        let mut new_metadata = (**self.metadata).clone();
+        let mut new_metadata = (*self.metadata).clone();
         new_metadata.add_tag(tag);
 
-        self.metadata = Arc::new(CachePadded::new(new_metadata));
+        self.metadata = Arc::new(new_metadata);
     }
 
     /// Set custom metadata value
     pub fn set_custom_metadata(&mut self, key: impl Into<Arc<str>>, value: serde_json::Value) {
         self.stats.record_write();
 
-        let mut new_metadata = (**self.metadata).clone();
+        let mut new_metadata = (*self.metadata).clone();
         new_metadata.set_custom(key, value);
 
-        self.metadata = Arc::new(CachePadded::new(new_metadata));
+        self.metadata = Arc::new(new_metadata);
     }
 
     /// Add relationship with lock-free skip-list
@@ -566,7 +564,7 @@ impl MemoryNode {
         }
 
         // 6. Replace metadata Arc (cheap allocation, simpler than cloning and clearing)
-        self.metadata = Arc::new(CachePadded::new(MemoryNodeMetadata::new()));
+        self.metadata = Arc::new(MemoryNodeMetadata::new());
 
         // 7. Clear relationships skiplist
         self.relationships.clear();
@@ -646,9 +644,9 @@ impl<'de> Deserialize<'de> for MemoryNode {
                 Ok(MemoryNode {
                     base_memory,
                     embedding,
-                    metadata: Arc::new(CachePadded::new(MemoryNodeMetadata::new())),
+                    metadata: Arc::new(MemoryNodeMetadata::new()),
                     relationships: Arc::new(SkipMap::new()),
-                    stats: Arc::new(CachePadded::new(MemoryNodeStats::new())),
+                    stats: Arc::new(MemoryNodeStats::new()),
                 })
             }
         }

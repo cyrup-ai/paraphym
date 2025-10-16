@@ -8,7 +8,7 @@
 //! - **5 global pool instances** (one per capability trait)
 //! - **Worker threads** that own models exclusively (no locking)
 //! - **Maintenance thread** that evicts idle workers to free memory
-//! - **Crossbeam channels** for zero-allocation request routing
+//! - **Tokio mpsc channels** for zero-allocation request routing
 //!
 //! ## The 5 Global Pools
 //!
@@ -79,7 +79,7 @@
 //! When a request arrives:
 //!
 //! 1. Select LRU worker (least recently used)
-//! 2. Send request via crossbeam channel
+//! 2. Send request via tokio mpsc channel
 //! 3. Worker processes request (exclusive model ownership)
 //! 4. Update metrics: `pending_requests--`, `last_used = now()`
 //!//! ### Idle Eviction (maintenance thread)

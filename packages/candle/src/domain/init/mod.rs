@@ -3,6 +3,7 @@
 pub mod globals;
 
 use std::sync::{Arc, LazyLock};
+use tokio::sync::{mpsc, Mutex};
 
 use crate::domain::memory::MemoryConfig;
 use crate::memory::core::manager::surreal::SurrealDBMemoryManager;
@@ -83,15 +84,20 @@ pub fn get_default_memory_config() -> MemoryConfig {
 /// Memory service connection pool for efficient resource management
 ///
 /// Uses Arc<SurrealDBMemoryManager> for shared ownership across threads
-static MEMORY_SERVICE_POOL: LazyLock<crossbeam_queue::SegQueue<Arc<SurrealDBMemoryManager>>> =
-    LazyLock::new(crossbeam_queue::SegQueue::new);
+static MEMORY_SERVICE_POOL: LazyLock<(mpsc::UnboundedSender<Arc<SurrealDBMemoryManager>>, Arc<Mutex<mpsc::UnboundedReceiver<Arc<SurrealDBMemoryManager>>>>)> =
+    LazyLock::new(|| {
+        let (sender, receiver) = mpsc::unbounded_channel();
+        (sender, Arc::new(Mutex::new(receiver)))
+    });
 
 /// Get a memory manager from the connection pool
 ///
 /// # Returns
 /// Shared reference to memory manager service, or None if pool is empty
-pub fn get_from_pool() -> Option<Arc<SurrealDBMemoryManager>> {
-    MEMORY_SERVICE_POOL.pop()
+pub async fn get_from_pool() -> Option<Arc<SurrealDBMemoryManager>> {
+    let (_sender, receiver) = &*MEMORY_SERVICE_POOL;
+    let mut rx = receiver.lock().await;
+    rx.recv().await
 }
 
 /// Return a memory manager to the connection pool
@@ -99,15 +105,16 @@ pub fn get_from_pool() -> Option<Arc<SurrealDBMemoryManager>> {
 /// # Arguments
 /// * `memory` - Memory manager service to return to pool
 pub fn return_to_pool(memory: Arc<SurrealDBMemoryManager>) {
-    MEMORY_SERVICE_POOL.push(memory);
+    let (sender, _receiver) = &*MEMORY_SERVICE_POOL;
+    let _ = sender.send(memory);
 }
 
 /// Get the current connection pool size
 ///
 /// # Returns
-/// Number of available managers in the pool
+/// Number of available managers in the pool (note: tokio mpsc doesn't expose queue length)
 pub fn pool_size() -> usize {
-    MEMORY_SERVICE_POOL.len()
+    0 // tokio mpsc channels don't expose queue length
 }
 
 /// Initialize the connection pool with pre-configured managers

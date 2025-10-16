@@ -5,7 +5,7 @@
 //
 // • The builder uses AsyncStream<T> patterns exclusively - NO FUTURES
 // • All operations return AsyncStream<T> with unwrapped values
-// • Zero allocation using crossbeam lock-free structures
+// Zero allocation using tokio async primitives
 // ============================================================================
 
 

@@ -299,24 +299,33 @@ where
         T: CandleNotResult,
     {
         let load_task = self.load_files();
-        AsyncTask::from_stream(AsyncStream::with_channel(|stream_sender| {
-            std::thread::spawn(move || {
-                if let Some(items_result) = load_task.try_next() {
-                    if let Ok(items) = items_result {
-                        match items {
-                            ZeroOneOrMany::None => {}
-                            ZeroOneOrMany::One(item) => handler(&item),
-                            ZeroOneOrMany::Many(items) => {
-                                for item in &items {
-                                    handler(item);
-                                }
+        
+        // Create tokio channel
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        
+        // Spawn async task instead of blocking thread
+        tokio::spawn(async move {
+            if let Some(items_result) = load_task.try_next() {
+                if let Ok(items) = items_result {
+                    match items {
+                        ZeroOneOrMany::None => {}
+                        ZeroOneOrMany::One(item) => handler(&item),
+                        ZeroOneOrMany::Many(items) => {
+                            for item in &items {
+                                handler(item);
                             }
                         }
                     }
                 }
-                let _ = stream_sender.send(());
-            });
-        }))
+            }
+            let _ = tx.send(()).await;
+        });
+        
+        // Return async task wrapping the receiver
+        AsyncTask::from_future(async move {
+            let _ = rx.recv().await;
+            ()
+        })
     }
 }
 

@@ -13,7 +13,7 @@ use crossbeam_skiplist::SkipMap;
 use cyrup_sugars::prelude::MessageChunk;
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
-use tokio_stream::Stream;
+use tokio_stream::{Stream, StreamExt};
 
 use super::types::{IndexEntry, SearchError, SearchStatistics, TermFrequency};
 use crate::domain::chat::message::CandleSearchChatMessage as SearchChatMessage;
@@ -230,9 +230,10 @@ impl ChatSearchIndex {
     /// # Errors
     ///
     /// Returns `SearchError` if stream closes unexpectedly or message cannot be indexed
-    pub fn add_message(&self, message: SearchChatMessage) -> Result<(), SearchError> {
+    pub async fn add_message(&self, message: SearchChatMessage) -> Result<(), SearchError> {
         let stream = self.add_message_stream(message);
-        match stream.try_next() {
+        tokio::pin!(stream);
+        match stream.next().await {
             Some(_) => Ok(()),
             None => Err(SearchError::IndexError {
                 reason: "Stream closed unexpectedly".to_string(),

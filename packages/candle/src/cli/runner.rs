@@ -52,6 +52,8 @@ impl CliRunner {
 
     /// Run the CLI application using fluent API
     pub async fn run(&mut self) -> Result<()> {
+        use tokio_stream::StreamExt;
+        
         // Initialize pool maintenance thread (lazy init)
         crate::pool::init_maintenance();
 
@@ -206,26 +208,25 @@ You are a master at refactoring code, remembering to check for code that ALREADY
                         agent.chat(CandleChatLoop::UserPrompt("".to_string()))
                     }
                     InputHandlerResult::Chat(message) => {
-                        use ystream::{AsyncStream, emit, spawn_task};
+                        use tokio_stream::StreamExt;
 
                         let agent_clone = agent.clone();
 
-                        AsyncStream::with_channel(move |sender| {
-                            spawn_task(async move || {
-                                // Async resolve without blocking
-                                let resolved =
-                                    resolve_input(&message).await.unwrap_or(message.clone());
+                        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
+                            // Async resolve without blocking
+                            let resolved =
+                                resolve_input(&message).await.unwrap_or(message.clone());
 
-                                // Get chat stream with resolved input
-                                let chat_stream =
-                                    agent_clone.chat(CandleChatLoop::UserPrompt(resolved));
+                            // Get chat stream with resolved input
+                            let chat_stream =
+                                agent_clone.chat(CandleChatLoop::UserPrompt(resolved));
+                            tokio::pin!(chat_stream);
 
-                                // Forward all chunks
-                                while let Some(chunk) = chat_stream.try_next() {
-                                    emit!(sender, chunk);
-                                }
-                            });
-                        })
+                            // Forward all chunks
+                            while let Some(chunk) = chat_stream.next().await {
+                                let _ = sender.send(chunk);
+                            }
+                        }))
                     }
                 }
             },
@@ -233,6 +234,7 @@ You are a master at refactoring code, remembering to check for code that ALREADY
 
         // Start conversation
         let stream = agent.chat(|_| CandleChatLoop::UserPrompt("Ready to chat!".to_string()))?;
+        tokio::pin!(stream);
 
         // Consume stream - loop happens via on_conversation_turn recursion
         print!("Assistant: ");

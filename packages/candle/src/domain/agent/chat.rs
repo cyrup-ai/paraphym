@@ -7,8 +7,6 @@ use thiserror::Error;
 
 use crate::domain::memory::{Error as MemoryError, MemoryToolError};
 use crate::memory::core::MemoryNode;
-use std::pin::Pin;
-use tokio_stream::Stream;
 
 /// Maximum number of relevant memories for context injection
 const MAX_RELEVANT_MEMORIES: usize = 10;

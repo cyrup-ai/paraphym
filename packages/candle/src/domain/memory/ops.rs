@@ -18,7 +18,6 @@
 // Removed unused import: arc_swap::ArcSwap
 // Removed unused import: arrayvec::ArrayVec
 use atomic_counter::{AtomicCounter, RelaxedCounter};
-// Removed unused import: crossbeam_queue::ArrayQueue
 // Removed unused import: futures::stream::StreamExt
 // Removed unused import: jemalloc_sys as jemalloc
 // Removed unused imports: Mmap, MmapOptions

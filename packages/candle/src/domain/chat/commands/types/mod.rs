@@ -120,7 +120,7 @@ pub mod parameters; // Parameter definitions and validation
 /// Uses zero-allocation patterns and lock-free data structures
 pub trait DomainCommandExecutor: Send + Sync + 'static {
     /// Execute command and return stream of results - zero allocation where possible
-    fn execute(&self, context: &CommandExecutionContext) -> AsyncStream<CommandExecutionResult>;
+    fn execute(&self, context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>>;
 
     /// Get command metadata - returns borrowed data to avoid allocation
     fn get_info(&self) -> &CommandInfo;
@@ -186,7 +186,7 @@ impl DomainCommandExecutorEnum {
     pub fn execute(
         &self,
         context: &CommandExecutionContext,
-    ) -> AsyncStream<CommandExecutionResult> {
+    ) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
         match self {
             Self::Help(executor) => executor.execute(context),
             Self::Clear(executor) => executor.execute(context),
@@ -660,13 +660,13 @@ pub struct DomainChatExecutor {
 
 impl DomainCommandExecutor for DomainHelpExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> AsyncStream<CommandExecutionResult> {
-        AsyncStream::with_channel(|sender| {
+    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Success(
                 "Domain help command executed successfully".to_string(),
             );
             let _ = sender.send(result);
-        })
+        }))
     }
 
     #[inline]
@@ -687,13 +687,13 @@ impl DomainCommandExecutor for DomainHelpExecutor {
 
 impl DomainCommandExecutor for DomainClearExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> AsyncStream<CommandExecutionResult> {
-        AsyncStream::with_channel(|sender| {
+    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Success(
                 "Domain clear command executed successfully".to_string(),
             );
             let _ = sender.send(result);
-        })
+        }))
     }
 
     #[inline]
@@ -719,8 +719,8 @@ impl DomainCommandExecutor for DomainClearExecutor {
 
 impl DomainCommandExecutor for DomainExportExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> AsyncStream<CommandExecutionResult> {
-        AsyncStream::with_channel(|sender| {
+    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             // Export domain data with zero-allocation streaming pattern
             let result = CommandExecutionResult::Data(serde_json::json!({
                 "export_type": "domain",
@@ -731,7 +731,7 @@ impl DomainCommandExecutor for DomainExportExecutor {
                     .unwrap_or(0)
             }));
             let _ = sender.send(result);
-        })
+        }))
     }
 
     #[inline]
@@ -752,13 +752,13 @@ impl DomainCommandExecutor for DomainExportExecutor {
 
 impl DomainCommandExecutor for DomainConfigExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> AsyncStream<CommandExecutionResult> {
-        AsyncStream::with_channel(|sender| {
+    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Success(
                 "Domain configuration updated successfully".to_string(),
             );
             let _ = sender.send(result);
-        })
+        }))
     }
 
     #[inline]
@@ -779,13 +779,13 @@ impl DomainCommandExecutor for DomainConfigExecutor {
 
 impl DomainCommandExecutor for DomainTemplateExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> AsyncStream<CommandExecutionResult> {
-        AsyncStream::with_channel(|sender| {
+    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Success(
                 "Domain template processed successfully".to_string(),
             );
             let _ = sender.send(result);
-        })
+        }))
     }
 
     #[inline]
@@ -806,12 +806,12 @@ impl DomainCommandExecutor for DomainTemplateExecutor {
 
 impl DomainCommandExecutor for DomainMacroExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> AsyncStream<CommandExecutionResult> {
-        AsyncStream::with_channel(|sender| {
+    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result =
                 CommandExecutionResult::Success("Domain macro executed successfully".to_string());
             let _ = sender.send(result);
-        })
+        }))
     }
 
     #[inline]
@@ -832,8 +832,8 @@ impl DomainCommandExecutor for DomainMacroExecutor {
 
 impl DomainCommandExecutor for DomainSearchExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> AsyncStream<CommandExecutionResult> {
-        AsyncStream::with_channel(|sender| {
+    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Data(serde_json::json!({
                 "search_type": "domain",
                 "results": [],
@@ -841,7 +841,7 @@ impl DomainCommandExecutor for DomainSearchExecutor {
                 "status": "success"
             }));
             let _ = sender.send(result);
-        })
+        }))
     }
 
     #[inline]
@@ -862,13 +862,13 @@ impl DomainCommandExecutor for DomainSearchExecutor {
 
 impl DomainCommandExecutor for DomainBranchExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> AsyncStream<CommandExecutionResult> {
-        AsyncStream::with_channel(|sender| {
+    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Success(
                 "Domain branch operation completed successfully".to_string(),
             );
             let _ = sender.send(result);
-        })
+        }))
     }
 
     #[inline]
@@ -889,15 +889,15 @@ impl DomainCommandExecutor for DomainBranchExecutor {
 
 impl DomainCommandExecutor for DomainSessionExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> AsyncStream<CommandExecutionResult> {
-        AsyncStream::with_channel(|sender| {
+    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Data(serde_json::json!({
                 "session_type": "domain",
                 "status": "active",
                 "session_id": uuid::Uuid::new_v4().to_string()
             }));
             let _ = sender.send(result);
-        })
+        }))
     }
 
     #[inline]
@@ -918,12 +918,12 @@ impl DomainCommandExecutor for DomainSessionExecutor {
 
 impl DomainCommandExecutor for DomainToolExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> AsyncStream<CommandExecutionResult> {
-        AsyncStream::with_channel(|sender| {
+    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result =
                 CommandExecutionResult::Success("Domain tool executed successfully".to_string());
             let _ = sender.send(result);
-        })
+        }))
     }
 
     #[inline]
@@ -944,8 +944,8 @@ impl DomainCommandExecutor for DomainToolExecutor {
 
 impl DomainCommandExecutor for DomainStatsExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> AsyncStream<CommandExecutionResult> {
-        AsyncStream::with_channel(|sender| {
+    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Data(serde_json::json!({
                 "domain_stats": {
                     "total_commands": 0,
@@ -956,7 +956,7 @@ impl DomainCommandExecutor for DomainStatsExecutor {
                 "status": "success"
             }));
             let _ = sender.send(result);
-        })
+        }))
     }
 
     #[inline]
@@ -977,12 +977,12 @@ impl DomainCommandExecutor for DomainStatsExecutor {
 
 impl DomainCommandExecutor for DomainThemeExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> AsyncStream<CommandExecutionResult> {
-        AsyncStream::with_channel(|sender| {
+    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result =
                 CommandExecutionResult::Success("Domain theme updated successfully".to_string());
             let _ = sender.send(result);
-        })
+        }))
     }
 
     #[inline]
@@ -1003,8 +1003,8 @@ impl DomainCommandExecutor for DomainThemeExecutor {
 
 impl DomainCommandExecutor for DomainDebugExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> AsyncStream<CommandExecutionResult> {
-        AsyncStream::with_channel(|sender| {
+    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Data(serde_json::json!({
                 "debug_info": {
                     "enabled": true,
@@ -1017,7 +1017,7 @@ impl DomainCommandExecutor for DomainDebugExecutor {
                 "status": "success"
             }));
             let _ = sender.send(result);
-        })
+        }))
     }
 
     #[inline]
@@ -1038,15 +1038,15 @@ impl DomainCommandExecutor for DomainDebugExecutor {
 
 impl DomainCommandExecutor for DomainHistoryExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> AsyncStream<CommandExecutionResult> {
-        AsyncStream::with_channel(|sender| {
+    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Data(serde_json::json!({
                 "history": [],
                 "total_entries": 0,
                 "status": "success"
             }));
             let _ = sender.send(result);
-        })
+        }))
     }
 
     #[inline]
@@ -1067,12 +1067,12 @@ impl DomainCommandExecutor for DomainHistoryExecutor {
 
 impl DomainCommandExecutor for DomainSaveExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> AsyncStream<CommandExecutionResult> {
-        AsyncStream::with_channel(|sender| {
+    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result =
                 CommandExecutionResult::Success("Domain data saved successfully".to_string());
             let _ = sender.send(result);
-        })
+        }))
     }
 
     #[inline]
@@ -1093,12 +1093,12 @@ impl DomainCommandExecutor for DomainSaveExecutor {
 
 impl DomainCommandExecutor for DomainLoadExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> AsyncStream<CommandExecutionResult> {
-        AsyncStream::with_channel(|sender| {
+    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result =
                 CommandExecutionResult::Success("Domain data loaded successfully".to_string());
             let _ = sender.send(result);
-        })
+        }))
     }
 
     #[inline]
@@ -1119,12 +1119,12 @@ impl DomainCommandExecutor for DomainLoadExecutor {
 
 impl DomainCommandExecutor for DomainImportExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> AsyncStream<CommandExecutionResult> {
-        AsyncStream::with_channel(|sender| {
+    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result =
                 CommandExecutionResult::Success("Domain data imported successfully".to_string());
             let _ = sender.send(result);
-        })
+        }))
     }
 
     #[inline]
@@ -1145,15 +1145,15 @@ impl DomainCommandExecutor for DomainImportExecutor {
 
 impl DomainCommandExecutor for DomainSettingsExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> AsyncStream<CommandExecutionResult> {
-        AsyncStream::with_channel(|sender| {
+    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Data(serde_json::json!({
                 "settings": {},
                 "updated": true,
                 "status": "success"
             }));
             let _ = sender.send(result);
-        })
+        }))
     }
 
     #[inline]
@@ -1174,13 +1174,13 @@ impl DomainCommandExecutor for DomainSettingsExecutor {
 
 impl DomainCommandExecutor for DomainCustomExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> AsyncStream<CommandExecutionResult> {
-        AsyncStream::with_channel(|sender| {
+    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Success(
                 "Domain custom command executed successfully".to_string(),
             );
             let _ = sender.send(result);
-        })
+        }))
     }
 
     #[inline]
@@ -1201,13 +1201,13 @@ impl DomainCommandExecutor for DomainCustomExecutor {
 
 impl DomainCommandExecutor for DomainCopyExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> AsyncStream<CommandExecutionResult> {
-        AsyncStream::with_channel(|sender| {
+    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Success(
                 "Domain copy operation completed successfully".to_string(),
             );
             let _ = sender.send(result);
-        })
+        }))
     }
 
     #[inline]
@@ -1228,13 +1228,13 @@ impl DomainCommandExecutor for DomainCopyExecutor {
 
 impl DomainCommandExecutor for DomainRetryExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> AsyncStream<CommandExecutionResult> {
-        AsyncStream::with_channel(|sender| {
+    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Success(
                 "Domain retry operation completed successfully".to_string(),
             );
             let _ = sender.send(result);
-        })
+        }))
     }
 
     #[inline]
@@ -1255,13 +1255,13 @@ impl DomainCommandExecutor for DomainRetryExecutor {
 
 impl DomainCommandExecutor for DomainUndoExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> AsyncStream<CommandExecutionResult> {
-        AsyncStream::with_channel(|sender| {
+    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Success(
                 "Domain undo operation completed successfully".to_string(),
             );
             let _ = sender.send(result);
-        })
+        }))
     }
 
     #[inline]
@@ -1282,13 +1282,13 @@ impl DomainCommandExecutor for DomainUndoExecutor {
 
 impl DomainCommandExecutor for DomainChatExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> AsyncStream<CommandExecutionResult> {
-        AsyncStream::with_channel(|sender| {
+    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Success(
                 "Domain chat command executed successfully".to_string(),
             );
             let _ = sender.send(result);
-        })
+        }))
     }
 
     #[inline]

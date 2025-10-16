@@ -8,11 +8,10 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use atomic_counter::{AtomicCounter, ConsistentCounter};
-use crossbeam_queue::SegQueue;
 use crossbeam_skiplist::SkipMap;
 use cyrup_sugars::prelude::MessageChunk;
 use serde::{Deserialize, Serialize};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc};
 use std::pin::Pin;
 use tokio_stream::Stream;
 
@@ -214,9 +213,11 @@ impl Default for MessagePriority {
 /// Live message streamer with lock-free queuing and atomic statistics
 pub struct LiveMessageStreamer {
     /// Message queue for lock-free streaming
-    message_queue: Arc<SegQueue<LiveUpdateMessage>>,
+    message_queue_tx: mpsc::UnboundedSender<LiveUpdateMessage>,
+    message_queue_rx: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<LiveUpdateMessage>>>,
     /// Priority queue for high-priority messages
-    priority_queue: Arc<SegQueue<LiveUpdateMessage>>,
+    priority_queue_tx: mpsc::UnboundedSender<LiveUpdateMessage>,
+    priority_queue_rx: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<LiveUpdateMessage>>>,
     /// Active subscribers with zero-allocation keys
     subscribers: Arc<SkipMap<String, Arc<StreamSubscriber>>>,
     /// Event broadcaster for real-time notifications
@@ -357,10 +358,15 @@ impl LiveMessageStreamer {
         processing_rate: u64,
     ) -> Self {
         let (event_broadcaster, _) = broadcast::channel(50000); // Large buffer for performance
+        
+        let (message_queue_tx, message_queue_rx) = mpsc::unbounded_channel();
+        let (priority_queue_tx, priority_queue_rx) = mpsc::unbounded_channel();
 
         Self {
-            message_queue: Arc::new(SegQueue::new()),
-            priority_queue: Arc::new(SegQueue::new()),
+            message_queue_tx,
+            message_queue_rx: Arc::new(tokio::sync::Mutex::new(message_queue_rx)),
+            priority_queue_tx,
+            priority_queue_rx: Arc::new(tokio::sync::Mutex::new(priority_queue_rx)),
             subscribers: Arc::new(SkipMap::new()),
             event_broadcaster,
             message_counter: Arc::new(AtomicUsize::new(0)),
@@ -379,10 +385,10 @@ impl LiveMessageStreamer {
     /// Send live update message with backpressure handling
     #[must_use]
     pub fn send_message(&self, mut message: LiveUpdateMessage) -> Pin<Box<dyn Stream<Item = StreamingResult> + Send>> {
-        let message_queue = if message.priority >= MessagePriority::High {
-            self.priority_queue.clone()
+        let queue_tx = if message.priority >= MessagePriority::High {
+            self.priority_queue_tx.clone()
         } else {
-            self.message_queue.clone()
+            self.message_queue_tx.clone()
         };
 
         let counter = if message.priority >= MessagePriority::High {
@@ -431,7 +437,15 @@ impl LiveMessageStreamer {
             message.sequence_number = sequence_generator.fetch_add(1, Ordering::AcqRel);
 
             // Add message to queue
-            message_queue.push(message.clone());
+            if queue_tx.send(message.clone()).is_err() {
+                let result = StreamingResult::BackpressureError {
+                    current_size: current_queue_size,
+                    limit: queue_limit,
+                    message_id: message.id.clone(),
+                };
+                let _ = tx.send(result);
+                return;
+            }
             counter.fetch_add(1, Ordering::AcqRel);
             bytes_processed.fetch_add(u64::from(message.size_bytes), Ordering::AcqRel);
 
@@ -503,8 +517,8 @@ impl LiveMessageStreamer {
             return Box::pin(crate::async_stream::spawn_stream(|_tx| async move {}));
         }
 
-        let message_queue = self.message_queue.clone();
-        let priority_queue = self.priority_queue.clone();
+        let message_queue_rx = self.message_queue_rx.clone();
+        let priority_queue_rx = self.priority_queue_rx.clone();
         let subscribers = self.subscribers.clone();
         let message_counter = self.message_counter.clone();
         let priority_message_counter = self.priority_message_counter.clone();
@@ -512,7 +526,7 @@ impl LiveMessageStreamer {
         let processing_active = self.processing_active.clone();
 
         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-            std::thread::spawn(move || {
+            tokio::spawn(async move {
                 let mut messages_processed = 0u64;
                 let mut last_rate_check = std::time::Instant::now();
 
@@ -524,16 +538,29 @@ impl LiveMessageStreamer {
                         1_000_000 // 1ms default
                     };
 
-                    // Process priority messages first
-                    let message = if let Some(priority_msg) = priority_queue.pop() {
-                        priority_message_counter.fetch_sub(1, Ordering::AcqRel);
-                        Some(priority_msg)
-                    } else if let Some(normal_msg) = message_queue.pop() {
-                        message_counter.fetch_sub(1, Ordering::AcqRel);
-                        Some(normal_msg)
-                    } else {
-                        None
+                    // Process priority messages first - use timeout to avoid blocking
+                    let mut message = {
+                        let mut rx = priority_queue_rx.lock().await;
+                        match tokio::time::timeout(Duration::from_micros(100), rx.recv()).await {
+                            Ok(Some(priority_msg)) => {
+                                priority_message_counter.fetch_sub(1, Ordering::AcqRel);
+                                Some(priority_msg)
+                            }
+                            _ => None,
+                        }
                     };
+                    
+                    // If no priority message, check normal queue
+                    if message.is_none() {
+                        let mut rx = message_queue_rx.lock().await;
+                        match tokio::time::timeout(Duration::from_micros(100), rx.recv()).await {
+                            Ok(Some(normal_msg)) => {
+                                message_counter.fetch_sub(1, Ordering::AcqRel);
+                                message = Some(normal_msg);
+                            }
+                            _ => {}
+                        }
+                    }
 
                     if let Some(message) = message {
                         let mut delivered_count = 0u64;
@@ -562,10 +589,10 @@ impl LiveMessageStreamer {
                         let _ = tx.send(event);
 
                         // Rate limiting with nanosecond precision
-                        std::thread::sleep(Duration::from_nanos(delay_nanos));
+                        tokio::time::sleep(Duration::from_nanos(delay_nanos)).await;
                     } else {
                         // No messages, sleep briefly
-                        std::thread::sleep(Duration::from_millis(1));
+                        tokio::time::sleep(Duration::from_millis(1)).await;
                     }
 
                     // Report processing rate periodically

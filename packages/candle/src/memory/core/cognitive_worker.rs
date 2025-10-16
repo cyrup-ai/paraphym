@@ -50,7 +50,7 @@ impl CognitiveWorker {
     // - On explicit user request (maintenance API call)
     //
     // ARCHITECTURE NOTE:
-    // Current temporal_context is Arc<CachePadded<TemporalContext>> without interior
+    // Current temporal_context is Arc<TemporalContext> without interior
     // mutability. To enable slide_window() (which requires &mut self), one of:
     // 1. Wrap in RwLock: Arc<RwLock<TemporalContext>>
     // 2. Refactor slide_window() to use &self with internal Atomics/RwLock
@@ -921,7 +921,7 @@ impl CognitiveWorker {
     ///
     /// # Architecture Constraint
     ///
-    /// **BLOCKER:** Current TemporalContext is `Arc<CachePadded<TemporalContext>>` without
+    /// **BLOCKER:** Current TemporalContext is `Arc<TemporalContext>` without
     /// interior mutability. slide_window() requires `&mut self`, which cannot be obtained
     /// through Arc without RwLock wrapper.
     ///

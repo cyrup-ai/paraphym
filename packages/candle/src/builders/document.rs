@@ -17,9 +17,10 @@ use cyrup_sugars::prelude::MessageChunk;
 use quyc::Quyc;
 use serde_json::Value;
 use std::fs;
-use tokio_stream::Stream;
+use tokio_stream::{Stream, StreamExt};
 use crate::async_stream;
-use ystream::{AsyncStream, AsyncTask, emit, spawn_task};
+use std::pin::Pin;
+use std::future::Future;
 
 /// Document builder data enumeration for zero-allocation type tracking
 #[derive(Debug, Clone)]
@@ -83,10 +84,10 @@ pub trait DocumentBuilder: Sized {
     fn load(self) -> Document;
 
     /// Load document asynchronously - EXACT syntax: .load_async()
-    fn load_async(self) -> AsyncTask<Document>;
+    fn load_async(self) -> Pin<Box<dyn Future<Output = Document> + Send>>;
 
     /// Load multiple documents - EXACT syntax: .load_all()
-    fn load_all(self) -> AsyncTask<ZeroOneOrMany<Document>>;
+    fn load_all(self) -> Pin<Box<dyn Future<Output = ZeroOneOrMany<Document>> + Send>>;
 
     /// Stream documents one by one - EXACT syntax: .stream()
     fn stream(self) -> impl Stream<Item = Document>;
@@ -345,11 +346,11 @@ where
     }
 
     /// Load document asynchronously - EXACT syntax: .load_async()
-    fn load_async(self) -> AsyncTask<Document> {
-        spawn_task(move || {
+    fn load_async(self) -> Pin<Box<dyn Future<Output = Document> + Send>> {
+        Box::pin(async move {
             if let Some(handler) = self.error_handler.clone() {
-                let stream = Self::load_document_data(self, handler);
-                match stream.try_next() {
+                let mut stream = Self::load_document_data(self, handler);
+                match stream.next().await {
                     Some(document) => document,
                     None => {
                         // Return empty document on error
@@ -364,8 +365,8 @@ where
             } else {
                 // No error handler - use default no-op handler
                 let default_handler = |_: String| {};
-                let stream = Self::load_document_data(self, default_handler);
-                match stream.try_next() {
+                let mut stream = Self::load_document_data(self, default_handler);
+                match stream.next().await {
                     Some(document) => document,
                     None => {
                         // Return empty document on error
@@ -382,37 +383,37 @@ where
     }
 
     /// Load multiple documents - EXACT syntax: .load_all()
-    fn load_all(self) -> AsyncTask<ZeroOneOrMany<Document>> {
-        spawn_task(move || {
+    fn load_all(self) -> Pin<Box<dyn Future<Output = ZeroOneOrMany<Document>> + Send>> {
+        Box::pin(async move {
             match self.data.clone() {
                 DocumentBuilderData::Glob(pattern) => {
                     if let Some(handler) = self.error_handler.clone() {
-                        let stream = Self::load_glob_documents(pattern, self, handler);
-                        stream
-                            .try_next()
-                            .map(|chunk| chunk.0)
-                            .unwrap_or(ZeroOneOrMany::None)
+                        let mut stream = Self::load_glob_documents(pattern, self, handler);
+                        match stream.next().await {
+                            Some(chunk) => chunk.0,
+                            None => ZeroOneOrMany::None,
+                        }
                     } else {
                         let default_handler = |_: String| {};
-                        let stream = Self::load_glob_documents(pattern, self, default_handler);
-                        stream
-                            .try_next()
-                            .map(|chunk| chunk.0)
-                            .unwrap_or(ZeroOneOrMany::None)
+                        let mut stream = Self::load_glob_documents(pattern, self, default_handler);
+                        match stream.next().await {
+                            Some(chunk) => chunk.0,
+                            None => ZeroOneOrMany::None,
+                        }
                     }
                 }
                 _ => {
                     // Single document
                     if let Some(handler) = self.error_handler.clone() {
-                        let stream = Self::load_document_data(self, handler);
-                        match stream.try_next() {
+                        let mut stream = Self::load_document_data(self, handler);
+                        match stream.next().await {
                             Some(doc) => ZeroOneOrMany::One(doc),
                             None => ZeroOneOrMany::None,
                         }
                     } else {
                         let default_handler = |_: String| {};
-                        let stream = Self::load_document_data(self, default_handler);
-                        match stream.try_next() {
+                        let mut stream = Self::load_document_data(self, default_handler);
+                        match stream.next().await {
                             Some(doc) => ZeroOneOrMany::One(doc),
                             None => ZeroOneOrMany::None,
                         }
@@ -446,11 +447,14 @@ where
 
                             if let Some(handler) = self.error_handler.clone() {
                                 let handler_clone = handler.clone();
-                                let doc_stream = Self::load_document_data(doc_builder, handler);
-                                if let Some(doc) = doc_stream.try_next() {
-                                    let _ = tx.send(doc);
-                                } else {
-                                    handler_clone("Failed to load document".to_string());
+                                let mut doc_stream = Self::load_document_data(doc_builder, handler);
+                                match doc_stream.next().await {
+                                    Some(doc) => {
+                                        let _ = tx.send(doc);
+                                    }
+                                    None => {
+                                        handler_clone("Failed to load document".to_string());
+                                    }
                                 }
                             }
                         }
@@ -459,11 +463,14 @@ where
                 _ => {
                     if let Some(handler) = self.error_handler.clone() {
                         let handler_clone = handler.clone();
-                        let doc_stream = Self::load_document_data(self, handler);
-                        if let Some(doc) = doc_stream.try_next() {
-                            let _ = tx.send(doc);
-                        } else {
-                            handler_clone("Failed to load document".to_string());
+                        let mut doc_stream = Self::load_document_data(self, handler);
+                        match doc_stream.next().await {
+                            Some(doc) => {
+                                let _ = tx.send(doc);
+                            }
+                            None => {
+                                handler_clone("Failed to load document".to_string());
+                            }
                         }
                     }
                 }
@@ -475,15 +482,7 @@ where
     fn stream_chunks(self, chunk_size: usize) -> impl Stream<Item = DocumentChunk> {
         async_stream::spawn_stream(move |tx| async move {
             let chunk_handler = self.chunk_handler.clone();
-            let doc = {
-                let task = self.load_async();
-                task.collect().unwrap_or_else(|_| Document {
-                    data: String::new(),
-                    format: Some(ContentFormat::Text),
-                    media_type: Some(DocumentMediaType::TXT),
-                    additional_props: std::collections::HashMap::new(),
-                })
-            };
+            let doc = self.load_async().await;
 
             let content = &doc.data;
             let mut offset = 0;
@@ -507,15 +506,7 @@ where
     fn stream_lines(self) -> impl Stream<Item = DocumentChunk> {
         async_stream::spawn_stream(move |tx| async move {
             let chunk_handler = self.chunk_handler.clone();
-            let doc = {
-                let task = self.load_async();
-                task.collect().unwrap_or_else(|_| Document {
-                    data: String::new(),
-                    format: Some(ContentFormat::Text),
-                    media_type: Some(DocumentMediaType::TXT),
-                    additional_props: std::collections::HashMap::new(),
-                })
-            };
+            let doc = self.load_async().await;
 
             let mut offset = 0;
             for line in doc.data.lines() {
@@ -545,28 +536,30 @@ where
     fn load_document_data<G>(
         builder: DocumentBuilderImpl<F1, F2>,
         error_handler: G,
-    ) -> ystream::AsyncStream<Document>
+    ) -> Pin<Box<dyn Stream<Item = Document> + Send>>
     where
         G: Fn(String) + Send + 'static,
     {
-        ystream::AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
             let content = match builder.data {
                 DocumentBuilderData::File(ref path) => {
-                    let file_stream = Self::load_file_content(path, &builder);
-                    if let Some(content_result) = file_stream.try_next() {
-                        content_result.0
-                    } else {
-                        error_handler("Failed to load file content".to_string());
-                        return;
+                    let mut file_stream = Self::load_file_content(path, &builder);
+                    match file_stream.next().await {
+                        Some(content_result) => content_result.0,
+                        None => {
+                            error_handler("Failed to load file content".to_string());
+                            return;
+                        }
                     }
                 }
                 DocumentBuilderData::Url(ref url) => {
-                    let url_stream = Self::load_url_content(url, &builder);
-                    if let Some(content_result) = url_stream.try_next() {
-                        content_result.0
-                    } else {
-                        error_handler("Failed to load URL content".to_string());
-                        return;
+                    let mut url_stream = Self::load_url_content(url, &builder);
+                    match url_stream.next().await {
+                        Some(content_result) => content_result.0,
+                        None => {
+                            error_handler("Failed to load URL content".to_string());
+                            return;
+                        }
                     }
                 }
                 DocumentBuilderData::Github {
@@ -574,13 +567,14 @@ where
                     ref path,
                     ref branch,
                 } => {
-                    let github_stream =
+                    let mut github_stream =
                         Self::load_github_content(repo, path, branch.as_deref(), &builder);
-                    if let Some(content_result) = github_stream.try_next() {
-                        content_result.0
-                    } else {
-                        error_handler("Failed to load GitHub content".to_string());
-                        return;
+                    match github_stream.next().await {
+                        Some(content_result) => content_result.0,
+                        None => {
+                            error_handler("Failed to load GitHub content".to_string());
+                            return;
+                        }
                     }
                 }
                 DocumentBuilderData::Text(ref text) => text.clone(),
@@ -625,18 +619,18 @@ where
             };
 
             let _ = sender.send(document);
-        })
+        }))
     }
 
     fn load_glob_documents<G>(
         pattern: String,
         builder: DocumentBuilderImpl<F1, F2>,
         error_handler: G,
-    ) -> AsyncStream<CandleZeroOneOrManyChunk<Document>>
+    ) -> Pin<Box<dyn Stream<Item = CandleZeroOneOrManyChunk<Document>> + Send>>
     where
         G: Fn(String) + Send + Sync + Clone + 'static,
     {
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
             let paths = match glob::glob(&pattern) {
                 Ok(paths) => paths.filter_map(Result::ok).collect::<Vec<_>>(),
                 Err(e) => {
@@ -669,11 +663,14 @@ where
                     _marker: PhantomData,
                 };
 
-                let doc_stream = Self::load_document_data(doc_builder, error_handler.clone());
-                if let Some(doc) = doc_stream.try_next() {
-                    documents.push(doc);
-                } else {
-                    error_handler("Failed to load document from glob pattern".to_string());
+                let mut doc_stream = Self::load_document_data(doc_builder, error_handler.clone());
+                match doc_stream.next().await {
+                    Some(doc) => {
+                        documents.push(doc);
+                    }
+                    None => {
+                        error_handler("Failed to load document from glob pattern".to_string());
+                    }
                 }
             }
 
@@ -690,17 +687,17 @@ where
             };
 
             let _ = sender.send(CandleZeroOneOrManyChunk(result));
-        })
+        }))
     }
 
     fn load_file_content(
         path: &Path,
         builder: &DocumentBuilderImpl<F1, F2>,
-    ) -> AsyncStream<CandleStringChunk> {
+    ) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
         let path = path.to_path_buf();
         let builder = builder.clone();
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
             // Check file size first if max_size is set
             if let Some(max_size) = builder.max_size {
                 match fs::metadata(&path) {
@@ -740,17 +737,17 @@ where
                 last_error
             );
             let _ = sender.send(CandleStringChunk::bad_chunk(last_error));
-        })
+        }))
     }
 
     fn load_url_content(
         url: &str,
         builder: &DocumentBuilderImpl<F1, F2>,
-    ) -> AsyncStream<CandleStringChunk> {
+    ) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
         let url = url.to_string();
         let builder = builder.clone();
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
             // Attempt request with retries
             for attempt in 0..=builder.retry_attempts {
                 // Use Quyc::get() directly - much simpler!
@@ -766,7 +763,7 @@ where
                 #[derive(serde::Deserialize, Default)]
                 struct StringResponse(String);
 
-                impl ystream::prelude::MessageChunk for StringResponse {
+                impl cyrup_sugars::prelude::MessageChunk for StringResponse {
                     fn bad_chunk(error: String) -> Self {
                         StringResponse(format!("ERROR: {}", error))
                     }
@@ -812,7 +809,7 @@ where
                 let _ = sender.send(CandleStringChunk(content));
                 return;
             }
-        })
+        }))
     }
 
     fn load_github_content(
@@ -820,7 +817,7 @@ where
         path: &str,
         branch: Option<&str>,
         builder: &DocumentBuilderImpl<F1, F2>,
-    ) -> AsyncStream<CandleStringChunk> {
+    ) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
         let branch = branch.unwrap_or("main");
         let url = format!(
             "https://raw.githubusercontent.com/{}/{}/{}",

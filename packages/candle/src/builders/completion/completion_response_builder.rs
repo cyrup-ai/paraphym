@@ -1,7 +1,8 @@
 use std::borrow::Cow;
 use std::sync::Arc;
+use std::pin::Pin;
 
-use ystream::AsyncStream;
+use tokio_stream::Stream;
 
 use crate::domain::{
     completion::{
@@ -149,8 +150,8 @@ impl CompactCompletionResponseBuilder {
     }
 
     /// Build the compact response
-    pub fn build(self) -> AsyncStream<CompactCompletionResponse> {
-        AsyncStream::with_channel(move |sender| {
+    pub fn build(self) -> Pin<Box<dyn Stream<Item = CompactCompletionResponse> + Send>> {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
             let response = CompactCompletionResponse {
                 content: self.content.map(|s| s.to_string()).unwrap_or_default(),
                 model: self
@@ -170,7 +171,7 @@ impl CompactCompletionResponseBuilder {
             };
 
             let _ = sender.send(response);
-        })
+        }))
     }
 }
 

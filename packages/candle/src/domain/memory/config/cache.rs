@@ -91,17 +91,18 @@ pub fn update_config_cache(new_config: MemoryConfig) {
 
 /// Get memory from connection pool with lock-free access
 #[inline]
-pub fn get_pooled_memory() -> Option<Arc<SurrealDBMemoryManager>> {
+pub async fn get_pooled_memory() -> Option<Arc<SurrealDBMemoryManager>> {
     use std::sync::atomic::Ordering;
 
     use crate::domain::init::globals::{CONNECTION_POOL, POOL_STATS};
 
-    if let Some(memory) = CONNECTION_POOL.pop() {
+    let (_tx, rx) = &*CONNECTION_POOL;
+    let mut receiver = rx.lock().await;
+    if let Some(memory) = receiver.recv().await {
         POOL_STATS.fetch_sub(1, Ordering::Relaxed);
-        Some(memory)
-    } else {
-        None
+        return Some(memory);
     }
+    None
 }
 
 /// Return memory to connection pool
@@ -111,8 +112,10 @@ pub fn return_pooled_memory(memory: Arc<SurrealDBMemoryManager>) {
 
     use crate::domain::init::globals::{CONNECTION_POOL, POOL_STATS};
 
-    CONNECTION_POOL.push(memory);
-    POOL_STATS.fetch_add(1, Ordering::Relaxed);
+    let (tx, _rx) = &*CONNECTION_POOL;
+    if tx.send(memory).is_ok() {
+        POOL_STATS.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 /// Get current pool statistics

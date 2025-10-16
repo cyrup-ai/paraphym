@@ -15,6 +15,7 @@ use std::task::{Context, Poll};
 pub use multimodal_service::MultimodalEmbeddingService;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
+use tokio_stream::Stream;
 use uuid;
 pub use vector_index::*;
 pub use vector_repository::*;
@@ -135,7 +136,7 @@ pub trait VectorStore: Send + Sync {
         query: Vec<f32>,
         limit: usize,
         filter: Option<crate::memory::filter::MemoryFilter>,
-    ) -> ystream::AsyncStream<VectorSearchResult, 1024>;
+    ) -> Pin<Box<dyn Stream<Item = VectorSearchResult> + Send>>;
 
     /// Generate embedding for text
     fn embed(&self, text: String) -> PendingEmbedding;

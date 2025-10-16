@@ -2,12 +2,14 @@
 //!
 //! All image construction logic and builder patterns with zero allocation.
 
+use std::pin::Pin;
+
 use crate::domain::context::CandleDocumentChunk as ImageChunk;
 use crate::domain::image::{ContentFormat, Image, ImageDetail, ImageMediaType};
 use base64::Engine;
 use candle_core::{DType, Device, Tensor};
 use image::{DynamicImage, ImageReader};
-use ystream::AsyncStream;
+use tokio_stream::{Stream, StreamExt};
 
 /// Image builder trait - elegant zero-allocation builder pattern
 pub trait ImageBuilder: Sized {
@@ -124,10 +126,10 @@ pub trait ImageBuilder: Sized {
         F: FnMut(ImageChunk) -> ImageChunk + Send + 'static;
 
     /// Load image - EXACT syntax: .load()
-    fn load(self) -> AsyncStream<ImageChunk>;
+    fn load(self) -> Pin<Box<dyn Stream<Item = ImageChunk> + Send>>;
 
     /// Process image - EXACT syntax: .process(|chunk| { ... })
-    fn process<F>(self, f: F) -> AsyncStream<ImageChunk>
+    fn process<F>(self, f: F) -> Pin<Box<dyn Stream<Item = ImageChunk> + Send>>
     where
         F: FnOnce(ImageChunk) -> ImageChunk + Send + 'static;
 }
@@ -460,7 +462,7 @@ where
     }
 
     /// Load image - EXACT syntax: .load()
-    fn load(self) -> AsyncStream<ImageChunk> {
+    fn load(self) -> Pin<Box<dyn Stream<Item = ImageChunk> + Send>> {
         // Create CandleDocumentChunk with proper fields
         let chunk = ImageChunk {
             path: None,
@@ -469,30 +471,29 @@ where
             metadata: std::collections::HashMap::new(),
         };
 
-        ystream::AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
             let _ = sender.send(chunk);
-        })
+        }))
     }
 
     /// Process image - EXACT syntax: .process(|chunk| { ... })
-    fn process<F>(self, f: F) -> AsyncStream<ImageChunk>
+    fn process<F>(self, f: F) -> Pin<Box<dyn Stream<Item = ImageChunk> + Send>>
     where
         F: FnOnce(ImageChunk) -> ImageChunk + Send + 'static,
     {
         // Get source stream from load
         let load_stream = self.load();
 
-        // Create processing stream using ystream pattern
-        ystream::AsyncStream::with_channel(move |sender| {
-            // Collect the single chunk synchronously (blocking)
-            let chunks = load_stream.collect();
+        // Create processing stream using async pattern
+        Box::pin(crate::async_stream::spawn_stream(|sender| async move {
+            tokio::pin!(load_stream);
 
             // Process the chunk (FnOnce called once)
-            if let Some(chunk) = chunks.into_iter().next() {
+            if let Some(chunk) = load_stream.next().await {
                 let processed = f(chunk);
                 let _ = sender.send(processed);
             }
-        })
+        }))
     }
 }
 

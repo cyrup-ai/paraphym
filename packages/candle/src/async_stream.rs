@@ -1,7 +1,7 @@
 //! Candle Async Stream - Pure tokio streaming utilities
 //!
 //! Provides helper functions for creating and working with tokio streams.
-//! Replaces ystream with 100% tokio async - no sync/async bridging.
+//! 100% tokio async - no sync/async bridging.
 
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;

@@ -4,7 +4,6 @@ use std::time::SystemTime;
 
 use bytes::Bytes;
 use hashbrown::HashMap;
-// Removed unused import: crossbeam_utils::CachePadded
 use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
     de::{MapAccess, Visitor},
@@ -348,7 +347,7 @@ impl Default for MemoryContent {
 /// Smart pointer optimized base memory with atomic operations
 ///
 /// UUID-based ID system with inline generation, Arc<str> for zero-copy content sharing
-/// Optimized metadata `HashMap` with crossbeam concurrent access
+/// tokio async tasks concurrent access
 #[derive(Debug, Clone)]
 pub struct BaseMemory {
     /// UUID-based unique identifier with inline generation
@@ -361,7 +360,7 @@ pub struct BaseMemory {
     pub created_at: SystemTime,
     /// Last update timestamp with atomic operations
     pub updated_at: SystemTime,
-    /// Concurrent metadata with crossbeam access optimization
+    /// tokio async tasks access optimization
     pub metadata: Arc<parking_lot::RwLock<HashMap<String, serde_json::Value>>>,
 }
 

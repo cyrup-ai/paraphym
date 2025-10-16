@@ -284,7 +284,10 @@ impl TypingIndicator {
                 }
             }
 
-            let result = CandleCollectionChunk::new(typing_users);
+            let result = CandleCollectionChunk {
+                items: typing_users,
+                error_message: None,
+            };
             let _ = tx.send(result);
         }))
     }

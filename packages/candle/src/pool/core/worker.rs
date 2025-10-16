@@ -4,7 +4,7 @@
 //!
 //! Workers are generic over capability traits. Each worker:
 //! 1. Owns loaded model exclusively (no Arc<Mutex<>>)
-//! 2. Processes requests from shared crossbeam channels
+//! 2. Processes requests from tokio mpsc channels
 //! 3. Self-schedules via channel recv() (first available gets request)
 //! 4. Runs infinite loop until shutdown signal
 //!

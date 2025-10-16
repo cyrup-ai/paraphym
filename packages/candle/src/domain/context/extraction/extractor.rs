@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 
 use cyrup_sugars::prelude::MessageChunk;
 use serde::de::DeserializeOwned;
-use tokio_stream::Stream;
+use tokio_stream::{Stream, StreamExt};
 use crate::async_stream;
 
 use super::error::{_ExtractionResult as ExtractionResult, ExtractionError};
@@ -90,7 +90,7 @@ where
                 }
             };
 
-            // Execute extraction synchronously using ystream pattern
+            // Execute extraction asynchronously using tokio streams
             let model = &provider;
             let prompt = Prompt {
                 content: completion_request.system_prompt,
@@ -107,15 +107,15 @@ where
                 additional_params: None,
             };
 
-            // Get the stream and collect chunks
+            // Get the stream and process chunks asynchronously
             let stream = model.prompt(prompt, &params);
-            let chunks: Vec<_> = stream.collect();
+            tokio::pin!(stream);
 
             // Process chunks to build response
             let mut full_response = String::new();
             let mut finish_reason = None;
 
-            for chunk in chunks {
+            while let Some(chunk) = stream.next().await {
                 match chunk {
                     CandleCompletionChunk::Text(text) => {
                         full_response.push_str(&text);

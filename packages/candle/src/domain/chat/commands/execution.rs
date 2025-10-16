@@ -6,7 +6,6 @@
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Instant;
 
-use crossbeam_utils::CachePadded;
 use mime_guess::from_ext;
 use std::pin::Pin;
 use tokio_stream::Stream;
@@ -29,15 +28,15 @@ pub struct CommandExecutor {
     /// Command parser
     parser: CommandParser,
     /// Execution counter for unique IDs
-    execution_counter: CachePadded<AtomicU64>,
+    execution_counter: AtomicU64,
     /// Active executions count
-    active_executions: CachePadded<AtomicUsize>,
+    active_executions: AtomicUsize,
     /// Total executions count
-    total_executions: CachePadded<AtomicU64>,
+    total_executions: AtomicU64,
     /// Successful executions count
-    successful_executions: CachePadded<AtomicU64>,
+    successful_executions: AtomicU64,
     /// Failed executions count
-    failed_executions: CachePadded<AtomicU64>,
+    failed_executions: AtomicU64,
     /// Default session ID for command execution (planned feature)
     _default_session_id: String,
     /// Environment variables for command execution (planned feature)
@@ -63,11 +62,11 @@ impl CommandExecutor {
     pub fn new() -> Self {
         Self {
             parser: CommandParser::new(),
-            execution_counter: CachePadded::new(AtomicU64::new(1)),
-            active_executions: CachePadded::new(AtomicUsize::new(0)),
-            total_executions: CachePadded::new(AtomicU64::new(0)),
-            successful_executions: CachePadded::new(AtomicU64::new(0)),
-            failed_executions: CachePadded::new(AtomicU64::new(0)),
+            execution_counter: AtomicU64::new(1),
+            active_executions: AtomicUsize::new(0),
+            total_executions: AtomicU64::new(0),
+            successful_executions: AtomicU64::new(0),
+            failed_executions: AtomicU64::new(0),
             _default_session_id: String::new(),
             _environment: std::collections::HashMap::new(),
         }
@@ -77,11 +76,11 @@ impl CommandExecutor {
     pub fn with_context(context: &CommandExecutionContext) -> Self {
         Self {
             parser: CommandParser::new(),
-            execution_counter: CachePadded::new(AtomicU64::new(1)),
-            active_executions: CachePadded::new(AtomicUsize::new(0)),
-            total_executions: CachePadded::new(AtomicU64::new(0)),
-            successful_executions: CachePadded::new(AtomicU64::new(0)),
-            failed_executions: CachePadded::new(AtomicU64::new(0)),
+            execution_counter: AtomicU64::new(1),
+            active_executions: AtomicUsize::new(0),
+            total_executions: AtomicU64::new(0),
+            successful_executions: AtomicU64::new(0),
+            failed_executions: AtomicU64::new(0),
             _default_session_id: format!("session_{}", context.execution_id),
             _environment: {
                 let mut env = std::collections::HashMap::new();
@@ -98,11 +97,11 @@ impl CommandExecutor {
         &self,
         _execution_id: u64,
         command: ImmutableChatCommand,
-    ) -> AsyncStream<CommandEvent> {
+    ) -> Pin<Box<dyn Stream<Item = CommandEvent> + Send>> {
         // Clone self for the thread closure - Clone implementation creates fresh counters
         let self_clone = self.clone();
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
             let start_time = Instant::now();
 
             // Update metrics atomically using cloned instance
@@ -112,14 +111,11 @@ impl CommandExecutor {
             let execution_id = self_clone.execution_counter.fetch_add(1, Ordering::AcqRel);
 
             // Emit Started event
-            ystream::emit!(
-                sender,
-                CommandEvent::Started {
-                    command: command.clone(),
-                    execution_id,
-                    timestamp_us: current_timestamp_us(),
-                }
-            );
+            let _ = sender.send(CommandEvent::Started {
+                command: command.clone(),
+                execution_id,
+                timestamp_us: current_timestamp_us(),
+            });
 
             // Execute command and handle results
             match command {
@@ -137,29 +133,23 @@ impl CommandExecutor {
                     };
 
                     // Emit Output event with help content
-                    ystream::emit!(
-                        sender,
-                        CommandEvent::Output {
-                            execution_id,
-                            content: message.clone(),
-                            output_type: OutputType::Text,
-                            timestamp_us: current_timestamp_us(),
-                        }
-                    );
+                    let _ = sender.send(CommandEvent::Output {
+                        execution_id,
+                        content: message.clone(),
+                        output_type: OutputType::Text,
+                        timestamp_us: current_timestamp_us(),
+                    });
                 }
                 ImmutableChatCommand::Clear {
                     confirm: _,
                     keep_last: _,
                 } => {
-                    ystream::emit!(
-                        sender,
-                        CommandEvent::Output {
-                            execution_id,
-                            content: "Chat cleared successfully".to_string(),
-                            output_type: OutputType::Text,
-                            timestamp_us: current_timestamp_us(),
-                        }
-                    );
+                    let _ = sender.send(CommandEvent::Output {
+                        execution_id,
+                        content: "Chat cleared successfully".to_string(),
+                        output_type: OutputType::Text,
+                        timestamp_us: current_timestamp_us(),
+                    });
                 }
                 ImmutableChatCommand::Export {
                     format,
@@ -171,15 +161,12 @@ impl CommandExecutor {
                     for progress in progress_steps {
                         #[allow(clippy::cast_precision_loss)]
                         let progress_f32 = progress as f32;
-                        ystream::emit!(
-                            sender,
-                            CommandEvent::Progress {
-                                execution_id,
-                                progress: progress_f32,
-                                message: format!("Exporting... {progress}%"),
-                                timestamp: current_timestamp_us(),
-                            }
-                        );
+                        let _ = sender.send(CommandEvent::Progress {
+                            execution_id,
+                            progress: progress_f32,
+                            message: format!("Exporting... {progress}%"),
+                            timestamp: current_timestamp_us(),
+                        });
 
                         // Simulate realistic export processing time
                         std::thread::sleep(std::time::Duration::from_millis(250));
@@ -195,15 +182,12 @@ impl CommandExecutor {
                     let message =
                         format!("Chat exported to '{output_str}' in {format} format{metadata_str}");
 
-                    ystream::emit!(
-                        sender,
-                        CommandEvent::Output {
-                            execution_id,
-                            content: message,
-                            output_type: OutputType::Text,
-                            timestamp_us: current_timestamp_us(),
-                        }
-                    );
+                    let _ = sender.send(CommandEvent::Output {
+                        execution_id,
+                        content: message,
+                        output_type: OutputType::Text,
+                        timestamp_us: current_timestamp_us(),
+                    });
                 }
                 ImmutableChatCommand::Config {
                     key: _,
@@ -211,15 +195,12 @@ impl CommandExecutor {
                     show: _,
                     reset: _,
                 } => {
-                    ystream::emit!(
-                        sender,
-                        CommandEvent::Output {
-                            execution_id,
-                            content: "Configuration updated successfully".to_string(),
-                            output_type: OutputType::Text,
-                            timestamp_us: current_timestamp_us(),
-                        }
-                    );
+                    let _ = sender.send(CommandEvent::Output {
+                        execution_id,
+                        content: "Configuration updated successfully".to_string(),
+                        output_type: OutputType::Text,
+                        timestamp_us: current_timestamp_us(),
+                    });
                 }
                 ImmutableChatCommand::Search {
                     query,
@@ -232,15 +213,12 @@ impl CommandExecutor {
                     for progress in progress_steps {
                         #[allow(clippy::cast_precision_loss)]
                         let progress_f32 = progress as f32;
-                        ystream::emit!(
-                            sender,
-                            CommandEvent::Progress {
-                                execution_id,
-                                progress: progress_f32,
-                                message: format!("Searching... {progress}%"),
-                                timestamp: current_timestamp_us(),
-                            }
-                        );
+                        let _ = sender.send(CommandEvent::Progress {
+                            execution_id,
+                            progress: progress_f32,
+                            message: format!("Searching... {progress}%"),
+                            timestamp: current_timestamp_us(),
+                        });
 
                         // Simulate realistic search processing time
                         std::thread::sleep(std::time::Duration::from_millis(150));
@@ -254,27 +232,21 @@ impl CommandExecutor {
                         "Search for '{query}' in {scope_str} scope{limit_str}{context_str} completed"
                     );
 
-                    ystream::emit!(
-                        sender,
-                        CommandEvent::Output {
-                            execution_id,
-                            content: message,
-                            output_type: OutputType::Text,
-                            timestamp_us: current_timestamp_us(),
-                        }
-                    );
+                    let _ = sender.send(CommandEvent::Output {
+                        execution_id,
+                        content: message,
+                        output_type: OutputType::Text,
+                        timestamp_us: current_timestamp_us(),
+                    });
                 }
                 _ => {
                     // Default implementation for other commands
-                    ystream::emit!(
-                        sender,
-                        CommandEvent::Output {
-                            execution_id,
-                            content: "Command executed successfully".to_string(),
-                            output_type: OutputType::Text,
-                            timestamp_us: current_timestamp_us(),
-                        }
-                    );
+                    let _ = sender.send(CommandEvent::Output {
+                        execution_id,
+                        content: "Command executed successfully".to_string(),
+                        output_type: OutputType::Text,
+                        timestamp_us: current_timestamp_us(),
+                    });
                 }
             }
 
@@ -284,19 +256,16 @@ impl CommandExecutor {
                 .fetch_add(1, Ordering::AcqRel);
             #[allow(clippy::cast_possible_truncation)]
             let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
-            ystream::emit!(
-                sender,
-                CommandEvent::completed(
-                    execution_id,
-                    CommandExecutionResult::Success("Command completed successfully".to_string()),
-                    duration_us,
-                    ResourceUsage::default()
-                )
-            );
+            let _ = sender.send(CommandEvent::completed(
+                execution_id,
+                CommandExecutionResult::Success("Command completed successfully".to_string()),
+                duration_us,
+                ResourceUsage::default()
+            ));
 
             // Decrement active executions
             self_clone.active_executions.fetch_sub(1, Ordering::AcqRel);
-        })
+        }))
     }
 
     /// Execute help command (streaming-only, zero-allocation)
@@ -305,26 +274,23 @@ impl CommandExecutor {
         execution_id: u64,
         command: Option<String>,
         extended: bool,
-    ) -> AsyncStream<CommandEvent> {
+    ) -> Pin<Box<dyn Stream<Item = CommandEvent> + Send>> {
         let start_time = Instant::now();
 
-        AsyncStream::with_channel(move |sender| {
-            std::thread::spawn(move || {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
+            tokio::spawn(async move {
                 // Emit started event
                 #[allow(clippy::cast_possible_truncation)]
                 let timestamp_us =
                     start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
-                ystream::emit!(
-                    sender,
-                    CommandEvent::Started {
-                        command: ImmutableChatCommand::Help {
-                            command: command.clone(),
-                            extended
-                        },
-                        execution_id,
-                        timestamp_us
-                    }
-                );
+                let _ = sender.send(CommandEvent::Started {
+                    command: ImmutableChatCommand::Help {
+                        command: command.clone(),
+                        extended
+                    },
+                    execution_id,
+                    timestamp_us
+                });
 
                 // Generate help message with zero allocation
                 let message = if let Some(cmd) = command {
@@ -342,26 +308,20 @@ impl CommandExecutor {
                 };
 
                 // Emit output event
-                ystream::emit!(
-                    sender,
-                    CommandEvent::output(execution_id, message.clone(), OutputType::Text)
-                );
+                let _ = sender.send(CommandEvent::output(execution_id, message.clone(), OutputType::Text));
 
                 // Emit completion event
                 #[allow(clippy::cast_possible_truncation)]
                 let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
-                ystream::emit!(
-                    sender,
-                    CommandEvent::Completed {
-                        execution_id,
-                        result: CommandExecutionResult::Success(message.clone()),
-                        duration_us,
-                        resource_usage: ResourceUsage::default(),
-                        timestamp_us: current_timestamp_us()
-                    }
-                );
+                let _ = sender.send(CommandEvent::Completed {
+                    execution_id,
+                    result: CommandExecutionResult::Success(message.clone()),
+                    duration_us,
+                    resource_usage: ResourceUsage::default(),
+                    timestamp_us: current_timestamp_us()
+                });
             });
-        })
+        }))
     }
 
     /// Execute clear command (streaming-only, zero-allocation)
@@ -370,26 +330,23 @@ impl CommandExecutor {
         execution_id: u64,
         confirm: bool,
         keep_last: Option<u64>,
-    ) -> AsyncStream<CommandEvent> {
+    ) -> Pin<Box<dyn Stream<Item = CommandEvent> + Send>> {
         let start_time = Instant::now();
 
-        AsyncStream::with_channel(move |sender| {
-            std::thread::spawn(move || {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
+            tokio::spawn(async move {
                 // Emit started event
                 #[allow(clippy::cast_possible_truncation)]
                 let timestamp_us =
                     start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
-                ystream::emit!(
-                    sender,
-                    CommandEvent::Started {
-                        command: ImmutableChatCommand::Clear {
-                            confirm,
-                            keep_last: keep_last.and_then(|n| usize::try_from(n).ok())
-                        },
-                        execution_id,
-                        timestamp_us
-                    }
-                );
+                let _ = sender.send(CommandEvent::Started {
+                    command: ImmutableChatCommand::Clear {
+                        confirm,
+                        keep_last: keep_last.and_then(|n| usize::try_from(n).ok())
+                    },
+                    execution_id,
+                    timestamp_us
+                });
 
                 // Execute clear operation with zero allocation
                 let message = if confirm {
@@ -404,41 +361,32 @@ impl CommandExecutor {
 
                 // Emit progress for clearing operation with all required fields
                 if confirm {
-                    ystream::emit!(
-                        sender,
-                        CommandEvent::Progress {
-                            execution_id,
-                            progress: 100.0,
-                            message: "Clear operation completed".to_string(),
-                            timestamp: std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_else(|_| std::time::Duration::from_secs(0))
-                                .as_secs()
-                        }
-                    );
+                    let _ = sender.send(CommandEvent::Progress {
+                        execution_id,
+                        progress: 100.0,
+                        message: "Clear operation completed".to_string(),
+                        timestamp: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+                            .as_secs()
+                    });
                 }
 
                 // Emit output event
-                ystream::emit!(
-                    sender,
-                    CommandEvent::output(execution_id, message.clone(), OutputType::Text)
-                );
+                let _ = sender.send(CommandEvent::output(execution_id, message.clone(), OutputType::Text));
 
                 // Emit completion event
                 #[allow(clippy::cast_possible_truncation)]
                 let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
-                ystream::emit!(
-                    sender,
-                    CommandEvent::Completed {
-                        execution_id,
-                        result: CommandExecutionResult::Success(message.clone()),
-                        duration_us,
-                        resource_usage: ResourceUsage::default(),
-                        timestamp_us: current_timestamp_us()
-                    }
-                );
+                let _ = sender.send(CommandEvent::Completed {
+                    execution_id,
+                    result: CommandExecutionResult::Success(message.clone()),
+                    duration_us,
+                    resource_usage: ResourceUsage::default(),
+                    timestamp_us: current_timestamp_us()
+                });
             });
-        })
+        }))
     }
 
     /// Execute export command (streaming-only, zero-allocation)
@@ -448,45 +396,39 @@ impl CommandExecutor {
         format: String,
         output: Option<String>,
         include_metadata: bool,
-    ) -> AsyncStream<CommandEvent> {
+    ) -> Pin<Box<dyn Stream<Item = CommandEvent> + Send>> {
         let start_time = Instant::now();
 
-        AsyncStream::with_channel(move |sender| {
-            std::thread::spawn(move || {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
+            tokio::spawn(async move {
                 let output_str = output.unwrap_or_else(|| "chat_export".to_string());
 
                 // Emit started event
-                ystream::emit!(
-                    sender,
-                    CommandEvent::Started {
-                        command: ImmutableChatCommand::Export {
-                            format: format.clone(),
-                            output: Some(output_str.clone()),
-                            include_metadata
-                        },
-                        execution_id,
-                        #[allow(clippy::cast_possible_truncation)]
-                        timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX))
-                            as u64
-                    }
-                );
+                let _ = sender.send(CommandEvent::Started {
+                    command: ImmutableChatCommand::Export {
+                        format: format.clone(),
+                        output: Some(output_str.clone()),
+                        include_metadata
+                    },
+                    execution_id,
+                    #[allow(clippy::cast_possible_truncation)]
+                    timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX))
+                        as u64
+                });
 
                 // Simulate export progress
                 for progress in [25, 50, 75, 100] {
                     #[allow(clippy::cast_precision_loss)]
                     let progress_f32 = progress as f32;
-                    ystream::emit!(
-                        sender,
-                        CommandEvent::Progress {
-                            execution_id,
-                            progress: progress_f32,
-                            message: format!("Exporting... {progress}%"),
-                            timestamp: std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_else(|_| std::time::Duration::from_secs(0))
-                                .as_secs()
-                        }
-                    );
+                    let _ = sender.send(CommandEvent::Progress {
+                        execution_id,
+                        progress: progress_f32,
+                        message: format!("Exporting... {progress}%"),
+                        timestamp: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+                            .as_secs()
+                    });
                 }
 
                 let metadata_str = if include_metadata {
@@ -498,10 +440,7 @@ impl CommandExecutor {
                     format!("Chat exported to '{output_str}' in {format} format{metadata_str}");
 
                 // Emit output and completion
-                ystream::emit!(
-                    sender,
-                    CommandEvent::output(execution_id, message, OutputType::Text)
-                );
+                let _ = sender.send(CommandEvent::output(execution_id, message, OutputType::Text));
 
                 let result = CommandExecutionResult::File {
                     path: output_str,
@@ -510,17 +449,14 @@ impl CommandExecutor {
                 };
                 #[allow(clippy::cast_possible_truncation)]
                 let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
-                ystream::emit!(
-                    sender,
-                    CommandEvent::completed(
-                        execution_id,
-                        result,
-                        duration_us,
-                        ResourceUsage::default()
-                    )
-                );
+                let _ = sender.send(CommandEvent::completed(
+                    execution_id,
+                    result,
+                    duration_us,
+                    ResourceUsage::default()
+                ));
             });
-        })
+        }))
     }
 
     /// Execute config command (streaming-only, zero-allocation)  
@@ -531,27 +467,24 @@ impl CommandExecutor {
         value: Option<String>,
         show: bool,
         reset: bool,
-    ) -> AsyncStream<CommandEvent> {
+    ) -> Pin<Box<dyn Stream<Item = CommandEvent> + Send>> {
         let start_time = Instant::now();
 
-        AsyncStream::with_channel(move |sender| {
-            std::thread::spawn(move || {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
+            tokio::spawn(async move {
                 // Emit started event
-                ystream::emit!(
-                    sender,
-                    CommandEvent::Started {
-                        command: ImmutableChatCommand::Config {
-                            key: key.clone(),
-                            value: value.clone(),
-                            show,
-                            reset
-                        },
-                        execution_id,
-                        #[allow(clippy::cast_possible_truncation)]
-                        timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX))
-                            as u64
-                    }
-                );
+                let _ = sender.send(CommandEvent::Started {
+                    command: ImmutableChatCommand::Config {
+                        key: key.clone(),
+                        value: value.clone(),
+                        show,
+                        reset
+                    },
+                    execution_id,
+                    #[allow(clippy::cast_possible_truncation)]
+                    timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX))
+                        as u64
+                });
 
                 let message = if reset {
                     "Configuration reset to defaults".to_string()
@@ -566,26 +499,20 @@ impl CommandExecutor {
                 };
 
                 // Emit output event
-                ystream::emit!(
-                    sender,
-                    CommandEvent::output(execution_id, message.clone(), OutputType::Text)
-                );
+                let _ = sender.send(CommandEvent::output(execution_id, message.clone(), OutputType::Text));
 
                 // Emit completion event
                 #[allow(clippy::cast_possible_truncation)]
                 let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
-                ystream::emit!(
-                    sender,
-                    CommandEvent::Completed {
-                        execution_id,
-                        result: CommandExecutionResult::Success(message.clone()),
-                        duration_us,
-                        resource_usage: ResourceUsage::default(),
-                        timestamp_us: current_timestamp_us()
-                    }
-                );
+                let _ = sender.send(CommandEvent::Completed {
+                    execution_id,
+                    result: CommandExecutionResult::Success(message.clone()),
+                    duration_us,
+                    resource_usage: ResourceUsage::default(),
+                    timestamp_us: current_timestamp_us()
+                });
             });
-        })
+        }))
     }
 
     /// Execute search command (streaming-only, zero-allocation)
@@ -596,44 +523,38 @@ impl CommandExecutor {
         scope: SearchScope,
         limit: Option<usize>,
         include_context: bool,
-    ) -> AsyncStream<CommandEvent> {
+    ) -> Pin<Box<dyn Stream<Item = CommandEvent> + Send>> {
         let start_time = Instant::now();
 
-        AsyncStream::with_channel(move |sender| {
-            std::thread::spawn(move || {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
+            tokio::spawn(async move {
                 // Emit started event
-                ystream::emit!(
-                    sender,
-                    CommandEvent::Started {
-                        command: ImmutableChatCommand::Search {
-                            query: query.clone(),
-                            scope,
-                            limit,
-                            include_context
-                        },
-                        execution_id,
-                        #[allow(clippy::cast_possible_truncation)]
-                        timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX))
-                            as u64
-                    }
-                );
+                let _ = sender.send(CommandEvent::Started {
+                    command: ImmutableChatCommand::Search {
+                        query: query.clone(),
+                        scope,
+                        limit,
+                        include_context
+                    },
+                    execution_id,
+                    #[allow(clippy::cast_possible_truncation)]
+                    timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX))
+                        as u64
+                });
 
                 // Simulate search progress with zero allocation
                 for progress in [20, 40, 60, 80, 100] {
                     #[allow(clippy::cast_precision_loss)]
                     let progress_f32 = progress as f32;
-                    ystream::emit!(
-                        sender,
-                        CommandEvent::Progress {
-                            execution_id,
-                            progress: progress_f32,
-                            message: format!("Searching... {progress}%"),
-                            timestamp: std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_else(|_| std::time::Duration::from_secs(0))
-                                .as_secs()
-                        }
-                    );
+                    let _ = sender.send(CommandEvent::Progress {
+                        execution_id,
+                        progress: progress_f32,
+                        message: format!("Searching... {progress}%"),
+                        timestamp: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+                            .as_secs()
+                    });
                 }
 
                 let scope_str = match scope {
@@ -660,10 +581,7 @@ impl CommandExecutor {
                 );
 
                 // Emit output event
-                ystream::emit!(
-                    sender,
-                    CommandEvent::output(execution_id, message.clone(), OutputType::Text)
-                );
+                let _ = sender.send(CommandEvent::output(execution_id, message.clone(), OutputType::Text));
 
                 // Emit completion event with search results
                 let result = CommandExecutionResult::Data(serde_json::json!({
@@ -674,17 +592,14 @@ impl CommandExecutor {
                 }));
                 #[allow(clippy::cast_possible_truncation)]
                 let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
-                ystream::emit!(
-                    sender,
-                    CommandEvent::completed(
-                        execution_id,
-                        result,
-                        duration_us,
-                        ResourceUsage::default()
-                    )
-                );
+                let _ = sender.send(CommandEvent::completed(
+                    execution_id,
+                    result,
+                    duration_us,
+                    ResourceUsage::default()
+                ));
             });
-        })
+        }))
     }
 
     /// Get command name for metrics (zero-allocation) - planned feature
@@ -709,63 +624,51 @@ impl CommandExecutor {
     }
 
     /// Parse and execute command from string (streaming-only, zero-allocation)
-    pub fn parse_and_execute(&self, input: &str) -> AsyncStream<CommandEvent> {
+    pub fn parse_and_execute(&self, input: &str) -> Pin<Box<dyn Stream<Item = CommandEvent> + Send>> {
         let execution_id = self.execution_counter.fetch_add(1, Ordering::AcqRel);
         let command_result = self.parser.parse_command(input);
 
-        AsyncStream::with_channel(move |sender| {
+        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
             match command_result {
                 Ok(command) => {
                     // Emit Started event
-                    ystream::emit!(
-                        sender,
-                        CommandEvent::Started {
-                            command: command.clone(),
-                            execution_id,
-                            timestamp_us: current_timestamp_us(),
-                        }
-                    );
+                    let _ = sender.send(CommandEvent::Started {
+                        command: command.clone(),
+                        execution_id,
+                        timestamp_us: current_timestamp_us(),
+                    });
 
                     // Emit successful Output event
-                    ystream::emit!(
-                        sender,
-                        CommandEvent::Output {
-                            execution_id,
-                            content: "Command executed successfully".to_string(),
-                            output_type: OutputType::Text,
-                            timestamp_us: current_timestamp_us(),
-                        }
-                    );
+                    let _ = sender.send(CommandEvent::Output {
+                        execution_id,
+                        content: "Command executed successfully".to_string(),
+                        output_type: OutputType::Text,
+                        timestamp_us: current_timestamp_us(),
+                    });
 
                     // Emit Completed event
-                    ystream::emit!(
-                        sender,
-                        CommandEvent::Completed {
-                            execution_id,
-                            result: CommandExecutionResult::Success(
-                                "Command completed".to_string()
-                            ),
-                            duration_us: 0, // TODO: Calculate actual duration
-                            resource_usage: ResourceUsage::default(),
-                            timestamp_us: current_timestamp_us(),
-                        }
-                    );
+                    let _ = sender.send(CommandEvent::Completed {
+                        execution_id,
+                        result: CommandExecutionResult::Success(
+                            "Command completed".to_string()
+                        ),
+                        duration_us: 0, // TODO: Calculate actual duration
+                        resource_usage: ResourceUsage::default(),
+                        timestamp_us: current_timestamp_us(),
+                    });
                 }
                 Err(e) => {
                     // Emit Failed event for parse errors
-                    ystream::emit!(
-                        sender,
-                        CommandEvent::Failed {
-                            execution_id,
-                            error: format!("Parse error: {e}"),
-                            error_code: 1001, // Parse error code
-                            duration_us: 0,
-                            resource_usage: ResourceUsage::default(),
-                            timestamp_us: current_timestamp_us(),
-                        }
-                    );
+                    let _ = sender.send(CommandEvent::Failed {
+                        execution_id,
+                        error: format!("Parse error: {e}"),
+                        error_code: 1001, // Parse error code
+                        duration_us: 0,
+                        resource_usage: ResourceUsage::default(),
+                        timestamp_us: current_timestamp_us(),
+                    });
                 }
             }
-        })
+        }))
     }
 }

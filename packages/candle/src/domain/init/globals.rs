@@ -81,10 +81,9 @@
 
 use std::sync::{Arc, LazyLock, atomic::AtomicUsize};
 
+use tokio::sync::{mpsc, Mutex};
 use arc_swap::ArcSwap;
 use atomic_counter::RelaxedCounter;
-use crossbeam::queue::SegQueue;
-use crossbeam_utils::CachePadded;
 
 use crate::domain::error::SimpleCircuitBreaker;
 // Temporarily disabled to break circular dependency
@@ -99,21 +98,24 @@ use crate::memory::core::manager::surreal::SurrealDBMemoryManager;
 pub static CONFIG_CACHE: LazyLock<ArcSwap<MemoryConfig>> =
     LazyLock::new(|| ArcSwap::new(Arc::new(create_default_config())));
 
-/// Lock-free connection pool with ring buffer for zero-allocation connection management
-pub static CONNECTION_POOL: LazyLock<SegQueue<Arc<SurrealDBMemoryManager>>> =
-    LazyLock::new(SegQueue::new);
+/// Connection pool for zero-allocation connection management
+pub static CONNECTION_POOL: LazyLock<(mpsc::UnboundedSender<Arc<SurrealDBMemoryManager>>, Arc<Mutex<mpsc::UnboundedReceiver<Arc<SurrealDBMemoryManager>>>>)> =
+    LazyLock::new(|| {
+        let (sender, receiver) = mpsc::unbounded_channel();
+        (sender, Arc::new(Mutex::new(receiver)))
+    });
 
 /// Circuit breaker for error recovery with exponential backoff
 pub static CIRCUIT_BREAKER: LazyLock<SimpleCircuitBreaker> =
     LazyLock::new(|| SimpleCircuitBreaker::new(5, 30000)); // 30 seconds in milliseconds
 
 /// Global initialization statistics for monitoring
-pub static INIT_STATS: LazyLock<CachePadded<RelaxedCounter>> =
-    LazyLock::new(|| CachePadded::new(RelaxedCounter::new(0)));
+pub static INIT_STATS: LazyLock<RelaxedCounter> =
+    LazyLock::new(|| RelaxedCounter::new(0));
 
 /// Pool statistics for monitoring
-pub static POOL_STATS: LazyLock<CachePadded<AtomicUsize>> =
-    LazyLock::new(|| CachePadded::new(AtomicUsize::new(0)));
+pub static POOL_STATS: LazyLock<AtomicUsize> =
+    LazyLock::new(|| AtomicUsize::new(0));
 
 /// Circuit breaker reset statistics
 pub static CIRCUIT_BREAKER_RESET_COUNT: AtomicUsize = AtomicUsize::new(0);

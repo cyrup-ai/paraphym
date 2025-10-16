@@ -2,7 +2,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use crossbeam_utils::CachePadded;
 use serde::{Deserialize, Serialize};
 
 use super::super::primitives::types::{MemoryError, MemoryResult};
@@ -674,7 +673,7 @@ pub struct MemoryConfig {
     pub track_usage: bool,
     /// Atomic memory usage counter
     #[serde(skip)]
-    pub current_usage: Arc<CachePadded<AtomicUsize>>,
+    pub current_usage: Arc<AtomicUsize>,
 }
 
 /// Memory allocation strategies
@@ -701,7 +700,7 @@ impl MemoryConfig {
             allocation_strategy: AllocationStrategy::System,
             enable_mmap: max_memory_bytes > 1024 * 1024 * 1024, // Enable for >1GB
             track_usage: true,
-            current_usage: Arc::new(CachePadded::new(AtomicUsize::new(0))),
+            current_usage: Arc::new(AtomicUsize::new(0)),
         }
     }
 

@@ -21,8 +21,7 @@ use serde::{Deserialize, Serialize};
 
 use cyrup_sugars::prelude::MessageChunk;
 use uuid::Uuid;
-use std::pin::Pin;
-use tokio_stream::{Stream, StreamExt};
+use tokio_stream::StreamExt;
 
 use crate::domain::chat::commands::{CommandEvent, ImmutableChatCommand, execute_candle_command};
 use crate::domain::chat::conversation::CandleStreamingConversation;

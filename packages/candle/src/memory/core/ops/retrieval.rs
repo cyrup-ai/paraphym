@@ -141,7 +141,7 @@ impl<V: VectorStore> HybridRetrieval<V> {
         let search_stream = self.vector_store.search(query_vector, limit, Some(filter));
 
         // Collect all results from the stream
-        let results = search_stream.collect();
+        let results: Vec<_> = search_stream.collect().await;
 
         // Apply cognitive decision to filter and enhance results
         let retrieval_results: Vec<RetrievalResult> = match query_decision {
@@ -340,7 +340,7 @@ impl<V: VectorStore + Send + Sync + 'static> RetrievalStrategy for SemanticRetri
                 let search_stream = vector_store.search(query_embedding, limit, filter);
 
                 // Collect all results from the stream
-                let results = search_stream.collect();
+                let results: Vec<_> = search_stream.collect().await;
 
                 let retrieval_results = results
                     .into_iter()
@@ -664,7 +664,7 @@ impl<V: VectorStore + Clone + Send + Sync + 'static> RetrievalManager<V> {
         let search_stream = self.vector_store.search(query_vector, limit, Some(filter));
 
         // Collect all results from the stream
-        let results = search_stream.collect();
+        let results: Vec<_> = search_stream.collect().await;
 
         Ok(results)
     }

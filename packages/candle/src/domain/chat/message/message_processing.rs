@@ -6,8 +6,6 @@
 // Removed unused import: use crate::error::ZeroAllocResult;
 use thiserror::Error;
 use unicode_normalization::UnicodeNormalization;
-use std::pin::Pin;
-use tokio_stream::Stream;
 
 use super::types::CandleMessage;
 

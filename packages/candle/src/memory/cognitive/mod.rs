@@ -48,12 +48,12 @@ impl LocalCognitiveManager {
             let enhanced_importance = memory.importance() * 1.2;
             let enhanced_memory = memory.clone();
             // Create new metadata with updated importance
-            let mut new_metadata = (**enhanced_memory.metadata).clone();
+            let mut new_metadata = (*enhanced_memory.metadata).clone();
             new_metadata.importance = enhanced_importance;
             // Create new memory with updated metadata
             let mut updated_memory = enhanced_memory.clone();
             updated_memory.metadata =
-                std::sync::Arc::new(crossbeam_utils::CachePadded::new(new_metadata));
+                std::sync::Arc::new(new_metadata);
             Ok(updated_memory)
         } else {
             // Return original memory without modification

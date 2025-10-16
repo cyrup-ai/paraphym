@@ -9,7 +9,9 @@
 use anyhow::{Context, Result};
 use serde_json::json;
 use std::collections::HashMap;
+use std::pin::Pin;
 use sweet_mcp_type::ToolInfo;
+use tokio_stream::{Stream, StreamExt};
 
 use super::templates;
 use super::types::responses::{FinalResponse, OpenAIFunctionCallResponse, ToolSelectionResponse};
@@ -184,11 +186,11 @@ pub fn get_selected_tool_schemas(
 
 /// Helper to collect `AsyncStream` into String
 #[must_use]
-pub fn collect_stream_to_string(
-    stream: &ystream::AsyncStream<crate::domain::context::chunk::CandleStringChunk>,
+pub async fn collect_stream_to_string(
+    mut stream: Pin<Box<dyn Stream<Item = crate::domain::context::chunk::CandleStringChunk> + Send>>,
 ) -> String {
     let mut result = String::new();
-    while let Some(chunk) = stream.try_next() {
+    while let Some(chunk) = stream.next().await {
         result.push_str(&chunk.0);
     }
     result

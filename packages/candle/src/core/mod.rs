@@ -4,7 +4,6 @@ use std::sync::atomic::AtomicUsize;
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
-use crossbeam_utils::CachePadded;
 use cyrup_sugars::prelude::MessageChunk;
 use once_cell::sync::Lazy;
 use tokio_stream::Stream;
@@ -129,7 +128,7 @@ static CIRCUIT_BREAKER: Lazy<ArcSwap<CircuitBreaker>> =
 struct CircuitBreaker {
     _failure_count: AtomicUsize,
     reset_after: Duration,
-    last_failure: CachePadded<parking_lot::Mutex<Option<std::time::Instant>>>,
+    last_failure: parking_lot::Mutex<Option<std::time::Instant>>,
 }
 
 impl CircuitBreaker {
@@ -137,7 +136,7 @@ impl CircuitBreaker {
         Self {
             _failure_count: AtomicUsize::new(0),
             reset_after: Duration::from_secs(60),
-            last_failure: CachePadded::new(parking_lot::Mutex::new(None)),
+            last_failure: parking_lot::Mutex::new(None),
         }
     }
 

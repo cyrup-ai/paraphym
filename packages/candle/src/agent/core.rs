@@ -3,7 +3,6 @@
 
 use std::sync::{Arc, atomic::AtomicUsize};
 
-use crossbeam_utils::CachePadded;
 use serde_json::Value;
 use std::pin::Pin;
 use tokio_stream::Stream;
@@ -21,7 +20,7 @@ pub const MAX_AGENT_TOOLS: usize = 32;
 
 /// Agent statistics for performance monitoring
 #[allow(dead_code)] // TODO: Implement in agent monitoring system
-static AGENT_STATS: CachePadded<AtomicUsize> = CachePadded::new(AtomicUsize::new(0));
+static AGENT_STATS: AtomicUsize = AtomicUsize::new(0);
 
 /// Agent creation error types
 #[derive(Debug, thiserror::Error)]

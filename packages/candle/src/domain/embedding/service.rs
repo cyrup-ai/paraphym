@@ -5,6 +5,8 @@
 
 use std::collections::HashMap;
 use std::pin::Pin;
+use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc;
 use tokio_stream::Stream;
 
 use crate::domain::memory::serialization::content_hash;
@@ -38,9 +40,10 @@ pub trait EmbeddingService: Send + Sync {
     fn clear_cache(&self);
 }
 
-/// Lock-free embedding pool for zero-allocation vector reuse
+/// Embedding pool for zero-allocation vector reuse
 pub struct EmbeddingPool {
-    available: crossbeam_queue::ArrayQueue<Vec<f32>>,
+    sender: mpsc::UnboundedSender<Vec<f32>>,
+    receiver: Arc<Mutex<mpsc::UnboundedReceiver<Vec<f32>>>>,
     dimension: usize,
     max_capacity: usize,
 }
@@ -49,27 +52,30 @@ impl EmbeddingPool {
     #[inline]
     #[must_use]
     pub fn new(dimension: usize, capacity: usize) -> Self {
-        let pool = Self {
-            available: crossbeam_queue::ArrayQueue::new(capacity),
-            dimension,
-            max_capacity: capacity,
-        };
-
+        let (sender, receiver) = mpsc::unbounded_channel();
+        
         // Pre-allocate vectors to avoid allocations during runtime
         for _ in 0..capacity {
             let vec = vec![0.0; dimension];
-            let _ = pool.available.push(vec);
+            let _ = sender.send(vec);
         }
 
-        pool
+        Self {
+            sender,
+            receiver: Arc::new(Mutex::new(receiver)),
+            dimension,
+            max_capacity: capacity,
+        }
     }
 
     /// Get vector from pool or create new one (zero-allocation in common case)
     #[inline]
     pub fn acquire(&self) -> Vec<f32> {
-        self.available
-            .pop()
-            .unwrap_or_else(|| vec![0.0; self.dimension])
+        if let Ok(mut receiver) = self.receiver.lock() {
+            receiver.try_recv().unwrap_or_else(|_| vec![0.0; self.dimension])
+        } else {
+            vec![0.0; self.dimension]
+        }
     }
 
     /// Return vector to pool for reuse
@@ -77,7 +83,7 @@ impl EmbeddingPool {
     pub fn release(&self, mut vec: Vec<f32>) {
         if vec.len() == self.dimension {
             vec.fill(0.0); // Clear data
-            let _ = self.available.push(vec); // Ignore if pool is full
+            let _ = self.sender.send(vec); // Ignore if send fails
         }
     }
 
@@ -85,7 +91,8 @@ impl EmbeddingPool {
     #[inline]
     #[must_use]
     pub fn stats(&self) -> (usize, usize) {
-        (self.available.len(), self.max_capacity)
+        // Note: tokio mpsc doesn't expose queue length, returning max_capacity as estimate
+        (self.max_capacity, self.max_capacity)
     }
 }
 

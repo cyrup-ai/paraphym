@@ -89,7 +89,7 @@ impl<T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + 'static>
                 }
             };
 
-            // Execute extraction synchronously using ystream pattern
+            // Execute extraction asynchronously using tokio streams
             let model = provider.as_ref();
             let prompt = Prompt {
                 content: completion_request.system_prompt,

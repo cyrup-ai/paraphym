@@ -23,11 +23,6 @@ use gitgix::{
 use cyrup_sugars::prelude::MessageChunk;
 use std::pin::Pin;
 use tokio_stream::Stream;
-// Local macro definitions removed - using ystream macros instead
-// Streaming primitives from paraphym-async
-// Macros now available from ystream crate
-// Removed unused import: futures_util::StreamExt
-// Removed unused import: rayon::prelude
 use serde::{Deserialize, Serialize};
 use serde_json;
 use thiserror::Error;
@@ -38,8 +33,6 @@ use crate::domain::context::CandleDocument as Document;
 // Additional imports for file reading implementation
 use base64::{Engine as _, engine::general_purpose};
 use mime_guess;
-
-// Macros now imported from ystream - removed local definitions
 
 /// Marker types for `CandleContext`
 /// Marker type for file-based Candle context operations. Used in typestate pattern to ensure compile-time safety for file context providers.

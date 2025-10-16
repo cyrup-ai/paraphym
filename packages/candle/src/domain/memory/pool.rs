@@ -1,8 +1,11 @@
 use super::primitives::{MemoryContent, MemoryNode, MemoryTypeEnum as MemoryType};
+use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc;
 
-/// Lock-free memory node pool for zero-allocation `MemoryNode` reuse
+/// Memory node pool for zero-allocation `MemoryNode` reuse
 pub struct MemoryNodePool {
-    available: crossbeam_queue::ArrayQueue<MemoryNode>,
+    sender: mpsc::UnboundedSender<MemoryNode>,
+    receiver: Arc<Mutex<mpsc::UnboundedReceiver<MemoryNode>>>,
     embedding_dimension: usize,
     max_capacity: usize,
 }
@@ -12,11 +15,7 @@ impl MemoryNodePool {
     #[inline]
     #[must_use]
     pub fn new(capacity: usize, embedding_dimension: usize) -> Self {
-        let pool = Self {
-            available: crossbeam_queue::ArrayQueue::new(capacity),
-            embedding_dimension,
-            max_capacity: capacity,
-        };
+        let (sender, receiver) = mpsc::unbounded_channel();
 
         // Pre-allocate nodes to avoid allocations during runtime
         for _ in 0..capacity {
@@ -28,27 +27,42 @@ impl MemoryNodePool {
                 let _ = node.set_embedding(vec![0.0; embedding_dimension]); // Pre-allocate embedding
             }
 
-            let _ = pool.available.push(node);
+            let _ = sender.send(node);
         }
 
-        pool
+        Self {
+            sender,
+            receiver: Arc::new(Mutex::new(receiver)),
+            embedding_dimension,
+            max_capacity: capacity,
+        }
     }
 
     /// Acquire a node from the pool (zero-allocation in common case)
     #[inline]
     pub fn acquire(&self) -> PooledMemoryNode<'_> {
-        let mut node = self.available.pop().unwrap_or_else(|| {
-            // Fallback: create new node if pool is empty
+        let mut node = if let Ok(mut receiver) = self.receiver.lock() {
+            receiver.try_recv().unwrap_or_else(|_| {
+                // Fallback: create new node if pool is empty
+                let content = MemoryContent::text(String::with_capacity(1024));
+                let mut node = MemoryNode::new(MemoryType::Working, content);
+
+                // Set embedding if requested
+                if self.embedding_dimension > 0 {
+                    let _ = node.set_embedding(vec![0.0; self.embedding_dimension]);
+                }
+
+                node
+            })
+        } else {
+            // Fallback if lock fails
             let content = MemoryContent::text(String::with_capacity(1024));
             let mut node = MemoryNode::new(MemoryType::Working, content);
-
-            // Set embedding if requested
             if self.embedding_dimension > 0 {
                 let _ = node.set_embedding(vec![0.0; self.embedding_dimension]);
             }
-
             node
-        });
+        };
 
         // Reset the node to clean state, reusing all allocations
         let _ = node.reset(MemoryType::Working);
@@ -66,15 +80,16 @@ impl MemoryNodePool {
         // Reset the node to a clean state for reuse
         // The reset() method preserves allocations for optimal performance
 
-        // Return to pool (ignore if pool is full)
-        let _ = self.available.push(node);
+        // Return to pool (ignore if send fails)
+        let _ = self.sender.send(node);
     }
 
     /// Get pool statistics
     #[inline]
     #[must_use]
     pub fn stats(&self) -> (usize, usize) {
-        (self.available.len(), self.max_capacity)
+        // Note: tokio mpsc doesn't expose queue length, returning max_capacity as estimate
+        (self.max_capacity, self.max_capacity)
     }
 }
 

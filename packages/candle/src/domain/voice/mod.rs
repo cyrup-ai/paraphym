@@ -3,6 +3,9 @@
 //! This module provides functionality for handling voice-related operations,
 //! including audio processing and transcription services.
 
+use std::future::Future;
+use std::pin::Pin;
+
 pub mod audio;
 pub mod transcription;
 
@@ -35,18 +38,25 @@ pub enum VoiceError {
 pub type Result<T> = std::result::Result<T, VoiceError>;
 
 /// Voice processing service trait
+/// 
+/// Note: This trait is currently unused in the codebase but provides the interface
+/// for future voice service implementations using 100% tokio async patterns.
 pub trait VoiceService: Send + Sync + 'static {
     /// Transcribe audio data to text
     fn transcribe(
         &self,
         request: TranscriptionRequest,
-    ) -> crate::AsyncTask<Result<TranscriptionResponse<()>>>;
+    ) -> Pin<Box<dyn Future<Output = Result<TranscriptionResponse<()>>> + Send + '_>>;
 
     /// Convert text to speech
-    fn synthesize(&self, text: &str, voice_id: &str) -> crate::AsyncTask<Result<Vec<u8>>>;
+    fn synthesize(
+        &self,
+        text: &str,
+        voice_id: &str,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<u8>>> + Send + '_>>;
 
     /// List available voices
-    fn list_voices(&self) -> crate::AsyncTask<Result<Vec<VoiceInfo>>>;
+    fn list_voices(&self) -> Pin<Box<dyn Future<Output = Result<Vec<VoiceInfo>>> + Send + '_>>;
 }
 
 /// Information about an available voice

@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
 
-use crossbeam_channel::unbounded;
+use tokio::sync::mpsc;
 use serde::{Deserialize, Serialize};
 use surrealdb::Value;
 
@@ -580,7 +580,7 @@ impl VectorSearch {
             .await?;
 
         // Parallel search using thread pool
-        let (sender, receiver) = unbounded();
+        let (sender, mut receiver) = mpsc::unbounded_channel();
         let mut handles = Vec::new();
 
         for (index, embedding) in embeddings.into_iter().enumerate() {
@@ -621,7 +621,7 @@ impl VectorSearch {
 
         // Collect results in original order
         let mut results = vec![Vec::new(); texts.len()];
-        while let Ok((index, result)) = receiver.try_recv() {
+        while let Some((index, result)) = receiver.recv().await {
             match result {
                 Ok(search_results) => results[index] = search_results,
                 Err(e) => return Err(e),

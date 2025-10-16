@@ -2,7 +2,7 @@
 //!
 //! This module provides high-performance completion capabilities with:
 //! - Zero allocation: Stack allocation, pre-allocated buffers, ArrayVec/SmallVec
-//! - No locking: Crossbeam channels, atomics, lock-free data structures
+//! - No locking: Tokio mpsc channels, atomics, lock-free data structures
 //! - Blazing-fast: Inline hot paths, optimized memory layout, SIMD where possible
 //! - No unsafe/unchecked: Explicit bounds checking, safe performance optimizations
 //! - Elegant ergonomic: Clean API with builder patterns, zero-cost abstractions
@@ -11,7 +11,6 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use arrayvec::ArrayVec;
-// Removed unused import: use ystream::AsyncStream;
 use smallvec::SmallVec;
 use thiserror::Error;
 use tokio_stream::Stream;
