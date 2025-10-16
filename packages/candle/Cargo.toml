@@ -28,8 +28,9 @@ quyc = { git = "https://github.com/cyrup-ai/quyc", branch = "main", package = "q
 cyrup_sugars = { git = "https://github.com/cyrup-ai/cyrup-sugars", branch = "main", package = "cyrup_sugars", features = ["all"] }
 progresshub = { git = "https://github.com/cyrup-ai/progresshub", branch = "main", package = "progresshub", optional = true }
 
-# Add hf-hub as optional dependency
-hf-hub = { version = "0.3", optional = true, default-features = false, features = ["online", "tokio"] }
+# Add hf-hub as optional dependency  
+# tokio = async API, ureq = sync API, native-tls = TLS backend
+hf-hub = { version = "0.4.3", optional = true, default-features = false, features = ["tokio", "ureq", "native-tls"] }
 
 # For finding home directory
 dirs = "5.0"

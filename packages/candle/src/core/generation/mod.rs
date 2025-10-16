@@ -62,6 +62,7 @@ pub use generator::TextGenerator;
 pub use metrics::SimdMetrics;
 pub use models::{
     CandleLlamaModel, CandleModel, CandleQuantizedLlamaModel, CandleQuantizedMixFormerModel,
+    CandleQuantizedPhiModel,
 };
 pub use stats::GenerationStatistics;
 pub use tokens::{SpecialTokens, TokenHistory, TokenProb};

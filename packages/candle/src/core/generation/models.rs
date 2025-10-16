@@ -14,6 +14,7 @@ use candle_nn::VarBuilder;
 use candle_transformers::models::llama::{Cache, Llama};
 use candle_transformers::models::quantized_llama;
 use candle_transformers::models::quantized_mixformer;
+use candle_transformers::models::quantized_phi3;
 
 use super::types::CandleResult;
 use crate::core::ModelConfig as CandleConfig;
@@ -371,6 +372,12 @@ impl CandleQuantizedMixFormerModel {
             )
         })?;
 
+        // Log first 20 tensor names to understand the structure
+        log::info!("GGUF tensor names (first 20):");
+        for (i, tensor_name) in gguf_content.tensor_infos.keys().take(20).enumerate() {
+            log::info!("  [{}] {}", i, tensor_name);
+        }
+
         // Detect tensor layout by checking which tensors exist
         // new_v2 layout uses "transformer." prefix, old layout uses "layers."
         let uses_transformer_prefix = gguf_content
@@ -378,10 +385,14 @@ impl CandleQuantizedMixFormerModel {
             .keys()
             .any(|k| k.starts_with("transformer."));
 
+        log::info!("Detected tensor layout: uses_transformer_prefix={}", uses_transformer_prefix);
+
         // Create model using appropriate constructor based on tensor layout
         let model = if uses_transformer_prefix {
+            log::info!("Using new_v2() constructor for transformer-prefixed layout");
             quantized_mixformer::MixFormerSequentialForCausalLM::new_v2(&config, vb)
         } else {
+            log::info!("Using new() constructor for layers-prefixed layout");
             quantized_mixformer::MixFormerSequentialForCausalLM::new(&config, vb)
         }
         .map_err(|e| {
@@ -410,6 +421,102 @@ impl CandleModel for CandleQuantizedMixFormerModel {
     fn forward(&mut self, input: &Tensor, _position: usize) -> CandleResult<Tensor> {
         // MixFormer manages KV cache internally, position parameter is ignored
         self.model_weights.forward(input).map_err(Into::into)
+    }
+
+    fn device(&self) -> &Device {
+        &self.device
+    }
+
+    fn vocab_size(&self) -> usize {
+        self.vocab_size
+    }
+}
+
+/// Wrapper for quantized Phi-3/Phi-4 models loaded from GGUF files
+///
+/// Phi-3 and Phi-4 use a specific tensor layout with `token_embd`, `blk.*`, and `output` tensors
+/// and phi3.* metadata keys. This is the correct model type for Phi-4.
+#[derive(Debug)]
+pub struct CandleQuantizedPhiModel {
+    /// The underlying quantized Phi-3/Phi-4 model
+    model_weights: quantized_phi3::ModelWeights,
+    /// Device the model is loaded on
+    device: Device,
+    /// Vocabulary size
+    vocab_size: usize,
+}
+
+impl CandleQuantizedPhiModel {
+    /// Create new CandleQuantizedPhiModel
+    pub fn new(
+        model_weights: quantized_phi3::ModelWeights,
+        device: Device,
+        vocab_size: usize,
+    ) -> Self {
+        Self {
+            model_weights,
+            device,
+            vocab_size,
+        }
+    }
+
+    /// Load a quantized Phi model from a GGUF file
+    pub async fn from_gguf_path<P: AsRef<std::path::Path>>(
+        model_path: P,
+        device: Device,
+    ) -> CandleResult<Self> {
+        use candle_core::quantized::gguf_file;
+
+        // Open and read GGUF file
+        let file = tokio::fs::File::open(model_path.as_ref()).await.map_err(|e| {
+            CandleModelError::InvalidConfiguration(
+                format!("Failed to open GGUF file: {}", e).into(),
+            )
+        })?;
+        let mut file = file.into_std().await;
+
+        let gguf_content = gguf_file::Content::read(&mut file).map_err(|e| {
+            CandleModelError::InvalidConfiguration(
+                format!("Failed to read GGUF content: {}", e).into(),
+            )
+        })?;
+
+        // Extract vocab size from GGUF metadata
+        let vocab_size = gguf_content
+            .metadata
+            .get("tokenizer.ggml.tokens")
+            .and_then(|v| match v {
+                gguf_file::Value::Array(arr) => Some(arr.len()),
+                _ => None,
+            })
+            .unwrap_or(100352); // Phi-4 default vocab size
+
+        log::info!("Loading Phi model from GGUF with vocab_size={}", vocab_size);
+        
+        // Log available metadata keys to understand what Phi-4 uses
+        log::info!("GGUF metadata keys (first 30):");
+        for (i, key) in gguf_content.metadata.keys().take(30).enumerate() {
+            log::info!("  [{}] {}", i, key);
+        }
+
+        // Create model using quantized_phi3 (Phi-4 uses phi3.* metadata)
+        // Phi-4 does not support flash attention according to model docs
+        let use_flash_attn = false;
+        log::info!("Loading quantized_phi3 model with flash_attn={}", use_flash_attn);
+        let model = quantized_phi3::ModelWeights::from_gguf(use_flash_attn, gguf_content, &mut file, &device).map_err(|e| {
+            CandleModelError::InvalidConfiguration(
+                format!("Failed to load Phi-3/Phi-4 model: {}", e).into(),
+            )
+        })?;
+
+        log::info!("✅ Phi model loaded successfully!");
+        Ok(Self::new(model, device, vocab_size))
+    }
+}
+
+impl CandleModel for CandleQuantizedPhiModel {
+    fn forward(&mut self, input: &Tensor, index_pos: usize) -> CandleResult<Tensor> {
+        self.model_weights.forward(input, index_pos).map_err(Into::into)
     }
 
     fn device(&self) -> &Device {

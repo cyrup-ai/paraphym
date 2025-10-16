@@ -98,9 +98,17 @@ pub trait CandleModel: Send + Sync + std::fmt::Debug + 'static {
         Self: Sized,
     {
         async {
-            use hf_hub::api::tokio::Api;
+            use hf_hub::api::tokio::ApiBuilder;
 
-            let api = Api::new()?;
+            // from_env() reads HF_HOME and HF_ENDPOINT, but NOT HF_TOKEN
+            // HF_TOKEN must be added manually
+            let mut builder = ApiBuilder::from_env();
+            
+            if let Ok(token) = std::env::var("HF_TOKEN") {
+                builder = builder.with_token(Some(token));
+            }
+            
+            let api = builder.build()?;
             let repo = api.model(repo_key.to_string());
             let path = repo.get(filename).await?;
 

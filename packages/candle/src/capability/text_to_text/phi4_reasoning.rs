@@ -159,7 +159,7 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
         // Use Engine's coordinate_generation for automatic metrics and stream conversion
         Box::pin(engine.coordinate_generation(move || {
                 use crate::core::generation::{
-                    SamplingConfig, generator::TextGenerator, models::CandleQuantizedMixFormerModel,
+                    SamplingConfig, generator::TextGenerator, models::CandleQuantizedPhiModel,
                     tokens::SpecialTokens,
                 };
                 use crate::domain::context::chunk::CandleStringChunk;
@@ -169,8 +169,10 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
 
                 async_stream::spawn_stream(move |tx| async move {
                     // Load file paths asynchronously
+                    let gguf_repo = model_clone.info().quantization_url.unwrap();
+                    log::info!("Requesting GGUF from repo: '{}', file: 'phi-4-reasoning-Q4_K_M.gguf'", gguf_repo);
                     let gguf_path = match model_clone.huggingface_file(
-                        model_clone.info().quantization_url.unwrap(),
+                        gguf_repo,
                         "phi-4-reasoning-Q4_K_M.gguf",
                     ).await {
                         Ok(path) => path,
@@ -183,7 +185,9 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
                         }
                     };
 
-                    let tokenizer_path = match model_clone.huggingface_file(model_clone.info().registry_key, "tokenizer.json").await {
+                    let tokenizer_repo = model_clone.info().registry_key;
+                    log::info!("Requesting tokenizer from repo: '{}', file: 'tokenizer.json'", tokenizer_repo);
+                    let tokenizer_path = match model_clone.huggingface_file(tokenizer_repo, "tokenizer.json").await {
                         Ok(path) => path,
                         Err(e) => {
                             let _ = tx.send(CandleStringChunk(format!(
@@ -212,9 +216,9 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
                         }
                     };
 
-                    // Load the quantized MixFormer model
+                    // Load the quantized Phi model
                     let quantized_model =
-                        match CandleQuantizedMixFormerModel::from_gguf_path(&gguf_path, device.clone()).await {
+                        match CandleQuantizedPhiModel::from_gguf_path(&gguf_path, device.clone()).await {
                             Ok(model) => model,
                             Err(e) => {
                                 let _ = tx.send(CandleStringChunk(format!(
@@ -434,16 +438,16 @@ impl crate::capability::traits::TextToTextCapable for LoadedPhi4ReasoningModel {
         // Use Engine's coordinate_generation for automatic metrics and stream conversion
         Box::pin(engine.coordinate_generation(move || {
             use crate::core::generation::{
-                SamplingConfig, generator::TextGenerator, models::CandleQuantizedMixFormerModel,
+                SamplingConfig, generator::TextGenerator, models::CandleQuantizedPhiModel,
                 tokens::SpecialTokens,
             };
             use crate::domain::context::chunk::CandleStringChunk;
             use tokio_stream::StreamExt;
 
             async_stream::spawn_stream(move |tx| async move {
-                // Load the quantized MixFormer model
+                // Load the quantized Phi model
                 let quantized_model =
-                    match CandleQuantizedMixFormerModel::from_gguf_path(&gguf_path, device.clone()).await {
+                    match CandleQuantizedPhiModel::from_gguf_path(&gguf_path, device.clone()).await {
                         Ok(model) => model,
                         Err(e) => {
                             let _ = tx.send(CandleStringChunk(format!(
