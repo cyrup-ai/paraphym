@@ -224,8 +224,9 @@ impl CandleModel for AnyModel {
 // CAPABILITY TRAIT IMPLEMENTATIONS
 //==============================================================================
 
+#[async_trait::async_trait]
 impl TextToTextCapable for TextToTextModel {
-    fn prompt(
+    async fn prompt(
         &self,
         prompt: CandlePrompt,
         params: &CandleCompletionParams,
@@ -262,7 +263,7 @@ impl TextToTextCapable for TextToTextModel {
                 }
 
                 // Route through pool
-                pool.prompt(registry_key, prompt, params.clone())
+                pool.prompt(registry_key, prompt, params.clone()).await
             }
             Self::Qwen3Coder(m) => {
                 let registry_key = m.info().registry_key;
@@ -294,7 +295,7 @@ impl TextToTextCapable for TextToTextModel {
                 }
 
                 // Route through pool
-                pool.prompt(registry_key, prompt, params.clone())
+                pool.prompt(registry_key, prompt, params.clone()).await
             }
             Self::Phi4Reasoning(m) => {
                 let registry_key = m.info().registry_key;
@@ -327,7 +328,7 @@ impl TextToTextCapable for TextToTextModel {
                 }
 
                 // Route through pool
-                pool.prompt(registry_key, prompt, params.clone())
+                pool.prompt(registry_key, prompt, params.clone()).await
             }
         }
     }
@@ -934,8 +935,9 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
     }
 }
 
+#[async_trait::async_trait]
 impl VisionCapable for VisionModel {
-    fn describe_image(&self, image_path: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
+    async fn describe_image(&self, image_path: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
         match self {
             Self::LLaVA(m) => {
                 let registry_key = m.info().registry_key;
@@ -967,12 +969,12 @@ impl VisionCapable for VisionModel {
                 }
 
                 // Route through pool
-                pool.describe_image(registry_key, image_path, query)
+                pool.describe_image(registry_key, image_path, query).await
             }
         }
     }
 
-    fn describe_url(&self, url: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
+    async fn describe_url(&self, url: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
         match self {
             Self::LLaVA(m) => {
                 let registry_key = m.info().registry_key;
@@ -1004,14 +1006,15 @@ impl VisionCapable for VisionModel {
                 }
 
                 // Route through pool
-                pool.describe_url(registry_key, url, query)
+                pool.describe_url(registry_key, url, query).await
             }
         }
     }
 }
 
+#[async_trait::async_trait]
 impl TextToImageCapable for TextToImageModel {
-    fn generate_image(
+    async fn generate_image(
         &self,
         prompt: &str,
         config: &ImageGenerationConfig,
@@ -1045,7 +1048,7 @@ impl TextToImageCapable for TextToImageModel {
                 }
 
                 // Route through pool
-                pool.generate_image(registry_key, prompt, config, device)
+                pool.generate_image(registry_key, prompt, config, device).await
             }
             Self::StableDiffusion35Turbo(m) => {
                 let registry_key = m.info().registry_key;
@@ -1074,7 +1077,7 @@ impl TextToImageCapable for TextToImageModel {
                 }
 
                 // Route through pool
-                pool.generate_image(registry_key, prompt, config, device)
+                pool.generate_image(registry_key, prompt, config, device).await
             }
         }
     }

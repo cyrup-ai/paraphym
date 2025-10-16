@@ -21,9 +21,10 @@ use candle_core::Device;
 use tokio_stream::Stream;
 
 /// Trait for models capable of text-to-text generation
+#[async_trait::async_trait]
 pub trait TextToTextCapable: CandleModel {
     /// Generate completion from prompt - the actual work method
-    fn prompt(
+    async fn prompt(
         &self,
         prompt: CandlePrompt,
         params: &CandleCompletionParams,
@@ -290,18 +291,20 @@ pub trait ImageEmbeddingCapable: CandleModel {
 }
 
 /// Trait for models capable of vision/multimodal understanding
+#[async_trait::async_trait]
 pub trait VisionCapable: CandleModel {
     /// Describe an image with a text query, streaming tokens as generated
-    fn describe_image(&self, image_path: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>>;
+    async fn describe_image(&self, image_path: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>>;
 
     /// Describe an image from URL with a text query, streaming tokens as generated
-    fn describe_url(&self, url: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>>;
+    async fn describe_url(&self, url: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>>;
 }
 
 /// Trait for models capable of text-to-image generation
+#[async_trait::async_trait]
 pub trait TextToImageCapable: CandleModel {
     /// Generate an image from a text prompt
-    fn generate_image(
+    async fn generate_image(
         &self,
         prompt: &str,
         config: &ImageGenerationConfig,
