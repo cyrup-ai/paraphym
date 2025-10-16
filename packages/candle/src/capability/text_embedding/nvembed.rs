@@ -228,7 +228,7 @@ impl CandleNvEmbedEmbeddingModel {
     ///
     /// If caching is implemented, it should be done at the architecture level across
     /// all models, not in individual implementations.
-    fn load_model_and_tokenizer(
+    async fn load_model_and_tokenizer(
         &self,
     ) -> std::result::Result<
         (Tokenizer, NvEmbedModel, Device),
@@ -255,9 +255,9 @@ impl CandleNvEmbedEmbeddingModel {
         };
 
         // Get file paths via huggingface_file
-        let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json")?;
+        let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json").await?;
         let index_path =
-            self.huggingface_file(self.info().registry_key, "model.safetensors.index.json")?;
+            self.huggingface_file(self.info().registry_key, "model.safetensors.index.json").await?;
 
         // Load tokenizer
         let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
@@ -386,7 +386,7 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleNvEmbedEmbeddingM
             self.validate_input(&text)?;
 
         // Load model and tokenizer from disk
-        let (tokenizer, mut model, device) = self.load_model_and_tokenizer()?;
+        let (tokenizer, mut model, device) = self.load_model_and_tokenizer().await?;
 
         // Run inference with instruction masking
         let task_ref = task.as_deref();
@@ -421,7 +421,7 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleNvEmbedEmbeddingM
             self.validate_batch(&texts)?;
 
         // Load model and tokenizer from disk
-        let (tokenizer, mut model, device) = self.load_model_and_tokenizer()?;
+        let (tokenizer, mut model, device) = self.load_model_and_tokenizer().await?;
 
         // Run inference with instruction masking
         let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();

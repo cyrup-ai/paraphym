@@ -64,7 +64,7 @@ struct GenerationConfig {
 /// The actual LLaVA model runs on a dedicated thread to avoid Send/Sync issues
 /// with Candle's Module trait. Communication happens via channels.
 /// Thread spawns lazily on first use.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LLaVAModel {
     request_tx: Arc<Mutex<Option<mpsc::Sender<LLaVARequest>>>>,
     _engine: Engine,
@@ -157,16 +157,17 @@ impl LLaVAModel {
     async fn ensure_thread_spawned(
         &self,
     ) -> Result<mpsc::Sender<LLaVARequest>, Box<dyn std::error::Error + Send + Sync>> {
-        // Lock the Option<Sender> - prevents race conditions
-        let mut tx_guard = self
-            .request_tx
-            .lock()
-            .map_err(|e| format!("Lock poisoned: {}", e))?;
-
-        // Check if thread already spawned
-        if let Some(sender) = tx_guard.as_ref() {
-            return Ok(sender.clone());
-        }
+        // Check if thread already spawned (quick check without holding lock across await)
+        {
+            let tx_guard = self
+                .request_tx
+                .lock()
+                .map_err(|e| format!("Lock poisoned: {}", e))?;
+            
+            if let Some(sender) = tx_guard.as_ref() {
+                return Ok(sender.clone());
+            }
+        } // Lock released here
 
         // === FIRST USE: Initialize thread ===
 
@@ -286,7 +287,13 @@ impl LLaVAModel {
         };
 
         // Step 8: Store sender for future calls
-        *tx_guard = Some(request_tx.clone());
+        {
+            let mut tx_guard = self
+                .request_tx
+                .lock()
+                .map_err(|e| format!("Lock poisoned: {}", e))?;
+            *tx_guard = Some(request_tx.clone());
+        }
         Ok(request_tx)
     }
 
