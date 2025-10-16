@@ -264,7 +264,7 @@ impl TextToTextCapable for TextToTextModel {
                     }
 
                     // Route through pool
-                    let mut stream = pool.prompt(registry_key, prompt, &params_clone);
+                    let mut stream = pool.prompt(registry_key, prompt, params_clone);
                     use tokio_stream::StreamExt;
                     while let Some(chunk) = stream.next().await {
                         let _ = tx.send(chunk);
@@ -303,7 +303,7 @@ impl TextToTextCapable for TextToTextModel {
                     }
 
                     // Route through pool
-                    let mut stream = pool.prompt(registry_key, prompt, &params_clone);
+                    let mut stream = pool.prompt(registry_key, prompt, params_clone);
                     use tokio_stream::StreamExt;
                     while let Some(chunk) = stream.next().await {
                         let _ = tx.send(chunk);
@@ -343,7 +343,7 @@ impl TextToTextCapable for TextToTextModel {
                     }
 
                     // Route through pool
-                    let mut stream = pool.prompt(registry_key, prompt, &params_clone);
+                    let mut stream = pool.prompt(registry_key, prompt, params_clone);
                     use tokio_stream::StreamExt;
                     while let Some(chunk) = stream.next().await {
                         let _ = tx.send(chunk);

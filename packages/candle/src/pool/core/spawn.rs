@@ -91,7 +91,7 @@ where
                 .try_allocate(per_worker_mb)
                 .map_err(|e| PoolError::MemoryExhausted(e.to_string()))?;
 
-            spawn_fn(worker_idx, allocation_guard).await?;
+            spawn_fn(worker_idx, allocation_guard)?;
 
             // Guard transferred to worker thread, will drop when worker exits
         }
@@ -126,7 +126,7 @@ where
 /// - `Ok(())` if workers exist, spawned, or at max capacity
 /// - `Err(PoolError)` if memory exhausted or spawn failed
 #[instrument(skip(pool, spawn_fn), fields(registry_key = %registry_key, max_workers = max_workers))]
-pub async fn ensure_workers_spawned_adaptive<P, F, Fut>(
+pub async fn ensure_workers_spawned_adaptive<P, F>(
     pool: &P,
     registry_key: &str,
     per_worker_mb: usize,
@@ -135,8 +135,7 @@ pub async fn ensure_workers_spawned_adaptive<P, F, Fut>(
 ) -> Result<(), PoolError>
 where
     P: HasWorkers + MemoryGovernorAccess + SpawnLock + WorkerMetrics,
-    F: Fn(usize, AllocationGuard) -> Fut,
-    Fut: std::future::Future<Output = Result<(), PoolError>>,
+    F: Fn(usize, AllocationGuard) -> Result<(), PoolError>,
 {
     let worker_count = pool.worker_count(registry_key);
 
@@ -178,7 +177,7 @@ where
                     .try_allocate(per_worker_mb)
                     .map_err(|e| PoolError::MemoryExhausted(e.to_string()))?;
 
-                spawn_fn(worker_idx, allocation_guard).await?;
+                spawn_fn(worker_idx, allocation_guard)?;
             }
 
             return Ok(());
@@ -210,7 +209,7 @@ where
                             max_workers = max_workers,
                             "All workers busy, spawning 1 more"
                         );
-                        spawn_fn(current_count, allocation_guard).await?;
+                        spawn_fn(current_count, allocation_guard)?;
                     }
                     Err(_) => {
                         // Memory exhausted, can't spawn more workers (not an error, just at capacity)

@@ -256,9 +256,9 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleBertEmbeddingMode
 
         // Get file paths via huggingface_file
         let model_weights_path =
-            self.huggingface_file(self.info().registry_key, "model.safetensors")?;
-        let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json")?;
-        let config_path = self.huggingface_file(self.info().registry_key, "config.json")?;
+            self.huggingface_file(self.info().registry_key, "model.safetensors").await?;
+        let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json").await?;
+        let config_path = self.huggingface_file(self.info().registry_key, "config.json").await?;
 
         // Load tokenizer
         let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
@@ -358,9 +358,9 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleBertEmbeddingMode
 
         // Get file paths via huggingface_file
         let model_weights_path =
-            self.huggingface_file(self.info().registry_key, "model.safetensors")?;
-        let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json")?;
-        let config_path = self.huggingface_file(self.info().registry_key, "config.json")?;
+            self.huggingface_file(self.info().registry_key, "model.safetensors").await?;
+        let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json").await?;
+        let config_path = self.huggingface_file(self.info().registry_key, "config.json").await?;
 
         // Load tokenizer
         let mut tokenizer = Tokenizer::from_file(&tokenizer_path)

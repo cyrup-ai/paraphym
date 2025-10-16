@@ -179,125 +179,116 @@ impl crate::capability::traits::TextToTextCapable for CandleKimiK2Model {
             // Format prompt
             let prompt_text = format!("User: {}\nAssistant: ", prompt);
             let max_tokens = params.max_tokens.map(|n| n.get()).unwrap_or(1000);
+            
+            // Convert u64 to u32, capping at u32::MAX if necessary
+            let max_tokens_u32 = max_tokens.try_into().unwrap_or_else(|_| {
+                log::warn!(
+                    "max_tokens value {} exceeds u32::MAX, capping at {}",
+                    max_tokens,
+                    u32::MAX
+                );
+                u32::MAX
+            });
+
+            // Load device (prefer GPU if available)
+            use candle_core::{Device, DType};
+            let device = crate::core::device_util::detect_best_device().unwrap_or_else(|e| {
+                log::warn!("Device detection failed: {}. Using CPU.", e);
+                Device::Cpu
+            });
+
+            // Load tokenizer
+            use tokenizers::Tokenizer;
+            let tokenizer = match Tokenizer::from_file(&tokenizer_path) {
+                Ok(t) => t,
+                Err(e) => {
+                    let _ = tx.send(CandleCompletionChunk::Error(format!(
+                        "Failed to load tokenizer: {}",
+                        e
+                    )));
+                    return;
+                }
+            };
+
+            // Create model configuration for the quantized model
+            use crate::core::ModelConfig as CandleConfig;
+            let candle_model_config = Arc::new(
+                CandleConfig::new(
+                    &gguf_file_path,
+                    tokenizer_path.to_string_lossy().to_string(),
+                    crate::core::ModelArchitecture::Llama(
+                        candle_transformers::models::llama::Config {
+                            hidden_size: model_config.hidden_size,
+                            intermediate_size: model_config.intermediate_size,
+                            vocab_size: model_config.vocab_size,
+                            num_hidden_layers: model_config.num_hidden_layers,
+                            num_attention_heads: model_config.num_attention_heads,
+                            num_key_value_heads: model_config
+                                .num_key_value_heads
+                                .unwrap_or(model_config.num_attention_heads),
+                            use_flash_attn: false,
+                            rms_norm_eps: model_config.rms_norm_eps,
+                            rope_theta: model_config.rope_theta,
+                            bos_token_id: model_config.bos_token_id,
+                            eos_token_id: model_config.eos_token_id.clone(),
+                            rope_scaling: model_config.rope_scaling.clone(),
+                            max_position_embeddings: model_config.max_position_embeddings,
+                            tie_word_embeddings: model_config.tie_word_embeddings.unwrap_or(false),
+                        },
+                    ),
+                    "kimi-k2",
+                    "kimi-k2",
+                )
+                .with_vocab_size(model_config.vocab_size)
+                .with_context_length(max_context as usize)
+                .with_dtype(DType::F16), // GGUF models use F16
+            );
+
+            // Load the quantized model
+            use crate::core::generation::models::CandleQuantizedLlamaModel;
+            let quantized_model = match CandleQuantizedLlamaModel::from_gguf_path(
+                &gguf_file_path,
+                device.clone(),
+                candle_model_config,
+            ) {
+                Ok(model) => model,
+                Err(e) => {
+                    let _ = tx.send(CandleCompletionChunk::Error(format!(
+                        "Failed to load quantized model: {}",
+                        e
+                    )));
+                    return;
+                }
+            };
+
+            // Create TextGenerator
+            use crate::core::generation::generator::TextGenerator;
+            let text_generator = TextGenerator::new(
+                Box::new(quantized_model),
+                tokenizer,
+                device,
+                sampling_config,
+            );
+
+            // Set up special tokens
+            use crate::core::generation::tokens::SpecialTokens;
+            let special_tokens = SpecialTokens {
+                bos_token_id: Some(model_config.bos_token_id.unwrap_or(1)),
+                eos_token_id: match &model_config.eos_token_id {
+                    Some(candle_transformers::models::llama::LlamaEosToks::Single(id)) => Some(*id),
+                    _ => Some(2),
+                },
+                pad_token_id: None,
+            };
 
             // Use Engine's coordinate_generation for automatic metrics and stream conversion
-            let mut stream = engine.coordinate_generation(move || {
-            use crate::core::ModelConfig as CandleConfig;
-            use crate::core::generation::{
-                generator::TextGenerator, models::CandleQuantizedLlamaModel, tokens::SpecialTokens,
-            };
-            use candle_core::Device;
-            use std::sync::Arc;
-            use tokenizers::Tokenizer;
-            use tokio_stream::StreamExt;
-
-            async_stream::spawn_stream(move |tx| async move {
-                // Load device (prefer GPU if available)
-                let device = crate::core::device_util::detect_best_device().unwrap_or_else(|e| {
-                    log::warn!("Device detection failed: {}. Using CPU.", e);
-                    Device::Cpu
-                });
-
-                // Load tokenizer - send error and return on failure
-                let tokenizer = match Tokenizer::from_file(format!("{}/tokenizer.json", model_path)) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        let _ = tx.send(CandleStringChunk(format!(
-                            "ERROR: Failed to load tokenizer: {}",
-                            e
-                        )));
-                        return;
-                    }
-                };
-
-                // Create model configuration for the quantized model
-                let candle_model_config = Arc::new(
-                    CandleConfig::new(
-                        &gguf_file_path,
-                        format!("{}/tokenizer.json", model_path),
-                        crate::core::ModelArchitecture::Llama(
-                            candle_transformers::models::llama::Config {
-                                hidden_size: model_config.hidden_size,
-                                intermediate_size: model_config.intermediate_size,
-                                vocab_size: model_config.vocab_size,
-                                num_hidden_layers: model_config.num_hidden_layers,
-                                num_attention_heads: model_config.num_attention_heads,
-                                num_key_value_heads: model_config
-                                    .num_key_value_heads
-                                    .unwrap_or(model_config.num_attention_heads),
-                                use_flash_attn: false,
-                                rms_norm_eps: model_config.rms_norm_eps,
-                                rope_theta: model_config.rope_theta,
-                                bos_token_id: model_config.bos_token_id,
-                                eos_token_id: model_config.eos_token_id.clone(),
-                                rope_scaling: model_config.rope_scaling.clone(),
-                                max_position_embeddings: model_config.max_position_embeddings,
-                                tie_word_embeddings: model_config.tie_word_embeddings.unwrap_or(false),
-                            },
-                        ),
-                        "kimi-k2",
-                        "kimi-k2",
-                    )
-                    .with_vocab_size(model_config.vocab_size)
-                    .with_context_length(max_context as usize)
-                    .with_dtype(DType::F16), // GGUF models use F16
-                );
-
-                // Load the real quantized model - send error and return on failure
-                let quantized_model = match CandleQuantizedLlamaModel::from_gguf_path(
-                    &gguf_file_path,
-                    device.clone(),
-                    candle_model_config,
-                ) {
-                    Ok(model) => model,
-                    Err(e) => {
-                        let _ = tx.send(CandleStringChunk(format!(
-                            "ERROR: Failed to load quantized model: {}",
-                            e
-                        )));
-                        return;
-                    }
-                };
-
-                // Create TextGenerator with real model
-                let text_generator = TextGenerator::new(
-                    Box::new(quantized_model),
-                    tokenizer,
-                    device,
-                    sampling_config,
-                );
-
-                // Set up special tokens
-                let special_tokens = SpecialTokens {
-                    bos_token_id: Some(model_config.bos_token_id.unwrap_or(1)),
-                    eos_token_id: match &model_config.eos_token_id {
-                        Some(candle_transformers::models::llama::LlamaEosToks::Single(id)) => Some(*id),
-                        _ => Some(2),
-                    },
-                    pad_token_id: None,
-                };
-
-                // Convert u64 to u32, capping at u32::MAX if necessary
-                let max_tokens_u32 = max_tokens.try_into().unwrap_or_else(|_| {
-                    log::warn!(
-                        "max_tokens value {} exceeds u32::MAX, capping at {}",
-                        max_tokens,
-                        u32::MAX
-                    );
-                    u32::MAX
-                });
-
-                // Generate and forward text stream
-                let mut stream = text_generator.generate(prompt_text, max_tokens_u32, special_tokens);
-                while let Some(chunk) = stream.next().await {
-                    if tx.send(chunk).is_err() {
-                        break;
-                    }
-                }
+            let stream = engine.coordinate_generation(move || {
+                text_generator.generate(prompt_text, max_tokens_u32, special_tokens)
             });
 
             // Forward chunks from the coordinate_generation stream
             use tokio_stream::StreamExt;
+            tokio::pin!(stream);
             while let Some(chunk) = stream.next().await {
                 let _ = tx.send(chunk);
             }
