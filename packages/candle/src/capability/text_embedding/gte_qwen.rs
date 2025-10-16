@@ -213,10 +213,10 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleGteQwenEmbeddingM
         };
 
         // Get file paths via huggingface_file
-        let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json")?;
-        let config_path = self.huggingface_file(self.info().registry_key, "config.json")?;
+        let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json").await?;
+        let config_path = self.huggingface_file(self.info().registry_key, "config.json").await?;
         let index_path =
-            self.huggingface_file(self.info().registry_key, "model.safetensors.index.json")?;
+            self.huggingface_file(self.info().registry_key, "model.safetensors.index.json").await?;
 
         // Load tokenizer
         let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
@@ -341,10 +341,10 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleGteQwenEmbeddingM
         };
 
         // Get file paths via huggingface_file
-        let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json")?;
-        let config_path = self.huggingface_file(self.info().registry_key, "config.json")?;
+        let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json").await?;
+        let config_path = self.huggingface_file(self.info().registry_key, "config.json").await?;
         let index_path =
-            self.huggingface_file(self.info().registry_key, "model.safetensors.index.json")?;
+            self.huggingface_file(self.info().registry_key, "model.safetensors.index.json").await?;
 
         // Load tokenizer
         let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
@@ -469,7 +469,7 @@ impl LoadedGteQwenModel {
     /// Extracts all initialization logic that was previously done on each
     /// embed() call. The loaded model can then be used for many inferences
     /// without reloading from disk.
-    pub fn load(
+    pub async fn load(
         base_model: &CandleGteQwenEmbeddingModel,
     ) -> std::result::Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Get configuration from ModelInfo
@@ -494,13 +494,13 @@ impl LoadedGteQwenModel {
 
         // Get file paths via huggingface_file
         let tokenizer_path =
-            base_model.huggingface_file(base_model.info().registry_key, "tokenizer.json")?;
+            base_model.huggingface_file(base_model.info().registry_key, "tokenizer.json").await?;
         let config_path =
-            base_model.huggingface_file(base_model.info().registry_key, "config.json")?;
+            base_model.huggingface_file(base_model.info().registry_key, "config.json").await?;
         let index_path = base_model.huggingface_file(
             base_model.info().registry_key,
             "model.safetensors.index.json",
-        )?;
+        ).await?;
 
         // Load tokenizer
         let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
