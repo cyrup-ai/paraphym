@@ -1,0 +1,5 @@
+   Compiling sweetmcp-pingora v0.3.1 (/Volumes/samsung_t9/paraphym/packages/sweetmcp/packages/pingora)
+    Checking sweetmcp-daemon v0.2.0 (/Volumes/samsung_t9/paraphym/packages/sweetmcp/packages/daemon)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.88s
+warning: the following packages contain code that will be rejected by a future version of Rust: num-bigint-dig v0.8.4
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`

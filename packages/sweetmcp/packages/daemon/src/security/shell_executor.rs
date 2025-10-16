@@ -26,6 +26,12 @@ pub struct ShellExecutor {
     allowed_commands: Option<Vec<String>>,
 }
 
+impl Default for ShellExecutor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ShellExecutor {
     pub fn new() -> Self {
         let mut blocked_patterns = Vec::new();
@@ -110,8 +116,7 @@ impl ShellExecutor {
         };
         
         let wait_future = async {
-            let output = child.wait_with_output();
-            output
+            child.wait_with_output()
         };
             
         let output = match timeout(self.timeout_duration, wait_future).await {
