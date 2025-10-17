@@ -543,48 +543,46 @@ impl CandleQuantizedPhiModel {
     ) -> CandleResult<Self> {
         use candle_core::quantized::gguf_file;
 
-        // Open and read GGUF file
+        // Open GGUF file
         let file = tokio::fs::File::open(model_path.as_ref()).await.map_err(|e| {
             CandleModelError::InvalidConfiguration(
                 format!("Failed to open GGUF file: {}", e).into(),
             )
         })?;
         let mut file = file.into_std().await;
-
-        let gguf_content = gguf_file::Content::read(&mut file).map_err(|e| {
-            CandleModelError::InvalidConfiguration(
-                format!("Failed to read GGUF content: {}", e).into(),
-            )
-        })?;
-
-        // Extract vocab size from GGUF metadata
-        let vocab_size = gguf_content
-            .metadata
-            .get("tokenizer.ggml.tokens")
-            .and_then(|v| match v {
-                gguf_file::Value::Array(arr) => Some(arr.len()),
-                _ => None,
-            })
-            .unwrap_or(100352); // Phi-4 default vocab size
-
-        log::info!("Loading Phi model from GGUF with vocab_size={}", vocab_size);
-        
-        // Log available metadata keys to understand what Phi-4 uses
-        log::info!("GGUF metadata keys (first 30):");
-        for (i, key) in gguf_content.metadata.keys().take(30).enumerate() {
-            log::info!("  [{}] {}", i, key);
-        }
-
-        // Create model using quantized_phi3 (Phi-4 uses phi3.* metadata)
-        // Phi-4 does not support flash attention according to model docs
-        let use_flash_attn = false;
-        log::info!("Loading quantized_phi3 model with flash_attn={}", use_flash_attn);
-        
         let device_clone = device.clone();
-        
-        // CRITICAL: Run blocking GGUF loading on a blocking thread to avoid blocking async runtime
-        let model = tokio::task::spawn_blocking(move || {
-            quantized_phi3::ModelWeights::from_gguf(use_flash_attn, gguf_content, &mut file, &device_clone)
+
+        // CRITICAL: Run blocking GGUF operations on a blocking thread to avoid blocking async runtime
+        let (model, vocab_size) = tokio::task::spawn_blocking(move || -> Result<_, candle_core::Error> {
+            // Read GGUF content
+            let gguf_content = gguf_file::Content::read(&mut file)?;
+
+            // Extract vocab size from GGUF metadata
+            let vocab_size = gguf_content
+                .metadata
+                .get("tokenizer.ggml.tokens")
+                .and_then(|v| match v {
+                    gguf_file::Value::Array(arr) => Some(arr.len()),
+                    _ => None,
+                })
+                .unwrap_or(100352); // Phi-4 default vocab size
+
+            log::info!("Loading Phi model from GGUF with vocab_size={}", vocab_size);
+            
+            // Log available metadata keys to understand what Phi-4 uses
+            log::info!("GGUF metadata keys (first 30):");
+            for (i, key) in gguf_content.metadata.keys().take(30).enumerate() {
+                log::info!("  [{}] {}", i, key);
+            }
+
+            // Create model using quantized_phi3 (Phi-4 uses phi3.* metadata)
+            // Phi-4 does not support flash attention according to model docs
+            let use_flash_attn = false;
+            log::info!("Loading quantized_phi3 model with flash_attn={}", use_flash_attn);
+            
+            let model = quantized_phi3::ModelWeights::from_gguf(use_flash_attn, gguf_content, &mut file, &device_clone)?;
+            
+            Ok((model, vocab_size))
         })
         .await
         .map_err(|e| {
