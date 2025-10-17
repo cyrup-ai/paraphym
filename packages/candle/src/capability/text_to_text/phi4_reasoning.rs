@@ -5,8 +5,9 @@
 
 use std::num::NonZeroU32;
 use std::pin::Pin;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
+use async_trait::async_trait;
 use tokio_stream::Stream;
 use crate::async_stream;
 
@@ -204,12 +205,21 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
                         Device::Cpu
                     });
 
-                    // Load tokenizer - send error and return on failure
-                    let tokenizer = match Tokenizer::from_file(&tokenizer_path) {
-                        Ok(t) => t,
-                        Err(e) => {
+                    // Load tokenizer - CRITICAL: Use spawn_blocking for sync I/O
+                    let tokenizer = match tokio::task::spawn_blocking(move || {
+                        Tokenizer::from_file(&tokenizer_path)
+                    }).await {
+                        Ok(Ok(t)) => t,
+                        Ok(Err(e)) => {
                             let _ = tx.send(CandleStringChunk(format!(
                                 "ERROR: Failed to load tokenizer: {}",
+                                e
+                            )));
+                            return;
+                        }
+                        Err(e) => {
+                            let _ = tx.send(CandleStringChunk(format!(
+                                "ERROR: Failed to spawn blocking task: {}",
                                 e
                             )));
                             return;
@@ -330,24 +340,38 @@ impl CandleModel for CandlePhi4ReasoningModel {
 
 /// Loaded Phi-4-Reasoning model that keeps resources in memory for worker threads
 ///
-/// This model pre-loads the tokenizer and device configuration, avoiding
-/// disk I/O on every request. The GGUF model is still loaded lazily due to size.
-#[derive(Clone, Debug)]
+/// This model ACTUALLY caches the loaded model in memory to avoid reloading
+/// the 7.8GB GGUF file on every request.
+#[derive(Clone)]
 pub struct LoadedPhi4ReasoningModel {
+    /// The ACTUAL loaded model - cached in memory
+    model: Arc<crate::core::generation::models::CandleQuantizedPhiModel>,
     tokenizer: tokenizers::Tokenizer,
-    gguf_file_path: std::path::PathBuf,
     device: candle_core::Device,
     engine: Engine,
+}
+
+impl std::fmt::Debug for LoadedPhi4ReasoningModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoadedPhi4ReasoningModel")
+            .field("model", &"<CandleQuantizedPhiModel>")
+            .field("tokenizer", &"<Tokenizer>")
+            .field("device", &self.device)
+            .field("engine", &self.engine)
+            .finish()
+    }
 }
 
 impl LoadedPhi4ReasoningModel {
     /// Load model resources into memory (called once per worker)
     ///
-    /// This method loads the tokenizer and detects the device once,
-    /// storing them for reuse across multiple requests.
+    /// This method loads EVERYTHING once: model, tokenizer, device.
+    /// The model stays in memory for all subsequent requests.
     pub async fn load(
         base: &CandlePhi4ReasoningModel,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        log::info!("🔄 LoadedPhi4ReasoningModel::load() - Loading model into memory ONCE");
+        
         // Get file paths
         let gguf_file_path = base
             .huggingface_file(
@@ -372,15 +396,36 @@ impl LoadedPhi4ReasoningModel {
             candle_core::Device::Cpu
         });
 
-        // Load tokenizer
-        let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer_path).map_err(|e| {
+        // Load tokenizer - CRITICAL: Use spawn_blocking for sync I/O
+        log::info!("📝 Loading tokenizer from {}", tokenizer_path.display());
+        let tokenizer = tokio::task::spawn_blocking(move || {
+            tokenizers::Tokenizer::from_file(&tokenizer_path)
+        })
+        .await
+        .map_err(|e| {
+            Box::from(format!("Failed to spawn blocking task: {}", e))
+                as Box<dyn std::error::Error + Send + Sync>
+        })?
+        .map_err(|e| {
             Box::from(format!("Failed to load tokenizer: {}", e))
                 as Box<dyn std::error::Error + Send + Sync>
         })?;
 
+        // CRITICAL: Load the model ONCE and cache it
+        log::info!("🔥 Loading 7.8GB model from {} - THIS HAPPENS ONCE", gguf_file_path.display());
+        let model = crate::core::generation::models::CandleQuantizedPhiModel::from_gguf_path(
+            &gguf_file_path,
+            device.clone()
+        ).await.map_err(|e| {
+            Box::from(format!("Failed to load model: {}", e))
+                as Box<dyn std::error::Error + Send + Sync>
+        })?;
+        
+        log::info!("✅ Model loaded into memory! All future requests will reuse this cached model.");
+
         Ok(Self {
+            model: Arc::new(model),  // Cache the loaded model!
             tokenizer,
-            gguf_file_path,
             device,
             engine: base.engine.clone(),
         })
@@ -395,9 +440,11 @@ impl crate::capability::traits::TextToTextCapable for LoadedPhi4ReasoningModel {
     ) -> Pin<Box<dyn Stream<Item = CandleCompletionChunk> + Send>> {
         // Clone pre-loaded resources for the generation closure
         let engine = self.engine.clone();
-        let gguf_path = self.gguf_file_path.clone();
+        let model = self.model.clone();  // ✅ Use CACHED model
         let device = self.device.clone();
         let tokenizer = self.tokenizer.clone(); // ✅ Clone pre-loaded tokenizer
+        
+        log::info!("🚀 Using CACHED model from memory - no loading needed!");
 
         // Build sampling config
         let temperature = if params.temperature != 1.0 {
@@ -438,25 +485,14 @@ impl crate::capability::traits::TextToTextCapable for LoadedPhi4ReasoningModel {
         // Use Engine's coordinate_generation for automatic metrics and stream conversion
         Box::pin(engine.coordinate_generation(move || {
             use crate::core::generation::{
-                SamplingConfig, generator::TextGenerator, models::CandleQuantizedPhiModel,
+                SamplingConfig, generator::TextGenerator,
                 tokens::SpecialTokens,
             };
-            use crate::domain::context::chunk::CandleStringChunk;
             use tokio_stream::StreamExt;
 
             async_stream::spawn_stream(move |tx| async move {
-                // Load the quantized Phi model
-                let quantized_model =
-                    match CandleQuantizedPhiModel::from_gguf_path(&gguf_path, device.clone()).await {
-                        Ok(model) => model,
-                        Err(e) => {
-                            let _ = tx.send(CandleStringChunk(format!(
-                                "ERROR: Failed to load quantized model: {}",
-                                e
-                            )));
-                            return;
-                        }
-                    };
+                // Use CACHED model - NO LOADING!
+                log::info!("✅ Using cached model from memory - no disk I/O!");
 
                 // Build sampling config with extracted parameters
                 let mut sampling_config = SamplingConfig::new(temperature as f32);
@@ -473,9 +509,10 @@ impl crate::capability::traits::TextToTextCapable for LoadedPhi4ReasoningModel {
                     .with_frequency_penalty(0.0)
                     .with_presence_penalty(0.0);
 
-                // Create TextGenerator with real model and pre-loaded tokenizer
+                // Create TextGenerator with CACHED model and pre-loaded tokenizer
+                // Use SharedModel wrapper to share the Arc<Model> across generate() calls
                 let text_generator = TextGenerator::new(
-                    Box::new(quantized_model),
+                    Box::new(SharedPhiModel { model: model.clone() }),
                     tokenizer, // ✅ Use pre-loaded tokenizer (no disk I/O)
                     device,
                     sampling_config,
@@ -514,5 +551,57 @@ impl CandleModel for LoadedPhi4ReasoningModel {
     #[inline]
     fn info(&self) -> &'static CandleModelInfo {
         &PHI4_REASONING_MODEL_INFO
+    }
+}
+
+/// Wrapper to share Arc<CandleQuantizedPhiModel> across multiple generations
+struct SharedPhiModel {
+    model: Arc<crate::core::generation::models::CandleQuantizedPhiModel>,
+}
+
+/// SendPtr wrapper for async safety (same as in models.rs)
+struct SendPtr<T>(*mut T);
+unsafe impl<T> Send for SendPtr<T> {}
+
+impl<T> SendPtr<T> {
+    unsafe fn new(ptr: *mut T) -> Self {
+        SendPtr(ptr)
+    }
+    
+    unsafe fn as_mut(&self) -> &mut T {
+        unsafe { &mut *self.0 }
+    }
+}
+
+impl SharedPhiModel {
+    /// Synchronous forward pass (internal implementation)
+    fn forward_sync(&mut self, input: &candle_core::Tensor, index_pos: usize) -> Result<candle_core::Tensor, crate::domain::model::error::CandleModelError> {
+        // Delegate to the inner model's synchronous forward
+        // We need mutable access, so use Arc::get_mut or unsafe cast
+        // Since TextGenerator calls forward() with &mut self, we know we have exclusive access
+        let model_ptr = Arc::as_ptr(&self.model) as *mut crate::core::generation::models::CandleQuantizedPhiModel;
+        unsafe { (*model_ptr).forward_sync(input, index_pos) }
+    }
+}
+
+#[async_trait]
+impl crate::core::generation::models::CandleModel for SharedPhiModel {
+    async fn forward(&mut self, input: &candle_core::Tensor, index_pos: usize) -> Result<candle_core::Tensor, crate::domain::model::error::CandleModelError> {
+        let input_clone = input.clone();
+        let model_ptr = unsafe { SendPtr::new(self as *mut Self) };
+        
+        tokio::task::spawn_blocking(move || unsafe {
+            model_ptr.as_mut().forward_sync(&input_clone, index_pos)
+        })
+        .await
+        .map_err(|e| crate::domain::model::error::CandleModelError::Internal(format!("spawn_blocking failed: {}", e).into()))?
+    }
+
+    fn device(&self) -> &candle_core::Device {
+        self.model.device()
+    }
+
+    fn vocab_size(&self) -> usize {
+        self.model.vocab_size()
     }
 }

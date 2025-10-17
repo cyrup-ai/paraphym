@@ -90,11 +90,19 @@ impl TextGenerator {
         async_stream::spawn_stream(move |tx| async move {
             self.stats.start_generation();
 
-            // Encode prompt to tokens using tokenizer
-            let tokens = match self.tokenizer.encode(prompt.as_str(), true) {
-                Ok(encoded) => encoded.get_ids().to_vec(),
-                Err(e) => {
+            // Encode prompt to tokens using tokenizer (async to avoid blocking runtime)
+            let tokenizer = self.tokenizer.clone();
+            let prompt_str = prompt.clone();
+            let tokens = match tokio::task::spawn_blocking(move || {
+                tokenizer.encode(prompt_str.as_str(), true)
+            }).await {
+                Ok(Ok(encoded)) => encoded.get_ids().to_vec(),
+                Ok(Err(e)) => {
                     log::error!("Prompt encoding error: {}", e);
+                    return;
+                }
+                Err(e) => {
+                    log::error!("Tokenizer spawn_blocking error: {}", e);
                     return;
                 }
             };
@@ -103,22 +111,25 @@ impl TextGenerator {
             let mut all_tokens = tokens.clone();
             let mut position = 0;
 
-            // Initial forward pass
-            let initial_input = match Tensor::new(tokens.as_slice(), &self.device) {
-                Ok(tensor) => match tensor.unsqueeze(0) {
-                    Ok(unsqueezed) => unsqueezed,
-                    Err(e) => {
-                        log::error!("Initial tensor creation error: {}", e);
-                        return;
-                    }
-                },
+            // Initial forward pass - wrap tensor ops in spawn_blocking
+            let tokens_clone = tokens.clone();
+            let device_clone = self.device.clone();
+            let initial_input = match tokio::task::spawn_blocking(move || {
+                let tensor = Tensor::new(tokens_clone.as_slice(), &device_clone)?;
+                tensor.unsqueeze(0)
+            }).await {
+                Ok(Ok(unsqueezed)) => unsqueezed,
+                Ok(Err(e)) => {
+                    log::error!("Initial tensor creation error: {}", e);
+                    return;
+                }
                 Err(e) => {
-                    log::error!("Initial tensor from slice error: {}", e);
+                    log::error!("Tensor spawn_blocking error: {}", e);
                     return;
                 }
             };
 
-            let initial_logits = match self.model.forward(&initial_input, position) {
+            let initial_logits = match self.model.forward(&initial_input, position).await {
                 Ok(logits) => match logits.squeeze(0) {
                     Ok(squeezed) => squeezed,
                     Err(e) => {
@@ -133,14 +144,22 @@ impl TextGenerator {
             };
 
             self.stats.record_forward_pass();
-            let logits_vec = match initial_logits.to_vec1::<f32>() {
-                Ok(v) => v,
-                Err(e) => {
+            // Convert logits to vec - wrap in spawn_blocking for CPU-bound operation
+            let logits_clone = initial_logits.clone();
+            let logits_vec = match tokio::task::spawn_blocking(move || {
+                logits_clone.to_vec1::<f32>()
+            }).await {
+                Ok(Ok(v)) => v,
+                Ok(Err(e)) => {
                     log::error!("Converting initial logits to vector error: {}", e);
                     return;
                 }
+                Err(e) => {
+                    log::error!("Logits spawn_blocking error: {}", e);
+                    return;
+                }
             };
-            let mut next_token = match self.sample_token(&logits_vec, &tokens) {
+            let mut next_token = match self.sample_token(&logits_vec, &tokens).await {
                 Ok(token) => token,
                 Err(e) => {
                     log::error!("Initial SIMD sampling error: {}", e);
@@ -163,36 +182,47 @@ impl TextGenerator {
                 return; // Graceful EOS termination
             }
 
-            // Decode and emit initial token
-            match self.tokenizer.decode(&[next_token], false) {
-                Ok(token_str) => {
+            // Decode and emit initial token (async to avoid blocking runtime)
+            let tokenizer = self.tokenizer.clone();
+            let token_to_decode = next_token;
+            match tokio::task::spawn_blocking(move || {
+                tokenizer.decode(&[token_to_decode], false)
+            }).await {
+                Ok(Ok(token_str)) => {
                     let _ = tx.send(CandleStringChunk(token_str));
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     log::error!("Initial token decoding error: {}", e);
+                    return;
+                }
+                Err(e) => {
+                    log::error!("Tokenizer spawn_blocking error: {}", e);
                     return;
                 }
             };
 
             // Generation loop - stream each token as generated
             for _index in 1..max_tokens {
-                // Prepare input tensor for next forward pass
-                let input = match Tensor::new(&[next_token], &self.device) {
-                    Ok(tensor) => match tensor.unsqueeze(0) {
-                        Ok(unsqueezed) => unsqueezed,
-                        Err(e) => {
-                            log::error!("Tensor creation in loop error: {}", e);
-                            break;
-                        }
-                    },
+                // Prepare input tensor for next forward pass - wrap in spawn_blocking
+                let token_to_convert = next_token;
+                let device_clone = self.device.clone();
+                let input = match tokio::task::spawn_blocking(move || {
+                    let tensor = Tensor::new(&[token_to_convert], &device_clone)?;
+                    tensor.unsqueeze(0)
+                }).await {
+                    Ok(Ok(unsqueezed)) => unsqueezed,
+                    Ok(Err(e)) => {
+                        log::error!("Tensor creation in loop error: {}", e);
+                        break;
+                    }
                     Err(e) => {
-                        log::error!("Tensor from single token error: {}", e);
+                        log::error!("Tensor spawn_blocking error: {}", e);
                         break;
                     }
                 };
 
                 // Forward pass using model
-                let logits = match self.model.forward(&input, position) {
+                let logits = match self.model.forward(&input, position).await {
                     Ok(logits) => match logits.squeeze(0) {
                         Ok(squeezed) => squeezed,
                         Err(e) => {
@@ -207,15 +237,22 @@ impl TextGenerator {
                 };
 
                 self.stats.record_forward_pass();
-                // SIMD sampling using existing infrastructure
-                let logits_vec = match logits.to_vec1::<f32>() {
-                    Ok(v) => v,
-                    Err(e) => {
+                // SIMD sampling using existing infrastructure - wrap in spawn_blocking
+                let logits_clone = logits.clone();
+                let logits_vec = match tokio::task::spawn_blocking(move || {
+                    logits_clone.to_vec1::<f32>()
+                }).await {
+                    Ok(Ok(v)) => v,
+                    Ok(Err(e)) => {
                         log::error!("Converting logits to vector in loop error: {}", e);
                         break;
                     }
+                    Err(e) => {
+                        log::error!("Logits spawn_blocking error: {}", e);
+                        break;
+                    }
                 };
-                next_token = match self.sample_token(&logits_vec, &all_tokens) {
+                next_token = match self.sample_token(&logits_vec, &all_tokens).await {
                     Ok(token) => token,
                     Err(e) => {
                         log::error!("SIMD sampling in loop error: {}", e);
@@ -237,13 +274,21 @@ impl TextGenerator {
                     break; // Graceful EOS termination
                 }
 
-                // Decode and emit individual token
-                match self.tokenizer.decode(&[next_token], false) {
-                    Ok(token_str) => {
+                // Decode and emit individual token (async to avoid blocking runtime)
+                let tokenizer = self.tokenizer.clone();
+                let token_to_decode = next_token;
+                match tokio::task::spawn_blocking(move || {
+                    tokenizer.decode(&[token_to_decode], false)
+                }).await {
+                    Ok(Ok(token_str)) => {
                         let _ = tx.send(CandleStringChunk(token_str)); // Individual token streaming
                     }
-                    Err(e) => {
+                    Ok(Err(e)) => {
                         log::error!("Token decoding in loop error: {}", e);
+                        break;
+                    }
+                    Err(e) => {
+                        log::error!("Tokenizer spawn_blocking error: {}", e);
                         break;
                     }
                 };
@@ -254,105 +299,129 @@ impl TextGenerator {
             self.stats.stop_generation();
         })
     }
-    /// SIMD-optimized token sampling with comprehensive acceleration
-    pub fn sample_token(&mut self, logits: &[f32], _context: &[u32]) -> CandleResult<u32> {
+    /// SIMD-optimized token sampling with comprehensive acceleration (async)
+    pub async fn sample_token(&mut self, logits: &[f32], _context: &[u32]) -> CandleResult<u32> {
         use paraphym_simd::{
             argmax, prepare_nucleus_sampling_simd, scale_temperature, softmax, topk_filtering_simd,
         };
 
-        let mut logits = logits.to_vec();
+        // Clone necessary data before moving into spawn_blocking
+        let logits_owned = logits.to_vec();
+        let config = self.config.clone();
+        let token_history = self.token_history.clone();
+        let constraint = self.constraint.clone();
+        let constraint_state = self.constraint_state.clone();
 
-        // Apply temperature scaling with SIMD
-        if self.config.temperature != 1.0 {
-            scale_temperature(&mut logits, self.config.temperature).map_err(|e| {
+        // Wrap all SIMD operations in spawn_blocking for CPU-intensive work
+        let result = tokio::task::spawn_blocking(move || -> CandleResult<u32> {
+            let mut logits = logits_owned;
+
+            // Apply temperature scaling with SIMD
+            if config.temperature != 1.0 {
+                scale_temperature(&mut logits, config.temperature).map_err(|e| {
+                    crate::domain::model::error::CandleModelError::OperationNotSupported(
+                        e.to_string().into(),
+                    )
+                })?;
+            }
+
+            // Apply top-k filtering with SIMD
+            if let Some(k) = config.top_k {
+                topk_filtering_simd(&mut logits, k).map_err(|e| {
+                    crate::domain::model::error::CandleModelError::OperationNotSupported(
+                        e.to_string().into(),
+                    )
+                })?;
+            }
+
+            // Apply nucleus sampling with SIMD
+            if let Some(p) = config.top_p {
+                prepare_nucleus_sampling_simd(&mut logits, p).map_err(|e| {
+                    crate::domain::model::error::CandleModelError::OperationNotSupported(
+                        e.to_string().into(),
+                    )
+                })?;
+            }
+
+            // Create processing context with all fields including constraints
+            let context = paraphym_simd::context::ProcessingContext {
+                temperature: config.temperature,
+                top_k: config.top_k,
+                top_p: config.top_p.map(|p| p as f32),
+                token_history: token_history.as_slice(),
+                start_time: None,
+                max_new_tokens: None,
+                stop_tokens: Vec::new(),
+                json_constraint: constraint,
+                json_constraint_state: constraint_state,
+                schema_constraint: None,
+                schema_constraint_state: None,
+            };
+
+            // Use ConstrainedLogitsProcessor for all processing including constraints
+            let processor_config = paraphym_simd::config::ProcessorConfig {
+                temperature: config.temperature,
+                top_k: config.top_k,
+                top_p: config.top_p.map(|p| p as f32),
+                repetition_penalty: config.repetition_penalty,
+                frequency_penalty: config.frequency_penalty,
+                presence_penalty: config.presence_penalty,
+            };
+
+            let mut processor =
+                paraphym_simd::logits::constraints::ConstrainedLogitsProcessor::new(processor_config);
+            processor.process(&mut logits, &context).map_err(|e| {
                 crate::domain::model::error::CandleModelError::OperationNotSupported(
                     e.to_string().into(),
                 )
             })?;
+
+            // Convert to probabilities with SIMD softmax
+            let probs = softmax(&logits).map_err(|e| {
+                crate::domain::model::error::CandleModelError::OperationNotSupported(
+                    e.to_string().into(),
+                )
+            })?;
+
+            // Sample token with SIMD argmax (for deterministic) or weighted sampling
+            let token = if config.is_deterministic() {
+                argmax(&probs).map_err(|e| {
+                    crate::domain::model::error::CandleModelError::OperationNotSupported(
+                        e.to_string().into(),
+                    )
+                })?
+            } else {
+                // Weighted sampling implementation would go here
+                argmax(&probs).map_err(|e| {
+                    crate::domain::model::error::CandleModelError::OperationNotSupported(
+                        e.to_string().into(),
+                    )
+                })?
+            };
+
+            Ok(token as u32)
+        }).await.map_err(|e| {
+            crate::domain::model::error::CandleModelError::Internal(
+                format!("SIMD sampling spawn_blocking failed: {}", e).into(),
+            )
+        })??;
+
+        // Record metrics after spawn_blocking completes
+        if self.config.temperature != 1.0 {
             self.simd_metrics.record_temperature_op();
         }
-
-        // Apply top-k filtering with SIMD
-        if let Some(k) = self.config.top_k {
-            topk_filtering_simd(&mut logits, k).map_err(|e| {
-                crate::domain::model::error::CandleModelError::OperationNotSupported(
-                    e.to_string().into(),
-                )
-            })?;
+        if self.config.top_k.is_some() {
             self.simd_metrics.record_topk_op();
         }
-
-        // Apply nucleus sampling with SIMD
-        if let Some(p) = self.config.top_p {
-            prepare_nucleus_sampling_simd(&mut logits, p).map_err(|e| {
-                crate::domain::model::error::CandleModelError::OperationNotSupported(
-                    e.to_string().into(),
-                )
-            })?;
+        if self.config.top_p.is_some() {
             self.simd_metrics.record_nucleus_op();
         }
-
-        // Create processing context with all fields including constraints
-        let context = paraphym_simd::context::ProcessingContext {
-            temperature: self.config.temperature,
-            top_k: self.config.top_k,
-            top_p: self.config.top_p.map(|p| p as f32),
-            token_history: self.token_history.as_slice(),
-            start_time: None,
-            max_new_tokens: None,
-            stop_tokens: Vec::new(),
-            json_constraint: self.constraint.clone(), // Add constraint from generator state
-            json_constraint_state: self.constraint_state.clone(), // Add constraint state
-            schema_constraint: None,
-            schema_constraint_state: None,
-        };
-
-        // Use ConstrainedLogitsProcessor for all processing including constraints
-        let processor_config = paraphym_simd::config::ProcessorConfig {
-            temperature: self.config.temperature,
-            top_k: self.config.top_k,
-            top_p: self.config.top_p.map(|p| p as f32),
-            repetition_penalty: self.config.repetition_penalty,
-            frequency_penalty: self.config.frequency_penalty,
-            presence_penalty: self.config.presence_penalty,
-        };
-
-        let mut processor =
-            paraphym_simd::logits::constraints::ConstrainedLogitsProcessor::new(processor_config);
-        processor.process(&mut logits, &context).map_err(|e| {
-            crate::domain::model::error::CandleModelError::OperationNotSupported(
-                e.to_string().into(),
-            )
-        })?;
         self.simd_metrics.record_penalty_op();
-        // Convert to probabilities with SIMD softmax
-        let probs = softmax(&logits).map_err(|e| {
-            crate::domain::model::error::CandleModelError::OperationNotSupported(
-                e.to_string().into(),
-            )
-        })?;
         self.simd_metrics.record_softmax_op();
-
-        // Sample token with SIMD argmax (for deterministic) or weighted sampling
-        let token = if self.config.is_deterministic() {
-            argmax(&probs).map_err(|e| {
-                crate::domain::model::error::CandleModelError::OperationNotSupported(
-                    e.to_string().into(),
-                )
-            })?
-        } else {
-            // Weighted sampling implementation would go here
-            argmax(&probs).map_err(|e| {
-                crate::domain::model::error::CandleModelError::OperationNotSupported(
-                    e.to_string().into(),
-                )
-            })?
-        };
-
         self.simd_metrics.record_argmax_op();
         self.stats.record_simd_operation();
 
-        Ok(token as u32)
+        Ok(result)
     }
 
     /// Check if generation should stop

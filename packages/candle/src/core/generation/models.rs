@@ -8,6 +8,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use candle_core::quantized::gguf_file;
 use candle_core::{Device, Tensor};
 use candle_nn::VarBuilder;
@@ -21,13 +22,37 @@ use crate::core::ModelConfig as CandleConfig;
 use crate::core::model_config::ModelArchitecture;
 use crate::domain::model::error::CandleModelError;
 
+/// Wrapper to make raw pointers Send for spawn_blocking
+/// 
+/// # Safety
+/// This is safe because:
+/// 1. We have exclusive &mut access to the model
+/// 2. spawn_blocking ensures the closure completes before the async fn returns
+/// 3. The underlying models are Send + Sync
+struct SendPtr<T>(*mut T);
+unsafe impl<T> Send for SendPtr<T> {}
+
+impl<T> SendPtr<T> {
+    unsafe fn new(ptr: *mut T) -> Self {
+        SendPtr(ptr)
+    }
+    
+    unsafe fn as_mut(&self) -> &mut T {
+        unsafe { &mut *self.0 }
+    }
+}
+
 /// Trait for Candle model implementations
 ///
 /// Defines the interface that all Candle models must implement for
 /// integration with the text generation system.
+#[async_trait]
 pub trait CandleModel: Send + Sync {
-    /// Perform a forward pass through the model
-    fn forward(&mut self, input: &Tensor, position: usize) -> CandleResult<Tensor>;
+    /// Perform a forward pass through the model (async)
+    /// 
+    /// Implementations should wrap CPU/GPU compute in spawn_blocking
+    /// to avoid blocking the async runtime.
+    async fn forward(&mut self, input: &Tensor, position: usize) -> CandleResult<Tensor>;
 
     /// Get the model's device
     fn device(&self) -> &Device;
@@ -167,11 +192,26 @@ impl CandleLlamaModel {
         &self.config
     }
 }
-impl CandleModel for CandleLlamaModel {
-    fn forward(&mut self, input: &Tensor, position: usize) -> CandleResult<Tensor> {
+impl CandleLlamaModel {
+    /// Synchronous forward pass (internal implementation)
+    pub(crate) fn forward_sync(&mut self, input: &Tensor, position: usize) -> CandleResult<Tensor> {
         self.model
             .forward(input, position, &mut self.cache)
             .map_err(Into::into)
+    }
+}
+
+#[async_trait]
+impl CandleModel for CandleLlamaModel {
+    async fn forward(&mut self, input: &Tensor, position: usize) -> CandleResult<Tensor> {
+        let input_clone = input.clone();
+        let model_ptr = unsafe { SendPtr::new(self as *mut Self) };
+        
+        tokio::task::spawn_blocking(move || unsafe {
+            model_ptr.as_mut().forward_sync(&input_clone, position)
+        })
+        .await
+        .map_err(|e| CandleModelError::Internal(format!("spawn_blocking failed: {}", e).into()))?
     }
 
     fn device(&self) -> &Device {
@@ -234,21 +274,24 @@ impl CandleQuantizedLlamaModel {
             )
         })?;
         let mut file = file.into_std().await;
+        let device_clone = device.clone();
 
-        let gguf_content = gguf_file::Content::read(&mut file).map_err(|e| {
+        // CRITICAL: Run blocking GGUF operations on blocking thread
+        let model_weights = tokio::task::spawn_blocking(move || {
+            let gguf_content = gguf_file::Content::read(&mut file)?;
+            quantized_llama::ModelWeights::from_gguf(gguf_content, &mut file, &device_clone)
+        })
+        .await
+        .map_err(|e| {
             crate::domain::model::error::CandleModelError::InvalidConfiguration(
-                format!("Failed to read GGUF file: {}", e).into(),
+                format!("Failed to spawn blocking task: {}", e).into(),
+            )
+        })?
+        .map_err(|e| {
+            crate::domain::model::error::CandleModelError::InvalidConfiguration(
+                format!("Failed to load model weights from GGUF: {}", e).into(),
             )
         })?;
-
-        let model_weights =
-            quantized_llama::ModelWeights::from_gguf(gguf_content, &mut file, &device).map_err(
-                |e| {
-                    crate::domain::model::error::CandleModelError::InvalidConfiguration(
-                        format!("Failed to load model weights from GGUF: {}", e).into(),
-                    )
-                },
-            )?;
 
         // Extract vocab size from config or use default
         let vocab_size = config.vocab_size;
@@ -267,11 +310,26 @@ impl CandleQuantizedLlamaModel {
     }
 }
 
-impl CandleModel for CandleQuantizedLlamaModel {
-    fn forward(&mut self, input: &Tensor, position: usize) -> CandleResult<Tensor> {
+impl CandleQuantizedLlamaModel {
+    /// Synchronous forward pass (internal implementation)
+    pub(crate) fn forward_sync(&mut self, input: &Tensor, position: usize) -> CandleResult<Tensor> {
         self.model_weights
             .forward(input, position)
             .map_err(Into::into)
+    }
+}
+
+#[async_trait]
+impl CandleModel for CandleQuantizedLlamaModel {
+    async fn forward(&mut self, input: &Tensor, position: usize) -> CandleResult<Tensor> {
+        let input_clone = input.clone();
+        let model_ptr = unsafe { SendPtr::new(self as *mut Self) };
+        
+        tokio::task::spawn_blocking(move || unsafe {
+            model_ptr.as_mut().forward_sync(&input_clone, position)
+        })
+        .await
+        .map_err(|e| CandleModelError::Internal(format!("spawn_blocking failed: {}", e).into()))?
     }
 
     fn device(&self) -> &Device {
@@ -324,49 +382,52 @@ impl CandleQuantizedMixFormerModel {
         use candle_transformers::models::mixformer::Config as MixFormerConfig;
         use candle_transformers::quantized_var_builder::VarBuilder as QuantizedVarBuilder;
 
+        // Convert to PathBuf before moving into closure
+        let model_path_buf = model_path.as_ref().to_path_buf();
+
         // First, read GGUF file to extract metadata
-        let file = tokio::fs::File::open(model_path.as_ref()).await.map_err(|e| {
+        let file = tokio::fs::File::open(&model_path_buf).await.map_err(|e| {
             crate::domain::model::error::CandleModelError::InvalidConfiguration(
                 format!("Failed to open GGUF file: {}", e).into(),
             )
         })?;
         let mut file = file.into_std().await;
+        let device_clone = device.clone();
 
-        let gguf_content = gguf_file::Content::read(&mut file).map_err(|e| {
+        // CRITICAL: Run blocking GGUF operations on blocking thread
+        let (vocab_size, config, vb, gguf_content) = tokio::task::spawn_blocking(move || -> Result<_, candle_core::Error> {
+            let gguf_content = gguf_file::Content::read(&mut file)?;
+            
+            // Extract vocab size from GGUF metadata
+            let vocab_size = gguf_content
+                .metadata
+                .get("tokenizer.ggml.tokens")
+                .and_then(|v| match v {
+                    gguf_file::Value::Array(arr) => Some(arr.len()),
+                    _ => None,
+                })
+                .unwrap_or(32000); // Default MixFormer vocab size
+
+            log::info!(
+                "Loading MixFormer model from GGUF with vocab_size={}",
+                vocab_size
+            );
+
+            // Use default v2 config (Phi-3 style)
+            let config = MixFormerConfig::v2();
+
+            // Load GGUF model using quantized VarBuilder
+            let vb = QuantizedVarBuilder::from_gguf(&model_path_buf, &device_clone)?;
+            
+            Ok((vocab_size, config, vb, gguf_content))
+        })
+        .await
+        .map_err(|e| {
             crate::domain::model::error::CandleModelError::InvalidConfiguration(
-                format!("Failed to read GGUF content: {}", e).into(),
+                format!("Failed to spawn blocking task: {}", e).into(),
             )
-        })?;
-
-        // Extract vocab size from GGUF metadata for return value
-        let vocab_size = gguf_content
-            .metadata
-            .get("tokenizer.ggml.tokens")
-            .and_then(|v| match v {
-                gguf_file::Value::Array(arr) => Some(arr.len()),
-                _ => None,
-            })
-            .unwrap_or(51200);
-
-        // Detect model variant from metadata to select appropriate config
-        // Check n_embd to determine which Phi variant this is
-        let n_embd = gguf_content
-            .metadata
-            .get("phi2.embedding_length")
-            .or_else(|| gguf_content.metadata.get("llama.embedding_length"))
-            .and_then(|v| v.to_u32().ok())
-            .map(|v| v as usize);
-
-        // Select config based on n_embd:
-        // Phi-1: 1024, Phi-1.5: 2048, Phi-2/Phi-4: 2560+
-        let config = match n_embd {
-            Some(1024) => MixFormerConfig::v1(),
-            Some(2048) => MixFormerConfig::v1_5(),
-            _ => MixFormerConfig::v2(), // Default to Phi-2 config for Phi-4 and unknown
-        };
-
-        // Load GGUF model using quantized VarBuilder
-        let vb = QuantizedVarBuilder::from_gguf(model_path.as_ref(), &device).map_err(|e| {
+        })?
+        .map_err(|e| {
             crate::domain::model::error::CandleModelError::InvalidConfiguration(
                 format!("Failed to load GGUF model: {}", e).into(),
             )
@@ -417,10 +478,25 @@ impl CandleQuantizedMixFormerModel {
     }
 }
 
-impl CandleModel for CandleQuantizedMixFormerModel {
-    fn forward(&mut self, input: &Tensor, _position: usize) -> CandleResult<Tensor> {
+impl CandleQuantizedMixFormerModel {
+    /// Synchronous forward pass (internal implementation)
+    pub(crate) fn forward_sync(&mut self, input: &Tensor, _position: usize) -> CandleResult<Tensor> {
         // MixFormer manages KV cache internally, position parameter is ignored
         self.model_weights.forward(input).map_err(Into::into)
+    }
+}
+
+#[async_trait]
+impl CandleModel for CandleQuantizedMixFormerModel {
+    async fn forward(&mut self, input: &Tensor, position: usize) -> CandleResult<Tensor> {
+        let input_clone = input.clone();
+        let model_ptr = unsafe { SendPtr::new(self as *mut Self) };
+        
+        tokio::task::spawn_blocking(move || unsafe {
+            model_ptr.as_mut().forward_sync(&input_clone, position)
+        })
+        .await
+        .map_err(|e| CandleModelError::Internal(format!("spawn_blocking failed: {}", e).into()))?
     }
 
     fn device(&self) -> &Device {
@@ -503,7 +579,20 @@ impl CandleQuantizedPhiModel {
         // Phi-4 does not support flash attention according to model docs
         let use_flash_attn = false;
         log::info!("Loading quantized_phi3 model with flash_attn={}", use_flash_attn);
-        let model = quantized_phi3::ModelWeights::from_gguf(use_flash_attn, gguf_content, &mut file, &device).map_err(|e| {
+        
+        let device_clone = device.clone();
+        
+        // CRITICAL: Run blocking GGUF loading on a blocking thread to avoid blocking async runtime
+        let model = tokio::task::spawn_blocking(move || {
+            quantized_phi3::ModelWeights::from_gguf(use_flash_attn, gguf_content, &mut file, &device_clone)
+        })
+        .await
+        .map_err(|e| {
+            CandleModelError::InvalidConfiguration(
+                format!("Failed to spawn blocking task: {}", e).into(),
+            )
+        })?
+        .map_err(|e| {
             CandleModelError::InvalidConfiguration(
                 format!("Failed to load Phi-3/Phi-4 model: {}", e).into(),
             )
@@ -514,9 +603,24 @@ impl CandleQuantizedPhiModel {
     }
 }
 
-impl CandleModel for CandleQuantizedPhiModel {
-    fn forward(&mut self, input: &Tensor, index_pos: usize) -> CandleResult<Tensor> {
+impl CandleQuantizedPhiModel {
+    /// Synchronous forward pass (internal implementation)
+    pub(crate) fn forward_sync(&mut self, input: &Tensor, index_pos: usize) -> CandleResult<Tensor> {
         self.model_weights.forward(input, index_pos).map_err(Into::into)
+    }
+}
+
+#[async_trait]
+impl CandleModel for CandleQuantizedPhiModel {
+    async fn forward(&mut self, input: &Tensor, index_pos: usize) -> CandleResult<Tensor> {
+        let input_clone = input.clone();
+        let model_ptr = unsafe { SendPtr::new(self as *mut Self) };
+        
+        tokio::task::spawn_blocking(move || unsafe {
+            model_ptr.as_mut().forward_sync(&input_clone, index_pos)
+        })
+        .await
+        .map_err(|e| CandleModelError::Internal(format!("spawn_blocking failed: {}", e).into()))?
     }
 
     fn device(&self) -> &Device {

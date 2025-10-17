@@ -11,6 +11,7 @@ categories = ["science", "mathematics", "algorithms", "api-bindings"]
 
 
 [dependencies]
+async-trait = "0.1"
 bitflags = { version = "2.9.4", features = ["serde"] }
 paraphym_simd = { path = "../simd" }
 cylo = { path = "../cylo" }
