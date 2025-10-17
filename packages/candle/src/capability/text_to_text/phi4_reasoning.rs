@@ -344,8 +344,8 @@ impl CandleModel for CandlePhi4ReasoningModel {
 /// the 7.8GB GGUF file on every request.
 #[derive(Clone)]
 pub struct LoadedPhi4ReasoningModel {
-    /// The ACTUAL loaded model - cached in memory
-    model: Arc<crate::core::generation::models::CandleQuantizedPhiModel>,
+    /// The ACTUAL loaded model - cached in memory with Mutex for safe async mutable access
+    model: Arc<tokio::sync::Mutex<crate::core::generation::models::CandleQuantizedPhiModel>>,
     tokenizer: tokenizers::Tokenizer,
     device: candle_core::Device,
     engine: Engine,
@@ -424,7 +424,7 @@ impl LoadedPhi4ReasoningModel {
         log::info!("✅ Model loaded into memory! All future requests will reuse this cached model.");
 
         Ok(Self {
-            model: Arc::new(model),  // Cache the loaded model!
+            model: Arc::new(tokio::sync::Mutex::new(model)),  // Cache the loaded model with Mutex for safe async access!
             tokenizer,
             device,
             engine: base.engine.clone(),
@@ -487,12 +487,19 @@ impl crate::capability::traits::TextToTextCapable for LoadedPhi4ReasoningModel {
             use crate::core::generation::{
                 SamplingConfig, generator::TextGenerator,
                 tokens::SpecialTokens,
+                models::CandleModel as CandleModelTrait,
             };
             use tokio_stream::StreamExt;
 
             async_stream::spawn_stream(move |tx| async move {
                 // Use CACHED model - NO LOADING!
                 log::info!("✅ Using cached model from memory - no disk I/O!");
+
+                // Get vocab_size from the model (need to lock mutex briefly)
+                let vocab_size = {
+                    let model_guard = model.lock().await;
+                    model_guard.vocab_size()
+                };
 
                 // Build sampling config with extracted parameters
                 let mut sampling_config = SamplingConfig::new(temperature as f32);
@@ -510,9 +517,13 @@ impl crate::capability::traits::TextToTextCapable for LoadedPhi4ReasoningModel {
                     .with_presence_penalty(0.0);
 
                 // Create TextGenerator with CACHED model and pre-loaded tokenizer
-                // Use SharedModel wrapper to share the Arc<Model> across generate() calls
+                // Use SharedModel wrapper to share the Arc<Mutex<Model>> across generate() calls
                 let text_generator = TextGenerator::new(
-                    Box::new(SharedPhiModel { model: model.clone() }),
+                    Box::new(SharedPhiModel { 
+                        model: model.clone(),
+                        device: device.clone(),
+                        vocab_size,
+                    }),
                     tokenizer, // ✅ Use pre-loaded tokenizer (no disk I/O)
                     device,
                     sampling_config,
@@ -554,54 +565,28 @@ impl CandleModel for LoadedPhi4ReasoningModel {
     }
 }
 
-/// Wrapper to share Arc<CandleQuantizedPhiModel> across multiple generations
+/// Wrapper to share Arc<Mutex<CandleQuantizedPhiModel>> safely across generations
+/// This provides safe async mutable access to the cached model
 struct SharedPhiModel {
-    model: Arc<crate::core::generation::models::CandleQuantizedPhiModel>,
-}
-
-/// SendPtr wrapper for async safety (same as in models.rs)
-struct SendPtr<T>(*mut T);
-unsafe impl<T> Send for SendPtr<T> {}
-
-impl<T> SendPtr<T> {
-    unsafe fn new(ptr: *mut T) -> Self {
-        SendPtr(ptr)
-    }
-    
-    unsafe fn as_mut(&self) -> &mut T {
-        unsafe { &mut *self.0 }
-    }
-}
-
-impl SharedPhiModel {
-    /// Synchronous forward pass (internal implementation)
-    fn forward_sync(&mut self, input: &candle_core::Tensor, index_pos: usize) -> Result<candle_core::Tensor, crate::domain::model::error::CandleModelError> {
-        // Delegate to the inner model's synchronous forward
-        // We need mutable access, so use Arc::get_mut or unsafe cast
-        // Since TextGenerator calls forward() with &mut self, we know we have exclusive access
-        let model_ptr = Arc::as_ptr(&self.model) as *mut crate::core::generation::models::CandleQuantizedPhiModel;
-        unsafe { (*model_ptr).forward_sync(input, index_pos) }
-    }
+    model: Arc<tokio::sync::Mutex<crate::core::generation::models::CandleQuantizedPhiModel>>,
+    device: candle_core::Device,
+    vocab_size: usize,
 }
 
 #[async_trait]
 impl crate::core::generation::models::CandleModel for SharedPhiModel {
     async fn forward(&mut self, input: &candle_core::Tensor, index_pos: usize) -> Result<candle_core::Tensor, crate::domain::model::error::CandleModelError> {
-        let input_clone = input.clone();
-        let model_ptr = unsafe { SendPtr::new(self as *mut Self) };
-        
-        tokio::task::spawn_blocking(move || unsafe {
-            model_ptr.as_mut().forward_sync(&input_clone, index_pos)
-        })
-        .await
-        .map_err(|e| crate::domain::model::error::CandleModelError::Internal(format!("spawn_blocking failed: {}", e).into()))?
+        // Lock the mutex to get mutable access to the model
+        let mut model = self.model.lock().await;
+        // Call the async forward method on the locked model
+        model.forward(input, index_pos).await
     }
 
     fn device(&self) -> &candle_core::Device {
-        self.model.device()
+        &self.device
     }
 
     fn vocab_size(&self) -> usize {
-        self.model.vocab_size()
+        self.vocab_size
     }
 }
