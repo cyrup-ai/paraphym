@@ -1,11 +1,13 @@
 //! Template rendering engines
 //!
-//! Provides different template rendering implementations.
+//! Provides template rendering via compiled templates with full AST support.
 
-use crate::domain::chat::templates::core::{
-    ChatTemplate as CandleChatTemplate, TemplateContext as CandleTemplateContext,
-    TemplateError as CandleTemplateError, TemplateResult as CandleTemplateResult,
-    TemplateValue as CandleTemplateValue,
+use crate::domain::chat::templates::{
+    compiler::TemplateCompiler,
+    core::{
+        ChatTemplate as CandleChatTemplate, TemplateContext as CandleTemplateContext,
+        TemplateError as CandleTemplateError, TemplateResult as CandleTemplateResult,
+    },
 };
 
 /// Template rendering engine trait
@@ -28,48 +30,53 @@ pub trait TemplateEngine: Send + Sync {
     fn name(&self) -> &'static str;
 }
 
-/// Simple string interpolation engine
-pub struct SimpleEngine;
+/// Production template engine using compiled templates with full AST support
+pub struct CompiledEngine {
+    compiler: TemplateCompiler,
+}
 
-impl TemplateEngine for SimpleEngine {
+impl CompiledEngine {
+    /// Create a new compiled engine
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            compiler: TemplateCompiler::new(),
+        }
+    }
+}
+
+impl Default for CompiledEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TemplateEngine for CompiledEngine {
     fn render(
         &self,
         template: &CandleChatTemplate,
         context: &CandleTemplateContext,
     ) -> CandleTemplateResult<String> {
-        let mut result = template.get_content().clone();
-
-        // Simple variable replacement: {{variable_name}}
-        for (name, value) in context.variables() {
-            let placeholder = format!("{{{{{name}}}}}");
-            let replacement = match value {
-                CandleTemplateValue::String(s) => s.as_str(),
-                CandleTemplateValue::Number(n) => &n.to_string(),
-                CandleTemplateValue::Boolean(b) => {
-                    if *b {
-                        "true"
-                    } else {
-                        "false"
-                    }
-                }
-                CandleTemplateValue::Array(_) => "[array]", // Simplified
-                CandleTemplateValue::Object(_) => "[object]", // Simplified
-                CandleTemplateValue::Null => "",
-            };
-            result = result.replace(&placeholder, replacement);
+        // Use cached compiled template if available
+        if let Some(ref compiled) = template.compiled {
+            return compiled.render(context);
         }
 
-        Ok(result)
+        // Otherwise compile on-the-fly
+        let compiled = self.compiler.compile(template)?;
+        compiled.render(context)
     }
 
     fn supports(&self, _template: &CandleChatTemplate) -> bool {
-        true // Simple engine supports all templates
+        true // Compiled engine supports all templates
     }
 
     fn name(&self) -> &'static str {
-        "simple"
+        "compiled"
     }
 }
+
+
 
 /// Template engine registry
 pub struct EngineRegistry {
@@ -89,7 +96,7 @@ impl EngineRegistry {
     #[must_use]
     pub fn with_defaults() -> Self {
         let mut registry = Self::new();
-        registry.register(Box::new(SimpleEngine));
+        registry.register(Box::new(CompiledEngine::new()));
         registry
     }
 

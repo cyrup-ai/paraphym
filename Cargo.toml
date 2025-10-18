@@ -42,6 +42,3 @@ lru = "0.16.1"
 once_cell = "1.21.3"
 tokio = "1.47.1"
 
-[patch.crates-io]
-rsa = { git = "https://github.com/RustCrypto/RSA", tag = "v0.10.0-rc.9" }
-
