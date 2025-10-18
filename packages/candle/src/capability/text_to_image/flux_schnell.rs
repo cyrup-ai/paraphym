@@ -92,14 +92,13 @@ impl FluxSchnell {
                 // Validate device matches worker device
                 let device_guard = self.device.lock().await;
                 
-                if let Some(worker_device) = device_guard.as_ref() {
-                    if !devices_match(worker_device, device) {
+                if let Some(worker_device) = device_guard.as_ref()
+                    && !devices_match(worker_device, device) {
                         return Err(format!(
                             "Worker already initialized with {:?}, cannot use {:?}",
                             worker_device, device
                         ));
                     }
-                }
                 
                 return Ok(sender.clone());
             }
@@ -254,15 +253,14 @@ impl FluxSchnell {
         response_tx: mpsc::UnboundedSender<ImageGenerationChunk>,
     ) {
         // Set random seed if provided
-        if let Some(seed) = config.seed {
-            if let Err(e) = device.set_seed(seed) {
+        if let Some(seed) = config.seed
+            && let Err(e) = device.set_seed(seed) {
                 let _ = response_tx.send(ImageGenerationChunk::Error(format!(
                     "Seed setting failed: {}",
                     e
                 )));
                 return;
             }
-        }
 
         // Encode text prompt
         let t5_emb = match models.t5_encoder.encode(prompt, device) {

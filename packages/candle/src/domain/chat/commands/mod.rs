@@ -14,7 +14,8 @@ pub mod validation;
 // Re-export main Candle types and functions for convenience
 // Global Candle command executor functionality
 use crate::domain::util::unix_timestamp_micros;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 pub use execution::CommandExecutor;
 
@@ -27,7 +28,7 @@ pub use validation::CommandValidator;
 use std::pin::Pin;
 use tokio_stream::{Stream, StreamExt};
 
-/// Global Candle command executor instance - PURE SYNC (no futures)
+/// Global Candle command executor instance
 static CANDLE_COMMAND_EXECUTOR: std::sync::LazyLock<Arc<RwLock<Option<CommandExecutor>>>> =
     std::sync::LazyLock::new(|| Arc::new(RwLock::new(None)));
 

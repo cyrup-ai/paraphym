@@ -45,7 +45,7 @@ impl StableDiffusion35Turbo {
 
     /// Get or initialize the worker thread
     fn get_worker() -> &'static mpsc::UnboundedSender<SD35WorkerRequest> {
-        WORKER.get_or_init(|| worker::spawn_worker())
+        WORKER.get_or_init(worker::spawn_worker)
     }
 }
 

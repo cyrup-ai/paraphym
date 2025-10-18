@@ -39,6 +39,10 @@ impl MemoryNodePool {
     }
 
     /// Acquire a node from the pool (zero-allocation in common case)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if node reset fails during acquisition
     #[inline]
     pub async fn acquire(&self) -> Result<PooledMemoryNode<'_>, super::primitives::MemoryError> {
         let mut node = if let Ok(mut receiver) = self.receiver.lock() {
@@ -102,6 +106,10 @@ pub struct PooledMemoryNode<'a> {
 
 impl PooledMemoryNode<'_> {
     /// Initialize the pooled node with content
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if node reset or importance setting fails
     #[inline]
     pub async fn initialize(
         &mut self,

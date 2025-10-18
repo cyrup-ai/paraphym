@@ -30,6 +30,7 @@ use crate::memory::core::manager::surreal::Result as MemoryResult;
 // Candle domain types - self-contained
 
 // Type aliases to reduce complexity warnings
+type OnChunkHandler = Arc<dyn Fn(CandleMessageChunk) -> Pin<Box<dyn std::future::Future<Output = CandleMessageChunk> + Send>> + Send + Sync>;
 type OnToolResultHandler = Arc<dyn Fn(&[String]) -> Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send + Sync>;
 type OnConversationTurnHandler = Arc<
     dyn Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> Pin<Box<dyn std::future::Future<Output = Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>> + Send>>
@@ -278,7 +279,7 @@ struct AgentBuilderState {
     context_github: Option<CandleContext<CandleGithub>>,
     additional_params: std::collections::HashMap<String, String>,
     metadata: std::collections::HashMap<String, String>,
-    on_chunk_handler: Option<Arc<dyn Fn(CandleMessageChunk) -> Pin<Box<dyn std::future::Future<Output = CandleMessageChunk> + Send>> + Send + Sync>>,
+    on_chunk_handler: Option<OnChunkHandler>,
     on_tool_result_handler: Option<OnToolResultHandler>,
     on_conversation_turn_handler: Option<OnConversationTurnHandler>,
 }
@@ -549,7 +550,7 @@ struct CandleAgentRoleBuilderImpl {
     context_github: Option<CandleContext<CandleGithub>>,
     additional_params: std::collections::HashMap<String, String>,
     metadata: std::collections::HashMap<String, String>,
-    on_chunk_handler: Option<Arc<dyn Fn(CandleMessageChunk) -> Pin<Box<dyn std::future::Future<Output = CandleMessageChunk> + Send>> + Send + Sync>>,
+    on_chunk_handler: Option<OnChunkHandler>,
     on_tool_result_handler: Option<OnToolResultHandler>,
     on_conversation_turn_handler: Option<OnConversationTurnHandler>,
 }
@@ -923,7 +924,7 @@ pub struct CandleAgentBuilderImpl {
     context_github: Option<CandleContext<CandleGithub>>,
     additional_params: std::collections::HashMap<String, String>,
     metadata: std::collections::HashMap<String, String>,
-    on_chunk_handler: Option<Arc<dyn Fn(CandleMessageChunk) -> Pin<Box<dyn std::future::Future<Output = CandleMessageChunk> + Send>> + Send + Sync>>,
+    on_chunk_handler: Option<OnChunkHandler>,
     on_tool_result_handler: Option<OnToolResultHandler>,
     on_conversation_turn_handler: Option<OnConversationTurnHandler>,
 }

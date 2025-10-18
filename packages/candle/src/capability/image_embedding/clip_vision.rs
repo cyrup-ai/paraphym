@@ -674,21 +674,21 @@ impl crate::capability::traits::ImageEmbeddingCapable for LoadedClipVisionModel 
             .info()
             .image_mean
             .ok_or("image_mean missing from ModelInfo")
-            .map_err(|e| format!("{}", e));
+            .map_err(|e| e.to_string());
         let image_std = self
             .info()
             .image_std
             .ok_or("image_std missing from ModelInfo")
-            .map_err(|e| format!("{}", e));
+            .map_err(|e| e.to_string());
 
         Box::pin(async move {
             // Handle config extraction errors before spawn_blocking
             let image_mean = image_mean.map_err(|e| {
-                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                Box::new(std::io::Error::other(e))
                     as Box<dyn std::error::Error + Send + Sync>
             })?;
             let image_std = image_std.map_err(|e| {
-                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                Box::new(std::io::Error::other(e))
                     as Box<dyn std::error::Error + Send + Sync>
             })?;
 
@@ -722,13 +722,12 @@ impl crate::capability::traits::ImageEmbeddingCapable for LoadedClipVisionModel 
             })
             .await
             .map_err(|e| {
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                Box::new(std::io::Error::other(
                     format!("Spawn blocking failed: {}", e),
                 )) as Box<dyn std::error::Error + Send + Sync>
             })?
             .map_err(|e: String| {
-                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                Box::new(std::io::Error::other(e))
                     as Box<dyn std::error::Error + Send + Sync>
             })?;
 
@@ -759,21 +758,21 @@ impl crate::capability::traits::ImageEmbeddingCapable for LoadedClipVisionModel 
             .info()
             .image_mean
             .ok_or("image_mean missing from ModelInfo")
-            .map_err(|e| format!("{}", e));
+            .map_err(|e| e.to_string());
         let image_std = self
             .info()
             .image_std
             .ok_or("image_std missing from ModelInfo")
-            .map_err(|e| format!("{}", e));
+            .map_err(|e| e.to_string());
 
         Box::pin(async move {
             // Handle config extraction errors before spawn_blocking
             let image_mean = image_mean.map_err(|e| {
-                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                Box::new(std::io::Error::other(e))
                     as Box<dyn std::error::Error + Send + Sync>
             })?;
             let image_std = image_std.map_err(|e| {
-                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                Box::new(std::io::Error::other(e))
                     as Box<dyn std::error::Error + Send + Sync>
             })?;
 
@@ -807,13 +806,12 @@ impl crate::capability::traits::ImageEmbeddingCapable for LoadedClipVisionModel 
             })
             .await
             .map_err(|e| {
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                Box::new(std::io::Error::other(
                     format!("Spawn blocking failed: {}", e),
                 )) as Box<dyn std::error::Error + Send + Sync>
             })?
             .map_err(|e: String| {
-                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                Box::new(std::io::Error::other(e))
                     as Box<dyn std::error::Error + Send + Sync>
             })?;
 
@@ -844,21 +842,21 @@ impl crate::capability::traits::ImageEmbeddingCapable for LoadedClipVisionModel 
             .info()
             .image_mean
             .ok_or("image_mean missing from ModelInfo")
-            .map_err(|e| format!("{}", e));
+            .map_err(|e| e.to_string());
         let image_std = self
             .info()
             .image_std
             .ok_or("image_std missing from ModelInfo")
-            .map_err(|e| format!("{}", e));
+            .map_err(|e| e.to_string());
 
         Box::pin(async move {
             // Handle config extraction errors before spawn_blocking
             let image_mean = image_mean.map_err(|e| {
-                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                Box::new(std::io::Error::other(e))
                     as Box<dyn std::error::Error + Send + Sync>
             })?;
             let image_std = image_std.map_err(|e| {
-                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                Box::new(std::io::Error::other(e))
                     as Box<dyn std::error::Error + Send + Sync>
             })?;
 
@@ -892,13 +890,12 @@ impl crate::capability::traits::ImageEmbeddingCapable for LoadedClipVisionModel 
             })
             .await
             .map_err(|e| {
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                Box::new(std::io::Error::other(
                     format!("Spawn blocking failed: {}", e),
                 )) as Box<dyn std::error::Error + Send + Sync>
             })?
             .map_err(|e: String| {
-                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                Box::new(std::io::Error::other(e))
                     as Box<dyn std::error::Error + Send + Sync>
             })?;
 
@@ -929,21 +926,21 @@ impl crate::capability::traits::ImageEmbeddingCapable for LoadedClipVisionModel 
             .info()
             .image_mean
             .ok_or("image_mean missing from ModelInfo")
-            .map_err(|e| format!("{}", e));
+            .map_err(|e| e.to_string());
         let image_std = self
             .info()
             .image_std
             .ok_or("image_std missing from ModelInfo")
-            .map_err(|e| format!("{}", e));
+            .map_err(|e| e.to_string());
 
         Box::pin(async move {
             // Handle config extraction errors before spawn_blocking
             let image_mean = image_mean.map_err(|e| {
-                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                Box::new(std::io::Error::other(e))
                     as Box<dyn std::error::Error + Send + Sync>
             })?;
             let image_std = image_std.map_err(|e| {
-                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                Box::new(std::io::Error::other(e))
                     as Box<dyn std::error::Error + Send + Sync>
             })?;
 
@@ -991,13 +988,12 @@ impl crate::capability::traits::ImageEmbeddingCapable for LoadedClipVisionModel 
             })
             .await
             .map_err(|e| {
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                Box::new(std::io::Error::other(
                     format!("Spawn blocking failed: {}", e),
                 )) as Box<dyn std::error::Error + Send + Sync>
             })?
             .map_err(|e: String| {
-                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                Box::new(std::io::Error::other(e))
                     as Box<dyn std::error::Error + Send + Sync>
             })?;
 

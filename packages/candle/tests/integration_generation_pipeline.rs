@@ -152,8 +152,9 @@ async fn test_text_generator_with_mock_model() {
         device: Device,
     }
 
+    #[async_trait::async_trait]
     impl CandleModel for MockModel {
-        fn forward(
+        async fn forward(
             &mut self,
             input: &Tensor,
             _position: usize,

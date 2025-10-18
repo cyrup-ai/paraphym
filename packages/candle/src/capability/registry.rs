@@ -1280,11 +1280,9 @@ pub trait FromRegistry: Sized {
 
 impl FromRegistry for TextToTextModel {
     fn from_registry(registry_key: &str) -> Option<Self> {
-        // Check runtime registry first, then fall back to static registry
-        tokio::runtime::Handle::try_current()
-            .ok()
-            .and_then(|handle| handle.block_on(get_text_to_text_runtime(registry_key)))
-            .or_else(|| TEXT_TO_TEXT_REGISTRY.get(registry_key).cloned())
+        // Only check static registry from sync context
+        // Use get_text_to_text_runtime() directly for async access to runtime registry
+        TEXT_TO_TEXT_REGISTRY.get(registry_key).cloned()
     }
 }
 
@@ -1318,10 +1316,10 @@ impl FromRegistry for AnyModel {
     }
 }
 
-/// Get a text-to-text model by registry_key
+/// Get a text-to-text model by registry_key (sync access to static registry only)
 ///
 /// Returns an enum that implements both CandleModel and TextToTextCapable.
-/// Checks runtime registry first (for models like Qwen3Coder), then falls back to static registry.
+/// Only accesses static registry. For runtime-registered models, use `get_text_to_text_runtime()` instead.
 ///
 /// # Example
 /// ```rust
@@ -1332,10 +1330,7 @@ impl FromRegistry for AnyModel {
 /// }
 /// ```
 pub fn get_text_to_text(registry_key: &str) -> Option<impl TextToTextCapable> {
-    tokio::runtime::Handle::try_current()
-        .ok()
-        .and_then(|handle| handle.block_on(get_text_to_text_runtime(registry_key)))
-        .or_else(|| TEXT_TO_TEXT_REGISTRY.get(registry_key).cloned())
+    TEXT_TO_TEXT_REGISTRY.get(registry_key).cloned()
 }
 
 /// Get a text embedding model by registry_key

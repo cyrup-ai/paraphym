@@ -37,7 +37,7 @@ impl<T> SendPtr<T> {
         SendPtr(ptr)
     }
     
-    unsafe fn as_mut(&self) -> &mut T {
+    unsafe fn into_mut(self) -> &'static mut T {
         unsafe { &mut *self.0 }
     }
 }
@@ -208,7 +208,7 @@ impl CandleModel for CandleLlamaModel {
         let model_ptr = unsafe { SendPtr::new(self as *mut Self) };
         
         tokio::task::spawn_blocking(move || unsafe {
-            model_ptr.as_mut().forward_sync(&input_clone, position)
+            model_ptr.into_mut().forward_sync(&input_clone, position)
         })
         .await
         .map_err(|e| CandleModelError::Internal(format!("spawn_blocking failed: {}", e).into()))?
@@ -326,7 +326,7 @@ impl CandleModel for CandleQuantizedLlamaModel {
         let model_ptr = unsafe { SendPtr::new(self as *mut Self) };
         
         tokio::task::spawn_blocking(move || unsafe {
-            model_ptr.as_mut().forward_sync(&input_clone, position)
+            model_ptr.into_mut().forward_sync(&input_clone, position)
         })
         .await
         .map_err(|e| CandleModelError::Internal(format!("spawn_blocking failed: {}", e).into()))?
@@ -493,7 +493,7 @@ impl CandleModel for CandleQuantizedMixFormerModel {
         let model_ptr = unsafe { SendPtr::new(self as *mut Self) };
         
         tokio::task::spawn_blocking(move || unsafe {
-            model_ptr.as_mut().forward_sync(&input_clone, position)
+            model_ptr.into_mut().forward_sync(&input_clone, position)
         })
         .await
         .map_err(|e| CandleModelError::Internal(format!("spawn_blocking failed: {}", e).into()))?
@@ -615,7 +615,7 @@ impl CandleModel for CandleQuantizedPhiModel {
         let model_ptr = unsafe { SendPtr::new(self as *mut Self) };
         
         tokio::task::spawn_blocking(move || unsafe {
-            model_ptr.as_mut().forward_sync(&input_clone, index_pos)
+            model_ptr.into_mut().forward_sync(&input_clone, index_pos)
         })
         .await
         .map_err(|e| CandleModelError::Internal(format!("spawn_blocking failed: {}", e).into()))?

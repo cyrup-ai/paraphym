@@ -775,12 +775,11 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedStellaModel {
             })
             .await
             .map_err(|e| {
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                Box::new(std::io::Error::other(
                     format!("Spawn blocking failed: {}", e),
                 )) as Box<dyn std::error::Error + Send + Sync>
             })?
-            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as Box<dyn std::error::Error + Send + Sync>)?;
+            .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>)?;
 
             Ok(embedding_vec)
         })
@@ -854,12 +853,11 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedStellaModel {
             })
             .await
             .map_err(|e| {
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                Box::new(std::io::Error::other(
                     format!("Spawn blocking failed: {}", e),
                 )) as Box<dyn std::error::Error + Send + Sync>
             })?
-            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as Box<dyn std::error::Error + Send + Sync>)?;
+            .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>)?;
 
             Ok(embeddings_vec)
         })
