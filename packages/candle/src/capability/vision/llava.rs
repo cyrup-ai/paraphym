@@ -209,8 +209,9 @@ impl LLaVAModel {
         // Model loading also involves blocking I/O (file reads, GPU memory allocation)
         tokio::task::spawn_blocking(move || {
             // Create a new tokio runtime for this blocking thread
-            // This allows async operations without depending on shared runtime
-            let rt = tokio::runtime::Builder::new_current_thread()
+            // Use multi_thread with 1 worker to enable spawn_blocking within worker
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(1)
                 .enable_all()
                 .build()
                 .expect("Failed to create worker runtime");
@@ -406,7 +407,7 @@ impl LLaVAModel {
 
         // 3. Tokenize prompt (handles <image> token)
         let input_ids =
-            Self::tokenize_image_prompt_static(tokenizer, llava_config, device, &prompt)?;
+            Self::tokenize_image_prompt_static(tokenizer.clone(), llava_config, device.clone(), prompt.clone()).await?;
 
         // 4. Prepare multimodal embeddings (vision + text fusion)
         let image_batch = image_tensor
@@ -528,7 +529,7 @@ impl LLaVAModel {
 
         // 3. Tokenize prompt (handles <image> token)
         let input_ids =
-            Self::tokenize_image_prompt_static(tokenizer, llava_config, device, &prompt)?;
+            Self::tokenize_image_prompt_static(tokenizer.clone(), llava_config, device.clone(), prompt.clone()).await?;
 
         // 4. Prepare multimodal embeddings (vision + text fusion)
         let image_batch = image_tensor
@@ -611,45 +612,54 @@ impl LLaVAModel {
     /// Tokenize prompt with image tokens (static version for thread)
     ///
     /// Handles <image> placeholder insertion for multimodal embeddings
-    fn tokenize_image_prompt_static(
-        tokenizer: &Tokenizer,
+    async fn tokenize_image_prompt_static(
+        tokenizer: Tokenizer,
         llava_config: &CandleLLaVAConfig,
-        device: &Device,
-        prompt: &str,
+        device: Device,
+        prompt: String,
     ) -> Result<Tensor, String> {
         let image_token_index = llava_config.image_token_index as i64;
+        let bos_token_id = llava_config.bos_token_id as i64;
 
-        // Split by <image> and tokenize chunks (avoid unwrap in map)
-        let mut chunks: Vec<Vec<i64>> = Vec::new();
-        for s in prompt.split("<image>") {
-            let encoding = tokenizer
-                .encode(s, true)
-                .map_err(|e| format!("Tokenization failed: {}", e))?;
-            chunks.push(encoding.get_ids().iter().map(|x| *x as i64).collect());
-        }
-
-        // Interleave text tokens with image tokens
-        let mut input_ids = Vec::new();
-        let mut offset = 0;
-
-        if !chunks.is_empty()
-            && !chunks[0].is_empty()
-            && chunks[0][0] == llava_config.bos_token_id as i64
-        {
-            offset = 1;
-            input_ids.push(chunks[0][0]);
-        }
-
-        for (i, chunk) in chunks.iter().enumerate() {
-            if i > 0 {
-                input_ids.push(image_token_index);
+        // Wrap CPU-intensive tokenization in spawn_blocking
+        let input_ids = tokio::task::spawn_blocking(move || {
+            // Split by <image> and tokenize chunks (avoid unwrap in map)
+            let mut chunks: Vec<Vec<i64>> = Vec::new();
+            for s in prompt.split("<image>") {
+                let encoding = tokenizer
+                    .encode(s, true)
+                    .map_err(|e| format!("Tokenization failed: {}", e))?;
+                chunks.push(encoding.get_ids().iter().map(|x| *x as i64).collect());
             }
-            input_ids.extend(&chunk[offset..]);
-            offset = 0;
-        }
 
+            // Interleave text tokens with image tokens
+            let mut input_ids = Vec::new();
+            let mut offset = 0;
+
+            if !chunks.is_empty()
+                && !chunks[0].is_empty()
+                && chunks[0][0] == bos_token_id
+            {
+                offset = 1;
+                input_ids.push(chunks[0][0]);
+            }
+
+            for (i, chunk) in chunks.iter().enumerate() {
+                if i > 0 {
+                    input_ids.push(image_token_index);
+                }
+                input_ids.extend(&chunk[offset..]);
+                offset = 0;
+            }
+
+            Ok::<_, String>(input_ids)
+        })
+        .await
+        .map_err(|e| format!("Spawn blocking failed: {}", e))??;
+
+        // Create tensor (fast operation, keep outside spawn_blocking)
         let input_len = input_ids.len();
-        Tensor::from_vec(input_ids, (1, input_len), device)
+        Tensor::from_vec(input_ids, (1, input_len), &device)
             .map_err(|e| format!("Tokenization tensor failed: {}", e))
     }
 

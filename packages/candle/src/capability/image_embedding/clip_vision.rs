@@ -52,7 +52,7 @@ impl ClipVisionModel {
     ///
     /// Returns (text_config, vision_config, image_size) tuple.
     /// Note: text_config is required by ClipModel but unused for vision-only inference.
-    fn get_configs_for_dimension(&self) -> (ClipTextConfig, ClipVisionConfig, usize) {
+    pub fn get_configs_for_dimension(&self) -> (ClipTextConfig, ClipVisionConfig, usize) {
         use candle_transformers::models::clip::text_model::Activation;
 
         match self.dimension {
@@ -337,6 +337,103 @@ impl ClipVisionModel {
     }
 }
 
+/// Loaded CLIP Vision model for repeated inference with no I/O overhead
+///
+/// Pattern: Arc<ClipModel> (no Mutex) - ClipModel::get_image_features() takes &self
+/// Reference: src/capability/text_embedding/bert.rs (LoadedBertModel)
+///
+/// This struct holds a pre-loaded CLIP model in memory for efficient repeated inference.
+/// Unlike ClipVisionModel which uses lazy loading, this loads the model once during
+/// construction and reuses it for all subsequent embedding calls.
+#[derive(Clone)]
+pub struct LoadedClipVisionModel {
+    model: std::sync::Arc<ClipModel>,
+    device: Device,
+    config: ClipConfig,
+    dimension: usize,
+}
+
+impl std::fmt::Debug for LoadedClipVisionModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoadedClipVisionModel")
+            .field("device", &self.device)
+            .field("dimension", &self.dimension)
+            .field("model", &"Arc<ClipModel>")
+            .finish()
+    }
+}
+
+impl LoadedClipVisionModel {
+    /// Load CLIP model once for repeated inference
+    ///
+    /// This method downloads the model weights and loads them into memory.
+    /// The loaded model can then be used for multiple inference calls without
+    /// reloading, significantly improving performance for repeated use.
+    pub async fn load(
+        dimension: usize,
+    ) -> std::result::Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        // Validate dimension
+        if dimension != 512 && dimension != 768 {
+            return Err(format!(
+                "Unsupported dimension: {}. CLIP supports 512 (Base) or 768 (Large)",
+                dimension
+            )
+            .into());
+        }
+
+        // Get ModelInfo from base model
+        let base_model = ClipVisionModel::new(dimension)
+            .map_err(|e| format!("Failed to create base model: {}", e))?;
+        let model_info = base_model.info();
+
+        // Auto-detect device
+        let device = crate::core::device_util::detect_best_device().unwrap_or_else(|e| {
+            log::warn!("Device detection failed: {}. Using CPU.", e);
+            Device::Cpu
+        });
+
+        // Download model file via huggingface_file
+        let model_path = base_model
+            .huggingface_file(model_info.registry_key, "model.safetensors")
+            .await?;
+
+        // Build CLIP config using base model's method
+        let (text_config, vision_config, _) = base_model.get_configs_for_dimension();
+        let config = ClipConfig {
+            text_config,
+            vision_config,
+            logit_scale_init_value: 2.6592,
+            image_size: model_info
+                .image_size
+                .ok_or("image_size missing from ModelInfo")? as usize,
+        };
+
+        // Load model weights
+        let vb = unsafe {
+            VarBuilder::from_mmaped_safetensors(&[model_path], candle_core::DType::F32, &device)?
+        };
+
+        let model = ClipModel::new(vb, &config)?;
+
+        Ok(Self {
+            model: std::sync::Arc::new(model),
+            device,
+            config,
+            dimension,
+        })
+    }
+}
+
+impl CandleModel for LoadedClipVisionModel {
+    fn info(&self) -> &'static CandleModelInfo {
+        match self.dimension {
+            512 => &CLIP_VISION_BASE_INFO,
+            768 => &CLIP_VISION_LARGE_INFO,
+            _ => unreachable!("Dimension validated in constructor"),
+        }
+    }
+}
+
 // Static model info for CLIP Vision Base (512D)
 static CLIP_VISION_BASE_INFO: CandleModelInfo = CandleModelInfo {
     provider: crate::domain::model::CandleProvider::OpenAI,
@@ -549,6 +646,376 @@ impl crate::capability::traits::ImageEmbeddingCapable for ClipVisionModel {
 
     fn supported_dimensions(&self) -> Vec<usize> {
         // CLIP Vision supports both Base (512D) and Large (768D) variants
+        vec![512, 768]
+    }
+}
+
+impl crate::capability::traits::ImageEmbeddingCapable for LoadedClipVisionModel {
+    fn embed_image(
+        &self,
+        image_path: &str,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<f32>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
+        let image_path = image_path.to_string();
+        // Clone for move into spawn_blocking
+        let model = self.model.clone();
+        let device = self.device.clone();
+        let image_size = self.config.image_size;
+        let image_mean = self
+            .info()
+            .image_mean
+            .ok_or("image_mean missing from ModelInfo")
+            .map_err(|e| format!("{}", e));
+        let image_std = self
+            .info()
+            .image_std
+            .ok_or("image_std missing from ModelInfo")
+            .map_err(|e| format!("{}", e));
+
+        Box::pin(async move {
+            // Handle config extraction errors before spawn_blocking
+            let image_mean = image_mean.map_err(|e| {
+                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                    as Box<dyn std::error::Error + Send + Sync>
+            })?;
+            let image_std = image_std.map_err(|e| {
+                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                    as Box<dyn std::error::Error + Send + Sync>
+            })?;
+
+            // Wrap ALL CPU-intensive operations in spawn_blocking
+            let embedding = tokio::task::spawn_blocking(move || {
+                // Image preprocessing (CPU-intensive): load, resize, normalize
+                let image_builder = Image::from_path(&image_path)
+                    .resize(image_size, image_size, ResizeFilter::Triangle)
+                    .normalize_unsigned()
+                    .normalize_with(image_mean, image_std);
+
+                // Convert to tensor (CPU-intensive)
+                // Note: to_tensor is async but internally sync, so we use block_on
+                let rt = tokio::runtime::Handle::current();
+                let image_tensor = rt
+                    .block_on(image_builder.to_tensor(&device))
+                    .map_err(|e| format!("Image preprocessing failed: {}", e))?;
+
+                // Add batch dimension (CPU-intensive)
+                let batched = image_tensor
+                    .unsqueeze(0)
+                    .map_err(|e| format!("Failed to add batch dimension: {}", e))?;
+
+                // Model inference (CPU-intensive)
+                let features = model
+                    .get_image_features(&batched)
+                    .map_err(|e| format!("CLIP encoding failed: {}", e))?;
+
+                // Tensor conversion (CPU-intensive)
+                features
+                    .to_vec1::<f32>()
+                    .map_err(|e| format!("Failed to convert to vec: {}", e))
+            })
+            .await
+            .map_err(|e| {
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Spawn blocking failed: {}", e),
+                )) as Box<dyn std::error::Error + Send + Sync>
+            })?
+            .map_err(|e: String| {
+                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                    as Box<dyn std::error::Error + Send + Sync>
+            })?;
+
+            Ok(embedding)
+        })
+    }
+
+    fn embed_image_url(
+        &self,
+        url: &str,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<f32>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
+        let url = url.to_string();
+        // Clone for move into spawn_blocking
+        let model = self.model.clone();
+        let device = self.device.clone();
+        let image_size = self.config.image_size;
+        let image_mean = self
+            .info()
+            .image_mean
+            .ok_or("image_mean missing from ModelInfo")
+            .map_err(|e| format!("{}", e));
+        let image_std = self
+            .info()
+            .image_std
+            .ok_or("image_std missing from ModelInfo")
+            .map_err(|e| format!("{}", e));
+
+        Box::pin(async move {
+            // Handle config extraction errors before spawn_blocking
+            let image_mean = image_mean.map_err(|e| {
+                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                    as Box<dyn std::error::Error + Send + Sync>
+            })?;
+            let image_std = image_std.map_err(|e| {
+                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                    as Box<dyn std::error::Error + Send + Sync>
+            })?;
+
+            // Wrap ALL CPU-intensive operations in spawn_blocking
+            let embedding = tokio::task::spawn_blocking(move || {
+                // Image preprocessing (CPU-intensive): load from URL, resize, normalize
+                let image_builder = Image::from_url(&url)
+                    .resize(image_size, image_size, ResizeFilter::Triangle)
+                    .normalize_unsigned()
+                    .normalize_with(image_mean, image_std);
+
+                // Convert to tensor (CPU-intensive)
+                let rt = tokio::runtime::Handle::current();
+                let image_tensor = rt
+                    .block_on(image_builder.to_tensor(&device))
+                    .map_err(|e| format!("Image URL preprocessing failed: {}", e))?;
+
+                // Add batch dimension (CPU-intensive)
+                let batched = image_tensor
+                    .unsqueeze(0)
+                    .map_err(|e| format!("Failed to add batch dimension: {}", e))?;
+
+                // Model inference (CPU-intensive)
+                let features = model
+                    .get_image_features(&batched)
+                    .map_err(|e| format!("CLIP encoding failed: {}", e))?;
+
+                // Tensor conversion (CPU-intensive)
+                features
+                    .to_vec1::<f32>()
+                    .map_err(|e| format!("Failed to convert to vec: {}", e))
+            })
+            .await
+            .map_err(|e| {
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Spawn blocking failed: {}", e),
+                )) as Box<dyn std::error::Error + Send + Sync>
+            })?
+            .map_err(|e: String| {
+                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                    as Box<dyn std::error::Error + Send + Sync>
+            })?;
+
+            Ok(embedding)
+        })
+    }
+
+    fn embed_image_base64(
+        &self,
+        base64_data: &str,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<f32>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
+        let base64_data = base64_data.to_string();
+        // Clone for move into spawn_blocking
+        let model = self.model.clone();
+        let device = self.device.clone();
+        let image_size = self.config.image_size;
+        let image_mean = self
+            .info()
+            .image_mean
+            .ok_or("image_mean missing from ModelInfo")
+            .map_err(|e| format!("{}", e));
+        let image_std = self
+            .info()
+            .image_std
+            .ok_or("image_std missing from ModelInfo")
+            .map_err(|e| format!("{}", e));
+
+        Box::pin(async move {
+            // Handle config extraction errors before spawn_blocking
+            let image_mean = image_mean.map_err(|e| {
+                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                    as Box<dyn std::error::Error + Send + Sync>
+            })?;
+            let image_std = image_std.map_err(|e| {
+                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                    as Box<dyn std::error::Error + Send + Sync>
+            })?;
+
+            // Wrap ALL CPU-intensive operations in spawn_blocking
+            let embedding = tokio::task::spawn_blocking(move || {
+                // Image preprocessing (CPU-intensive): decode base64, resize, normalize
+                let image_builder = Image::from_base64(&base64_data)
+                    .resize(image_size, image_size, ResizeFilter::Triangle)
+                    .normalize_unsigned()
+                    .normalize_with(image_mean, image_std);
+
+                // Convert to tensor (CPU-intensive)
+                let rt = tokio::runtime::Handle::current();
+                let image_tensor = rt
+                    .block_on(image_builder.to_tensor(&device))
+                    .map_err(|e| format!("Base64 image preprocessing failed: {}", e))?;
+
+                // Add batch dimension (CPU-intensive)
+                let batched = image_tensor
+                    .unsqueeze(0)
+                    .map_err(|e| format!("Failed to add batch dimension: {}", e))?;
+
+                // Model inference (CPU-intensive)
+                let features = model
+                    .get_image_features(&batched)
+                    .map_err(|e| format!("CLIP encoding failed: {}", e))?;
+
+                // Tensor conversion (CPU-intensive)
+                features
+                    .to_vec1::<f32>()
+                    .map_err(|e| format!("Failed to convert to vec: {}", e))
+            })
+            .await
+            .map_err(|e| {
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Spawn blocking failed: {}", e),
+                )) as Box<dyn std::error::Error + Send + Sync>
+            })?
+            .map_err(|e: String| {
+                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                    as Box<dyn std::error::Error + Send + Sync>
+            })?;
+
+            Ok(embedding)
+        })
+    }
+
+    fn batch_embed_images(
+        &self,
+        image_paths: Vec<&str>,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<Vec<f32>>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
+        let paths: Vec<String> = image_paths.iter().map(|s| s.to_string()).collect();
+        // Clone for move into spawn_blocking
+        let model = self.model.clone();
+        let device = self.device.clone();
+        let image_size = self.config.image_size;
+        let image_mean = self
+            .info()
+            .image_mean
+            .ok_or("image_mean missing from ModelInfo")
+            .map_err(|e| format!("{}", e));
+        let image_std = self
+            .info()
+            .image_std
+            .ok_or("image_std missing from ModelInfo")
+            .map_err(|e| format!("{}", e));
+
+        Box::pin(async move {
+            // Handle config extraction errors before spawn_blocking
+            let image_mean = image_mean.map_err(|e| {
+                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                    as Box<dyn std::error::Error + Send + Sync>
+            })?;
+            let image_std = image_std.map_err(|e| {
+                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                    as Box<dyn std::error::Error + Send + Sync>
+            })?;
+
+            // Wrap ALL CPU-intensive operations in spawn_blocking
+            let embeddings = tokio::task::spawn_blocking(move || {
+                let rt = tokio::runtime::Handle::current();
+
+                // Preprocess all images (CPU-intensive)
+                let mut tensors = Vec::with_capacity(paths.len());
+                for path in &paths {
+                    let image_builder = Image::from_path(path)
+                        .resize(image_size, image_size, ResizeFilter::Triangle)
+                        .normalize_unsigned()
+                        .normalize_with(image_mean, image_std);
+
+                    let tensor = rt
+                        .block_on(image_builder.to_tensor(&device))
+                        .map_err(|e| format!("Image preprocessing failed for {}: {}", path, e))?;
+
+                    tensors.push(tensor);
+                }
+
+                // Stack into batch (CPU-intensive)
+                let batched = Tensor::stack(&tensors, 0)
+                    .map_err(|e| format!("Failed to batch tensors: {}", e))?;
+
+                // Model inference (CPU-intensive)
+                let features = model
+                    .get_image_features(&batched)
+                    .map_err(|e| format!("Batch CLIP encoding failed: {}", e))?;
+
+                // Convert to Vec<Vec<f32>> (CPU-intensive)
+                let batch_size = features
+                    .dim(0)
+                    .map_err(|e| format!("Failed to get batch size: {}", e))?;
+
+                let mut embeddings = Vec::with_capacity(batch_size);
+                for i in 0..batch_size {
+                    let row = features
+                        .get(i)
+                        .and_then(|t| t.to_vec1::<f32>())
+                        .map_err(|e| format!("Failed to extract embedding {}: {}", i, e))?;
+                    embeddings.push(row);
+                }
+
+                Ok::<Vec<Vec<f32>>, String>(embeddings)
+            })
+            .await
+            .map_err(|e| {
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Spawn blocking failed: {}", e),
+                )) as Box<dyn std::error::Error + Send + Sync>
+            })?
+            .map_err(|e: String| {
+                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                    as Box<dyn std::error::Error + Send + Sync>
+            })?;
+
+            Ok(embeddings)
+        })
+    }
+
+    fn embedding_dimension(&self) -> usize {
+        self.info().embedding_dimension.unwrap_or(512) as usize
+    }
+
+    fn supported_dimensions(&self) -> Vec<usize> {
         vec![512, 768]
     }
 }

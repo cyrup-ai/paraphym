@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use super::ClipVisionModel;
+use super::{ClipVisionModel, LoadedClipVisionModel};
 use crate::domain::model::CandleModelInfo;
 use crate::domain::model::traits::CandleModel;
 use crate::memory::utils::error::{Error as MemoryError, Result};
@@ -14,9 +14,14 @@ use crate::memory::utils::error::{Error as MemoryError, Result};
 ///
 /// This adapter wraps the async ClipVisionModel for integration with the
 /// async ImageEmbeddingCapable trait system.
+///
+/// Supports two modes:
+/// - Lazy loading: Model loaded on-demand for each inference call (via provider)
+/// - Pre-loaded: Model loaded once and reused (via loaded_model) for better performance
 #[derive(Clone)]
 pub struct ClipVisionEmbeddingModel {
-    provider: Arc<ClipVisionModel>,
+    provider: Arc<ClipVisionModel>,        // Lazy loading fallback
+    loaded_model: Option<Arc<LoadedClipVisionModel>>,  // Pre-loaded for performance
     dimension: usize,
 }
 
@@ -30,7 +35,36 @@ impl std::fmt::Debug for ClipVisionEmbeddingModel {
 }
 
 impl ClipVisionEmbeddingModel {
+    /// Create with pre-loaded model for optimal performance
+    ///
+    /// This method downloads and loads the model once, making subsequent
+    /// inference calls much faster as they reuse the loaded model.
+    pub async fn load(dimension: usize) -> Result<Self> {
+        // Validate dimension (CLIP supports 512D for Base, 768D for Large)
+        if dimension != 512 && dimension != 768 {
+            return Err(MemoryError::Config(format!(
+                "CLIP Vision supports 512D (Base) or 768D (Large). Requested: {}",
+                dimension
+            )));
+        }
+
+        let loaded = LoadedClipVisionModel::load(dimension)
+            .await
+            .map_err(|e| MemoryError::ModelError(format!("Failed to load CLIP model: {}", e)))?;
+
+        let provider = ClipVisionModel::new(dimension).map_err(MemoryError::Config)?;
+
+        Ok(Self {
+            provider: Arc::new(provider),
+            loaded_model: Some(Arc::new(loaded)),
+            dimension,
+        })
+    }
+
     /// Create new CLIP vision embedding provider with ViT-Base configuration (512D)
+    ///
+    /// Uses lazy loading - model loaded on-demand for each inference call.
+    /// For better performance with repeated inference, use `load()` instead.
     pub async fn new() -> Result<Self> {
         Self::with_dimension(512).await
     }
@@ -40,8 +74,8 @@ impl ClipVisionEmbeddingModel {
     /// # Arguments
     /// * `dimension` - 512 for ViT-Base-Patch32 or 768 for ViT-Large-Patch14-336
     ///
-    /// Note: ClipVisionModel now uses lazy loading, so no explicit download needed.
-    /// Model files are downloaded on-demand via huggingface_file().
+    /// Uses lazy loading - model loaded on-demand for each inference call.
+    /// For better performance with repeated inference, use `load(dimension)` instead.
     pub async fn with_dimension(dimension: usize) -> Result<Self> {
         // Validate dimension (CLIP supports 512D for Base, 768D for Large)
         if dimension != 512 && dimension != 768 {
@@ -51,22 +85,34 @@ impl ClipVisionEmbeddingModel {
             )));
         }
 
-        // Create provider with specified dimension
-        // Model will be downloaded and loaded on-demand via huggingface_file()
+        // Create provider with specified dimension (lazy loading)
         let provider = ClipVisionModel::new(dimension).map_err(MemoryError::Config)?;
 
         Ok(Self {
             provider: Arc::new(provider),
+            loaded_model: None,  // Will lazy-load on first use
             dimension,
         })
     }
 
-    /// Create from existing ClipVisionModel
+    /// Create from existing ClipVisionModel (lazy loading)
     pub fn from_model(model: ClipVisionModel, dimension: usize) -> Self {
         Self {
             provider: Arc::new(model),
+            loaded_model: None,
             dimension,
         }
+    }
+
+    /// Create from pre-loaded LoadedClipVisionModel (optimal performance)
+    pub fn from_loaded(loaded: LoadedClipVisionModel, dimension: usize) -> Result<Self> {
+        let provider = ClipVisionModel::new(dimension).map_err(MemoryError::Config)?;
+
+        Ok(Self {
+            provider: Arc::new(provider),
+            loaded_model: Some(Arc::new(loaded)),
+            dimension,
+        })
     }
 
     /// Deprecated: Use from_model instead
@@ -74,6 +120,7 @@ impl ClipVisionEmbeddingModel {
     pub fn from_provider(provider: ClipVisionModel, dimension: usize) -> Self {
         Self {
             provider: Arc::new(provider),
+            loaded_model: None,
             dimension,
         }
     }
@@ -220,12 +267,17 @@ impl crate::capability::traits::ImageEmbeddingCapable for ClipVisionEmbeddingMod
                 + '_,
         >,
     > {
-        let image_path = image_path.to_string();
-        Box::pin(async move {
-            ClipVisionEmbeddingModel::embed_image(self, &image_path)
-                .await
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
-        })
+        // Use loaded model if available, otherwise fall back to lazy loading
+        if let Some(loaded) = &self.loaded_model {
+            loaded.embed_image(image_path)
+        } else {
+            let image_path = image_path.to_string();
+            Box::pin(async move {
+                ClipVisionEmbeddingModel::embed_image(self, &image_path)
+                    .await
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            })
+        }
     }
 
     fn embed_image_url(
@@ -242,12 +294,17 @@ impl crate::capability::traits::ImageEmbeddingCapable for ClipVisionEmbeddingMod
                 + '_,
         >,
     > {
-        let url = url.to_string();
-        Box::pin(async move {
-            ClipVisionEmbeddingModel::embed_image_url(self, &url)
-                .await
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
-        })
+        // Use loaded model if available, otherwise fall back to lazy loading
+        if let Some(loaded) = &self.loaded_model {
+            loaded.embed_image_url(url)
+        } else {
+            let url = url.to_string();
+            Box::pin(async move {
+                ClipVisionEmbeddingModel::embed_image_url(self, &url)
+                    .await
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            })
+        }
     }
 
     fn embed_image_base64(
@@ -264,12 +321,17 @@ impl crate::capability::traits::ImageEmbeddingCapable for ClipVisionEmbeddingMod
                 + '_,
         >,
     > {
-        let base64_data = base64_data.to_string();
-        Box::pin(async move {
-            ClipVisionEmbeddingModel::embed_image_base64(self, &base64_data)
-                .await
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
-        })
+        // Use loaded model if available, otherwise fall back to lazy loading
+        if let Some(loaded) = &self.loaded_model {
+            loaded.embed_image_base64(base64_data)
+        } else {
+            let base64_data = base64_data.to_string();
+            Box::pin(async move {
+                ClipVisionEmbeddingModel::embed_image_base64(self, &base64_data)
+                    .await
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            })
+        }
     }
 
     fn batch_embed_images(
@@ -286,13 +348,18 @@ impl crate::capability::traits::ImageEmbeddingCapable for ClipVisionEmbeddingMod
                 + '_,
         >,
     > {
-        let paths: Vec<String> = image_paths.iter().map(|s| s.to_string()).collect();
-        Box::pin(async move {
-            let path_refs: Vec<&str> = paths.iter().map(|s| s.as_str()).collect();
-            ClipVisionEmbeddingModel::batch_embed_images(self, path_refs)
-                .await
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
-        })
+        // Use loaded model if available, otherwise fall back to lazy loading
+        if let Some(loaded) = &self.loaded_model {
+            loaded.batch_embed_images(image_paths)
+        } else {
+            let paths: Vec<String> = image_paths.iter().map(|s| s.to_string()).collect();
+            Box::pin(async move {
+                let path_refs: Vec<&str> = paths.iter().map(|s| s.as_str()).collect();
+                ClipVisionEmbeddingModel::batch_embed_images(self, path_refs)
+                    .await
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            })
+        }
     }
 
     fn embedding_dimension(&self) -> usize {
