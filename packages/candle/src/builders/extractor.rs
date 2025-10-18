@@ -9,7 +9,7 @@ use serde::de::DeserializeOwned;
 use cyrup_sugars::prelude::MessageChunk;
 
 use crate::capability::registry::TextToTextModel;
-use crate::domain::context::extraction::ExtractorImpl;
+use crate::domain::context::extraction::{Extractor, ExtractorImpl};
 
 /// Extractor builder trait - elegant zero-allocation builder pattern
 pub trait ExtractorBuilder<T>: Sized 

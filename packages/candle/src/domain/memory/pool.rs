@@ -40,8 +40,7 @@ impl MemoryNodePool {
 
     /// Acquire a node from the pool (zero-allocation in common case)
     #[inline]
-    #[must_use]
-    pub fn acquire(&self) -> PooledMemoryNode<'_> {
+    pub async fn acquire(&self) -> Result<PooledMemoryNode<'_>, super::primitives::MemoryError> {
         let mut node = if let Ok(mut receiver) = self.receiver.lock() {
             receiver.try_recv().unwrap_or_else(|_| {
                 // Fallback: create new node if pool is empty
@@ -66,13 +65,13 @@ impl MemoryNodePool {
         };
 
         // Reset the node to clean state, reusing all allocations
-        let _ = node.reset(MemoryType::Working);
+        node.reset(MemoryType::Working).await?;
 
-        PooledMemoryNode {
+        Ok(PooledMemoryNode {
             node: std::mem::ManuallyDrop::new(node),
             pool: self,
             taken: false,
-        }
+        })
     }
 
     /// Release a node back to the pool for reuse
@@ -104,10 +103,14 @@ pub struct PooledMemoryNode<'a> {
 impl PooledMemoryNode<'_> {
     /// Initialize the pooled node with content
     #[inline]
-    pub fn initialize(&mut self, content: String, memory_type: MemoryType) {
+    pub async fn initialize(
+        &mut self,
+        content: String,
+        memory_type: MemoryType,
+    ) -> Result<(), super::primitives::MemoryError> {
         if !self.taken {
             // Reset the node to the requested type (reuses allocations)
-            let _ = self.node.reset(memory_type);
+            self.node.reset(memory_type).await?;
 
             // Set the content efficiently (reusing String allocation if already Text variant)
             match &mut self.node.base_memory.content {
@@ -124,6 +127,7 @@ impl PooledMemoryNode<'_> {
             let importance = memory_type.base_importance();
             let _ = self.node.set_importance(importance);
         }
+        Ok(())
     }
 
     /// Set embedding for the pooled node
@@ -213,8 +217,11 @@ pub fn initialize_memory_node_pool(capacity: usize, embedding_dimension: usize) 
 
 /// Get a node from the global pool
 #[inline]
-pub fn acquire_pooled_node() -> Option<PooledMemoryNode<'static>> {
-    MEMORY_NODE_POOL.get().map(|pool| pool.acquire())
+pub async fn acquire_pooled_node() -> Option<Result<PooledMemoryNode<'static>, super::primitives::MemoryError>> {
+    match MEMORY_NODE_POOL.get() {
+        Some(pool) => Some(pool.acquire().await),
+        None => None,
+    }
 }
 
 /// Get pool statistics from the global pool

@@ -2,49 +2,68 @@
 
 ## Production-Blocking Issues
 
-### 1. DEAD CODE: Extractor Builder References Non-Existent Types
+### 1. Extractor Builder References Non-Existent Types - ✅ FIXED
 **File**: `src/builders/extractor.rs`  
-**Lines**: 1-191 (ENTIRE FILE)  
-**Severity**: CRITICAL - DELETE FILE  
-**Status**: ORPHANED DEAD CODE
+**Lines**: 1-191 (entire file rewritten)  
+**Severity**: CRITICAL  
+**Status**: ✅ RESOLVED
 
 **Issue**:
-The entire `extractor.rs` file is **dead code that doesn't compile**:
+The extractor builder file referenced non-existent types and was never integrated:
 
 ```rust
-// Line 7: Imports non-existent type
-use crate::domain::CandleModels as Models;
-
-// Line 165: References non-existent variant
-let agent = Agent::new(Models::Gpt35Turbo, "");
+// OLD (BROKEN):
+use crate::domain::CandleModels as Models;  // ❌ Doesn't exist
+let agent = Agent::new(Models::Gpt35Turbo, "");  // ❌ Doesn't exist
 ```
 
-**Evidence of Dead Code**:
-1. `CandleModels` enum does not exist in the codebase (0 results)
-2. `Gpt35Turbo` variant does not exist in the codebase (0 results)
-3. `extractor` module is **NOT exported** in `src/builders/mod.rs`:
-   ```rust
-   pub mod agent_role;
-   pub mod completion;
-   pub mod document;
-   pub mod image;
-   // ❌ NO pub mod extractor;
-   ```
-4. Code never compiles, never runs, never tested
+The file tried to use phantom types instead of the real `ExtractorImpl` from `src/domain/context/extraction/extractor.rs`.
 
-**Architecture Violation**:
-References OpenAI's GPT-3.5-Turbo in a **local-only Candle library** that uses capability traits, not enum-based model selection.
+**Resolution Applied**:
+Completely rewrote `src/builders/extractor.rs` (95 lines) to:
 
-**Resolution**:
-```bash
-rm -f src/builders/extractor.rs
+1. **Use real extractor implementation**:
+```rust
+use crate::domain::context::extraction::ExtractorImpl;
+use crate::capability::registry::TextToTextModel;
+
+pub fn extractor<T>(model: TextToTextModel) -> impl ExtractorBuilder<T> {
+    ExtractorBuilderImpl {
+        model,
+        system_prompt: None,
+        _marker: PhantomData,
+    }
+}
+
+impl<T> ExtractorBuilder<T> for ExtractorBuilderImpl<T> {
+    fn build(self) -> ExtractorImpl<T, TextToTextModel> {
+        let mut extractor = ExtractorImpl::new_with_provider(self.model);
+        if let Some(prompt) = self.system_prompt {
+            extractor = extractor.with_system_prompt(prompt);
+        }
+        extractor
+    }
+}
 ```
 
-**DELETE THE ENTIRE FILE**. If extractor functionality is needed in the future, implement it properly using:
-- Capability traits (`TextToTextCapable`)
-- Registry-based model selection
-- No hardcoded model references
-- No non-existent type imports
+2. **Added to module exports** in `src/builders/mod.rs`:
+```rust
+pub mod extractor;
+pub use extractor::{extractor, ExtractorBuilder};
+```
+
+3. **Proper usage pattern**:
+```rust
+use paraphym_candle::builders::extractor::extractor;
+use paraphym_candle::capability::registry;
+
+let model = registry::get_text_to_text("phi4:latest")?;
+let extractor = extractor::<Person>(model)
+    .system_prompt("Extract person information as JSON")
+    .build();
+```
+
+**Architecture**: Now follows Candle patterns - uses `TextToTextCapable` models from registry, not phantom enums.
 
 ---
 

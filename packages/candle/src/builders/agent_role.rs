@@ -361,14 +361,12 @@ pub trait CandleAgentRoleBuilder: Sized + Send {
     where
         F: Fn(&[String]) + Send + Sync + 'static;
 
-    /// Set conversation turn handler - EXACT syntax: .on_conversation_turn(|conversation, agent| { ... })
+    /// Set conversation turn handler - EXACT syntax: .on_conversation_turn(|conversation, agent| async move { ... })
     #[must_use]
-    fn on_conversation_turn<F>(self, handler: F) -> impl CandleAgentRoleBuilder
+    fn on_conversation_turn<F, Fut>(self, handler: F) -> impl CandleAgentRoleBuilder
     where
-        F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>
-            + Send
-            + Sync
-            + 'static;
+        F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>> + Send + 'static;
 
     /// Convert to agent - EXACT syntax: .into_agent()
     #[must_use]

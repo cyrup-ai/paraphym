@@ -90,19 +90,29 @@ impl Drop for AllocationGuard {
             previous - self.size_mb as u64
         );
 
-        // Spawn async cleanup to avoid blocking in Drop
-        // This is safe because the atomic decrement above already happened
+        // Runtime-aware cleanup to handle both async and sync contexts
         let governor = self.governor.clone();
         let size_mb = self.size_mb;
-        tokio::spawn(async move {
-            // Update pressure (async version)
-            governor.update_pressure().await;
+        
+        // Try to detect if we're in a tokio runtime
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            // In tokio runtime - spawn async cleanup
+            handle.spawn(async move {
+                // Update pressure (async version)
+                governor.update_pressure().await;
 
-            // Return memory to pool if enabled (async version)
+                // Return memory to pool if enabled (async version)
+                if governor.config.enable_memory_pools {
+                    governor.return_to_pool(size_mb).await;
+                }
+            });
+        } else {
+            // Not in tokio runtime - use blocking versions
+            governor.update_pressure_blocking();
             if governor.config.enable_memory_pools {
-                governor.return_to_pool(size_mb).await;
+                governor.return_to_pool_blocking(size_mb);
             }
-        });
+        }
     }
 }
 
@@ -199,12 +209,21 @@ impl MemoryGovernor {
         // Start pressure monitor
         governor.start_pressure_monitor();
 
-        // Initialize memory pools if enabled (spawned async to avoid blocking constructor)
+        // Initialize memory pools if enabled (runtime-aware)
         if config.enable_memory_pools {
             let governor_clone = governor.clone();
-            tokio::spawn(async move {
-                governor_clone.initialize_memory_pools().await;
-            });
+            
+            // Try to detect if we're in a tokio runtime
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                // In tokio runtime - spawn async initialization
+                handle.spawn(async move {
+                    governor_clone.initialize_memory_pools().await;
+                });
+            } else {
+                // Not in tokio runtime - skip pool initialization
+                // Pools will remain empty but won't cause panics
+                log::warn!("MemoryGovernor created outside tokio runtime - memory pooling disabled");
+            }
         }
 
         governor

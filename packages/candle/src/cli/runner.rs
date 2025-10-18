@@ -163,7 +163,7 @@ You are a master at refactoring code, remembering to check for code that ALREADY
         };
 
         let agent = agent.on_conversation_turn(
-            move |_conversation: &crate::domain::agent::role::CandleAgentConversation, agent| {
+            move |_conversation: &crate::domain::agent::role::CandleAgentConversation, agent| async move {
                 let input = match prompt_builder.get_user_input("You: ") {
                     Ok(i) => i,
                     Err(e) => {
@@ -175,11 +175,8 @@ You are a master at refactoring code, remembering to check for code that ALREADY
                     }
                 };
 
-                let handler_result = tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(async {
-                        handler.lock().await.handle(&input)
-                    })
-                });
+                // Await the handler lock and call - fully async!
+                let handler_result = handler.lock().await.handle(&input);
 
                 match handler_result {
                     InputHandlerResult::Exit => {
