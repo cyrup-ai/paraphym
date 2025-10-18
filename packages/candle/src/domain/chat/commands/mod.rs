@@ -32,31 +32,28 @@ use tokio_stream::{Stream, StreamExt};
 static CANDLE_COMMAND_EXECUTOR: std::sync::LazyLock<Arc<RwLock<Option<CommandExecutor>>>> =
     std::sync::LazyLock::new(|| Arc::new(RwLock::new(None)));
 
-/// Initialize global Candle command executor - PURE SYNC (no futures)
-pub fn initialize_candle_command_executor(context: &CommandExecutionContext) {
+/// Initialize global Candle command executor
+pub async fn initialize_candle_command_executor(context: &CommandExecutionContext) {
     let executor = CommandExecutor::with_context(context);
-    if let Ok(mut writer) = CANDLE_COMMAND_EXECUTOR.write() {
-        *writer = Some(executor);
-    }
+    let mut writer = CANDLE_COMMAND_EXECUTOR.write().await;
+    *writer = Some(executor);
 }
 
-/// Get global Candle command executor - PURE SYNC (no futures)
-pub fn get_candle_command_executor() -> Option<CommandExecutor> {
-    CANDLE_COMMAND_EXECUTOR
-        .read()
-        .ok()
-        .and_then(|guard| guard.clone())
+/// Get global Candle command executor
+pub async fn get_candle_command_executor() -> Option<CommandExecutor> {
+    let guard = CANDLE_COMMAND_EXECUTOR.read().await;
+    guard.clone()
 }
 
-/// Parse Candle command using global executor - PURE SYNC (no futures)
+/// Parse Candle command using global executor
 ///
 /// # Errors
 ///
 /// Returns `CandleCommandError` if:
 /// - Candle command executor is not initialized
 /// - Command parsing fails
-pub fn parse_candle_command(input: &str) -> CommandResult<ImmutableChatCommand> {
-    if let Some(executor) = get_candle_command_executor() {
+pub async fn parse_candle_command(input: &str) -> CommandResult<ImmutableChatCommand> {
+    if let Some(executor) = get_candle_command_executor().await {
         executor
             .parser()
             .parse(input)
@@ -72,7 +69,7 @@ pub fn parse_candle_command(input: &str) -> CommandResult<ImmutableChatCommand> 
 #[must_use]
 pub fn execute_candle_command_async(command: ImmutableChatCommand) -> Pin<Box<dyn Stream<Item = CommandEvent> + Send>> {
     Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-        if let Some(executor) = get_candle_command_executor() {
+        if let Some(executor) = get_candle_command_executor().await {
             let mut result_stream = executor.execute_streaming(1, command);
             // Forward all events from executor stream
             while let Some(event) = result_stream.next().await {
@@ -96,7 +93,7 @@ pub fn execute_candle_command_async(command: ImmutableChatCommand) -> Pin<Box<dy
 #[must_use]
 pub fn execute_candle_command(command: ImmutableChatCommand) -> Pin<Box<dyn Stream<Item = CommandEvent> + Send>> {
     Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-        if let Some(executor) = get_candle_command_executor() {
+        if let Some(executor) = get_candle_command_executor().await {
             let mut result_stream = executor.execute_streaming(1, command);
             // Forward all events from executor stream
             while let Some(event) = result_stream.next().await {
@@ -120,7 +117,7 @@ pub fn execute_candle_command(command: ImmutableChatCommand) -> Pin<Box<dyn Stre
 pub fn parse_and_execute_candle_command_async(input: &str) -> Pin<Box<dyn Stream<Item = CommandEvent> + Send>> {
     let input_str = input.to_string();
     Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-        if let Some(executor) = get_candle_command_executor() {
+        if let Some(executor) = get_candle_command_executor().await {
             let mut result_stream = executor.parse_and_execute(&input_str);
             // Forward all events from executor stream
             while let Some(event) = result_stream.next().await {
@@ -145,7 +142,7 @@ pub fn parse_and_execute_candle_command_async(input: &str) -> Pin<Box<dyn Stream
 pub fn parse_and_execute_candle_command(input: &str) -> Pin<Box<dyn Stream<Item = CommandEvent> + Send>> {
     let input_str = input.to_string();
     Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-        if let Some(executor) = get_candle_command_executor() {
+        if let Some(executor) = get_candle_command_executor().await {
             let mut result_stream = executor.parse_and_execute(&input_str);
             // Forward all events from executor stream
             while let Some(event) = result_stream.next().await {

@@ -1,6 +1,6 @@
 use super::primitives::{MemoryContent, MemoryNode, MemoryTypeEnum as MemoryType};
-use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc;
+use std::sync::Arc;
+use tokio::sync::{mpsc, Mutex};
 
 /// Memory node pool for zero-allocation `MemoryNode` reuse
 pub struct MemoryNodePool {
@@ -45,28 +45,20 @@ impl MemoryNodePool {
     /// Returns an error if node reset fails during acquisition
     #[inline]
     pub async fn acquire(&self) -> Result<PooledMemoryNode<'_>, super::primitives::MemoryError> {
-        let mut node = if let Ok(mut receiver) = self.receiver.lock() {
-            receiver.try_recv().unwrap_or_else(|_| {
-                // Fallback: create new node if pool is empty
-                let content = MemoryContent::text(String::with_capacity(1024));
-                let mut node = MemoryNode::new(MemoryType::Working, content);
-
-                // Set embedding if requested
-                if self.embedding_dimension > 0 {
-                    let _ = node.set_embedding(vec![0.0; self.embedding_dimension]);
-                }
-
-                node
-            })
-        } else {
-            // Fallback if lock fails
+        let mut receiver = self.receiver.lock().await;
+        let mut node = receiver.try_recv().unwrap_or_else(|_| {
+            // Fallback: create new node if pool is empty
             let content = MemoryContent::text(String::with_capacity(1024));
             let mut node = MemoryNode::new(MemoryType::Working, content);
+
+            // Set embedding if requested
             if self.embedding_dimension > 0 {
                 let _ = node.set_embedding(vec![0.0; self.embedding_dimension]);
             }
+
             node
-        };
+        });
+        drop(receiver); // Release lock before reset
 
         // Reset the node to clean state, reusing all allocations
         node.reset(MemoryType::Working).await?;

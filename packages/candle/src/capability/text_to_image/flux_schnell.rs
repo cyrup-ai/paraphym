@@ -15,7 +15,7 @@ use candle_transformers::models::{
     stable_diffusion::clip::{ClipTextTransformer, Config as ClipConfig},
     t5::{Config as T5Config, T5EncoderModel},
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex as TokioMutex};
@@ -481,7 +481,7 @@ impl T5WithTokenizer {
     async fn load(
         model_file: &PathBuf,
         config_file: &PathBuf,
-        tokenizer_file: &PathBuf,
+        tokenizer_file: &Path,
         dtype: DType,
         device: &Device,
     ) -> Result<Self, String> {
@@ -500,7 +500,7 @@ impl T5WithTokenizer {
             .map_err(|e| format!("T5 encoder load failed: {}", e))?;
 
         // Load T5 tokenizer from provided path using spawn_blocking
-        let tokenizer_file_owned = tokenizer_file.clone();
+        let tokenizer_file_owned = tokenizer_file.to_path_buf();
         let tokenizer = tokio::task::spawn_blocking(move || {
             Tokenizer::from_file(tokenizer_file_owned)
         })
@@ -537,7 +537,7 @@ impl T5WithTokenizer {
 impl ClipWithTokenizer {
     async fn load(
         model_file: &PathBuf,
-        tokenizer_file: &PathBuf,
+        tokenizer_file: &Path,
         dtype: DType,
         device: &Device,
     ) -> Result<Self, String> {
@@ -553,7 +553,7 @@ impl ClipWithTokenizer {
             .map_err(|e| format!("CLIP encoder creation failed: {}", e))?;
 
         // Load CLIP tokenizer from provided path using spawn_blocking
-        let tokenizer_file_owned = tokenizer_file.clone();
+        let tokenizer_file_owned = tokenizer_file.to_path_buf();
         let tokenizer = tokio::task::spawn_blocking(move || {
             Tokenizer::from_file(tokenizer_file_owned)
         })

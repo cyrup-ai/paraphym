@@ -57,7 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .temperature(args.temperature)
         .max_tokens(args.max_tokens)
         .system_prompt("You are a helpful AI assistant. Think step-by-step and be concise.")
-        .on_chunk(|chunk| {
+        .on_chunk(|chunk| async move {
             // Stream each token to stdout in real-time
             if let CandleMessageChunk::Text(ref text) = chunk {
                 print!("{}", text);
@@ -92,7 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .temperature(0.3)  // Lower temperature for more focused responses
         .max_tokens(1024)
         .system_prompt("You are a patient math tutor. Explain concepts clearly and show your work.")
-        .on_chunk(|chunk| {
+        .on_chunk(|chunk| async move {
             if let CandleMessageChunk::Text(ref text) = chunk {
                 print!("{}", text);
                 io::stdout().flush().unwrap();
@@ -120,7 +120,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "You are an expert at analytical reasoning. \
              Break down complex problems systematically using the <think> tag for your reasoning process."
         )
-        .on_chunk(|chunk| {
+        .on_chunk(|chunk| async move {
             if let CandleMessageChunk::Text(ref text) = chunk {
                 print!("{}", text);
                 io::stdout().flush().unwrap();

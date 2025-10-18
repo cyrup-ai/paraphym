@@ -5,8 +5,8 @@
 
 use std::collections::HashMap;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc;
+use std::sync::Arc;
+use tokio::sync::{mpsc, Mutex};
 use tokio_stream::Stream;
 
 use crate::domain::memory::serialization::content_hash;
@@ -71,12 +71,9 @@ impl EmbeddingPool {
     /// Get vector from pool or create new one (zero-allocation in common case)
     #[inline]
     #[must_use]
-    pub fn acquire(&self) -> Vec<f32> {
-        if let Ok(mut receiver) = self.receiver.lock() {
-            receiver.try_recv().unwrap_or_else(|_| vec![0.0; self.dimension])
-        } else {
-            vec![0.0; self.dimension]
-        }
+    pub async fn acquire(&self) -> Vec<f32> {
+        let mut receiver = self.receiver.lock().await;
+        receiver.try_recv().unwrap_or_else(|_| vec![0.0; self.dimension])
     }
 
     /// Return vector to pool for reuse
@@ -132,8 +129,8 @@ impl InMemoryEmbeddingCache {
 
     /// Generate deterministic embedding based on content hash
     #[inline]
-    pub fn generate_deterministic(&self, content: &str) -> Vec<f32> {
-        let mut embedding = self.pool.acquire();
+    pub async fn generate_deterministic(&self, content: &str) -> Vec<f32> {
+        let mut embedding = self.pool.acquire().await;
         // Fill with deterministic values based on content hash
         let hash = content_hash(content);
         for (i, val) in embedding.iter_mut().enumerate() {

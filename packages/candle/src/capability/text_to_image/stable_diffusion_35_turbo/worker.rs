@@ -16,7 +16,7 @@ use candle_transformers::models::{
     t5::{Config as T5Config, T5EncoderModel},
     flux,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokenizers::Tokenizer;
 use tokio::sync::mpsc;
 
@@ -112,16 +112,16 @@ async fn process_request(req: SD35WorkerRequest) -> Result<(), String> {
     }
 
     // Load triple CLIP encoders
-    let mut triple_clip = TripleClipEncoder::load(
-        &clip_g_path,
-        &clip_l_path,
-        &t5xxl_path,
-        &clip_l_tokenizer_path,
-        &clip_g_tokenizer_path,
-        &t5_config_path,
-        &t5_tokenizer_path,
-        &device,
-    ).await?;
+    let encoder_config = TripleClipConfig {
+        clip_g_file: &clip_g_path,
+        clip_l_file: &clip_l_path,
+        t5xxl_file: &t5xxl_path,
+        clip_l_tokenizer_path: &clip_l_tokenizer_path,
+        clip_g_tokenizer_path: &clip_g_tokenizer_path,
+        t5_config_path: &t5_config_path,
+        t5_tokenizer_path: &t5_tokenizer_path,
+    };
+    let mut triple_clip = TripleClipEncoder::load(encoder_config, &device).await?;
 
     // Encode prompts
     let (context, y) = triple_clip.encode_prompt(&prompt, &device).await?;
@@ -282,17 +282,29 @@ async fn decode_latent(vae: &AutoEncoderKL, latent: &Tensor) -> Result<Tensor, S
     Ok(img)
 }
 
+/// Configuration for loading TripleClipEncoder
+struct TripleClipConfig<'a> {
+    clip_g_file: &'a PathBuf,
+    clip_l_file: &'a PathBuf,
+    t5xxl_file: &'a PathBuf,
+    clip_l_tokenizer_path: &'a Path,
+    clip_g_tokenizer_path: &'a Path,
+    t5_config_path: &'a PathBuf,
+    t5_tokenizer_path: &'a Path,
+}
+
 impl TripleClipEncoder {
     async fn load(
-        clip_g_file: &PathBuf,
-        clip_l_file: &PathBuf,
-        t5xxl_file: &PathBuf,
-        clip_l_tokenizer_path: &PathBuf,
-        clip_g_tokenizer_path: &PathBuf,
-        t5_config_path: &PathBuf,
-        t5_tokenizer_path: &PathBuf,
+        config: TripleClipConfig<'_>,
         device: &Device,
     ) -> Result<Self, String> {
+        let clip_g_file = config.clip_g_file;
+        let clip_l_file = config.clip_l_file;
+        let t5xxl_file = config.t5xxl_file;
+        let clip_l_tokenizer_path = config.clip_l_tokenizer_path;
+        let clip_g_tokenizer_path = config.clip_g_tokenizer_path;
+        let t5_config_path = config.t5_config_path;
+        let t5_tokenizer_path = config.t5_tokenizer_path;
         let vb_clip_l = unsafe {
             VarBuilder::from_mmaped_safetensors(&[clip_l_file], DType::F16, device)
                 .map_err(|e| format!("CLIP-L VarBuilder failed: {}", e))?
@@ -370,15 +382,15 @@ impl ClipWithTokenizer {
     async fn new(
         vb: VarBuilder<'_>,
         config: ClipConfig,
-        tokenizer_path: &PathBuf,
+        tokenizer_path: &Path,
         max_tokens: usize,
     ) -> Result<Self, String> {
         let clip = ClipTextTransformer::new(vb, &config)
             .map_err(|e| format!("CLIP creation failed: {}", e))?;
 
-        let tokenizer_path_owned = tokenizer_path.clone();
+        let tokenizer_path_owned = tokenizer_path.to_path_buf();
         let tokenizer = tokio::task::spawn_blocking(move || {
-            Tokenizer::from_file(tokenizer_path_owned.as_path())
+            Tokenizer::from_file(tokenizer_path_owned)
         })
         .await
         .map_err(|e| format!("spawn_blocking failed: {}", e))?
@@ -441,7 +453,7 @@ impl T5WithTokenizer {
     async fn new(
         vb: VarBuilder<'_>,
         config_path: &PathBuf,
-        tokenizer_path: &PathBuf,
+        tokenizer_path: &Path,
         max_tokens: usize,
     ) -> Result<Self, String> {
         let config_str = tokio::fs::read_to_string(config_path).await
@@ -452,9 +464,9 @@ impl T5WithTokenizer {
         let t5 = T5EncoderModel::load(vb, &config)
             .map_err(|e| format!("T5 model load failed: {}", e))?;
 
-        let tokenizer_path_owned = tokenizer_path.clone();
+        let tokenizer_path_owned = tokenizer_path.to_path_buf();
         let tokenizer = tokio::task::spawn_blocking(move || {
-            Tokenizer::from_file(tokenizer_path_owned.as_path())
+            Tokenizer::from_file(tokenizer_path_owned)
         })
         .await
         .map_err(|e| format!("spawn_blocking failed: {}", e))?
