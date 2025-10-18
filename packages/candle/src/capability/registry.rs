@@ -56,7 +56,8 @@
 //! - `get_image_embedding_runtime()` / `get_text_to_image_runtime()` to retrieve them
 
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, OnceLock, RwLock};
+use std::sync::{Arc, LazyLock, OnceLock};
+use tokio::sync::RwLock as TokioRwLock;
 
 use crate::domain::model::CandleModelInfo;
 use crate::domain::model::traits::CandleModel;
@@ -1194,7 +1195,7 @@ static TEXT_EMBEDDING_REGISTRY: LazyLock<HashMap<&'static str, TextEmbeddingMode
 static IMAGE_EMBEDDING_REGISTRY: LazyLock<HashMap<&'static str, ImageEmbeddingModel>> =
     LazyLock::new(HashMap::new);
 
-static IMAGE_EMBEDDING_RUNTIME: OnceLock<RwLock<HashMap<String, ImageEmbeddingModel>>> =
+static IMAGE_EMBEDDING_RUNTIME: OnceLock<TokioRwLock<HashMap<String, ImageEmbeddingModel>>> =
     OnceLock::new();
 
 // TEXT_TO_IMAGE_REGISTRY: Empty because Flux/SD require local model files, not HF downloads
@@ -1202,11 +1203,11 @@ static IMAGE_EMBEDDING_RUNTIME: OnceLock<RwLock<HashMap<String, ImageEmbeddingMo
 static TEXT_TO_IMAGE_REGISTRY: LazyLock<HashMap<&'static str, TextToImageModel>> =
     LazyLock::new(HashMap::new);
 
-static TEXT_TO_IMAGE_RUNTIME: OnceLock<RwLock<HashMap<String, TextToImageModel>>> = OnceLock::new();
+static TEXT_TO_IMAGE_RUNTIME: OnceLock<TokioRwLock<HashMap<String, TextToImageModel>>> = OnceLock::new();
 
 // TEXT_TO_TEXT_RUNTIME: For text-to-text models that require async initialization (e.g., Qwen3Coder with HF downloads)
 // Use runtime registration after async model creation
-static TEXT_TO_TEXT_RUNTIME: OnceLock<RwLock<HashMap<String, TextToTextModel>>> = OnceLock::new();
+static TEXT_TO_TEXT_RUNTIME: OnceLock<TokioRwLock<HashMap<String, TextToTextModel>>> = OnceLock::new();
 
 static VISION_REGISTRY: LazyLock<HashMap<&'static str, VisionModel>> = LazyLock::new(|| {
     let mut map = HashMap::new();
@@ -1452,11 +1453,10 @@ pub fn has_model(registry_key: &str) -> bool {
 /// let model = ClipVisionEmbeddingModel::from_model(clip_model, 512);
 /// registry::register_image_embedding("my-clip-model", model);
 /// ```
-pub fn register_image_embedding(key: impl Into<String>, model: ImageEmbeddingModel) {
-    let runtime = IMAGE_EMBEDDING_RUNTIME.get_or_init(|| RwLock::new(HashMap::new()));
-    if let Ok(mut map) = runtime.write() {
-        map.insert(key.into(), model);
-    }
+pub async fn register_image_embedding(key: impl Into<String>, model: ImageEmbeddingModel) {
+    let runtime = IMAGE_EMBEDDING_RUNTIME.get_or_init(|| TokioRwLock::new(HashMap::new()));
+    let mut map = runtime.write().await;
+    map.insert(key.into(), model);
 }
 
 /// Register a text-to-image model at runtime

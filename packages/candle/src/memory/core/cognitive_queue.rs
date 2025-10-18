@@ -89,7 +89,12 @@ impl BatchAccumulator {
 pub struct CognitiveProcessingQueue {
     sender: UnboundedSender<CognitiveTask>,
     receiver: Arc<tokio::sync::Mutex<UnboundedReceiver<CognitiveTask>>>,
-    // Batch accumulator for CommitteeEvaluation tasks
+    /// Batch accumulator for CommitteeEvaluation tasks
+    ///
+    /// SYNC CONTEXT: Uses `std::sync::Mutex` because it's only accessed from
+    /// non-async functions (`enqueue_with_batching`, `flush_batches`).
+    /// These functions are intentionally synchronous to provide a blocking
+    /// enqueue API alongside the async dequeue operations.
     batch_accumulator: Arc<Mutex<BatchAccumulator>>,
 }
 
@@ -113,9 +118,14 @@ impl CognitiveProcessingQueue {
     }
 
     /// Enqueue task with automatic batching for CommitteeEvaluation
+    ///
+    /// SYNC CONTEXT: This function is intentionally non-async to provide
+    /// a blocking enqueue operation. Uses `std::sync::Mutex` appropriately.
     pub fn enqueue_with_batching(&self, task: CognitiveTask) -> Result<(), String> {
         // Only batch CommitteeEvaluation tasks
         if matches!(task.task_type, CognitiveTaskType::CommitteeEvaluation) {
+            // SYNC LOCK: batch_accumulator uses std::sync::Mutex (not tokio::sync)
+            // because this function is NOT async. This is correct usage.
             let mut accumulator = self
                 .batch_accumulator
                 .lock()
@@ -143,6 +153,8 @@ impl CognitiveProcessingQueue {
     }
 
     /// Flush any pending batches (call before shutdown)
+    ///
+    /// SYNC CONTEXT: This function is intentionally non-async.
     pub fn flush_batches(&self) -> Result<(), String> {
         let mut accumulator = self
             .batch_accumulator
