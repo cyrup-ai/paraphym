@@ -91,7 +91,7 @@ static CIRCUIT_BREAKER: LazyLock<ArcSwap<CircuitBreaker>> =
 struct CircuitBreaker {
     _failure_count: AtomicUsize,
     reset_after: Duration,
-    last_failure: parking_lot::Mutex<Option<std::time::Instant>>,
+    last_failure: tokio::sync::Mutex<Option<std::time::Instant>>,
 }
 
 impl CircuitBreaker {
@@ -99,12 +99,12 @@ impl CircuitBreaker {
         Self {
             _failure_count: AtomicUsize::new(0),
             reset_after: Duration::from_secs(60),
-            last_failure: parking_lot::Mutex::new(None),
+            last_failure: tokio::sync::Mutex::new(None),
         }
     }
 
-    fn is_open(&self) -> bool {
-        let last_failure = self.last_failure.lock();
+    async fn is_open(&self) -> bool {
+        let last_failure = self.last_failure.lock().await;
         if let Some(time) = *last_failure {
             time.elapsed() < self.reset_after
         } else {
@@ -112,8 +112,8 @@ impl CircuitBreaker {
         }
     }
 
-    fn record_failure(&self) {
-        let mut last_failure = self.last_failure.lock();
+    async fn record_failure(&self) {
+        let mut last_failure = self.last_failure.lock().await;
         *last_failure = Some(std::time::Instant::now());
     }
 }
@@ -134,14 +134,14 @@ where
     E: Into<DomainInitError>,
 {
     let circuit_breaker = CIRCUIT_BREAKER.load();
-    if circuit_breaker.is_open() {
+    if circuit_breaker.is_open().await {
         return Err(DomainInitError::CircuitBreakerOpen);
     }
 
     match operation().await {
         Ok(result) => Ok(result),
         Err(err) => {
-            circuit_breaker.record_failure();
+            circuit_breaker.record_failure().await;
             Err(err.into())
         }
     }

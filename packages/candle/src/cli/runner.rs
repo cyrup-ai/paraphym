@@ -135,7 +135,7 @@ You are a master at refactoring code, remembering to check for code that ALREADY
 
         // Clone for use in closure - wrap in Arc<Mutex<>> for interior mutability
         use std::sync::Arc;
-        use std::sync::Mutex;
+        use tokio::sync::Mutex;
         let handler = Arc::new(Mutex::new(self.handler.clone()));
         let prompt_builder = self.prompt_builder.clone();
 
@@ -175,17 +175,11 @@ You are a master at refactoring code, remembering to check for code that ALREADY
                     }
                 };
 
-                let handler_result = match handler.lock() {
-                    Ok(mut guard) => guard.handle(&input),
-                    Err(poisoned) => {
-                        // Mutex poisoned - recover data and continue
-                        let mut stderr = StandardStream::stderr(ColorChoice::Always);
-                        let _ = stderr.set_color(ColorSpec::new().set_fg(Some(Color::Yellow)));
-                        let _ = writeln!(&mut stderr, "⚠️  Handler mutex poisoned, recovering...");
-                        let _ = stderr.reset();
-                        poisoned.into_inner().handle(&input)
-                    }
-                };
+                let handler_result = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(async {
+                        handler.lock().await.handle(&input)
+                    })
+                });
 
                 match handler_result {
                     InputHandlerResult::Exit => {

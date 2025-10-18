@@ -1,6 +1,6 @@
 // Removed unused import: std::collections::HashMap
 use std::sync::Arc;
-use std::sync::RwLock;
+use tokio::sync::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
 
@@ -726,7 +726,7 @@ impl QuantumSignature {
     ///
     /// Returns `CognitiveError::LockPoisoned` if the entanglement bonds `RwLock` is poisoned
     #[inline]
-    pub fn create_entanglement_bond(
+    pub async fn create_entanglement_bond(
         &self,
         target_id: Uuid,
         bond_strength: f32,
@@ -737,33 +737,19 @@ impl QuantumSignature {
         // Use write lock for interior mutability
         // Lock is held only during the push operation, then immediately released
         self.entanglement_bonds
-            .write()
-            .map_err(|e| {
-                CognitiveError::LockPoisoned(format!(
-                    "Failed to acquire write lock for entanglement bonds: {e}"
-                ))
-            })?
+            .write().await
             .push(bond);
 
         Ok(())
     }
 
     /// Get all entanglement bonds
-    ///
-    /// # Errors
-    ///
-    /// Returns `CognitiveError::LockPoisoned` if the entanglement bonds `RwLock` is poisoned
     #[inline]
-    pub fn entanglement_bonds(&self) -> CognitiveResult<Vec<EntanglementBond>> {
+    pub async fn entanglement_bonds(&self) -> Vec<EntanglementBond> {
         // Read lock is held only during clone, then released
         self.entanglement_bonds
-            .read()
-            .map(|bonds| bonds.clone())
-            .map_err(|e| {
-                CognitiveError::LockPoisoned(format!(
-                    "Failed to acquire read lock for entanglement bonds: {e}"
-                ))
-            })
+            .read().await
+            .clone()
     }
 
     /// Get coherence fingerprint for quantum state access
@@ -1230,7 +1216,7 @@ impl CognitiveState {
     /// Add quantum entanglement bond to another cognitive state
     #[inline]
     #[must_use]
-    pub fn add_quantum_entanglement_bond(
+    pub async fn add_quantum_entanglement_bond(
         &self,
         target_id: Uuid,
         bond_strength: f32,
@@ -1249,7 +1235,7 @@ impl CognitiveState {
             target_id,
             bond_strength,
             entanglement_type,
-        ) {
+        ).await {
             log::error!("Failed to create entanglement bond: {e}");
             return false;
         }
@@ -1267,11 +1253,11 @@ impl CognitiveState {
     /// Get count of quantum entanglement bonds
     #[inline]
     #[must_use]
-    pub fn quantum_entanglement_bond_count(&self) -> usize {
+    pub async fn quantum_entanglement_bond_count(&self) -> usize {
         self.quantum_signature
             .entanglement_bonds()
-            .map(|bonds| bonds.len())
-            .unwrap_or(0)
+            .await
+            .len()
     }
 
     /// Create cognitive state with custom quantum coherence

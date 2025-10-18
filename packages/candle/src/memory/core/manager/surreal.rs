@@ -1592,13 +1592,13 @@ impl MemoryManager for SurrealDBMemoryManager {
     ) -> PendingQuantumUpdate {
         let db = self.db.clone();
         let memory_id = memory_id.to_string();
-
-        // Convert CognitiveState to schema
-        let signature_schema = QuantumSignatureSchema::from_cognitive_state(cognitive_state);
+        let cognitive_state = cognitive_state.clone();
 
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         tokio::spawn(async move {
+            // Convert CognitiveState to schema (async operation moved inside spawn)
+            let signature_schema = QuantumSignatureSchema::from_cognitive_state(&cognitive_state).await;
             // Update memory record with quantum signature (denormalized cache)
             // Primary edges are in entangled RELATION table
             let sql = "UPDATE memory SET quantum_signature = $signature WHERE id = $memory_id";
@@ -1661,10 +1661,11 @@ impl MemoryManager for SurrealDBMemoryManager {
                         // Convert schema back to CognitiveState
                         match schema.to_cognitive_state() {
                             Ok(state) => {
+                                let bond_count = state.quantum_entanglement_bond_count().await;
                                 log::debug!(
                                     "Loaded quantum signature for {} with {} bonds (cached)",
                                     memory_id,
-                                    state.quantum_entanglement_bond_count()
+                                    bond_count
                                 );
                                 Ok(Some(state))
                             }

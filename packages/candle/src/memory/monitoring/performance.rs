@@ -8,9 +8,6 @@ use serde::{Deserialize, Serialize};
 /// Performance monitoring errors
 #[derive(Debug, thiserror::Error)]
 pub enum PerformanceError {
-    /// Lock poisoned error
-    #[error("Performance monitor lock poisoned: {0}")]
-    LockPoisoned(String),
     /// Recording error
     #[error("Failed to record performance metric: {0}")]
     RecordingError(String),
@@ -44,7 +41,7 @@ pub struct PerformanceMetrics {
 /// Performance monitor
 pub struct PerformanceMonitor {
     /// Response times
-    response_times: std::sync::RwLock<Vec<Duration>>,
+    response_times: tokio::sync::RwLock<Vec<Duration>>,
 
     /// Error count
     error_count: std::sync::atomic::AtomicU64,
@@ -60,7 +57,7 @@ impl PerformanceMonitor {
     /// Create a new monitor
     pub fn new() -> Self {
         Self {
-            response_times: std::sync::RwLock::new(Vec::new()),
+            response_times: tokio::sync::RwLock::new(Vec::new()),
             error_count: std::sync::atomic::AtomicU64::new(0),
             total_requests: std::sync::atomic::AtomicU64::new(0),
             start_time: Instant::now(),
@@ -68,13 +65,8 @@ impl PerformanceMonitor {
     }
 
     /// Record a response time
-    pub fn record_response_time(&self, duration: Duration) -> PerformanceResult<()> {
-        let mut times = self.response_times.write().map_err(|e| {
-            PerformanceError::LockPoisoned(format!(
-                "Failed to acquire write lock for response times: {}",
-                e
-            ))
-        })?;
+    pub async fn record_response_time(&self, duration: Duration) -> PerformanceResult<()> {
+        let mut times = self.response_times.write().await;
         times.push(duration);
 
         // Keep only recent times (last 1000)
@@ -97,13 +89,8 @@ impl PerformanceMonitor {
     }
 
     /// Get performance metrics
-    pub fn get_metrics(&self) -> PerformanceResult<PerformanceMetrics> {
-        let times = self.response_times.read().map_err(|e| {
-            PerformanceError::LockPoisoned(format!(
-                "Failed to acquire read lock for response times: {}",
-                e
-            ))
-        })?;
+    pub async fn get_metrics(&self) -> PerformanceResult<PerformanceMetrics> {
+        let times = self.response_times.read().await;
         let total_requests = self
             .total_requests
             .load(std::sync::atomic::Ordering::Relaxed);
@@ -168,58 +155,43 @@ impl Default for PerformanceMonitor {
 /// Performance profiler for code sections
 pub struct Profiler {
     /// Active timers
-    timers: std::sync::RwLock<HashMap<String, Instant>>,
+    timers: tokio::sync::RwLock<HashMap<String, Instant>>,
 
     /// Recorded durations
-    durations: std::sync::RwLock<HashMap<String, Vec<Duration>>>,
+    durations: tokio::sync::RwLock<HashMap<String, Vec<Duration>>>,
 }
 
 impl Profiler {
     /// Create a new profiler
     pub fn new() -> Self {
         Self {
-            timers: std::sync::RwLock::new(HashMap::new()),
-            durations: std::sync::RwLock::new(HashMap::new()),
+            timers: tokio::sync::RwLock::new(HashMap::new()),
+            durations: tokio::sync::RwLock::new(HashMap::new()),
         }
     }
 
     /// Start a timer
-    pub fn start(&self, name: &str) -> PerformanceResult<()> {
+    pub async fn start(&self, name: &str) -> PerformanceResult<()> {
         self.timers
             .write()
-            .map_err(|e| {
-                PerformanceError::LockPoisoned(format!(
-                    "Failed to acquire write lock for timers: {}",
-                    e
-                ))
-            })?
+            .await
             .insert(name.to_string(), Instant::now());
         Ok(())
     }
 
     /// Stop a timer
-    pub fn stop(&self, name: &str) -> PerformanceResult<()> {
+    pub async fn stop(&self, name: &str) -> PerformanceResult<()> {
         let start = self
             .timers
             .write()
-            .map_err(|e| {
-                PerformanceError::LockPoisoned(format!(
-                    "Failed to acquire write lock for timers: {}",
-                    e
-                ))
-            })?
+            .await
             .remove(name);
 
         if let Some(start) = start {
             let duration = start.elapsed();
             self.durations
                 .write()
-                .map_err(|e| {
-                    PerformanceError::LockPoisoned(format!(
-                        "Failed to acquire write lock for durations: {}",
-                        e
-                    ))
-                })?
+                .await
                 .entry(name.to_string())
                 .or_insert_with(Vec::new)
                 .push(duration);
@@ -228,13 +200,8 @@ impl Profiler {
     }
 
     /// Get profile report
-    pub fn report(&self) -> PerformanceResult<HashMap<String, ProfileStats>> {
-        let durations = self.durations.read().map_err(|e| {
-            PerformanceError::LockPoisoned(format!(
-                "Failed to acquire read lock for durations: {}",
-                e
-            ))
-        })?;
+    pub async fn report(&self) -> PerformanceResult<HashMap<String, ProfileStats>> {
+        let durations = self.durations.read().await;
 
         Ok(durations
             .iter()

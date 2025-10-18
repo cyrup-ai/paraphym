@@ -325,7 +325,7 @@ impl<W: PoolWorkerHandle> Pool<W> {
     ///
     /// Call this from HTTP /health endpoint handler.
     #[instrument(skip(self))]
-    pub fn get_health(&self) -> PoolHealth {
+    pub async fn get_health(&self) -> PoolHealth {
         let mut models = Vec::new();
         let mut has_unhealthy = false;
         let mut has_degraded = false;
@@ -365,7 +365,7 @@ impl<W: PoolWorkerHandle> Pool<W> {
         }
 
         // Get memory stats
-        let memory_stats = self.memory_governor.get_stats();
+        let memory_stats = self.memory_governor.get_stats().await;
 
         // Determine overall pool status
         let status = if has_unhealthy {

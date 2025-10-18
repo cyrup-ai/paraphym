@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::RwLock;
+use tokio::sync::RwLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use atomic_counter::{AtomicCounter, ConsistentCounter};
@@ -257,10 +257,7 @@ impl ChatSearchIndex {
     /// Get search statistics
     pub fn get_statistics(&self) -> SearchStatistics {
         self.statistics
-            .read()
-            .unwrap_or_else(|_| {
-                std::sync::PoisonError::into_inner(self.statistics.read().unwrap_err())
-            })
+            .blocking_read()
             .clone()
     }
 

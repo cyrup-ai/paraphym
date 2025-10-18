@@ -418,27 +418,14 @@ where
         let device = device.clone();
 
         Box::pin(async move {
-            // Step 1: Load image from source (base64/URL/path)
-            // Uses format field to determine loading method
-            let img = self.load_image_from_source()?;
-
-            // Step 2: Apply image-level operations (resize, RGB conversion)
-            // Processes ImageOperation::Resize and ImageOperation::ToRGB from queue
-            let img = self.apply_image_operations(img)?;
-
-            // Step 3: Convert image to tensor (HWC→CHW, u8→f32)
-            // Creates Tensor from DynamicImage, permutes dimensions, converts dtype
-            let tensor = self.image_to_tensor(img)?;
-
-            // Step 4: Apply tensor-level operations (normalize, clamp)
-            // Processes NormalizeSigned, NormalizeUnsigned, NormalizeWithParams, Clamp
-            let tensor = self.apply_tensor_operations(tensor)?;
-
-            // Step 5: Transfer to target device (CPU→GPU/Metal)
-            // Moves tensor from CPU to target device for inference
-            let tensor = self.transfer_to_device(tensor, &device)?;
-
-            Ok(tensor)
+            // Move ALL blocking operations to dedicated blocking thread pool
+            // This prevents blocking the tokio runtime for 60-170ms per image
+            tokio::task::spawn_blocking(move || {
+                // Delegate to synchronous implementation
+                self.to_tensor_sync(&device)
+            })
+            .await
+            .map_err(|e| format!("Image processing spawn_blocking failed: {}", e))?
         })
     }
 

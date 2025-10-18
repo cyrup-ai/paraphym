@@ -149,7 +149,7 @@ impl PoolMetrics {
     ///
     /// Returns metrics formatted for Prometheus scraping.
     /// Call this from HTTP /metrics endpoint handler.
-    pub fn get_prometheus_metrics<W>(&self, pool: &crate::pool::core::Pool<W>) -> String
+    pub async fn get_prometheus_metrics<W>(&self, pool: &crate::pool::core::Pool<W>) -> String
     where
         W: PoolWorkerHandle,
     {
@@ -248,7 +248,7 @@ impl PoolMetrics {
         }
 
         // Memory metrics
-        let memory_stats = pool.memory_governor.get_stats();
+        let memory_stats = pool.memory_governor.get_stats().await;
         output.push_str("# HELP pool_memory_used_mb Memory used by workers\n");
         output.push_str("# TYPE pool_memory_used_mb gauge\n");
         output.push_str(&format!(

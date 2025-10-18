@@ -65,9 +65,9 @@ where
         let governor = pool.memory_governor();
 
         // 2. Decide worker count based on memory governor allocation
-        let workers_to_spawn = if let Ok(_guard1) = governor.try_allocate(per_worker_mb) {
+        let workers_to_spawn = if let Ok(_guard1) = governor.try_allocate(per_worker_mb).await {
             // First worker fits
-            if let Ok(_guard2) = governor.try_allocate(per_worker_mb) {
+            if let Ok(_guard2) = governor.try_allocate(per_worker_mb).await {
                 // Second worker also fits - release both guards, will re-allocate in spawn
                 drop(_guard1);
                 drop(_guard2);
@@ -88,7 +88,7 @@ where
         for worker_idx in 0..workers_to_spawn {
             // Allocate with guard - will auto-release on panic/error
             let allocation_guard = governor
-                .try_allocate(per_worker_mb)
+                .try_allocate(per_worker_mb).await
                 .map_err(|e| PoolError::MemoryExhausted(e.to_string()))?;
 
             spawn_fn(worker_idx, allocation_guard)?;
@@ -152,9 +152,9 @@ where
             let governor = pool.memory_governor();
 
             // Decide worker count based on memory governor allocation
-            let workers_to_spawn = if let Ok(_guard1) = governor.try_allocate(per_worker_mb) {
+            let workers_to_spawn = if let Ok(_guard1) = governor.try_allocate(per_worker_mb).await {
                 // First worker fits
-                if let Ok(_guard2) = governor.try_allocate(per_worker_mb) {
+                if let Ok(_guard2) = governor.try_allocate(per_worker_mb).await {
                     // Second worker also fits - release both guards, will re-allocate in spawn
                     drop(_guard1);
                     drop(_guard2);
@@ -174,7 +174,7 @@ where
             // Spawn N workers with allocation guards
             for worker_idx in 0..workers_to_spawn {
                 let allocation_guard = governor
-                    .try_allocate(per_worker_mb)
+                    .try_allocate(per_worker_mb).await
                     .map_err(|e| PoolError::MemoryExhausted(e.to_string()))?;
 
                 spawn_fn(worker_idx, allocation_guard)?;
@@ -202,7 +202,7 @@ where
                 let governor = pool.memory_governor();
 
                 // Try to allocate memory for one more worker
-                match governor.try_allocate(per_worker_mb) {
+                match governor.try_allocate(per_worker_mb).await {
                     Ok(allocation_guard) => {
                         info!(
                             current_count = current_count,

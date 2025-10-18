@@ -53,7 +53,7 @@ pub struct EntanglementBondSchema {
 
 impl QuantumSignatureSchema {
     /// Convert from CognitiveState's quantum signature
-    pub fn from_cognitive_state(state: &CognitiveState) -> Self {
+    pub async fn from_cognitive_state(state: &CognitiveState) -> Self {
         let signature = state.quantum_signature();
 
         // Extract coherence fingerprint
@@ -67,21 +67,15 @@ impl QuantumSignatureSchema {
         // Extract entanglement bonds
         let entanglement_bonds = signature
             .entanglement_bonds()
-            .map(|bonds| {
-                bonds
-                    .iter()
-                    .map(|bond| EntanglementBondSchema {
-                        target_id: bond.target_id.to_string(),
-                        bond_strength: bond.bond_strength,
-                        bond_type: format!("{:?}", bond.entanglement_type),
-                        created_at: bond.created_at.into(),
-                    })
-                    .collect()
+            .await
+            .iter()
+            .map(|bond| EntanglementBondSchema {
+                target_id: bond.target_id.to_string(),
+                bond_strength: bond.bond_strength,
+                bond_type: format!("{:?}", bond.entanglement_type),
+                created_at: bond.created_at.into(),
             })
-            .unwrap_or_else(|e| {
-                log::warn!("Failed to get entanglement bonds: {}", e);
-                Vec::new()
-            });
+            .collect();
 
         // Extract other fields
         let superposition_contexts = signature

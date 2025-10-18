@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use std::collections::{BinaryHeap, HashMap, VecDeque};
 use std::cmp::Ordering as CmpOrdering;
-use parking_lot::RwLock;
+use tokio::sync::RwLock;
 use tokio::sync::mpsc;
 use tokio::time::interval;
 use dashmap::DashMap;
@@ -169,7 +169,7 @@ impl<T: Send + Clone + Hash + 'static> RequestQueue<T> {
     }
     
     /// Enqueue request with priority and optional batching
-    pub fn enqueue(
+    pub async fn enqueue(
         &self,
         request: T,
         priority: Priority,
@@ -237,7 +237,7 @@ impl<T: Send + Clone + Hash + 'static> RequestQueue<T> {
                 });
         } else {
             // Add to priority queue
-            self.priority_queue.write().push(priority_req.clone());
+            self.priority_queue.write().await.push(priority_req.clone());
         }
         
         // Update dedup cache
@@ -254,8 +254,8 @@ impl<T: Send + Clone + Hash + 'static> RequestQueue<T> {
     }
     
     /// Dequeue highest priority request
-    pub fn dequeue(&self) -> Option<Arc<PriorityRequest<T>>> {
-        let mut queue = self.priority_queue.write();
+    pub async fn dequeue(&self) -> Option<Arc<PriorityRequest<T>>> {
+        let mut queue = self.priority_queue.write().await;
         
         // Check expired deadlines first
         if self.config.enable_deadline_scheduling {
@@ -275,7 +275,7 @@ impl<T: Send + Clone + Hash + 'static> RequestQueue<T> {
                 queue_time_ms: queue_time.as_millis() as f64,
                 processing_time_ms: None,
                 success: false,
-            });
+            }).await;
             
             // Remove from dedup cache
             if let Some(hash) = request.hash {
@@ -315,7 +315,7 @@ impl<T: Send + Clone + Hash + 'static> RequestQueue<T> {
                 // Flush batches
                 for key in to_flush {
                     if let Some((_, batch)) = accumulator.remove(&key) {
-                        let mut queue = queue.write();
+                        let mut queue = queue.write().await;
                         for req in batch.requests {
                             queue.push(req);
                         }
@@ -334,7 +334,7 @@ impl<T: Send + Clone + Hash + 'static> RequestQueue<T> {
             loop {
                 interval.tick().await;
                 
-                let mut queue = queue.write();
+                let mut queue = queue.write().await;
                 let now = Instant::now();
                 let mut expired = Vec::new();
                 
@@ -385,8 +385,8 @@ impl<T: Send + Clone + Hash + 'static> RequestQueue<T> {
         }
     }
     
-    fn record_request_stats(&self, stats: RequestStats) {
-        let mut history = self.request_history.write();
+    async fn record_request_stats(&self, stats: RequestStats) {
+        let mut history = self.request_history.write().await;
         if history.len() >= self.config.history_size {
             history.pop_front();
         }

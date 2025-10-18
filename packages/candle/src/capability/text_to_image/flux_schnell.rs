@@ -17,12 +17,30 @@ use candle_transformers::models::{
 };
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc;
 use tokenizers::Tokenizer;
 use tokio_stream::Stream;
 
+/// Request types for FLUX model thread communication
+enum FluxRequest {
+    Generate {
+        prompt: String,
+        config: ImageGenerationConfig,
+        response_tx: mpsc::UnboundedSender<ImageGenerationChunk>,
+    },
+}
+
 /// FLUX.1-schnell provider for fast 4-step text-to-image generation
+///
+/// The actual FLUX model runs on a dedicated thread to avoid Send/Sync issues
+/// with Candle's Module trait. Communication happens via channels.
+/// Thread spawns lazily on first use.
 #[derive(Clone, Debug)]
-pub struct FluxSchnell {}
+pub struct FluxSchnell {
+    request_tx: Arc<Mutex<Option<mpsc::UnboundedSender<FluxRequest>>>>,
+    device: Arc<Mutex<Option<Device>>>,
+}
 
 /// T5-XXL encoder with tokenizer
 struct T5WithTokenizer {
@@ -36,6 +54,13 @@ struct ClipWithTokenizer {
     tokenizer: Tokenizer,
 }
 
+/// Compare two devices for equality
+fn devices_match(a: &Device, b: &Device) -> bool {
+    // Use Debug formatting for comparison since Device implements Debug
+    // but CudaDevice and MetalDevice don't implement PartialEq
+    format!("{:?}", a) == format!("{:?}", b)
+}
+
 impl Default for FluxSchnell {
     fn default() -> Self {
         Self::new()
@@ -45,8 +70,257 @@ impl Default for FluxSchnell {
 impl FluxSchnell {
     #[inline]
     pub fn new() -> Self {
-        Self {}
+        Self {
+            request_tx: Arc::new(Mutex::new(None)),
+            device: Arc::new(Mutex::new(None)),
+        }
     }
+
+    /// Ensure model thread is spawned (lazy initialization)
+    ///
+    /// Returns sender for communication with model thread.
+    /// Thread spawns on first call, subsequent calls return cached sender.
+    fn ensure_thread_spawned(
+        &self,
+        device: &Device,
+    ) -> Result<mpsc::UnboundedSender<FluxRequest>, String> {
+        // Check if thread already spawned
+        {
+            let tx_guard = self.request_tx.lock()
+                .map_err(|e| format!("Lock poisoned: {}", e))?;
+            
+            if let Some(sender) = tx_guard.as_ref() {
+                // Validate device matches worker device
+                let device_guard = self.device.lock()
+                    .map_err(|e| format!("Lock poisoned: {}", e))?;
+                
+                if let Some(worker_device) = device_guard.as_ref() {
+                    if !devices_match(worker_device, device) {
+                        return Err(format!(
+                            "Worker already initialized with {:?}, cannot use {:?}",
+                            worker_device, device
+                        ));
+                    }
+                }
+                
+                return Ok(sender.clone());
+            }
+        }
+
+        // === FIRST USE: Initialize thread ===
+        // Create channel for requests
+        let (request_tx, mut request_rx) = mpsc::unbounded_channel::<FluxRequest>();
+        let device_clone = device.clone();
+
+        // Spawn dedicated thread with LocalSet for !Send models
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(1)
+                .enable_all()
+                .build()
+                .expect("Failed to create worker runtime");
+
+            let local = tokio::task::LocalSet::new();
+            rt.block_on(local.run_until(async move {
+                // Load models ONCE inside this thread
+                let models = match Self::load_models(&device_clone).await {
+                    Ok(m) => m,
+                    Err(e) => {
+                        eprintln!("FLUX model loading failed: {}", e);
+                        return;
+                    }
+                };
+
+                // Process requests using loaded models
+                let mut models = models;
+                while let Some(req) = request_rx.recv().await {
+                    match req {
+                        FluxRequest::Generate {
+                            prompt,
+                            config,
+                            response_tx,
+                        } => {
+                            Self::process_generation(
+                                &mut models,
+                                &prompt,
+                                &config,
+                                &device_clone,
+                                response_tx,
+                            );
+                        }
+                    }
+                }
+            }))
+        });
+
+        // Cache sender
+        {
+            let mut tx_guard = self.request_tx.lock()
+                .map_err(|e| format!("Lock poisoned: {}", e))?;
+            *tx_guard = Some(request_tx.clone());
+        }
+
+        // Cache device
+        {
+            let mut device_guard = self.device.lock()
+                .map_err(|e| format!("Lock poisoned: {}", e))?;
+            *device_guard = Some(device.clone());
+        }
+
+        Ok(request_tx)
+    }
+
+    /// Load all models once
+    async fn load_models(device: &Device) -> Result<FluxModels, String> {
+        use hf_hub::api::sync::Api;
+
+        let api = Api::new().map_err(|e| format!("Failed to initialize HF API: {}", e))?;
+        let dtype = device.bf16_default_to_f32();
+
+        // Download all model files
+        let flux_repo = api.model("black-forest-labs/FLUX.1-schnell".to_string());
+        let flux_path = flux_repo
+            .get("flux1-schnell.safetensors")
+            .map_err(|e| format!("Failed to download FLUX model: {}", e))?;
+        let vae_path = flux_repo
+            .get("ae.safetensors")
+            .map_err(|e| format!("Failed to download VAE: {}", e))?;
+
+        let t5_repo = api.model("google/t5-v1_1-xxl".to_string());
+        let t5_model_path = t5_repo
+            .get("model.safetensors")
+            .map_err(|e| format!("Failed to download T5 model: {}", e))?;
+        let t5_config_path = t5_repo
+            .get("config.json")
+            .map_err(|e| format!("Failed to download T5 config: {}", e))?;
+
+        let t5_tok_repo = api.model("lmz/mt5-tokenizers".to_string());
+        let t5_tokenizer_path = t5_tok_repo
+            .get("t5-v1_1-xxl.tokenizer.json")
+            .map_err(|e| format!("Failed to download T5 tokenizer: {}", e))?;
+
+        let clip_repo = api.model("openai/clip-vit-large-patch14".to_string());
+        let clip_model_path = clip_repo
+            .get("model.safetensors")
+            .map_err(|e| format!("Failed to download CLIP model: {}", e))?;
+        let clip_tokenizer_path = clip_repo
+            .get("tokenizer.json")
+            .map_err(|e| format!("Failed to download CLIP tokenizer: {}", e))?;
+
+        // Load encoders (async methods with spawn_blocking for tokenizers)
+        let t5_encoder = T5WithTokenizer::load(
+            &t5_model_path,
+            &t5_config_path,
+            &t5_tokenizer_path,
+            dtype,
+            device,
+        )
+        .await?;
+
+        let clip_encoder = ClipWithTokenizer::load(
+            &clip_model_path,
+            &clip_tokenizer_path,
+            dtype,
+            device,
+        )
+        .await?;
+
+        // Load FLUX transformer
+        let vb_flux = unsafe {
+            VarBuilder::from_mmaped_safetensors(std::slice::from_ref(&flux_path), dtype, device)
+                .map_err(|e| format!("FLUX VarBuilder creation failed: {}", e))?
+        };
+        let flux_transformer = flux::model::Flux::new(&flux::model::Config::schnell(), vb_flux)
+            .map_err(|e| format!("FLUX model creation failed: {}", e))?;
+
+        // Load VAE
+        let vb_vae = unsafe {
+            VarBuilder::from_mmaped_safetensors(std::slice::from_ref(&vae_path), dtype, device)
+                .map_err(|e| format!("VAE VarBuilder creation failed: {}", e))?
+        };
+        let vae = flux::autoencoder::AutoEncoder::new(&flux::autoencoder::Config::schnell(), vb_vae)
+            .map_err(|e| format!("VAE creation failed: {}", e))?;
+
+        Ok(FluxModels {
+            t5_encoder,
+            clip_encoder,
+            flux_transformer,
+            vae,
+        })
+    }
+
+    /// Process generation request using loaded models
+    fn process_generation(
+        models: &mut FluxModels,
+        prompt: &str,
+        config: &ImageGenerationConfig,
+        device: &Device,
+        response_tx: mpsc::UnboundedSender<ImageGenerationChunk>,
+    ) {
+        // Set random seed if provided
+        if let Some(seed) = config.seed {
+            if let Err(e) = device.set_seed(seed) {
+                let _ = response_tx.send(ImageGenerationChunk::Error(format!(
+                    "Seed setting failed: {}",
+                    e
+                )));
+                return;
+            }
+        }
+
+        // Encode text prompt
+        let t5_emb = match models.t5_encoder.encode(prompt, device) {
+            Ok(emb) => emb,
+            Err(e) => {
+                let _ = response_tx.send(ImageGenerationChunk::Error(format!(
+                    "T5 encoding failed: {}",
+                    e
+                )));
+                return;
+            }
+        };
+
+        let clip_emb = match models.clip_encoder.encode(prompt, device) {
+            Ok(emb) => emb,
+            Err(e) => {
+                let _ = response_tx.send(ImageGenerationChunk::Error(format!(
+                    "CLIP encoding failed: {}",
+                    e
+                )));
+                return;
+            }
+        };
+
+        // Generate image
+        let image = match generate_flux_image(
+            &models.flux_transformer,
+            &models.vae,
+            &t5_emb,
+            &clip_emb,
+            config,
+            device,
+            &response_tx,
+        ) {
+            Ok(result) => result,
+            Err(e) => {
+                let _ = response_tx.send(ImageGenerationChunk::Error(format!(
+                    "Image generation failed: {}",
+                    e
+                )));
+                return;
+            }
+        };
+
+        let _ = response_tx.send(ImageGenerationChunk::Complete { image });
+    }
+}
+
+/// Holds loaded FLUX models
+struct FluxModels {
+    t5_encoder: T5WithTokenizer,
+    clip_encoder: ClipWithTokenizer,
+    flux_transformer: flux::model::Flux,
+    vae: flux::autoencoder::AutoEncoder,
 }
 
 impl ImageGenerationModel for FluxSchnell {
@@ -58,282 +332,31 @@ impl ImageGenerationModel for FluxSchnell {
     ) -> Pin<Box<dyn Stream<Item = ImageGenerationChunk> + Send>> {
         let prompt = prompt.to_string();
         let config = config.clone();
-        let device = device.clone();
 
-        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-            // === 1. GET CONFIGURATION VALUES ===
-
-            // From ImageGenerationConfig (required fields, not optional)
-            let width = config.width;
-            let height = config.height;
-            let steps = config.steps;
-            let guidance_scale = config.guidance_scale; // Note: FLUX schnell uses 0.0
-
-            // From ModelInfo static (single source of truth)
-            let use_bf16 = FLUX_SCHNELL_MODEL_INFO.use_bf16; // true
-
-            // === 2. SET RANDOM SEED (if provided) ===
-            if let Some(seed) = config.seed
-                && let Err(e) = device.set_seed(seed)
-            {
-                let _ = tx.send(ImageGenerationChunk::Error(format!(
-                    "Seed setting failed: {}",
-                    e
-                )));
-                return;
+        // Ensure model thread is spawned
+        let request_tx = match self.ensure_thread_spawned(device) {
+            Ok(tx) => tx,
+            Err(e) => {
+                return Box::pin(crate::async_stream::spawn_stream(move |response_tx| async move {
+                    let _ = response_tx.send(ImageGenerationChunk::Error(format!(
+                        "Failed to spawn model thread: {}",
+                        e
+                    )));
+                }));
             }
+        };
 
-            // === 3. DETERMINE DTYPE ===
-            let dtype = if use_bf16 {
-                device.bf16_default_to_f32() // Prefer BF16, fallback to F32
-            } else {
-                DType::F32
-            };
-
-            // === 4. LAZY LOAD ALL MODEL FILES USING HF_HUB API ===
-            use hf_hub::api::sync::Api;
-
-            let api = match Api::new() {
-                Ok(api) => api,
-                Err(e) => {
-                    let _ = tx.send(ImageGenerationChunk::Error(format!(
-                        "Failed to initialize HF API: {}",
-                        e
-                    )));
-                    return;
-                }
-            };
-
-            // FLUX files from main repository
-            let flux_repo = api.model(FLUX_SCHNELL_MODEL_INFO.registry_key.to_string());
-            let flux_path = match flux_repo.get("flux1-schnell.safetensors") {
-                Ok(p) => p,
-                Err(e) => {
-                    let _ = tx.send(ImageGenerationChunk::Error(format!(
-                        "Failed to download FLUX model: {}",
-                        e
-                    )));
-                    return;
-                }
-            };
-            let vae_path = match flux_repo.get("ae.safetensors") {
-                Ok(p) => p,
-                Err(e) => {
-                    let _ = tx.send(ImageGenerationChunk::Error(format!(
-                        "Failed to download VAE: {}",
-                        e
-                    )));
-                    return;
-                }
-            };
-
-            // T5 files from google repository
-            let t5_repo = api.model("google/t5-v1_1-xxl".to_string());
-            let t5_model_path = match t5_repo.get("model.safetensors") {
-                Ok(p) => p,
-                Err(e) => {
-                    let _ = tx.send(ImageGenerationChunk::Error(format!(
-                        "Failed to download T5 model: {}",
-                        e
-                    )));
-                    return;
-                }
-            };
-            let t5_config_path = match t5_repo.get("config.json") {
-                Ok(p) => p,
-                Err(e) => {
-                    let _ = tx.send(ImageGenerationChunk::Error(format!(
-                        "Failed to download T5 config: {}",
-                        e
-                    )));
-                    return;
-                }
-            };
-
-            // T5 tokenizer from separate repository
-            let t5_tok_repo = api.model("lmz/mt5-tokenizers".to_string());
-            let t5_tokenizer_path = match t5_tok_repo.get("t5-v1_1-xxl.tokenizer.json") {
-                Ok(p) => p,
-                Err(e) => {
-                    let _ = tx.send(ImageGenerationChunk::Error(format!(
-                        "Failed to download T5 tokenizer: {}",
-                        e
-                    )));
-                    return;
-                }
-            };
-
-            // CLIP files from openai repository
-            let clip_repo = api.model("openai/clip-vit-large-patch14".to_string());
-            let clip_model_path = match clip_repo.get("model.safetensors") {
-                Ok(p) => p,
-                Err(e) => {
-                    let _ = tx.send(ImageGenerationChunk::Error(format!(
-                        "Failed to download CLIP model: {}",
-                        e
-                    )));
-                    return;
-                }
-            };
-            let clip_tokenizer_path = match clip_repo.get("tokenizer.json") {
-                Ok(p) => p,
-                Err(e) => {
-                    let _ = tx.send(ImageGenerationChunk::Error(format!(
-                        "Failed to download CLIP tokenizer: {}",
-                        e
-                    )));
-                    return;
-                }
-            };
-
-            // === 5. LOAD TEXT ENCODERS ===
-            let mut t5_encoder = match T5WithTokenizer::load(
-                &t5_model_path,
-                &t5_config_path,
-                &t5_tokenizer_path, // Now passed as parameter
-                dtype,
-                &device,
-            ).await {
-                Ok(encoder) => encoder,
-                Err(e) => {
-                    let _ = tx.send(ImageGenerationChunk::Error(format!(
-                        "T5 encoder load failed: {}",
-                        e
-                    )));
-                    return;
-                }
-            };
-
-            let clip_encoder = match ClipWithTokenizer::load(
-                &clip_model_path,
-                &clip_tokenizer_path, // Now passed as parameter
-                dtype,
-                &device,
-            ) {
-                Ok(encoder) => encoder,
-                Err(e) => {
-                    let _ = tx.send(ImageGenerationChunk::Error(format!(
-                        "CLIP encoder load failed: {}",
-                        e
-                    )));
-                    return;
-                }
-            };
-
-            // === 6. ENCODE TEXT PROMPT ===
-            let t5_emb = match t5_encoder.encode(&prompt, &device) {
-                Ok(emb) => emb,
-                Err(e) => {
-                    let _ = tx.send(ImageGenerationChunk::Error(format!(
-                        "T5 encoding failed: {}",
-                        e
-                    )));
-                    return;
-                }
-            };
-
-            let clip_emb = match clip_encoder.encode(&prompt, &device) {
-                Ok(emb) => emb,
-                Err(e) => {
-                    let _ = tx.send(ImageGenerationChunk::Error(format!(
-                        "CLIP encoding failed: {}",
-                        e
-                    )));
-                    return;
-                }
-            };
-
-            // === 7. LOAD FLUX TRANSFORMER ===
-            let vb_flux = match unsafe {
-                VarBuilder::from_mmaped_safetensors(
-                    std::slice::from_ref(&flux_path),
-                    dtype,
-                    &device,
-                )
-            } {
-                Ok(vb) => vb,
-                Err(e) => {
-                    let _ = tx.send(ImageGenerationChunk::Error(format!(
-                        "FLUX VarBuilder creation failed: {}",
-                        e
-                    )));
-                    return;
-                }
-            };
-
-            let flux_transformer =
-                match flux::model::Flux::new(&flux::model::Config::schnell(), vb_flux) {
-                    Ok(model) => model,
-                    Err(e) => {
-                        let _ = tx.send(ImageGenerationChunk::Error(format!(
-                            "FLUX model creation failed: {}",
-                            e
-                        )));
-                        return;
-                    }
-                };
-
-            // === 8. LOAD VAE ===
-            let vb_vae = match unsafe {
-                VarBuilder::from_mmaped_safetensors(std::slice::from_ref(&vae_path), dtype, &device)
-            } {
-                Ok(vb) => vb,
-                Err(e) => {
-                    let _ = tx.send(ImageGenerationChunk::Error(format!(
-                        "VAE VarBuilder creation failed: {}",
-                        e
-                    )));
-                    return;
-                }
-            };
-
-            let vae = match flux::autoencoder::AutoEncoder::new(
-                &flux::autoencoder::Config::schnell(),
-                vb_vae,
-            ) {
-                Ok(model) => model,
-                Err(e) => {
-                    let _ = tx.send(ImageGenerationChunk::Error(format!(
-                        "VAE creation failed: {}",
-                        e
-                    )));
-                    return;
-                }
-            };
-
-            // === 9. RUN GENERATION ===
-            // Note: FLUX schnell uses guidance_scale = 0.0 (no CFG)
-            // We use the value from config but it should be 0.0 for schnell
-            let generation_config = ImageGenerationConfig {
-                width,
-                height,
-                steps,
-                guidance_scale, // For schnell, this should be 0.0
-                negative_prompt: config.negative_prompt,
-                seed: config.seed,
-                use_flash_attn: config.use_flash_attn,
-            };
-
-            let image = match generate_flux_image(
-                &flux_transformer,
-                &vae,
-                &t5_emb,
-                &clip_emb,
-                &generation_config,
-                &device,
-                &tx,
-            ) {
-                Ok(result) => result,
-                Err(e) => {
-                    let _ = tx.send(ImageGenerationChunk::Error(format!(
-                        "Image generation failed: {}",
-                        e
-                    )));
-                    return;
-                }
-            };
-
-            let _ = tx.send(ImageGenerationChunk::Complete { image });
+        Box::pin(crate::async_stream::spawn_stream(move |response_tx| async move {
+            // Send generation request to model thread
+            if let Err(e) = request_tx.send(FluxRequest::Generate {
+                prompt,
+                config,
+                response_tx,
+            }) {
+                // Channel closed, model thread died
+                eprintln!("Failed to send request to model thread: {}", e);
+            }
+            // response_tx is now owned by model thread, which will send chunks
         }))
     }
 
@@ -346,6 +369,50 @@ impl ImageGenerationModel for FluxSchnell {
     }
 }
 
+/// Loaded FLUX.1-schnell model for pool workers
+///
+/// Wrapper around FluxSchnell that delegates to the thread-based implementation.
+/// Pool creates this once per registry_key and worker loop reuses it for all generate_image() calls.
+#[derive(Debug)]
+pub struct LoadedFluxSchnell {
+    model: FluxSchnell,
+}
+
+impl LoadedFluxSchnell {
+    /// Load model (FluxSchnell uses lazy initialization)
+    pub fn load(_config: &FluxSchnell) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(Self {
+            model: FluxSchnell::new(),
+        })
+    }
+}
+
+impl CandleModel for LoadedFluxSchnell {
+    fn info(&self) -> &'static CandleModelInfo {
+        &FLUX_SCHNELL_MODEL_INFO
+    }
+}
+
+impl crate::capability::traits::TextToImageCapable for LoadedFluxSchnell {
+    fn generate_image(
+        &self,
+        prompt: &str,
+        config: &ImageGenerationConfig,
+        device: &Device,
+    ) -> Pin<Box<dyn Stream<Item = ImageGenerationChunk> + Send>> {
+        // Delegate to inner FluxSchnell's ImageGenerationModel trait
+        <FluxSchnell as ImageGenerationModel>::generate(&self.model, prompt, config, device)
+    }
+
+    fn registry_key(&self) -> &str {
+        <FluxSchnell as ImageGenerationModel>::registry_key(&self.model)
+    }
+
+    fn default_steps(&self) -> usize {
+        <FluxSchnell as ImageGenerationModel>::default_steps(&self.model)
+    }
+}
+
 /// Generate image using 4-step FLUX denoising
 fn generate_flux_image(
     flux_transformer: &flux::model::Flux,
@@ -354,7 +421,7 @@ fn generate_flux_image(
     clip_emb: &Tensor,
     config: &ImageGenerationConfig,
     device: &Device,
-    sender: &tokio::sync::mpsc::UnboundedSender<ImageGenerationChunk>,
+    sender: &mpsc::UnboundedSender<ImageGenerationChunk>,
 ) -> Result<Tensor, String> {
     // 1. Initialize noise
     let img = flux::sampling::get_noise(1, config.height, config.width, device)
@@ -419,7 +486,7 @@ impl T5WithTokenizer {
     async fn load(
         model_file: &PathBuf,
         config_file: &PathBuf,
-        tokenizer_file: &PathBuf, // NEW: Accept as parameter instead of downloading
+        tokenizer_file: &PathBuf,
         dtype: DType,
         device: &Device,
     ) -> Result<Self, String> {
@@ -437,9 +504,14 @@ impl T5WithTokenizer {
         let t5 = T5EncoderModel::load(vb, &config)
             .map_err(|e| format!("T5 encoder load failed: {}", e))?;
 
-        // Load T5 tokenizer from provided path
-        let tokenizer = Tokenizer::from_file(tokenizer_file)
-            .map_err(|e| format!("T5 tokenizer load failed: {}", e))?;
+        // Load T5 tokenizer from provided path using spawn_blocking
+        let tokenizer_file_owned = tokenizer_file.clone();
+        let tokenizer = tokio::task::spawn_blocking(move || {
+            Tokenizer::from_file(tokenizer_file_owned)
+        })
+        .await
+        .map_err(|e| format!("spawn_blocking failed: {}", e))?
+        .map_err(|e| format!("T5 tokenizer load failed: {}", e))?;
 
         Ok(Self { t5, tokenizer })
     }
@@ -468,9 +540,9 @@ impl T5WithTokenizer {
 
 /// CLIP encoder with tokenizer
 impl ClipWithTokenizer {
-    fn load(
+    async fn load(
         model_file: &PathBuf,
-        tokenizer_file: &PathBuf, // NEW: Accept as parameter instead of downloading
+        tokenizer_file: &PathBuf,
         dtype: DType,
         device: &Device,
     ) -> Result<Self, String> {
@@ -485,9 +557,14 @@ impl ClipWithTokenizer {
         let clip = ClipTextTransformer::new(vb.pp("text_model"), &clip_config)
             .map_err(|e| format!("CLIP encoder creation failed: {}", e))?;
 
-        // Load CLIP tokenizer from provided path
-        let tokenizer = Tokenizer::from_file(tokenizer_file)
-            .map_err(|e| format!("CLIP tokenizer load failed: {}", e))?;
+        // Load CLIP tokenizer from provided path using spawn_blocking
+        let tokenizer_file_owned = tokenizer_file.clone();
+        let tokenizer = tokio::task::spawn_blocking(move || {
+            Tokenizer::from_file(tokenizer_file_owned)
+        })
+        .await
+        .map_err(|e| format!("spawn_blocking failed: {}", e))?
+        .map_err(|e| format!("CLIP tokenizer load failed: {}", e))?;
 
         Ok(Self { clip, tokenizer })
     }

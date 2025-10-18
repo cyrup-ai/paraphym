@@ -361,7 +361,7 @@ pub struct BaseMemory {
     /// Last update timestamp with atomic operations
     pub updated_at: SystemTime,
     /// tokio async tasks access optimization
-    pub metadata: Arc<parking_lot::RwLock<HashMap<String, serde_json::Value>>>,
+    pub metadata: Arc<tokio::sync::RwLock<HashMap<String, serde_json::Value>>>,
 }
 
 impl BaseMemory {
@@ -375,7 +375,7 @@ impl BaseMemory {
             content,
             created_at: now,
             updated_at: now,
-            metadata: Arc::new(parking_lot::RwLock::new(HashMap::new())),
+            metadata: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
         }
     }
 
@@ -392,14 +392,14 @@ impl BaseMemory {
     }
 
     /// Set metadata value
-    pub fn set_metadata(&self, key: impl Into<String>, value: serde_json::Value) {
-        let mut meta = self.metadata.write();
+    pub async fn set_metadata(&self, key: impl Into<String>, value: serde_json::Value) {
+        let mut meta = self.metadata.write().await;
         meta.insert(key.into(), value);
     }
 
     /// Get metadata value
-    pub fn get_metadata(&self, key: &str) -> Option<serde_json::Value> {
-        let meta = self.metadata.read();
+    pub async fn get_metadata(&self, key: &str) -> Option<serde_json::Value> {
+        let meta = self.metadata.read().await;
         meta.get(key).cloned()
     }
 
@@ -531,7 +531,7 @@ impl<'de> Deserialize<'de> for BaseMemory {
                     content,
                     created_at,
                     updated_at,
-                    metadata: Arc::new(parking_lot::RwLock::new(HashMap::new())),
+                    metadata: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
                 })
             }
         }

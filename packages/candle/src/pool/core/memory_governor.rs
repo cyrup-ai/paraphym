@@ -1,6 +1,6 @@
 // memory_governor.rs - System-wide memory management and pressure handling
 
-use parking_lot::RwLock;
+use tokio::sync::RwLock;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -90,13 +90,19 @@ impl Drop for AllocationGuard {
             previous - self.size_mb as u64
         );
 
-        // Update pressure after release
-        self.governor.update_pressure();
+        // Spawn async cleanup to avoid blocking in Drop
+        // This is safe because the atomic decrement above already happened
+        let governor = self.governor.clone();
+        let size_mb = self.size_mb;
+        tokio::spawn(async move {
+            // Update pressure (async version)
+            governor.update_pressure().await;
 
-        // Return memory to pool if enabled
-        if self.governor.config.enable_memory_pools {
-            self.governor.return_to_pool(self.size_mb);
-        }
+            // Return memory to pool if enabled (async version)
+            if governor.config.enable_memory_pools {
+                governor.return_to_pool(size_mb).await;
+            }
+        });
     }
 }
 
@@ -193,16 +199,19 @@ impl MemoryGovernor {
         // Start pressure monitor
         governor.start_pressure_monitor();
 
-        // Initialize memory pools if enabled
+        // Initialize memory pools if enabled (spawned async to avoid blocking constructor)
         if config.enable_memory_pools {
-            governor.initialize_memory_pools();
+            let governor_clone = governor.clone();
+            tokio::spawn(async move {
+                governor_clone.initialize_memory_pools().await;
+            });
         }
 
         governor
     }
 
     /// Try to allocate memory for a worker (synchronous with CAS loop)
-    pub fn try_allocate(&self, size_mb: usize) -> Result<AllocationGuard, MemoryError> {
+    pub async fn try_allocate(&self, size_mb: usize) -> Result<AllocationGuard, MemoryError> {
         let mut current = self.allocated_mb.load(Ordering::Acquire);
         let limit = self.limit_mb.load(Ordering::Acquire);
         let reserved = self.reserved_mb.load(Ordering::Acquire);
@@ -211,7 +220,7 @@ impl MemoryGovernor {
             // Check if allocation would exceed limit
             if current + size_mb as u64 > limit - reserved {
                 // Try to find evictable memory
-                if let Some(evictable) = self.find_evictable_memory(size_mb) {
+                if let Some(evictable) = self.find_evictable_memory(size_mb).await {
                     return Err(MemoryError::RequiresEviction(evictable));
                 }
                 return Err(MemoryError::Exhausted {
@@ -234,7 +243,7 @@ impl MemoryGovernor {
                         size_mb,
                         current + size_mb as u64
                     );
-                    self.update_pressure();
+                    self.update_pressure().await;
 
                     // Enable huge pages if configured
                     #[cfg(target_os = "linux")]
@@ -256,8 +265,8 @@ impl MemoryGovernor {
     }
 
     /// Find evictable workers to free up memory
-    fn find_evictable_memory(&self, needed_mb: usize) -> Option<Vec<EvictionCandidate>> {
-        let allocations = self.allocations.read();
+    async fn find_evictable_memory(&self, needed_mb: usize) -> Option<Vec<EvictionCandidate>> {
+        let allocations = self.allocations.read().await;
         let mut candidates = Vec::new();
         let mut freed_mb = 0;
 
@@ -303,13 +312,33 @@ impl MemoryGovernor {
             previous - size_mb as u64
         );
 
-        // Return to pool if enabled
+        // Return to pool if enabled (blocking version for sync context)
         if self.config.enable_memory_pools {
-            self.return_to_pool(size_mb);
+            self.return_to_pool_blocking(size_mb);
         }
 
-        // Update pressure
-        self.update_pressure();
+        // Update pressure (blocking version for sync context)
+        self.update_pressure_blocking();
+    }
+
+    /// Release allocated memory asynchronously (preferred in async contexts)
+    pub async fn release_async(&self, size_mb: usize) {
+        let previous = self
+            .allocated_mb
+            .fetch_sub(size_mb as u64, Ordering::Release);
+        log::info!(
+            "Released {} MB (total: {} MB)",
+            size_mb,
+            previous - size_mb as u64
+        );
+
+        // Return to pool if enabled (async version)
+        if self.config.enable_memory_pools {
+            self.return_to_pool(size_mb).await;
+        }
+
+        // Update pressure (async version)
+        self.update_pressure().await;
     }
 
     /// Register model allocation
@@ -317,7 +346,7 @@ impl MemoryGovernor {
         // Get NUMA node before acquiring lock to avoid holding lock across await
         let numa_node = self.get_numa_node().await;
         
-        let mut allocations = self.allocations.write();
+        let mut allocations = self.allocations.write().await;
 
         let allocation = AllocationInfo {
             worker_id,
@@ -346,12 +375,12 @@ impl MemoryGovernor {
     }
 
     /// Get current memory pressure
-    pub fn get_pressure(&self) -> MemoryPressure {
-        *self.pressure.read()
+    pub async fn get_pressure(&self) -> MemoryPressure {
+        *self.pressure.read().await
     }
 
     /// Get memory statistics
-    pub fn get_stats(&self) -> MemoryStats {
+    pub async fn get_stats(&self) -> MemoryStats {
         let allocated = self.allocated_mb.load(Ordering::Acquire);
         let total = self.total_system_mb.load(Ordering::Acquire);
         let limit = self.limit_mb.load(Ordering::Acquire);
@@ -361,22 +390,22 @@ impl MemoryGovernor {
             allocated_mb: allocated,
             available_mb: limit.saturating_sub(allocated),
             limit_mb: limit,
-            pressure: self.get_pressure(),
+            pressure: self.get_pressure().await,
             utilization: (allocated as f64) / (total as f64),
         }
     }
 
     /// Get models sorted by memory usage
-    pub fn get_models_by_memory(&self) -> Vec<ModelMemory> {
-        let allocations = self.allocations.read();
+    pub async fn get_models_by_memory(&self) -> Vec<ModelMemory> {
+        let allocations = self.allocations.read().await;
         let mut models: Vec<_> = allocations.values().cloned().collect();
         models.sort_by(|a, b| b.total_mb.cmp(&a.total_mb));
         models
     }
 
     /// Suggest models to evict under memory pressure
-    pub fn suggest_evictions(&self, target_mb: usize) -> Vec<String> {
-        let models = self.get_models_by_memory();
+    pub async fn suggest_evictions(&self, target_mb: usize) -> Vec<String> {
+        let models = self.get_models_by_memory().await;
         let mut eviction_list = Vec::new();
         let mut freed_mb = 0;
 
@@ -397,14 +426,14 @@ impl MemoryGovernor {
     }
 
     /// Get pending eviction candidates
-    pub fn get_eviction_queue(&self) -> Vec<EvictionCandidate> {
-        let mut queue = self.eviction_queue.write();
+    pub async fn get_eviction_queue(&self) -> Vec<EvictionCandidate> {
+        let mut queue = self.eviction_queue.write().await;
         let candidates = queue.clone();
         queue.clear();
         candidates
     }
 
-    fn update_pressure(&self) {
+    async fn update_pressure(&self) {
         let allocated = self.allocated_mb.load(Ordering::Acquire);
         let total = self.total_system_mb.load(Ordering::Acquire);
         let usage_percent = (allocated as f64) / (total as f64);
@@ -416,7 +445,30 @@ impl MemoryGovernor {
             _ => MemoryPressure::Critical,
         };
 
-        let mut pressure = self.pressure.write();
+        let mut pressure = self.pressure.write().await;
+        if *pressure != new_pressure {
+            log::info!(
+                "Memory pressure changed: {:?} -> {:?}",
+                *pressure,
+                new_pressure
+            );
+            *pressure = new_pressure;
+        }
+    }
+
+    fn update_pressure_blocking(&self) {
+        let allocated = self.allocated_mb.load(Ordering::Acquire);
+        let total = self.total_system_mb.load(Ordering::Acquire);
+        let usage_percent = (allocated as f64) / (total as f64);
+
+        let new_pressure = match usage_percent {
+            p if p < 0.50 => MemoryPressure::Low,
+            p if p < 0.70 => MemoryPressure::Normal,
+            p if p < 0.85 => MemoryPressure::High,
+            _ => MemoryPressure::Critical,
+        };
+
+        let mut pressure = self.pressure.blocking_write();
         if *pressure != new_pressure {
             log::info!(
                 "Memory pressure changed: {:?} -> {:?}",
@@ -438,7 +490,7 @@ impl MemoryGovernor {
 
                 // Refresh system memory info
                 {
-                    let mut sys = governor.system.write();
+                    let mut sys = governor.system.write().await;
                     sys.refresh_memory();
                     let _used = sys.used_memory() / 1024 / 1024;
                     let total = sys.total_memory() / 1024 / 1024;
@@ -446,23 +498,23 @@ impl MemoryGovernor {
                 }
 
                 // Update pressure
-                governor.update_pressure();
+                governor.update_pressure().await;
 
                 // Handle critical pressure
-                if governor.get_pressure() == MemoryPressure::Critical {
-                    governor.handle_critical_pressure();
+                if governor.get_pressure().await == MemoryPressure::Critical {
+                    governor.handle_critical_pressure().await;
                 }
             }
         });
     }
 
-    fn handle_critical_pressure(&self) {
+    async fn handle_critical_pressure(&self) {
         log::warn!("CRITICAL memory pressure - initiating emergency eviction");
 
         // Target: free 10% of allocated memory
         let target_mb = (self.allocated_mb.load(Ordering::Acquire) / 10) as usize;
 
-        if let Some(candidates) = self.find_evictable_memory(target_mb) {
+        if let Some(candidates) = self.find_evictable_memory(target_mb).await {
             for candidate in &candidates {
                 log::warn!(
                     "Emergency evicting worker {} from {} ({} MB)",
@@ -474,16 +526,16 @@ impl MemoryGovernor {
 
             // Store eviction candidates for pool to handle
             // (Pool maintenance thread will pick these up)
-            let mut eviction_queue = self.eviction_queue.write();
+            let mut eviction_queue = self.eviction_queue.write().await;
             eviction_queue.extend(candidates);
         } else {
             log::error!("No evictable workers found despite critical pressure!");
         }
     }
 
-    fn initialize_memory_pools(&self) {
+    async fn initialize_memory_pools(&self) {
         // Pre-allocate memory chunks for pooling
-        let mut pools = self.memory_pools.write();
+        let mut pools = self.memory_pools.write().await;
 
         // Create small chunks (50 MB each)
         for _ in 0..10 {
@@ -513,8 +565,29 @@ impl MemoryGovernor {
         }
     }
 
-    fn return_to_pool(&self, size_mb: usize) {
-        let mut pools = self.memory_pools.write();
+    fn return_to_pool_blocking(&self, size_mb: usize) {
+        let mut pools = self.memory_pools.blocking_write();
+
+        let pool = if size_mb <= 100 {
+            &mut pools.small_pool
+        } else if size_mb <= 1000 {
+            &mut pools.medium_pool
+        } else {
+            &mut pools.large_pool
+        };
+
+        // Mark chunk as available
+        if let Some(chunk) = pool
+            .iter_mut()
+            .find(|c| c.allocated && c.size_mb == size_mb)
+        {
+            chunk.allocated = false;
+            chunk.last_used = Instant::now();
+        }
+    }
+
+    async fn return_to_pool(&self, size_mb: usize) {
+        let mut pools = self.memory_pools.write().await;
 
         let pool = if size_mb <= 100 {
             &mut pools.small_pool

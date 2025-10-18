@@ -197,13 +197,28 @@ impl crate::capability::traits::TextToTextCapable for CandleKimiK2Model {
                 Device::Cpu
             });
 
-            // Load tokenizer
+            // Load tokenizer - CRITICAL: Use spawn_blocking for sync I/O
+            // This prevents blocking the async runtime worker thread
             use tokenizers::Tokenizer;
-            let tokenizer = match Tokenizer::from_file(&tokenizer_path) {
-                Ok(t) => t,
-                Err(e) => {
+            let tokenizer_path_clone = tokenizer_path.clone();
+            let tokenizer = match tokio::task::spawn_blocking(move || {
+                // Runs on dedicated blocking thread pool
+                Tokenizer::from_file(&tokenizer_path_clone)
+            }).await {
+                // Double-Result pattern:
+                // Outer Ok/Err: Did the spawned task complete?
+                // Inner Ok/Err: Did the tokenizer load successfully?
+                Ok(Ok(t)) => t,  // Task completed + tokenizer loaded successfully
+                Ok(Err(e)) => {  // Task completed but tokenizer loading failed
                     let _ = tx.send(CandleCompletionChunk::Error(format!(
                         "Failed to load tokenizer: {}",
+                        e
+                    )));
+                    return;
+                }
+                Err(e) => {  // Spawned task panicked or was cancelled
+                    let _ = tx.send(CandleCompletionChunk::Error(format!(
+                        "Failed to spawn blocking task: {}",
                         e
                     )));
                     return;

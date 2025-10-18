@@ -358,10 +358,11 @@ impl CognitiveWorker {
         // Note: Primary edges are in entangled RELATION table, this is denormalized cache
         let existing_signature = match manager.get_quantum_signature(&memory_id).await {
             Ok(Some(state)) => {
+                let bond_count = state.quantum_entanglement_bond_count().await;
                 log::debug!(
                     "Loaded existing quantum signature for {} with {} cached bonds",
                     memory_id,
-                    state.quantum_entanglement_bond_count()
+                    bond_count
                 );
                 Some(state)
             }
@@ -404,10 +405,11 @@ impl CognitiveWorker {
 
         // Use existing signature cache if available, otherwise create new
         let state_a = if let Some(existing) = existing_signature {
+            let bond_count = existing.quantum_entanglement_bond_count().await;
             log::debug!(
                 "Using existing quantum state for {} (preserving {} cached bonds)",
                 memory_id,
-                existing.quantum_entanglement_bond_count()
+                bond_count
             );
             existing
         } else {
@@ -660,7 +662,7 @@ impl CognitiveWorker {
                     related_id_uuid,
                     entanglement_strength,
                     entanglement_type,
-                );
+                ).await;
 
                 if bond_created {
                     log::info!(
@@ -707,10 +709,11 @@ impl CognitiveWorker {
                                 e
                             );
                         } else {
+                            let bond_count = state_a.quantum_entanglement_bond_count().await;
                             log::debug!(
                                 "Persisted quantum signature for {} (bond count: {})",
                                 memory.id,
-                                state_a.quantum_entanglement_bond_count()
+                                bond_count
                             );
                         }
 
@@ -735,10 +738,11 @@ impl CognitiveWorker {
                     e
                 );
             } else {
+                let bond_count = state_a.quantum_entanglement_bond_count().await;
                 log::info!(
                     "Persisted quantum signature for {} with {} entanglement bonds (cached)",
                     memory_id,
-                    state_a.quantum_entanglement_bond_count()
+                    bond_count
                 );
             }
         }

@@ -530,7 +530,7 @@ impl MemoryNode {
     ///
     /// # Errors
     /// Returns error if the reset operation fails
-    pub fn reset(&mut self, memory_type: MemoryTypeEnum) -> MemoryResult<()> {
+    pub async fn reset(&mut self, memory_type: MemoryTypeEnum) -> MemoryResult<()> {
         // 1. Update timestamps to now
         let now = SystemTime::now();
         self.base_memory.created_at = now;
@@ -559,7 +559,7 @@ impl MemoryNode {
 
         // 5. Clear base_memory metadata HashMap
         {
-            let mut meta = self.base_memory.metadata.write();
+            let mut meta = self.base_memory.metadata.write().await;
             meta.clear();
         }
 

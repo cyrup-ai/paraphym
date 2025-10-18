@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::RwLock;
+use tokio::sync::RwLock;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 
@@ -594,7 +594,7 @@ pub struct CandleConfigurationManager {
     /// Configuration version counter
     version_counter: Arc<AtomicUsize>,
     /// Configuration locks for atomic operations
-    configuration_locks: Arc<RwLock<HashMap<String, Arc<parking_lot::RwLock<()>>>>>,
+    configuration_locks: Arc<RwLock<HashMap<String, Arc<tokio::sync::RwLock<()>>>>>,
 }
 
 impl Clone for CandleConfigurationManager {
@@ -850,9 +850,7 @@ impl CandleConfigurationManager {
 
         // Initialize default validators
         {
-            let mut rules = manager.validation_rules
-                .write()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut rules = manager.validation_rules.blocking_write();
             rules.insert("personality".into(), Arc::new(CandlePersonalityValidator));
             rules.insert("behavior".into(), Arc::new(CandleBehaviorValidator));
             rules.insert("ui".into(), Arc::new(CandleUIValidator));
@@ -1081,8 +1079,7 @@ impl CandleConfigurationManager {
                 // Access persistence to get actual auto_save_interval
                 let persistence = manager
                     .persistence
-                    .read()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    .read().await;
                 let auto_save_interval = persistence.auto_save_interval;
 
                 if elapsed_secs >= auto_save_interval {
@@ -1148,8 +1145,7 @@ impl CandleConfigurationManager {
         let (format, compression, config_file_path) = {
             let persistence = self
                 .persistence
-                .read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+                .read().await;
 
             (
                 persistence.format.clone(),
@@ -1223,8 +1219,7 @@ impl CandleConfigurationManager {
         let (format, compression, config_file_path) = {
             let persistence = self
                 .persistence
-                .read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+                .read().await;
 
             (
                 persistence.format.clone(),

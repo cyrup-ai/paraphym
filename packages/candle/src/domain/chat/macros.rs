@@ -6,9 +6,11 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::RwLock;
+use tokio::sync::RwLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
+use std::pin::Pin;
+use std::future::Future;
 
 use chrono::{DateTime, Utc};
 use log::{error, warn};
@@ -556,14 +558,12 @@ impl Default for MacroExecutionContext {
 }
 
 /// Map message type string to appropriate conversation method
-fn send_message_to_conversation(
+async fn send_message_to_conversation(
     conversation: &Arc<RwLock<CandleStreamingConversation>>,
     content: String,
     message_type: &str,
 ) -> Result<(), String> {
-    let mut conv = conversation
-        .write()
-        .map_err(|e| format!("Failed to acquire conversation lock: {e}"))?;
+    let mut conv = conversation.write().await;
 
     let result = match message_type.to_lowercase().as_str() {
         "assistant" => conv.add_assistant_message(content),
@@ -739,11 +739,11 @@ pub struct ExecutionStats {
     /// Number of failed macro executions
     pub failed_executions: ConsistentCounter,
     /// Total time spent executing macros
-    pub total_duration: parking_lot::Mutex<Duration>,
+    pub total_duration: tokio::sync::Mutex<Duration>,
     /// Average execution duration per macro
-    pub average_duration: parking_lot::Mutex<Duration>,
+    pub average_duration: tokio::sync::Mutex<Duration>,
     /// Timestamp of the last macro execution
-    pub last_execution: parking_lot::Mutex<Option<DateTime<Utc>>>,
+    pub last_execution: tokio::sync::Mutex<Option<DateTime<Utc>>>,
 }
 
 impl Clone for ExecutionStats {
@@ -752,9 +752,9 @@ impl Clone for ExecutionStats {
             total_executions: ConsistentCounter::new(self.total_executions.get()),
             successful_executions: ConsistentCounter::new(self.successful_executions.get()),
             failed_executions: ConsistentCounter::new(self.failed_executions.get()),
-            total_duration: parking_lot::Mutex::new(*self.total_duration.lock()),
-            average_duration: parking_lot::Mutex::new(*self.average_duration.lock()),
-            last_execution: parking_lot::Mutex::new(*self.last_execution.lock()),
+            total_duration: tokio::sync::Mutex::new(*self.total_duration.blocking_lock()),
+            average_duration: tokio::sync::Mutex::new(*self.average_duration.blocking_lock()),
+            last_execution: tokio::sync::Mutex::new(*self.last_execution.blocking_lock()),
         }
     }
 }
@@ -1040,7 +1040,7 @@ impl MacroSystem {
         }
 
         let action = &macro_def.actions[session.current_action];
-        let result = execute_action_sync(action, &mut session.context)?;
+        let result = execute_action_sync(action, &mut session.context).await?;
 
         session.current_action += 1;
 
@@ -1095,7 +1095,7 @@ impl MacroSystem {
                             conversation,
                             resolved_content.clone(),
                             message_type,
-                        ) {
+                        ).await {
                             Ok(()) => Ok::<ActionExecutionResult, MacroSystemError>(
                                 ActionExecutionResult::Success,
                             ),
@@ -1183,7 +1183,7 @@ impl MacroSystem {
 
                     // Execute conditional actions synchronously
                     for action in actions_to_execute {
-                        match execute_action_sync(action, &mut ctx) {
+                        match execute_action_sync(action, &mut ctx).await {
                             Ok(ActionExecutionResult::Error(error)) => {
                                 let _ = sender.send(ActionExecutionResult::Error(error));
                                 return;
@@ -1213,7 +1213,7 @@ impl MacroSystem {
 
                     for _ in 0..*iterations {
                         for action in actions {
-                            match execute_action_sync(action, &mut ctx) {
+                            match execute_action_sync(action, &mut ctx).await {
                                 Ok(ActionExecutionResult::Error(error)) => {
                                     ctx.loop_stack.pop();
                                     let _ = sender.send(ActionExecutionResult::Error(error));
@@ -1733,7 +1733,7 @@ impl MacroProcessor {
 
             let action = &macro_def.actions[context.current_action];
 
-            match execute_action_sync(action, context) {
+            match execute_action_sync(action, context).await {
                 Ok(ActionExecutionResult::Success) => {
                     actions_executed += 1;
                     context.current_action += 1;
@@ -1829,34 +1829,24 @@ impl MacroProcessor {
     /// # Errors
     ///
     /// Returns `MacroSystemError` if lock on variables cannot be acquired
-    pub fn set_global_variable(&self, name: String, value: String) -> Result<(), MacroSystemError> {
-        match self.variables.write() {
-            Ok(mut vars) => {
-                vars.insert(name, value);
-                Ok(())
-            }
-            Err(_) => Err(MacroSystemError::ValidationError(
-                "Failed to acquire lock on variables".to_string(),
-            )),
-        }
+    pub async fn set_global_variable(&self, name: String, value: String) -> Result<(), MacroSystemError> {
+        let mut vars = self.variables.write().await;
+        vars.insert(name, value);
+        Ok(())
     }
 
     /// Get a global variable value by name
     #[must_use]
-    pub fn get_global_variable(&self, name: &str) -> Option<String> {
-        match self.variables.read() {
-            Ok(vars) => vars.get(name).cloned(),
-            Err(_) => None,
-        }
+    pub async fn get_global_variable(&self, name: &str) -> Option<String> {
+        let vars = self.variables.read().await;
+        vars.get(name).cloned()
     }
 
     /// Get all global variables as a snapshot
     #[must_use]
-    pub fn get_global_variables_snapshot(&self) -> HashMap<String, String> {
-        match self.variables.read() {
-            Ok(vars) => vars.clone(),
-            Err(_) => HashMap::new(),
-        }
+    pub async fn get_global_variables_snapshot(&self) -> HashMap<String, String> {
+        let vars = self.variables.read().await;
+        vars.clone()
     }
 
     /// Clear all global variables
@@ -1864,24 +1854,19 @@ impl MacroProcessor {
     /// # Errors
     ///
     /// Returns `MacroSystemError` if lock acquisition fails
-    pub fn clear_global_variables(&self) -> Result<(), MacroSystemError> {
-        match self.variables.write() {
-            Ok(mut vars) => {
-                vars.clear();
-                Ok(())
-            }
-            Err(_) => Err(MacroSystemError::ValidationError(
-                "Failed to acquire lock on variables".to_string(),
-            )),
-        }
+    pub async fn clear_global_variables(&self) -> Result<(), MacroSystemError> {
+        let mut vars = self.variables.write().await;
+        vars.clear();
+        Ok(())
     }
 }
 
-/// Synchronous macro action execution
-fn execute_action_sync(
-    action: &MacroAction,
-    context: &mut MacroExecutionContext,
-) -> Result<ActionExecutionResult, MacroSystemError> {
+/// Macro action execution
+fn execute_action_sync<'a>(
+    action: &'a MacroAction,
+    context: &'a mut MacroExecutionContext,
+) -> Pin<Box<dyn Future<Output = Result<ActionExecutionResult, MacroSystemError>> + Send + 'a>> {
+    Box::pin(async move {
     match action {
         MacroAction::SendMessage {
             content,
@@ -1896,7 +1881,7 @@ fn execute_action_sync(
                     conversation,
                     resolved_content.clone(),
                     message_type,
-                ) {
+                ).await {
                     Ok(()) => Ok(ActionExecutionResult::Success),
                     Err(e) => Ok(ActionExecutionResult::Error(format!(
                         "Message send failed: {e}"
@@ -1941,7 +1926,7 @@ fn execute_action_sync(
 
             // Execute conditional actions synchronously
             for action in actions_to_execute {
-                execute_action_sync(action, context)?;
+                execute_action_sync(action, context).await?;
             }
 
             Ok(ActionExecutionResult::Success)
@@ -1962,7 +1947,7 @@ fn execute_action_sync(
 
             for _ in 0..*iterations {
                 for action in actions {
-                    if let Err(e) = execute_action_sync(action, context) {
+                    if let Err(e) = execute_action_sync(action, context).await {
                         context.loop_stack.pop();
                         return Err(e);
                     }
@@ -1973,6 +1958,7 @@ fn execute_action_sync(
             Ok(ActionExecutionResult::Success)
         }
     }
+    })
 }
 
 /// Synchronous variable resolution

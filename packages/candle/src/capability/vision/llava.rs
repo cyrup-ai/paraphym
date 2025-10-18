@@ -4,7 +4,8 @@
 //! Supports visual question answering, image description, and multi-turn conversations.
 
 use std::num::NonZeroU32;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use tokio::sync::mpsc;
 
 use candle_core::{Device, IndexOp, Tensor};
@@ -151,10 +152,7 @@ impl LLaVAModel {
     ) -> Result<mpsc::UnboundedSender<LLaVARequest>, Box<dyn std::error::Error + Send + Sync>> {
         // Check if thread already spawned (quick check without holding lock across await)
         {
-            let tx_guard = self
-                .request_tx
-                .lock()
-                .map_err(|e| format!("Lock poisoned: {}", e))?;
+            let tx_guard = self.request_tx.lock().await;
             
             if let Some(sender) = tx_guard.as_ref() {
                 return Ok(sender.clone());
@@ -288,10 +286,7 @@ impl LLaVAModel {
 
         // Step 8: Store sender for future calls
         {
-            let mut tx_guard = self
-                .request_tx
-                .lock()
-                .map_err(|e| format!("Lock poisoned: {}", e))?;
+            let mut tx_guard = self.request_tx.lock().await;
             *tx_guard = Some(request_tx.clone());
         }
         Ok(request_tx)
@@ -393,13 +388,13 @@ impl LLaVAModel {
             max_new_tokens,
             use_kv_cache,
         } = gen_config;
-        // 1. Preprocess image - async image loading
+        // 1. Preprocess image - using to_tensor_sync since we're in a worker thread
         let image_tensor = Image::from_path(image_path)
             .resize(image_size, image_size, ResizeFilter::CatmullRom)
             .normalize_unsigned()
             .normalize_with(image_mean, image_std)
-            .to_tensor(device)
-            .await?;
+            .to_tensor_sync(device)
+            .map_err(|e| format!("Image processing failed: {}", e))?;
         let image_size_tuple = (image_size as u32, image_size as u32);
 
         // 2. Format prompt with image token
@@ -424,6 +419,13 @@ impl LLaVAModel {
             .map_err(|e| format!("Cache creation failed: {}", e))?;
 
         // 6. Generate response (autoregressive loop)
+        // NOTE: This loop remains synchronous because:
+        // - LLaVA model is !Send (contains raw pointers, cannot move between threads)
+        // - Model lives on LocalSet in dedicated worker thread
+        // - model.forward() and model.llama.embed() require &mut model access
+        // - Each non-model operation is fast (<1ms): tensor slicing, sampling, decoding
+        // - spawn_blocking overhead (~100μs per call) would not improve performance
+        // This is architecturally correct for Candle's !Send models
         let mut generated_text = String::new();
         let mut current_embeds = input_embeds;
 
@@ -515,13 +517,13 @@ impl LLaVAModel {
             max_new_tokens,
             use_kv_cache,
         } = gen_config;
-        // 1. Preprocess image from URL - async image loading
+        // 1. Preprocess image from URL - using to_tensor_sync since we're in a worker thread
         let image_tensor = Image::from_url(image_url)
             .resize(image_size, image_size, ResizeFilter::CatmullRom)
             .normalize_unsigned()
             .normalize_with(image_mean, image_std)
-            .to_tensor(device)
-            .await?;
+            .to_tensor_sync(device)
+            .map_err(|e| format!("Image processing failed: {}", e))?;
         let image_size_tuple = (image_size as u32, image_size as u32);
 
         // 2. Format prompt with image token
@@ -546,6 +548,13 @@ impl LLaVAModel {
             .map_err(|e| format!("Cache creation failed: {}", e))?;
 
         // 6. Generate response (autoregressive loop)
+        // NOTE: This loop remains synchronous because:
+        // - LLaVA model is !Send (contains raw pointers, cannot move between threads)
+        // - Model lives on LocalSet in dedicated worker thread
+        // - model.forward() and model.llama.embed() require &mut model access
+        // - Each non-model operation is fast (<1ms): tensor slicing, sampling, decoding
+        // - spawn_blocking overhead (~100μs per call) would not improve performance
+        // This is architecturally correct for Candle's !Send models
         let mut generated_text = String::new();
         let mut current_embeds = input_embeds;
 

@@ -415,12 +415,25 @@ impl crate::capability::traits::TextToTextCapable for CandleQwen3CoderModel {
                         Device::Cpu
                     });
 
-                    // Load tokenizer - send error and return on failure
-                    let tokenizer = match Tokenizer::from_file(format!("{}/tokenizer.json", model_path)) {
-                        Ok(t) => t,
-                        Err(e) => {
+                    // Load tokenizer - CRITICAL: Use spawn_blocking for sync I/O
+                    // Build path first, then move into blocking closure
+                    let tokenizer_path_str = format!("{}/tokenizer.json", model_path);
+                    let tokenizer = match tokio::task::spawn_blocking(move || {
+                        // Runs on dedicated blocking thread pool, not async runtime
+                        Tokenizer::from_file(tokenizer_path_str)
+                    }).await {
+                        // Double-Result pattern (same as kimi_k2.rs):
+                        Ok(Ok(t)) => t,  // Task completed + tokenizer loaded
+                        Ok(Err(e)) => {  // Task completed but file/parse error
                             let _ = tx.send(CandleStringChunk(format!(
                                 "ERROR: Failed to load tokenizer: {}",
+                                e
+                            )));
+                            return;
+                        }
+                        Err(e) => {  // Spawned task panicked
+                            let _ = tx.send(CandleStringChunk(format!(
+                                "ERROR: Failed to spawn blocking task: {}",
                                 e
                             )));
                             return;

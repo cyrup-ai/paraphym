@@ -63,7 +63,7 @@ pub struct MemoryCoordinator {
     committee_evaluator: Arc<ModelCommitteeEvaluator>,
     quantum_router: Arc<QuantumRouter>,
     quantum_state: Arc<RwLock<QuantumState>>,
-    cognitive_workers: Arc<std::sync::RwLock<Vec<tokio::task::JoinHandle<()>>>>,
+    cognitive_workers: Arc<tokio::sync::RwLock<Vec<tokio::task::JoinHandle<()>>>>,
     // LAZY EVALUATION FIELDS:
     lazy_eval_strategy: LazyEvalStrategy,
     evaluation_cache: Cache<String, f64>,
@@ -119,7 +119,7 @@ impl MemoryCoordinator {
             committee_evaluator,
             quantum_router,
             quantum_state,
-            cognitive_workers: Arc::new(std::sync::RwLock::new(Vec::new())),
+            cognitive_workers: Arc::new(tokio::sync::RwLock::new(Vec::new())),
             lazy_eval_strategy: LazyEvalStrategy::default(),
             evaluation_cache: Cache::builder()
                 .max_capacity(10_000)

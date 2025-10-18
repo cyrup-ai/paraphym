@@ -99,7 +99,7 @@ impl EmbeddingPool {
 
 /// Production-ready in-memory embedding cache with zero-allocation operations
 pub struct InMemoryEmbeddingCache {
-    cache: std::sync::RwLock<HashMap<String, Vec<f32>>>,
+    cache: tokio::sync::RwLock<HashMap<String, Vec<f32>>>,
     pool: EmbeddingPool,
     #[allow(dead_code)] // TODO: Implement in embedding cache system
     dimension: usize,
@@ -110,7 +110,7 @@ impl InMemoryEmbeddingCache {
     #[must_use]
     pub fn new(dimension: usize) -> Self {
         Self {
-            cache: std::sync::RwLock::new(HashMap::with_capacity(1000)),
+            cache: tokio::sync::RwLock::new(HashMap::with_capacity(1000)),
             pool: EmbeddingPool::new(dimension, 100),
             dimension,
         }
@@ -118,17 +118,16 @@ impl InMemoryEmbeddingCache {
 
     /// Get cached embedding with zero-copy return
     #[inline]
-    pub fn get_cached(&self, content: &str) -> Option<Vec<f32>> {
-        let cache = self.cache.read().ok()?;
+    pub async fn get_cached(&self, content: &str) -> Option<Vec<f32>> {
+        let cache = self.cache.read().await;
         cache.get(content).cloned()
     }
 
     /// Store embedding in cache
     #[inline]
-    pub fn store(&self, content: String, embedding: Vec<f32>) {
-        if let Ok(mut cache) = self.cache.write() {
-            cache.insert(content, embedding);
-        }
+    pub async fn store(&self, content: String, embedding: Vec<f32>) {
+        let mut cache = self.cache.write().await;
+        cache.insert(content, embedding);
     }
 
     /// Generate deterministic embedding based on content hash
@@ -147,9 +146,8 @@ impl InMemoryEmbeddingCache {
 
     /// Clear cache to free memory
     #[inline]
-    pub fn clear(&self) {
-        if let Ok(mut cache) = self.cache.write() {
-            cache.clear();
-        }
+    pub async fn clear(&self) {
+        let mut cache = self.cache.write().await;
+        cache.clear();
     }
 }

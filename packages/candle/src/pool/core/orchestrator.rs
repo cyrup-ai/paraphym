@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use dashmap::DashMap;
-use parking_lot::RwLock;
+use tokio::sync::RwLock;
 use tokio::sync::mpsc;
 use tracing::{info, warn, error, instrument, span, Level};
 use prometheus::core::{Collector, Desc};
@@ -133,7 +133,7 @@ impl<Req: Send + 'static, Resp: Send + 'static> WorkerOrchestrator<Req, Resp> {
     }
     
     fn start_background_tasks(&self) {
-        let mut tasks = self.background_tasks.write();
+        let mut tasks = self.background_tasks.blocking_write();
         
         // Health monitor task
         let health_task = {
@@ -267,7 +267,7 @@ impl<Req: Send + 'static, Resp: Send + 'static> WorkerOrchestrator<Req, Resp> {
                         memory_governor.release(memory_mb);
                         
                         // Call failure callback
-                        if let Some(callback) = &callbacks.read().on_worker_fail {
+                        if let Some(callback) = &callbacks.blocking_read().on_worker_fail {
                             callback(worker_id, registry_key, &e.to_string());
                         }
                         
@@ -299,7 +299,7 @@ impl<Req: Send + 'static, Resp: Send + 'static> WorkerOrchestrator<Req, Resp> {
             .push(worker.clone());
         
         // Call spawn callback
-        if let Some(callback) = &self.callbacks.read().on_worker_spawn {
+        if let Some(callback) = &self.callbacks.read().await.on_worker_spawn {
             callback(worker_id, registry_key);
         }
         
