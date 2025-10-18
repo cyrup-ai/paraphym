@@ -163,8 +163,14 @@ You are a master at refactoring code, remembering to check for code that ALREADY
         };
 
         let agent = agent.on_conversation_turn(
-            move |_conversation: &crate::domain::agent::role::CandleAgentConversation, agent| async move {
-                let input = match prompt_builder.get_user_input("You: ") {
+            move |_conversation: &crate::domain::agent::role::CandleAgentConversation, agent| {
+                // Clone for async block
+                let prompt_builder = prompt_builder.clone();
+                let handler = handler.clone();
+                let agent = agent.clone();
+                
+                async move {
+                    let input = match prompt_builder.get_user_input("You: ") {
                     Ok(i) => i,
                     Err(e) => {
                         let mut stderr = StandardStream::stderr(ColorChoice::Always);
@@ -218,6 +224,7 @@ You are a master at refactoring code, remembering to check for code that ALREADY
                             }
                         }))
                     }
+                }
                 }
             },
         );

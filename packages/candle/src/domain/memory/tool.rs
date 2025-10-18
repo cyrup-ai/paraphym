@@ -12,7 +12,7 @@ use std::sync::{
 
 // Ultra-high-performance zero-allocation imports
 // Removed unused import: arrayvec::ArrayVec
-use std::sync::Mutex;
+use tokio::sync::Mutex;
 use tokio::sync::mpsc;
 
 use serde::{Deserialize, Serialize};
@@ -197,13 +197,10 @@ impl MemoryTool {
     /// Get next result from queue
     #[inline]
     #[must_use]
-    pub fn dequeue_result() -> Option<MemoryNode> {
+    pub async fn dequeue_result() -> Option<MemoryNode> {
         let (_sender, receiver) = &*RESULT_QUEUE;
-        if let Ok(mut rx) = receiver.lock() {
-            rx.try_recv().ok()
-        } else {
-            None
-        }
+        let mut rx = receiver.lock().await;
+        rx.try_recv().ok()
     }
 
     /// Get tool operation statistics

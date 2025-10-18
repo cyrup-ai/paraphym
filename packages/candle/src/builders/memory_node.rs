@@ -136,7 +136,7 @@ impl MemoryNodeBuilder {
     }
 
     /// Build the memory node with validation using pool for zero-allocation
-    pub fn build(self) -> MemoryResult<MemoryNode> {
+    pub async fn build(self) -> MemoryResult<MemoryNode> {
         let memory_type = self
             .memory_type
             .ok_or_else(|| MemoryError::validation("Memory type is required"))?;
@@ -146,9 +146,11 @@ impl MemoryNodeBuilder {
         let id = self.id.unwrap_or_else(Uuid::new_v4);
 
         // Try to use pooled node for zero-allocation
-        let mut node = if let Some(mut pooled_node) = crate::domain::memory::pool::acquire_pooled_node() {
+        let mut node = if let Some(pooled_result) = crate::domain::memory::pool::acquire_pooled_node().await {
+            // Propagate pool acquisition errors
+            let mut pooled_node = pooled_result?;
             // Initialize the pooled node
-            pooled_node.initialize(content.text.to_string(), memory_type);
+            pooled_node.initialize(content.text.to_string(), memory_type).await?;
             // Take ownership from pool
             pooled_node.take().unwrap_or_else(|| MemoryNode::with_id(id, memory_type, content))
         } else {

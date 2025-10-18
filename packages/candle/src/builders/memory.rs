@@ -35,7 +35,7 @@ pub trait MemoryNodeBuilder {
     fn with_tag(self, tag: impl Into<Arc<str>>) -> impl MemoryNodeBuilder;
     fn with_custom_metadata(self, key: impl Into<Arc<str>>, value: Value)
     -> impl MemoryNodeBuilder;
-    fn build(self) -> MemoryResult<MemoryNode>;
+    async fn build(self) -> MemoryResult<MemoryNode>;
 }
 
 /// Memory system builder trait - main entry point for fluent memory system configuration
@@ -239,7 +239,7 @@ impl MemoryNodeBuilder for MemoryNodeBuilderImpl {
     }
 
     #[inline]
-    fn build(self) -> MemoryResult<MemoryNode> {
+    async fn build(self) -> MemoryResult<MemoryNode> {
         // Extract required fields with proper error handling
         let memory_type = self
             .memory_type

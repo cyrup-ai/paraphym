@@ -30,9 +30,9 @@ use crate::memory::core::manager::surreal::Result as MemoryResult;
 // Candle domain types - self-contained
 
 // Type aliases to reduce complexity warnings
-type OnToolResultHandler = Arc<dyn Fn(&[String]) + Send + Sync>;
+type OnToolResultHandler = Arc<dyn Fn(&[String]) -> Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send + Sync>;
 type OnConversationTurnHandler = Arc<
-    dyn Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>
+    dyn Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> Pin<Box<dyn std::future::Future<Output = Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>> + Send>>
         + Send
         + Sync,
 >;
@@ -205,7 +205,7 @@ impl CandleAgentRoleAgent {
                                             // Call tool result handler if configured
                                             if let Some(ref handler) = on_tool_result_handler {
                                                 let results = vec![format!("{:?}", response)];
-                                                handler(&results);
+                                                handler(&results).await;
                                             }
 
                                             CandleMessageChunk::Text(format!(
@@ -232,7 +232,7 @@ impl CandleAgentRoleAgent {
 
                 // Apply chunk handler if configured (zero allocation for None)
                 let final_chunk = if let Some(ref handler) = on_chunk_handler {
-                    handler(message_chunk)
+                    handler(message_chunk).await
                 } else {
                     message_chunk
                 };
@@ -249,7 +249,8 @@ impl CandleAgentRoleAgent {
                 let agent = CandleAgentRoleAgent {
                     state: state.clone(),
                 };
-                let handler_stream = handler(&conversation, &agent);
+                // Await the async handler to get the stream
+                let handler_stream = handler(&conversation, &agent).await;
                 tokio::pin!(handler_stream);
                 while let Some(chunk) = handler_stream.next().await {
                     let _ = stream_sender.send(chunk);
@@ -277,7 +278,7 @@ struct AgentBuilderState {
     context_github: Option<CandleContext<CandleGithub>>,
     additional_params: std::collections::HashMap<String, String>,
     metadata: std::collections::HashMap<String, String>,
-    on_chunk_handler: Option<Arc<dyn Fn(CandleMessageChunk) -> CandleMessageChunk + Send + Sync>>,
+    on_chunk_handler: Option<Arc<dyn Fn(CandleMessageChunk) -> Pin<Box<dyn std::future::Future<Output = CandleMessageChunk> + Send>> + Send + Sync>>,
     on_tool_result_handler: Option<OnToolResultHandler>,
     on_conversation_turn_handler: Option<OnConversationTurnHandler>,
 }
@@ -349,17 +350,19 @@ pub trait CandleAgentRoleBuilder: Sized + Send {
     #[must_use]
     fn add_mcp_server_config(self, config: McpServerConfig) -> impl CandleAgentRoleBuilder;
 
-    /// Set chunk handler - EXACT syntax: .on_chunk(|chunk| chunk)
+    /// Set chunk handler - EXACT syntax: .on_chunk(|chunk| async move { chunk })
     #[must_use]
-    fn on_chunk<F>(self, handler: F) -> impl CandleAgentRoleBuilder
+    fn on_chunk<F, Fut>(self, handler: F) -> impl CandleAgentRoleBuilder
     where
-        F: Fn(CandleMessageChunk) -> CandleMessageChunk + Send + Sync + 'static;
+        F: Fn(CandleMessageChunk) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = CandleMessageChunk> + Send + 'static;
 
-    /// Set tool result handler - EXACT syntax: .on_tool_result(|results| { ... })
+    /// Set tool result handler - EXACT syntax: .on_tool_result(|results| async move { ... })
     #[must_use]
-    fn on_tool_result<F>(self, handler: F) -> impl CandleAgentRoleBuilder
+    fn on_tool_result<F, Fut>(self, handler: F) -> impl CandleAgentRoleBuilder
     where
-        F: Fn(&[String]) + Send + Sync + 'static;
+        F: Fn(&[String]) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = ()> + Send + 'static;
 
     /// Set conversation turn handler - EXACT syntax: .on_conversation_turn(|conversation, agent| async move { ... })
     #[must_use]
@@ -463,26 +466,26 @@ pub trait CandleAgentBuilder: Sized + Send + Sync {
     #[must_use]
     fn add_mcp_server_config(self, config: McpServerConfig) -> Self;
 
-    /// Set chunk handler - EXACT syntax: .on_chunk(|chunk| chunk)
+    /// Set chunk handler - EXACT syntax: .on_chunk(|chunk| async move { chunk })
     #[must_use]
-    fn on_chunk<F>(self, handler: F) -> Self
+    fn on_chunk<F, Fut>(self, handler: F) -> Self
     where
-        F: Fn(CandleMessageChunk) -> CandleMessageChunk + Send + Sync + 'static;
+        F: Fn(CandleMessageChunk) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = CandleMessageChunk> + Send + 'static;
 
-    /// Set tool result handler - EXACT syntax: .on_tool_result(|results| { ... })
+    /// Set tool result handler - EXACT syntax: .on_tool_result(|results| async move { ... })
     #[must_use]
-    fn on_tool_result<F>(self, handler: F) -> Self
+    fn on_tool_result<F, Fut>(self, handler: F) -> Self
     where
-        F: Fn(&[String]) + Send + Sync + 'static;
+        F: Fn(&[String]) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = ()> + Send + 'static;
 
-    /// Set conversation turn handler - EXACT syntax: .on_conversation_turn(|conversation, agent| { ... })
+    /// Set conversation turn handler - EXACT syntax: .on_conversation_turn(|conversation, agent| async move { ... })
     #[must_use]
-    fn on_conversation_turn<F>(self, handler: F) -> Self
+    fn on_conversation_turn<F, Fut>(self, handler: F) -> Self
     where
-        F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>
-            + Send
-            + Sync
-            + 'static;
+        F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>> + Send + 'static;
 
     /// Set conversation history - EXACT syntax from ARCHITECTURE.md
     /// Supports: .conversation_history(CandleMessageRole::User => "content", CandleMessageRole::System => "content", ...)
@@ -546,7 +549,7 @@ struct CandleAgentRoleBuilderImpl {
     context_github: Option<CandleContext<CandleGithub>>,
     additional_params: std::collections::HashMap<String, String>,
     metadata: std::collections::HashMap<String, String>,
-    on_chunk_handler: Option<Arc<dyn Fn(CandleMessageChunk) -> CandleMessageChunk + Send + Sync>>,
+    on_chunk_handler: Option<Arc<dyn Fn(CandleMessageChunk) -> Pin<Box<dyn std::future::Future<Output = CandleMessageChunk> + Send>> + Send + Sync>>,
     on_tool_result_handler: Option<OnToolResultHandler>,
     on_conversation_turn_handler: Option<OnConversationTurnHandler>,
 }
@@ -791,31 +794,29 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
         self
     }
 
-    /// Set chunk handler - EXACT syntax: .on_chunk(|chunk| chunk)
-    fn on_chunk<F>(mut self, handler: F) -> impl CandleAgentRoleBuilder
+    fn on_chunk<F, Fut>(self, _handler: F) -> impl CandleAgentRoleBuilder
     where
-        F: Fn(CandleMessageChunk) -> CandleMessageChunk + Send + Sync + 'static,
+        F: Fn(CandleMessageChunk) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = CandleMessageChunk> + Send + 'static,
     {
-        self.on_chunk_handler = Some(Arc::new(handler));
+        // Cannot set handler without a model - return self unchanged
         self
     }
 
-    /// Set tool result handler - EXACT syntax: .on_tool_result(|results| { ... })
-    fn on_tool_result<F>(mut self, handler: F) -> impl CandleAgentRoleBuilder
+    fn on_tool_result<F, Fut>(self, _handler: F) -> impl CandleAgentRoleBuilder
     where
-        F: Fn(&[String]) + Send + Sync + 'static,
+        F: Fn(&[String]) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = ()> + Send + 'static,
     {
-        self.on_tool_result_handler = Some(Arc::new(handler));
+        // Cannot set handler without a model - return self unchanged
         self
     }
 
-    /// Set conversation turn handler - EXACT syntax: .on_conversation_turn(|conversation, agent| { ... })
-    fn on_conversation_turn<F>(self, _handler: F) -> impl CandleAgentRoleBuilder
+    /// Set conversation turn handler - EXACT syntax: .on_conversation_turn(|conversation, agent| async move { ... })
+    fn on_conversation_turn<F, Fut>(self, _handler: F) -> impl CandleAgentRoleBuilder
     where
-        F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>> + Send + 'static,
     {
         // Cannot set handler without a model - return self unchanged
         self
@@ -922,7 +923,7 @@ pub struct CandleAgentBuilderImpl {
     context_github: Option<CandleContext<CandleGithub>>,
     additional_params: std::collections::HashMap<String, String>,
     metadata: std::collections::HashMap<String, String>,
-    on_chunk_handler: Option<Arc<dyn Fn(CandleMessageChunk) -> CandleMessageChunk + Send + Sync>>,
+    on_chunk_handler: Option<Arc<dyn Fn(CandleMessageChunk) -> Pin<Box<dyn std::future::Future<Output = CandleMessageChunk> + Send>> + Send + Sync>>,
     on_tool_result_handler: Option<OnToolResultHandler>,
     on_conversation_turn_handler: Option<OnConversationTurnHandler>,
 }
@@ -1048,31 +1049,37 @@ impl CandleAgentRoleBuilder for CandleAgentBuilderImpl {
         self
     }
 
-    fn on_chunk<F>(mut self, handler: F) -> impl CandleAgentRoleBuilder
+    fn on_chunk<F, Fut>(mut self, handler: F) -> impl CandleAgentRoleBuilder
     where
-        F: Fn(CandleMessageChunk) -> CandleMessageChunk + Send + Sync + 'static,
+        F: Fn(CandleMessageChunk) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = CandleMessageChunk> + Send + 'static,
     {
-        self.on_chunk_handler = Some(Arc::new(handler));
+        let wrapped = move |chunk: CandleMessageChunk| Box::pin(handler(chunk)) as Pin<Box<dyn std::future::Future<Output = CandleMessageChunk> + Send>>;
+        self.on_chunk_handler = Some(Arc::new(wrapped));
         self
     }
 
-    fn on_tool_result<F>(mut self, handler: F) -> impl CandleAgentRoleBuilder
+    fn on_tool_result<F, Fut>(mut self, handler: F) -> impl CandleAgentRoleBuilder
     where
-        F: Fn(&[String]) + Send + Sync + 'static,
+        F: Fn(&[String]) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = ()> + Send + 'static,
     {
-        self.on_tool_result_handler = Some(Arc::new(handler));
+        let wrapped = move |results: &[String]| Box::pin(handler(results)) as Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
+        self.on_tool_result_handler = Some(Arc::new(wrapped));
         self
     }
 
-    /// Set conversation turn handler - EXACT syntax: .on_conversation_turn(|conversation, agent| { ... })
-    fn on_conversation_turn<F>(mut self, handler: F) -> impl CandleAgentRoleBuilder
+    /// Set conversation turn handler - EXACT syntax: .on_conversation_turn(|conversation, agent| async move { ... })
+    fn on_conversation_turn<F, Fut>(mut self, handler: F) -> impl CandleAgentRoleBuilder
     where
-        F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>> + Send + 'static,
     {
-        self.on_conversation_turn_handler = Some(Arc::new(handler));
+        // Wrap the async handler to match the type alias
+        let wrapped_handler = move |conv: &CandleAgentConversation, agent: &CandleAgentRoleAgent| {
+            Box::pin(handler(conv, agent)) as Pin<Box<dyn std::future::Future<Output = Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>> + Send>>
+        };
+        self.on_conversation_turn_handler = Some(Arc::new(wrapped_handler));
         self
     }
 
@@ -1241,30 +1248,36 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
         self
     }
 
-    fn on_chunk<F>(mut self, handler: F) -> Self
+    fn on_chunk<F, Fut>(mut self, handler: F) -> Self
     where
-        F: Fn(CandleMessageChunk) -> CandleMessageChunk + Send + Sync + 'static,
+        F: Fn(CandleMessageChunk) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = CandleMessageChunk> + Send + 'static,
     {
-        self.on_chunk_handler = Some(Arc::new(handler));
+        let wrapped = move |chunk: CandleMessageChunk| Box::pin(handler(chunk)) as Pin<Box<dyn std::future::Future<Output = CandleMessageChunk> + Send>>;
+        self.on_chunk_handler = Some(Arc::new(wrapped));
         self
     }
 
-    fn on_tool_result<F>(mut self, handler: F) -> Self
+    fn on_tool_result<F, Fut>(mut self, handler: F) -> Self
     where
-        F: Fn(&[String]) + Send + Sync + 'static,
+        F: Fn(&[String]) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = ()> + Send + 'static,
     {
-        self.on_tool_result_handler = Some(Arc::new(handler));
+        let wrapped = move |results: &[String]| Box::pin(handler(results)) as Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
+        self.on_tool_result_handler = Some(Arc::new(wrapped));
         self
     }
 
-    fn on_conversation_turn<F>(mut self, handler: F) -> Self
+    fn on_conversation_turn<F, Fut>(mut self, handler: F) -> Self
     where
-        F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>> + Send + 'static,
     {
-        self.on_conversation_turn_handler = Some(Arc::new(handler));
+        // Wrap the async handler to match the type alias
+        let wrapped_handler = move |conv: &CandleAgentConversation, agent: &CandleAgentRoleAgent| {
+            Box::pin(handler(conv, agent)) as Pin<Box<dyn std::future::Future<Output = Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>> + Send>>
+        };
+        self.on_conversation_turn_handler = Some(Arc::new(wrapped_handler));
         self
     }
 
@@ -1694,7 +1707,7 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                                                         // Call tool result handler if configured (zero allocation for None)
                                                         if let Some(ref handler) = on_tool_result_handler {
                                                             let results = vec![format!("{:?}", response)];
-                                                            handler(&results);
+                                                            handler(&results).await;
                                                         }
 
                                                         // Convert response to text result
@@ -1731,7 +1744,7 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
 
                             // Apply chunk handler if configured (zero allocation for None)
                             let final_chunk = if let Some(ref handler) = on_chunk_handler {
-                                handler(message_chunk)
+                                handler(message_chunk).await
                             } else {
                                 message_chunk
                             };
@@ -1842,8 +1855,8 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                                 state: builder_state,
                             };
 
-                            // Call handler and forward its stream
-                            let handler_stream = handler(&conversation, &agent);
+                            // Call handler and await the future to get the stream
+                            let handler_stream = handler(&conversation, &agent).await;
                             tokio::pin!(handler_stream);
                             while let Some(chunk) = handler_stream.next().await {
                                 let _ = sender.send(chunk);
@@ -1928,7 +1941,7 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
 
                 // Apply chunk handler if configured (zero allocation for None)
                 let final_chunk = if let Some(ref handler) = on_chunk_handler {
-                    handler(message_chunk)
+                    handler(message_chunk).await
                 } else {
                     message_chunk
                 };
