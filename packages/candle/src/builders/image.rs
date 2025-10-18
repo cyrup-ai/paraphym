@@ -113,6 +113,21 @@ pub trait ImageBuilder: Sized {
         Box<dyn std::future::Future<Output = Result<candle_core::Tensor, String>> + Send + '_>,
     >;
 
+    /// Synchronous tensor creation for use in spawn_blocking contexts - EXACT syntax: .to_tensor_sync(device)
+    ///
+    /// This method performs the same operations as `to_tensor()` but without
+    /// async wrapping, making it suitable for use inside `spawn_blocking`.
+    ///
+    /// Executes the complete image processing pipeline:
+    /// 1. Load image from source (base64/URL/path)
+    /// 2. Apply image-level operations (resize, RGB conversion)
+    /// 3. Convert image to tensor (HWC→CHW, u8→f32)
+    /// 4. Apply tensor-level operations (normalize, clamp)
+    /// 5. Transfer to target device
+    ///
+    /// Returns Result<Tensor, String> synchronously.
+    fn to_tensor_sync(self, device: &candle_core::Device) -> Result<candle_core::Tensor, String>;
+
     /// Set error handler - EXACT syntax: .on_error(|error| { ... })
     /// Zero-allocation: uses generic function pointer instead of Box<dyn>
     fn on_error<F>(self, handler: F) -> impl ImageBuilder
@@ -425,6 +440,50 @@ where
 
             Ok(tensor)
         })
+    }
+
+    /// Synchronous tensor creation for use in spawn_blocking contexts
+    ///
+    /// This method performs the same operations as `to_tensor()` but without
+    /// async wrapping, making it suitable for use inside `spawn_blocking`.
+    ///
+    /// Executes the complete image processing pipeline:
+    /// 1. Load image from source (base64/URL/path)
+    /// 2. Apply image-level operations (resize, RGB conversion)
+    /// 3. Convert image to tensor (HWC→CHW, u8→f32)
+    /// 4. Apply tensor-level operations (normalize, clamp)
+    /// 5. Transfer to target device
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use paraphym_candle::builders::image::{Image, ResizeFilter};
+    /// # use candle_core::Device;
+    /// # fn example() -> Result<(), String> {
+    /// let device = Device::Cpu;
+    /// let tensor = Image::from_path("image.jpg")
+    ///     .resize(224, 224, ResizeFilter::Triangle)
+    ///     .normalize_signed()
+    ///     .to_tensor_sync(&device)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn to_tensor_sync(self, device: &candle_core::Device) -> Result<candle_core::Tensor, String> {
+        // Step 1: Load image from source (base64/URL/path)
+        let img = self.load_image_from_source()?;
+        
+        // Step 2: Apply image-level operations (resize, RGB conversion)
+        let img = self.apply_image_operations(img)?;
+        
+        // Step 3: Convert image to tensor (HWC→CHW, u8→f32)
+        let tensor = self.image_to_tensor(img)?;
+        
+        // Step 4: Apply tensor-level operations (normalize, clamp)
+        let tensor = self.apply_tensor_operations(tensor)?;
+        
+        // Step 5: Transfer to target device
+        let tensor = self.transfer_to_device(tensor, device)?;
+        
+        Ok(tensor)
     }
 
     /// Set error handler - EXACT syntax: .on_error(|error| { ... })

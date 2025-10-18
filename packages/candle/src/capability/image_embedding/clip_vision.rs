@@ -701,10 +701,8 @@ impl crate::capability::traits::ImageEmbeddingCapable for LoadedClipVisionModel 
                     .normalize_with(image_mean, image_std);
 
                 // Convert to tensor (CPU-intensive)
-                // Note: to_tensor is async but internally sync, so we use block_on
-                let rt = tokio::runtime::Handle::current();
-                let image_tensor = rt
-                    .block_on(image_builder.to_tensor(&device))
+                let image_tensor = image_builder
+                    .to_tensor_sync(&device)
                     .map_err(|e| format!("Image preprocessing failed: {}", e))?;
 
                 // Add batch dimension (CPU-intensive)
@@ -788,9 +786,8 @@ impl crate::capability::traits::ImageEmbeddingCapable for LoadedClipVisionModel 
                     .normalize_with(image_mean, image_std);
 
                 // Convert to tensor (CPU-intensive)
-                let rt = tokio::runtime::Handle::current();
-                let image_tensor = rt
-                    .block_on(image_builder.to_tensor(&device))
+                let image_tensor = image_builder
+                    .to_tensor_sync(&device)
                     .map_err(|e| format!("Image URL preprocessing failed: {}", e))?;
 
                 // Add batch dimension (CPU-intensive)
@@ -874,9 +871,8 @@ impl crate::capability::traits::ImageEmbeddingCapable for LoadedClipVisionModel 
                     .normalize_with(image_mean, image_std);
 
                 // Convert to tensor (CPU-intensive)
-                let rt = tokio::runtime::Handle::current();
-                let image_tensor = rt
-                    .block_on(image_builder.to_tensor(&device))
+                let image_tensor = image_builder
+                    .to_tensor_sync(&device)
                     .map_err(|e| format!("Base64 image preprocessing failed: {}", e))?;
 
                 // Add batch dimension (CPU-intensive)
@@ -953,8 +949,6 @@ impl crate::capability::traits::ImageEmbeddingCapable for LoadedClipVisionModel 
 
             // Wrap ALL CPU-intensive operations in spawn_blocking
             let embeddings = tokio::task::spawn_blocking(move || {
-                let rt = tokio::runtime::Handle::current();
-
                 // Preprocess all images (CPU-intensive)
                 let mut tensors = Vec::with_capacity(paths.len());
                 for path in &paths {
@@ -963,8 +957,8 @@ impl crate::capability::traits::ImageEmbeddingCapable for LoadedClipVisionModel 
                         .normalize_unsigned()
                         .normalize_with(image_mean, image_std);
 
-                    let tensor = rt
-                        .block_on(image_builder.to_tensor(&device))
+                    let tensor = image_builder
+                        .to_tensor_sync(&device)
                         .map_err(|e| format!("Image preprocessing failed for {}: {}", path, e))?;
 
                     tensors.push(tensor);
