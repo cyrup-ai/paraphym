@@ -30,19 +30,17 @@ use crate::domain::context::WorkflowDataChunk;
 ///
 /// ## Example
 /// ```rust,no_run
-/// use paraphym_candle::workflow::{CandleWorkflowStep, CandleWorkflow};
+/// use paraphym_candle::workflow::{CandleWorkflowStep, WorkflowDataChunk};
 /// use tokio_stream::Stream;
+/// use std::pin::Pin;
 ///
-/// struct SimpleStep;
+/// struct ProcessingStep;
 ///
-/// impl CandleWorkflowStep<String, String> for SimpleStep {
-///     fn execute(&self, input: String) -> Pin<Box<dyn Stream<Item = String> + Send>> {
-///         // Real execution logic here - no mocking, no Result wrapping
-///         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-///             match process_input(&input) {
-///                 Ok(result) => { let _ = tx.send(format!("Processed: {}", result)); },
-///                 Err(e) => { /* handle error */ },
-///             }
+/// impl CandleWorkflowStep<WorkflowDataChunk, WorkflowDataChunk> for ProcessingStep {
+///     fn execute(&self, input: WorkflowDataChunk) -> Pin<Box<dyn Stream<Item = WorkflowDataChunk> + Send>> {
+///         Box::pin(paraphym_candle::async_stream::spawn_stream(move |tx| async move {
+///             // Real execution logic - process the input chunk
+///             let _ = tx.send(input);
 ///         }))
 ///     }
 /// }

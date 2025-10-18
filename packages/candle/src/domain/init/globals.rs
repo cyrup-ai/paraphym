@@ -85,7 +85,7 @@ use tokio::sync::{mpsc, Mutex};
 use arc_swap::ArcSwap;
 use atomic_counter::RelaxedCounter;
 
-use crate::domain::error::SimpleCircuitBreaker;
+use crate::domain::error::CircuitBreaker;
 // Temporarily disabled to break circular dependency
 // use crate::memory::{MemoryConfig, SurrealDBMemoryManager};
 // use crate::memory::core::MemoryMetadata;
@@ -112,8 +112,8 @@ pub static CONNECTION_POOL: LazyLock<MemoryManagerPool> =
     });
 
 /// Circuit breaker for error recovery with exponential backoff
-pub static CIRCUIT_BREAKER: LazyLock<SimpleCircuitBreaker> =
-    LazyLock::new(|| SimpleCircuitBreaker::new(5, 30000)); // 30 seconds in milliseconds
+pub static CIRCUIT_BREAKER: LazyLock<CircuitBreaker> =
+    LazyLock::new(|| CircuitBreaker::new(5, 30000)); // 30 seconds in milliseconds
 
 /// Global initialization statistics for monitoring
 pub static INIT_STATS: LazyLock<RelaxedCounter> =

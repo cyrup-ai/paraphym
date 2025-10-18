@@ -29,9 +29,9 @@ pub enum CircuitBreakerState {
     HalfOpen,
 }
 
-/// Simple production-quality circuit breaker implementation
+/// Production circuit breaker implementation
 #[derive(Debug)]
-pub struct SimpleCircuitBreaker {
+pub struct CircuitBreaker {
     /// Current state
     state: AtomicU64, // 0=Closed, 1=Open, 2=HalfOpen
     /// Failure count
@@ -44,7 +44,7 @@ pub struct SimpleCircuitBreaker {
     recovery_timeout_ms: u64,
 }
 
-impl SimpleCircuitBreaker {
+impl CircuitBreaker {
     /// Create new circuit breaker
     #[must_use]
     pub fn new(failure_threshold: u64, recovery_timeout_ms: u64) -> Self {
@@ -521,7 +521,7 @@ impl Default for ErrorCounter {
 #[derive(Debug)]
 pub struct ErrorCircuitBreaker {
     /// Circuit breaker instance
-    breaker: SimpleCircuitBreaker,
+    breaker: CircuitBreaker,
     /// Error counter for statistics
     counter: ErrorCounter,
     /// Failure threshold
@@ -539,7 +539,7 @@ impl ErrorCircuitBreaker {
     #[inline]
     #[must_use]
     pub fn new(failure_threshold: usize, recovery_timeout: Duration) -> Self {
-        let breaker = SimpleCircuitBreaker::new(
+        let breaker = CircuitBreaker::new(
             failure_threshold as u64,
             duration_to_millis_u64(recovery_timeout),
         );
