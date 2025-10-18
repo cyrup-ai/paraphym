@@ -1414,10 +1414,21 @@ impl CognitiveState {
     /// * `source_id` - Source memory ID
     /// * `target_id` - Target memory ID  
     /// * `strength` - Causal strength [0.0, 1.0]
-    pub fn add_temporal_causal_link(&mut self, source_id: Uuid, target_id: Uuid, strength: f32) {
-        // Calculate temporal distance (milliseconds)
-        // For now, use sequence-based distance as proxy
-        let temporal_distance = 0i64; // Placeholder - would need memory timestamp lookup
+    /// * `source_time` - Creation time of source memory
+    /// * `target_time` - Creation time of target memory
+    pub fn add_temporal_causal_link(
+        &mut self,
+        source_id: Uuid,
+        target_id: Uuid,
+        strength: f32,
+        source_time: SystemTime,
+        target_time: SystemTime,
+    ) {
+        // Calculate temporal distance (milliseconds) from provided timestamps
+        let duration = target_time.duration_since(source_time)
+            .unwrap_or_else(|_| source_time.duration_since(target_time).unwrap_or_default());
+        
+        let temporal_distance = duration.as_millis() as i64;
 
         // Create causal link
         let link = CausalLink::new(

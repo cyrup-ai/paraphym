@@ -1384,11 +1384,7 @@ pub struct MacroProcessor {
     /// Execution statistics
     stats: Arc<MacroProcessorStats>,
     /// Variable context for macro execution
-    #[allow(dead_code)] // TODO: Implement variable system for macro expansion
     variables: Arc<RwLock<HashMap<String, String>>>,
-    /// Execution queue for async processing
-    #[allow(dead_code)] // TODO: Implement in macro execution system
-    execution_queue: Arc<Mutex<Vec<MacroExecutionRequest>>>,
     /// Configuration settings
     config: MacroProcessorConfig,
 }
@@ -1454,21 +1450,6 @@ pub struct MacroProcessorConfig {
     pub flags: MacroFeatureFlags,
     /// Maximum macro recursion depth
     pub max_recursion_depth: usize,
-}
-
-/// Macro execution request
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MacroExecutionRequest {
-    /// Macro ID to execute
-    pub macro_id: Uuid,
-    /// Execution context variables
-    pub context_variables: HashMap<String, String>,
-    /// Execution timeout override
-    pub timeout_override: Option<Duration>,
-    /// Execution priority (higher = more priority)
-    pub priority: u32,
-    /// Request timestamp
-    pub requested_at: Duration,
 }
 
 /// Macro execution result
@@ -1558,7 +1539,6 @@ impl MacroProcessor {
             macros: Arc::new(SkipMap::new()),
             stats: Arc::new(MacroProcessorStats::default()),
             variables: Arc::new(RwLock::new(HashMap::new())),
-            execution_queue: Arc::new(Mutex::new(Vec::new())),
             config: MacroProcessorConfig::default(),
         }
     }
@@ -1570,7 +1550,6 @@ impl MacroProcessor {
             macros: Arc::new(SkipMap::new()),
             stats: Arc::new(MacroProcessorStats::default()),
             variables: Arc::new(RwLock::new(HashMap::new())),
-            execution_queue: Arc::new(Mutex::new(Vec::new())),
             config,
         }
     }
