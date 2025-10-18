@@ -468,15 +468,24 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleNvEmbedEmbeddingM
 ///
 /// ## Memory Layout
 /// - tokenizer: Tokenizer (configured with EOS padding)
-/// - model: Mutex<NvEmbedModel> (interior mutability for &self -> &mut forwarding)
+/// - model: Arc<std::sync::Mutex<NvEmbedModel>> (thread-safe interior mutability)
 /// - device: Device (CUDA or CPU)
 ///
-/// Uses Mutex for interior mutability to implement TextEmbeddingCapable trait.
-#[derive(Debug)]
+/// Uses Arc<std::sync::Mutex> for thread-safe interior mutability in spawn_blocking context.
+#[derive(Clone)]
 pub struct LoadedNvEmbedModel {
     tokenizer: Tokenizer,
-    model: std::sync::Mutex<NvEmbedModel>,
+    model: std::sync::Arc<std::sync::Mutex<NvEmbedModel>>,
     device: Device,
+}
+
+impl std::fmt::Debug for LoadedNvEmbedModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoadedNvEmbedModel")
+            .field("device", &self.device)
+            .field("model", &"Arc<Mutex<NvEmbedModel>>")
+            .finish()
+    }
 }
 
 impl LoadedNvEmbedModel {
@@ -571,7 +580,7 @@ impl LoadedNvEmbedModel {
 
         Ok(Self {
             tokenizer,
-            model: std::sync::Mutex::new(model),
+            model: std::sync::Arc::new(std::sync::Mutex::new(model)),
             device,
         })
     }
@@ -600,26 +609,41 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedNvEmbedModel {
         >,
     > {
         let text = text.to_string();
+        // Clone for move into spawn_blocking
+        let tokenizer = self.tokenizer.clone();
+        let model = self.model.clone();
+        let device = self.device.clone();
+        
         Box::pin(async move {
-            // Lock mutex to get mutable access to model
-            let mut model = self
-                .model
-                .lock()
-                .map_err(|e| format!("Failed to lock model mutex: {}", e))?;
+            // Wrap CPU-intensive operations in spawn_blocking to avoid blocking async runtime
+            // This includes: tokenization (I/O), model forward pass (CPU), and tensor ops (CPU)
+            let embeddings = tokio::task::spawn_blocking(move || {
+                // Lock mutex to get mutable access to model (synchronous lock in blocking context)
+                let mut model_guard = model
+                    .lock()
+                    .map_err(|e| crate::memory::utils::error::Error::ModelError(format!("Failed to lock model mutex: {}", e)))?;
+                
+                CandleNvEmbedEmbeddingModel::forward_pass_with_instruction(
+                    &tokenizer,
+                    &mut model_guard,
+                    &device,
+                    &[&text],
+                    task.as_deref(),
+                )
+            })
+            .await
+            .map_err(|e| {
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Spawn blocking failed: {}", e),
+                )) as Box<dyn std::error::Error + Send + Sync>
+            })?
+            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as Box<dyn std::error::Error + Send + Sync>)?;
 
-        let embeddings = CandleNvEmbedEmbeddingModel::forward_pass_with_instruction(
-            &self.tokenizer,
-            &mut model,
-            &self.device,
-            &[&text],
-            task.as_deref(),
-        )
-        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
-
-        embeddings
-            .into_iter()
-            .next()
-            .ok_or_else(|| "No embeddings generated".into())
+            embeddings
+                .into_iter()
+                .next()
+                .ok_or_else(|| "No embeddings generated".into())
         })
     }
 
@@ -639,22 +663,39 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedNvEmbedModel {
         >,
     > {
         let texts = texts.to_vec();
+        // Clone for move into spawn_blocking
+        let tokenizer = self.tokenizer.clone();
+        let model = self.model.clone();
+        let device = self.device.clone();
+        
         Box::pin(async move {
-            // Lock mutex to get mutable access to model
-            let mut model = self
-                .model
-                .lock()
-                .map_err(|e| format!("Failed to lock model mutex: {}", e))?;
+            // Wrap CPU-intensive operations in spawn_blocking to avoid blocking async runtime
+            // This includes: tokenization (I/O), model forward pass (CPU), and tensor ops (CPU)
+            let embeddings = tokio::task::spawn_blocking(move || {
+                // Lock mutex to get mutable access to model (synchronous lock in blocking context)
+                let mut model_guard = model
+                    .lock()
+                    .map_err(|e| crate::memory::utils::error::Error::ModelError(format!("Failed to lock model mutex: {}", e)))?;
+                
+                let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+                CandleNvEmbedEmbeddingModel::forward_pass_with_instruction(
+                    &tokenizer,
+                    &mut model_guard,
+                    &device,
+                    &text_refs,
+                    task.as_deref(),
+                )
+            })
+            .await
+            .map_err(|e| {
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Spawn blocking failed: {}", e),
+                )) as Box<dyn std::error::Error + Send + Sync>
+            })?
+            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as Box<dyn std::error::Error + Send + Sync>)?;
 
-            let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
-            CandleNvEmbedEmbeddingModel::forward_pass_with_instruction(
-                &self.tokenizer,
-                &mut model,
-                &self.device,
-                &text_refs,
-                task.as_deref(),
-            )
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            Ok(embeddings)
         })
     }
 

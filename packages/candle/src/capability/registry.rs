@@ -291,6 +291,7 @@ impl TextToTextCapable for TextToTextModel {
                                 registry_key,
                                 move || async move {
                                     LoadedQwen3CoderModel::load(&m_clone)
+                                        .await
                                         .map_err(|e| PoolError::SpawnFailed(e.to_string()))
                                 },
                                 per_worker_mb,

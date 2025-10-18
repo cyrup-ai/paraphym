@@ -555,27 +555,27 @@ fn validate_model_path(path: &str) -> Result<(), Box<dyn std::error::Error + Sen
 
 /// Loaded Qwen3 Coder model that keeps resources in memory for worker threads
 ///
-/// This model pre-loads the tokenizer and device configuration, avoiding
-/// disk I/O on every request. The GGUF model is still loaded lazily due to size.
-#[derive(Clone, Debug)]
+/// This model pre-loads the actual model into memory with safe async mutable access,
+/// avoiding disk I/O on every request.
+#[derive(Clone)]
 pub struct LoadedQwen3CoderModel {
+    /// The ACTUAL loaded model - cached in memory with Mutex for safe async mutable access
+    model: Arc<tokio::sync::Mutex<crate::core::generation::models::CandleQuantizedLlamaModel>>,
     tokenizer: tokenizers::Tokenizer,
-    gguf_file_path: String,
-    model_path: String,
     device: candle_core::Device,
-    model_config: LlamaConfig,
     engine: Arc<Engine>,
-    max_context: u64,
 }
 
 impl LoadedQwen3CoderModel {
     /// Load model resources into memory (called once per worker)
     ///
-    /// This method loads the tokenizer and detects the device once,
-    /// storing them for reuse across multiple requests.
-    pub fn load(
+    /// This method loads EVERYTHING once: model, tokenizer, device.
+    /// The model stays in memory for all subsequent requests.
+    pub async fn load(
         base: &CandleQwen3CoderModel,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        log::info!("🔄 LoadedQwen3CoderModel::load() - Loading model into memory ONCE");
+        
         // Get file paths
         let gguf_file_path = std::path::PathBuf::from(&base.gguf_file_path);
         let tokenizer_path = std::path::PathBuf::from(&base.model_path).join("tokenizer.json");
@@ -595,8 +595,17 @@ impl LoadedQwen3CoderModel {
             candle_core::Device::Cpu
         });
 
-        // Load tokenizer
-        let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer_path).map_err(|e| {
+        // Load tokenizer - CRITICAL: Use spawn_blocking for sync I/O
+        log::info!("📝 Loading tokenizer from {}", tokenizer_path.display());
+        let tokenizer = tokio::task::spawn_blocking(move || {
+            tokenizers::Tokenizer::from_file(&tokenizer_path)
+        })
+        .await
+        .map_err(|e| {
+            Box::from(format!("Failed to spawn blocking task: {}", e))
+                as Box<dyn std::error::Error + Send + Sync>
+        })?
+        .map_err(|e| {
             Box::from(format!("Failed to load tokenizer: {}", e))
                 as Box<dyn std::error::Error + Send + Sync>
         })?;
@@ -606,14 +615,62 @@ impl LoadedQwen3CoderModel {
             .map(|t| t.get() as u64)
             .unwrap_or(32768);
 
+        // CRITICAL: Load the model ONCE and cache it
+        log::info!("🔥 Loading Qwen3 Coder model from {} - THIS HAPPENS ONCE", gguf_file_path.display());
+        
+        // Create model configuration for the quantized model
+        use crate::core::ModelConfig as CandleConfig;
+        let model_config = base.model_config.clone();
+        let gguf_file_path_str = gguf_file_path.to_string_lossy().to_string();
+        
+        let candle_model_config = Arc::new(
+            CandleConfig::new(
+                &gguf_file_path_str,
+                format!("{}/tokenizer.json", model_path),
+                crate::core::ModelArchitecture::Llama(
+                    candle_transformers::models::llama::Config {
+                        hidden_size: model_config.hidden_size,
+                        intermediate_size: model_config.intermediate_size,
+                        vocab_size: model_config.vocab_size,
+                        num_hidden_layers: model_config.num_hidden_layers,
+                        num_attention_heads: model_config.num_attention_heads,
+                        num_key_value_heads: model_config
+                            .num_key_value_heads
+                            .unwrap_or(model_config.num_attention_heads),
+                        use_flash_attn: false,
+                        rms_norm_eps: model_config.rms_norm_eps,
+                        rope_theta: model_config.rope_theta,
+                        bos_token_id: model_config.bos_token_id,
+                        eos_token_id: model_config.eos_token_id.clone(),
+                        rope_scaling: model_config.rope_scaling.clone(),
+                        max_position_embeddings: model_config.max_position_embeddings,
+                        tie_word_embeddings: model_config.tie_word_embeddings.unwrap_or(false),
+                    },
+                ),
+                "qwen-coder",
+                "qwen-coder",
+            )
+            .with_vocab_size(model_config.vocab_size)
+            .with_context_length(max_context as usize)
+            .with_dtype(DType::F16),
+        );
+
+        let model = crate::core::generation::models::CandleQuantizedLlamaModel::from_gguf_path(
+            &gguf_file_path_str,
+            device.clone(),
+            candle_model_config,
+        ).await.map_err(|e| {
+            Box::from(format!("Failed to load model: {}", e))
+                as Box<dyn std::error::Error + Send + Sync>
+        })?;
+        
+        log::info!("✅ Model loaded into memory! All future requests will reuse this cached model.");
+
         Ok(Self {
+            model: Arc::new(tokio::sync::Mutex::new(model)),  // Cache the loaded model with Mutex for safe async access!
             tokenizer,
-            gguf_file_path: gguf_file_path.to_string_lossy().to_string(),
-            model_path,
             device,
-            model_config: base.model_config.clone(),
             engine: Arc::clone(&base.engine),
-            max_context,
         })
     }
 }
@@ -625,22 +682,27 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3CoderModel {
         params: &CandleCompletionParams,
     ) -> Pin<Box<dyn Stream<Item = CandleCompletionChunk> + Send>> {
         // Clone pre-loaded resources for the generation closure
-        let engine = Arc::clone(&self.engine);
-        let gguf_file_path = self.gguf_file_path.clone();
-        let model_path = self.model_path.clone();
+        let engine = self.engine.clone();
+        let model = self.model.clone();  // ✅ Use CACHED model
         let device = self.device.clone();
         let tokenizer = self.tokenizer.clone(); // ✅ Clone pre-loaded tokenizer
-        let model_config = self.model_config.clone();
-        let max_context = self.max_context;
+        
+        log::info!("🚀 Using CACHED model from memory - no loading needed!");
 
-        // Extract top_k and top_p with priority: params > ModelInfo > None
+        // Build sampling config
+        let temperature = if params.temperature != 1.0 {
+            params.temperature
+        } else {
+            QWEN3_CODER_MODEL_INFO.default_temperature.unwrap_or(0.7)
+        };
+
+        // Extract additional params or use defaults
         let top_k = params
             .additional_params
             .as_ref()
             .and_then(|p| p.get("top_k"))
             .and_then(|v| v.as_u64())
-            .map(|v| v as usize)
-            .or(QWEN3_CODER_MODEL_INFO.default_top_k.map(|k| k as usize));
+            .map(|v| v as usize);
 
         let top_p = params
             .additional_params
@@ -649,104 +711,65 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3CoderModel {
             .and_then(|v| v.as_f64())
             .or(QWEN3_CODER_MODEL_INFO.default_top_p);
 
-        // Build sampling config with extracted parameters
-        let mut sampling_config =
-            crate::core::generation::SamplingConfig::new(params.temperature as f32);
-
-        if let Some(k) = top_k {
-            sampling_config = sampling_config.with_top_k(k);
-        }
-        if let Some(p) = top_p {
-            sampling_config = sampling_config.with_top_p(p);
-        }
-
-        sampling_config = sampling_config
-            .with_repetition_penalty(1.0)
-            .with_frequency_penalty(0.0)
-            .with_presence_penalty(0.0);
-
-        // Format prompt
+        // Format prompt text
         let prompt_text = format!("User: {}\nAssistant: ", prompt);
         let max_tokens = params.max_tokens.map(|n| n.get()).unwrap_or(1000);
 
         // Use Engine's coordinate_generation for automatic metrics and stream conversion
         Box::pin(engine.coordinate_generation(move || {
-            use crate::core::ModelConfig as CandleConfig;
             use crate::core::generation::{
-                generator::TextGenerator, models::CandleQuantizedLlamaModel, tokens::SpecialTokens,
+                SamplingConfig, generator::TextGenerator,
+                tokens::SpecialTokens,
+                models::CandleModel as CandleModelTrait,
             };
-            use std::sync::Arc;
             use tokio_stream::StreamExt;
 
             async_stream::spawn_stream(move |tx| async move {
-                // Create model configuration for the quantized model
-                let candle_model_config = Arc::new(
-                CandleConfig::new(
-                    &gguf_file_path,
-                    format!("{}/tokenizer.json", model_path),
-                    crate::core::ModelArchitecture::Llama(
-                        candle_transformers::models::llama::Config {
-                            hidden_size: model_config.hidden_size,
-                            intermediate_size: model_config.intermediate_size,
-                            vocab_size: model_config.vocab_size,
-                            num_hidden_layers: model_config.num_hidden_layers,
-                            num_attention_heads: model_config.num_attention_heads,
-                            num_key_value_heads: model_config
-                                .num_key_value_heads
-                                .unwrap_or(model_config.num_attention_heads),
-                            use_flash_attn: false,
-                            rms_norm_eps: model_config.rms_norm_eps,
-                            rope_theta: model_config.rope_theta,
-                            bos_token_id: model_config.bos_token_id,
-                            eos_token_id: model_config.eos_token_id.clone(),
-                            rope_scaling: model_config.rope_scaling.clone(),
-                            max_position_embeddings: model_config.max_position_embeddings,
-                            tie_word_embeddings: model_config.tie_word_embeddings.unwrap_or(false),
-                        },
-                    ),
-                    "qwen-coder",
-                    "qwen-coder",
-                )
-                .with_vocab_size(model_config.vocab_size)
-                .with_context_length(max_context as usize)
-                .with_dtype(DType::F16),
-            );
+                // Use CACHED model - NO LOADING!
+                log::info!("✅ Using cached model from memory - no disk I/O!");
 
-                // Load the quantized model - send error and return on failure
-                let quantized_model = match CandleQuantizedLlamaModel::from_gguf_path(
-                    &gguf_file_path,
-                    device.clone(),
-                    candle_model_config,
-                ).await {
-                    Ok(model) => model,
-                    Err(e) => {
-                        let _ = tx.send(CandleStringChunk(format!(
-                            "ERROR: Failed to load quantized model: {}",
-                            e
-                        )));
-                        return;
-                    }
+                // Get vocab_size from the model (need to lock mutex briefly)
+                let vocab_size = {
+                    let model_guard = model.lock().await;
+                    model_guard.vocab_size()
                 };
 
-                // Create TextGenerator with real model and pre-loaded tokenizer
+                // Build sampling config with extracted parameters
+                let mut sampling_config = SamplingConfig::new(temperature as f32);
+
+                if let Some(k) = top_k {
+                    sampling_config = sampling_config.with_top_k(k);
+                }
+                if let Some(p) = top_p {
+                    sampling_config = sampling_config.with_top_p(p);
+                }
+
+                sampling_config = sampling_config
+                    .with_repetition_penalty(1.0)
+                    .with_frequency_penalty(0.0)
+                    .with_presence_penalty(0.0);
+
+                // Create TextGenerator with CACHED model and pre-loaded tokenizer
+                // Use SharedQwen3Model wrapper to share the Arc<Mutex<Model>> across generate() calls
                 let text_generator = TextGenerator::new(
-                    Box::new(quantized_model),
+                    Box::new(SharedQwen3Model { 
+                        model: model.clone(),
+                        device: device.clone(),
+                        vocab_size,
+                    }),
                     tokenizer, // ✅ Use pre-loaded tokenizer (no disk I/O)
                     device,
                     sampling_config,
                 );
 
-                // Set up special tokens
+                // Set up special tokens for Qwen3 Coder
                 let special_tokens = SpecialTokens {
-                    bos_token_id: Some(model_config.bos_token_id.unwrap_or(1)),
-                    eos_token_id: match &model_config.eos_token_id {
-                        Some(candle_transformers::models::llama::LlamaEosToks::Single(id)) => Some(*id),
-                        _ => Some(2),
-                    },
+                    bos_token_id: Some(1),
+                    eos_token_id: Some(2),
                     pad_token_id: None,
                 };
 
-                // Convert u64 to u32, capping at u32::MAX if necessary
+                // Convert max_tokens to u32
                 let max_tokens_u32 = max_tokens.try_into().unwrap_or_else(|_| {
                     log::warn!(
                         "max_tokens value {} exceeds u32::MAX, capping at {}",
@@ -765,6 +788,41 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3CoderModel {
                 }
             })
         }))
+    }
+}
+
+/// Wrapper to share Arc<Mutex<CandleQuantizedLlamaModel>> safely across generations
+/// This provides safe async mutable access to the cached model
+struct SharedQwen3Model {
+    model: Arc<tokio::sync::Mutex<crate::core::generation::models::CandleQuantizedLlamaModel>>,
+    device: candle_core::Device,
+    vocab_size: usize,
+}
+
+#[async_trait::async_trait]
+impl crate::core::generation::models::CandleModel for SharedQwen3Model {
+    async fn forward(&mut self, input: &candle_core::Tensor, index_pos: usize) -> Result<candle_core::Tensor, crate::domain::model::error::CandleModelError> {
+        // Lock the mutex to get mutable access to the model
+        let mut model = self.model.lock().await;
+        // Call the async forward method on the locked model
+        model.forward(input, index_pos).await
+    }
+
+    fn device(&self) -> &candle_core::Device {
+        &self.device
+    }
+
+    fn vocab_size(&self) -> usize {
+        self.vocab_size
+    }
+}
+
+impl std::fmt::Debug for LoadedQwen3CoderModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoadedQwen3CoderModel")
+            .field("device", &self.device)
+            .field("model", &"Arc<Mutex<CandleQuantizedLlamaModel>>")
+            .finish()
     }
 }
 

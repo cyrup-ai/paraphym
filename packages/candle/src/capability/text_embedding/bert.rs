@@ -451,13 +451,13 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleBertEmbeddingMode
 ///
 /// ## Memory Layout
 /// - tokenizer: Tokenizer (configured with [PAD] token padding)
-/// - model: BertModel (immutable - no RefCell needed)
+/// - model: Arc<BertModel> (shared ownership for async operations)
 /// - device: Device (CUDA or CPU)
 ///
-/// No RefCell needed because forward_pass takes &BertModel (immutable reference).
+/// Uses Arc to allow safe sharing across spawn_blocking boundaries.
 pub struct LoadedBertModel {
     tokenizer: Tokenizer,
-    model: BertModel,
+    model: std::sync::Arc<BertModel>,
     device: Device,
 }
 
@@ -559,7 +559,7 @@ impl LoadedBertModel {
 
         Ok(Self {
             tokenizer,
-            model,
+            model: std::sync::Arc::new(model),
             device,
         })
     }
@@ -582,22 +582,37 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedBertModel {
         >,
     > {
         let text = text.to_string();
+        // Clone for move into spawn_blocking
+        let tokenizer = self.tokenizer.clone();
+        let model = self.model.clone();
+        let device = self.device.clone();
+        
         Box::pin(async move {
-            // No I/O - use loaded state
             // BERT doesn't use task-specific instructions, ignore task parameter
-
-            let embeddings = CandleBertEmbeddingModel::forward_pass(
-                &self.tokenizer,
-                &self.model,
-                &self.device,
-                &[&text],
-            )
+            
+            // Wrap CPU-intensive operations in spawn_blocking to avoid blocking async runtime
+            // This includes: tokenization (I/O), model forward pass (CPU), and tensor ops (CPU)
+            let embeddings = tokio::task::spawn_blocking(move || {
+                CandleBertEmbeddingModel::forward_pass(
+                    &tokenizer,
+                    &model,
+                    &device,
+                    &[&text],
+                )
+            })
+            .await
+            .map_err(|e| {
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Spawn blocking failed: {}", e),
+                )) as Box<dyn std::error::Error + Send + Sync>
+            })?
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
-        embeddings
-            .into_iter()
-            .next()
-            .ok_or_else(|| "No embeddings generated".into())
+            embeddings
+                .into_iter()
+                .next()
+                .ok_or_else(|| "No embeddings generated".into())
         })
     }
 
@@ -617,17 +632,34 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedBertModel {
         >,
     > {
         let texts = texts.to_vec();
+        // Clone for move into spawn_blocking
+        let tokenizer = self.tokenizer.clone();
+        let model = self.model.clone();
+        let device = self.device.clone();
+        
         Box::pin(async move {
-            // No I/O - use loaded state
-            let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+            // Wrap CPU-intensive operations in spawn_blocking to avoid blocking async runtime
+            // This includes: tokenization (I/O), model forward pass (CPU), and tensor ops (CPU)
+            let embeddings = tokio::task::spawn_blocking(move || {
+                let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+                
+                CandleBertEmbeddingModel::forward_pass(
+                    &tokenizer,
+                    &model,
+                    &device,
+                    &text_refs,
+                )
+            })
+            .await
+            .map_err(|e| {
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Spawn blocking failed: {}", e),
+                )) as Box<dyn std::error::Error + Send + Sync>
+            })?
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
-            CandleBertEmbeddingModel::forward_pass(
-                &self.tokenizer,
-                &self.model,
-                &self.device,
-                &text_refs,
-            )
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            Ok(embeddings)
         })
     }
 

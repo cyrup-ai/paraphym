@@ -30,16 +30,17 @@ impl CandleGteQwenEmbeddingModel {
     }
 
     /// Forward pass with task-specific formatting
+    /// Returns (model, embeddings) to allow model reuse in LoadedGteQwenModel
     #[inline]
-    fn forward_pass_with_task(
-        tokenizer: &Tokenizer,
-        model: &mut Model,
-        device: &Device,
-        texts: &[&str],
-        task: Option<&str>,
-    ) -> Result<Vec<Vec<f32>>> {
+    async fn forward_pass_with_task(
+        tokenizer: Tokenizer,
+        model: Model,
+        device: Device,
+        texts: Vec<String>,
+        task: Option<String>,
+    ) -> Result<(Model, Vec<Vec<f32>>)> {
         // Format input with task-specific instruction prefix
-        let formatted_texts: Vec<String> = match task {
+        let formatted_texts: Vec<String> = match task.as_deref() {
             Some("search_query") => texts.iter()
                 .map(|text| format!("Instruct: Given a web search query, retrieve relevant passages that answer the query.\nQuery: {}", text))
                 .collect(),
@@ -51,16 +52,21 @@ impl CandleGteQwenEmbeddingModel {
                 .collect(),
         };
 
-        // Tokenize
-        let tokens = tokenizer
-            .encode_batch(formatted_texts, true)
-            .map_err(|e| MemoryError::ModelError(format!("Tokenization failed: {}", e)))?;
+        // Tokenize - wrap in spawn_blocking for CPU-intensive operation
+        let tokenizer_clone = tokenizer.clone();
+        let tokens = tokio::task::spawn_blocking(move || {
+            tokenizer_clone
+                .encode_batch(formatted_texts, true)
+                .map_err(|e| MemoryError::ModelError(format!("Tokenization failed: {}", e)))
+        })
+        .await
+        .map_err(|e| MemoryError::ModelError(format!("Spawn blocking failed: {}", e)))??;
 
         let token_ids = tokens
             .iter()
             .map(|tokens| {
                 let tokens = tokens.get_ids().to_vec();
-                Tensor::new(tokens.as_slice(), device)
+                Tensor::new(tokens.as_slice(), &device)
                     .map_err(|e| MemoryError::ModelError(format!("Tensor creation failed: {}", e)))
             })
             .collect::<Result<Vec<_>>>()?;
@@ -69,7 +75,7 @@ impl CandleGteQwenEmbeddingModel {
             .iter()
             .map(|tokens| {
                 let tokens = tokens.get_attention_mask().to_vec();
-                Tensor::new(tokens.as_slice(), device)
+                Tensor::new(tokens.as_slice(), &device)
                     .map_err(|e| MemoryError::ModelError(format!("Tensor creation failed: {}", e)))
             })
             .collect::<Result<Vec<_>>>()?;
@@ -80,49 +86,63 @@ impl CandleGteQwenEmbeddingModel {
             MemoryError::ModelError(format!("Attention mask tensor stack failed: {}", e))
         })?;
 
-        // Forward pass
-        let logits = model
-            .forward(&token_ids, 0, None)
-            .map_err(|e| MemoryError::ModelError(format!("Forward pass failed: {}", e)))?;
+        // Forward pass - wrap in spawn_blocking for CPU-intensive operation
+        let token_ids_clone = token_ids.clone();
+        let attention_mask_clone = attention_mask.clone();
+        let (returned_model, logits) = tokio::task::spawn_blocking(move || {
+            let mut model_mut = model;
+            let result = model_mut
+                .forward(&token_ids_clone, 0, None)
+                .map_err(|e| MemoryError::ModelError(format!("Forward pass failed: {}", e)));
+            (model_mut, result)
+        })
+        .await
+        .map_err(|e| MemoryError::ModelError(format!("Spawn blocking failed: {}", e)))?;
+        let logits = logits?;
 
         // Apply attention-masked last token pooling
         let (_batch_size, _seq_len, _hidden_size) = logits
             .dims3()
             .map_err(|e| MemoryError::ModelError(format!("Invalid logits shape: {}", e)))?;
 
-        // Find actual last tokens using attention mask
-        let last_indices = attention_mask
-            .sum(1)
-            .map_err(|e| MemoryError::ModelError(format!("Failed to sum attention mask: {}", e)))?
-            .to_vec1::<u32>()
-            .map_err(|e| MemoryError::ModelError(format!("Failed to convert indices: {}", e)))?
-            .into_iter()
-            .map(|len| (len - 1) as usize)
-            .collect::<Vec<_>>();
+        // Extract embeddings - wrap in spawn_blocking for CPU-intensive operation
+        let embeddings_data = tokio::task::spawn_blocking(move || {
+            // Find actual last tokens using attention mask
+            let last_indices = attention_mask_clone
+                .sum(1)
+                .map_err(|e| MemoryError::ModelError(format!("Failed to sum attention mask: {}", e)))?
+                .to_vec1::<u32>()
+                .map_err(|e| MemoryError::ModelError(format!("Failed to convert indices: {}", e)))?
+                .into_iter()
+                .map(|len| (len - 1) as usize)
+                .collect::<Vec<_>>();
 
-        // Extract embeddings for each sequence's actual last token
-        let mut batch_embeddings = Vec::new();
-        for (i, &last_idx) in last_indices.iter().enumerate() {
-            let seq_embeddings = logits
-                .get(i)
-                .map_err(|e| {
-                    MemoryError::ModelError(format!("Failed to get sequence {}: {}", i, e))
-                })?
-                .get(last_idx)
-                .map_err(|e| {
-                    MemoryError::ModelError(format!("Failed to get token {}: {}", last_idx, e))
-                })?;
-            batch_embeddings.push(seq_embeddings);
-        }
+            // Extract embeddings for each sequence's actual last token
+            let mut batch_embeddings = Vec::new();
+            for (i, &last_idx) in last_indices.iter().enumerate() {
+                let seq_embeddings = logits
+                    .get(i)
+                    .map_err(|e| {
+                        MemoryError::ModelError(format!("Failed to get sequence {}: {}", i, e))
+                    })?
+                    .get(last_idx)
+                    .map_err(|e| {
+                        MemoryError::ModelError(format!("Failed to get token {}: {}", last_idx, e))
+                    })?;
+                batch_embeddings.push(seq_embeddings);
+            }
 
-        let embeddings = Tensor::stack(&batch_embeddings, 0)
-            .map_err(|e| MemoryError::ModelError(format!("Failed to stack embeddings: {}", e)))?;
+            let embeddings = Tensor::stack(&batch_embeddings, 0)
+                .map_err(|e| MemoryError::ModelError(format!("Failed to stack embeddings: {}", e)))?;
 
-        let embeddings_data = embeddings
-            .to_vec2::<f32>()
-            .map_err(|e| MemoryError::ModelError(format!("Failed to convert embeddings: {}", e)))?;
+            embeddings
+                .to_vec2::<f32>()
+                .map_err(|e| MemoryError::ModelError(format!("Failed to convert embeddings: {}", e)))
+        })
+        .await
+        .map_err(|e| MemoryError::ModelError(format!("Spawn blocking failed: {}", e)))??;
 
-        Ok(embeddings_data)
+        Ok((returned_model, embeddings_data))
     }
 }
 
@@ -285,13 +305,13 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleGteQwenEmbeddingM
         };
 
         // Create model
-        let mut model =
+        let model =
             Model::new(&qwen_config, vb).map_err(|e| format!("Failed to create model: {}", e))?;
 
-        // Run inference
-        let task_ref = task.as_deref();
-        let embeddings =
-            Self::forward_pass_with_task(&tokenizer, &mut model, &device, &[&text], task_ref)
+        // Run inference with async forward_pass
+        let (_model, embeddings) =
+            Self::forward_pass_with_task(tokenizer, model, device, vec![text], task)
+                .await
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
         embeddings
@@ -413,14 +433,15 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleGteQwenEmbeddingM
         };
 
         // Create model
-        let mut model =
+        let model =
             Model::new(&qwen_config, vb).map_err(|e| format!("Failed to create model: {}", e))?;
 
-        // Run inference
-        let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
-        let task_ref = task.as_deref();
-        Self::forward_pass_with_task(&tokenizer, &mut model, &device, &text_refs, task_ref)
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+        // Run inference with async forward_pass
+        let (_model, embeddings) = Self::forward_pass_with_task(tokenizer, model, device, texts, task)
+            .await
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+        
+        Ok(embeddings)
         })
     }
 
@@ -447,13 +468,14 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleGteQwenEmbeddingM
 /// to eliminate repeated disk I/O on every inference call. Designed for
 /// use in worker threads that process many requests.
 ///
-/// Uses Mutex for interior mutability to satisfy both:
+/// Uses tokio::sync::Mutex<Option<Model>> for interior mutability to satisfy both:
 /// - TextEmbeddingCapable trait (&self methods)
 /// - Qwen2 forward pass requirements (&mut Model for KV cache)
+/// - Async spawn_blocking pattern (requires owned Model)
 #[derive(Debug)]
 pub struct LoadedGteQwenModel {
     tokenizer: Tokenizer,
-    model: std::sync::Mutex<Model>,
+    model: tokio::sync::Mutex<Option<Model>>,
     device: Device,
 }
 
@@ -574,7 +596,7 @@ impl LoadedGteQwenModel {
 
         Ok(Self {
             tokenizer,
-            model: std::sync::Mutex::new(model),
+            model: tokio::sync::Mutex::new(Some(model)),
             device,
         })
     }
@@ -597,21 +619,29 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedGteQwenModel {
         >,
     > {
         let text = text.to_string();
+        let tokenizer = self.tokenizer.clone();
+        let device = self.device.clone();
         Box::pin(async move {
             self.validate_input(&text)?;
 
-        let mut model_guard = self.model.lock().map_err(|e| {
-            Box::from(format!("Failed to lock model: {}", e))
-                as Box<dyn std::error::Error + Send + Sync>
+        // Lock mutex and extract model
+        let mut model_guard = self.model.lock().await;
+        let model = model_guard.take().ok_or_else(|| {
+            Box::from("Model already in use") as Box<dyn std::error::Error + Send + Sync>
         })?;
 
-        let embeddings = CandleGteQwenEmbeddingModel::forward_pass_with_task(
-            &self.tokenizer,
-            &mut model_guard,
-            &self.device,
-            &[&text],
-            task.as_deref(),
-        )?;
+        // Run async forward pass
+        let (returned_model, embeddings) = CandleGteQwenEmbeddingModel::forward_pass_with_task(
+            tokenizer,
+            model,
+            device,
+            vec![text],
+            task,
+        )
+        .await?;
+
+        // Put model back
+        *model_guard = Some(returned_model);
 
         embeddings.into_iter().next().ok_or_else(|| {
             Box::from("No embeddings generated") as Box<dyn std::error::Error + Send + Sync>
@@ -635,23 +665,31 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedGteQwenModel {
         >,
     > {
         let texts = texts.to_vec();
+        let tokenizer = self.tokenizer.clone();
+        let device = self.device.clone();
         Box::pin(async move {
             self.validate_batch(&texts)?;
 
-        let mut model_guard = self.model.lock().map_err(|e| {
-            Box::from(format!("Failed to lock model: {}", e))
-                as Box<dyn std::error::Error + Send + Sync>
+        // Lock mutex and extract model
+        let mut model_guard = self.model.lock().await;
+        let model = model_guard.take().ok_or_else(|| {
+            Box::from("Model already in use") as Box<dyn std::error::Error + Send + Sync>
         })?;
 
-        let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
-        CandleGteQwenEmbeddingModel::forward_pass_with_task(
-            &self.tokenizer,
-            &mut model_guard,
-            &self.device,
-            &text_refs,
-            task.as_deref(),
+        // Run async forward pass
+        let (returned_model, embeddings) = CandleGteQwenEmbeddingModel::forward_pass_with_task(
+            tokenizer,
+            model,
+            device,
+            texts,
+            task,
         )
-        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+        .await?;
+
+        // Put model back
+        *model_guard = Some(returned_model);
+
+        Ok(embeddings)
         })
     }
 

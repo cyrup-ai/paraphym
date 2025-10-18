@@ -84,22 +84,29 @@ impl CandleJinaBertEmbeddingModel {
     }
 
     #[inline]
-    fn forward_pass(
-        tokenizer: &Tokenizer,
-        model: &BertModel,
-        device: &Device,
-        texts: &[&str],
+    async fn forward_pass(
+        tokenizer: Tokenizer,
+        model: BertModel,
+        device: Device,
+        texts: Vec<String>,
     ) -> Result<Vec<Vec<f32>>> {
-        // Tokenize texts
-        let tokens = tokenizer
-            .encode_batch(texts.to_vec(), true)
-            .map_err(|e| MemoryError::ModelError(format!("Tokenization failed: {}", e)))?;
+        // Tokenize texts - wrap in spawn_blocking for CPU-intensive operation
+        let texts_clone = texts.clone();
+        let tokenizer_clone = tokenizer.clone();
+        let tokens = tokio::task::spawn_blocking(move || {
+            tokenizer_clone
+                .encode_batch(texts_clone.iter().map(|s| s.as_str()).collect(), true)
+                .map_err(|e| MemoryError::ModelError(format!("Tokenization failed: {}", e)))
+        })
+        .await
+        .map_err(|e| MemoryError::ModelError(format!("Spawn blocking failed: {}", e)))??;
 
+        let device_for_tensors = device.clone();
         let token_ids = tokens
             .iter()
             .map(|tokens| {
                 let tokens = tokens.get_ids().to_vec();
-                Tensor::new(tokens.as_slice(), device)
+                Tensor::new(tokens.as_slice(), &device_for_tensors)
                     .map_err(|e| MemoryError::ModelError(format!("Tensor creation failed: {}", e)))
             })
             .collect::<Result<Vec<_>>>()?;
@@ -108,7 +115,7 @@ impl CandleJinaBertEmbeddingModel {
             .iter()
             .map(|tokens| {
                 let tokens = tokens.get_attention_mask().to_vec();
-                Tensor::new(tokens.as_slice(), device)
+                Tensor::new(tokens.as_slice(), &device_for_tensors)
                     .map_err(|e| MemoryError::ModelError(format!("Tensor creation failed: {}", e)))
             })
             .collect::<Result<Vec<_>>>()?;
@@ -120,17 +127,27 @@ impl CandleJinaBertEmbeddingModel {
             MemoryError::ModelError(format!("Attention mask tensor stack failed: {}", e))
         })?;
 
-        // Forward pass
-        let hidden_states = model
-            .forward(&token_ids)
-            .map_err(|e| MemoryError::ModelError(format!("Forward pass failed: {}", e)))?;
+        // Forward pass - wrap in spawn_blocking for CPU-intensive operation
+        let token_ids_clone = token_ids.clone();
+        let hidden_states = tokio::task::spawn_blocking(move || {
+            model
+                .forward(&token_ids_clone)
+                .map_err(|e| MemoryError::ModelError(format!("Forward pass failed: {}", e)))
+        })
+        .await
+        .map_err(|e| MemoryError::ModelError(format!("Spawn blocking failed: {}", e)))??;
 
         // Apply mean pooling over all tokens
-        let pooled_embeddings = Self::mean_pooling(&hidden_states, &attention_mask, device)?;
+        let pooled_embeddings = Self::mean_pooling(&hidden_states, &attention_mask, &device)?;
 
-        let embeddings_data = pooled_embeddings
-            .to_vec2::<f32>()
-            .map_err(|e| MemoryError::ModelError(format!("Failed to convert embeddings: {}", e)))?;
+        // Extract embeddings - wrap in spawn_blocking for CPU-intensive operation
+        let embeddings_data = tokio::task::spawn_blocking(move || {
+            pooled_embeddings
+                .to_vec2::<f32>()
+                .map_err(|e| MemoryError::ModelError(format!("Failed to convert embeddings: {}", e)))
+        })
+        .await
+        .map_err(|e| MemoryError::ModelError(format!("Spawn blocking failed: {}", e)))??;
 
         Ok(embeddings_data)
     }
@@ -279,8 +296,9 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleJinaBertEmbedding
         let model = BertModel::new(vb, &jina_config)
             .map_err(|e| format!("Failed to create model: {}", e))?;
 
-        // Run inference
-        let embeddings = Self::forward_pass(&tokenizer, &model, &device, &[&text])
+        // Run inference with async forward_pass
+        let embeddings = Self::forward_pass(tokenizer, model, device, vec![text])
+            .await
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
         embeddings
@@ -386,9 +404,9 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleJinaBertEmbedding
         let model = BertModel::new(vb, &jina_config)
             .map_err(|e| format!("Failed to create model: {}", e))?;
 
-        // Run inference
-        let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
-        Self::forward_pass(&tokenizer, &model, &device, &text_refs)
+        // Run inference with async forward_pass
+        Self::forward_pass(tokenizer, model, device, texts)
+            .await
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
         })
     }
@@ -530,17 +548,18 @@ impl LoadedJinaBertModel {
     ///
     /// # Returns
     /// 768-dimensional embedding vector or error
-    pub fn embed(
+    pub async fn embed(
         &self,
         text: &str,
         _task: Option<String>,
     ) -> std::result::Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
         let embeddings = CandleJinaBertEmbeddingModel::forward_pass(
-            &self.tokenizer,
-            &self.model,
-            &self.device,
-            &[text],
-        )?;
+            self.tokenizer.clone(),
+            self.model.clone(),
+            self.device.clone(),
+            vec![text.to_string()],
+        )
+        .await?;
 
         embeddings
             .into_iter()
@@ -556,18 +575,18 @@ impl LoadedJinaBertModel {
     ///
     /// # Returns
     /// Vector of 768-dimensional embedding vectors or error
-    pub fn batch_embed(
+    pub async fn batch_embed(
         &self,
         texts: &[String],
         _task: Option<String>,
     ) -> std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>> {
-        let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
         CandleJinaBertEmbeddingModel::forward_pass(
-            &self.tokenizer,
-            &self.model,
-            &self.device,
-            &text_refs,
+            self.tokenizer.clone(),
+            self.model.clone(),
+            self.device.clone(),
+            texts.to_vec(),
         )
+        .await
         .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
 
@@ -613,13 +632,17 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedJinaBertModel {
         >,
     > {
         let text = text.to_string();
+        let tokenizer = self.tokenizer.clone();
+        let model = self.model.clone();
+        let device = self.device.clone();
         Box::pin(async move {
             let embeddings = CandleJinaBertEmbeddingModel::forward_pass(
-                &self.tokenizer,
-                &self.model,
-                &self.device,
-                &[&text],
-            )?;
+                tokenizer,
+                model,
+                device,
+                vec![text],
+            )
+            .await?;
 
             embeddings
                 .into_iter()
@@ -644,14 +667,17 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedJinaBertModel {
         >,
     > {
         let texts = texts.to_vec();
+        let tokenizer = self.tokenizer.clone();
+        let model = self.model.clone();
+        let device = self.device.clone();
         Box::pin(async move {
-            let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
             CandleJinaBertEmbeddingModel::forward_pass(
-                &self.tokenizer,
-                &self.model,
-                &self.device,
-                &text_refs,
+                tokenizer,
+                model,
+                device,
+                texts,
             )
+            .await
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
         })
     }
