@@ -1281,7 +1281,10 @@ pub trait FromRegistry: Sized {
 impl FromRegistry for TextToTextModel {
     fn from_registry(registry_key: &str) -> Option<Self> {
         // Check runtime registry first, then fall back to static registry
-        get_text_to_text_runtime(registry_key)
+        tokio::runtime::Handle::try_current()
+            .ok()
+            .and_then(|handle| handle.block_on(get_text_to_text_runtime(registry_key)))
+            .or_else(|| TEXT_TO_TEXT_REGISTRY.get(registry_key).cloned())
     }
 }
 
@@ -1329,7 +1332,10 @@ impl FromRegistry for AnyModel {
 /// }
 /// ```
 pub fn get_text_to_text(registry_key: &str) -> Option<impl TextToTextCapable> {
-    get_text_to_text_runtime(registry_key)
+    tokio::runtime::Handle::try_current()
+        .ok()
+        .and_then(|handle| handle.block_on(get_text_to_text_runtime(registry_key)))
+        .or_else(|| TEXT_TO_TEXT_REGISTRY.get(registry_key).cloned())
 }
 
 /// Get a text embedding model by registry_key
@@ -1472,11 +1478,10 @@ pub async fn register_image_embedding(key: impl Into<String>, model: ImageEmbedd
 /// let model = FluxSchnell::from_pretrained().unwrap();
 /// registry::register_text_to_image("flux-schnell", model);
 /// ```
-pub fn register_text_to_image(key: impl Into<String>, model: TextToImageModel) {
-    let runtime = TEXT_TO_IMAGE_RUNTIME.get_or_init(|| RwLock::new(HashMap::new()));
-    if let Ok(mut map) = runtime.write() {
-        map.insert(key.into(), model);
-    }
+pub async fn register_text_to_image(key: impl Into<String>, model: TextToImageModel) {
+    let runtime = TEXT_TO_IMAGE_RUNTIME.get_or_init(|| TokioRwLock::new(HashMap::new()));
+    let mut map = runtime.write().await;
+    map.insert(key.into(), model);
 }
 
 /// Register a text-to-text model at runtime
@@ -1495,23 +1500,22 @@ pub fn register_text_to_image(key: impl Into<String>, model: TextToImageModel) {
 /// registry::register_text_to_text("unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
 ///     TextToTextModel::Qwen3Coder(Arc::new(model)));
 /// ```
-pub fn register_text_to_text(key: impl Into<String>, model: TextToTextModel) {
-    let runtime = TEXT_TO_TEXT_RUNTIME.get_or_init(|| RwLock::new(HashMap::new()));
-    if let Ok(mut map) = runtime.write() {
-        map.insert(key.into(), model);
-    }
+pub async fn register_text_to_text(key: impl Into<String>, model: TextToTextModel) {
+    let runtime = TEXT_TO_TEXT_RUNTIME.get_or_init(|| TokioRwLock::new(HashMap::new()));
+    let mut map = runtime.write().await;
+    map.insert(key.into(), model);
 }
 
 /// Get an image embedding model from runtime registry
 ///
 /// Checks runtime registry first, then falls back to static registry.
-pub fn get_image_embedding_runtime(key: &str) -> Option<ImageEmbeddingModel> {
+pub async fn get_image_embedding_runtime(key: &str) -> Option<ImageEmbeddingModel> {
     // Check runtime registry first
-    if let Some(runtime) = IMAGE_EMBEDDING_RUNTIME.get()
-        && let Ok(map) = runtime.read()
-        && let Some(model) = map.get(key)
-    {
-        return Some(model.clone());
+    if let Some(runtime) = IMAGE_EMBEDDING_RUNTIME.get() {
+        let map = runtime.read().await;
+        if let Some(model) = map.get(key) {
+            return Some(model.clone());
+        }
     }
 
     // Fall back to static registry
@@ -1521,13 +1525,13 @@ pub fn get_image_embedding_runtime(key: &str) -> Option<ImageEmbeddingModel> {
 /// Get a text-to-image model from runtime registry
 ///
 /// Checks runtime registry first, then falls back to static registry.
-pub fn get_text_to_image_runtime(key: &str) -> Option<TextToImageModel> {
+pub async fn get_text_to_image_runtime(key: &str) -> Option<TextToImageModel> {
     // Check runtime registry first
-    if let Some(runtime) = TEXT_TO_IMAGE_RUNTIME.get()
-        && let Ok(map) = runtime.read()
-        && let Some(model) = map.get(key)
-    {
-        return Some(model.clone());
+    if let Some(runtime) = TEXT_TO_IMAGE_RUNTIME.get() {
+        let map = runtime.read().await;
+        if let Some(model) = map.get(key) {
+            return Some(model.clone());
+        }
     }
 
     // Fall back to static registry
@@ -1538,13 +1542,13 @@ pub fn get_text_to_image_runtime(key: &str) -> Option<TextToImageModel> {
 ///
 /// Checks runtime registry first, then falls back to static registry.
 /// Use this for models registered at runtime via register_text_to_text().
-pub fn get_text_to_text_runtime(key: &str) -> Option<TextToTextModel> {
+pub async fn get_text_to_text_runtime(key: &str) -> Option<TextToTextModel> {
     // Check runtime registry first
-    if let Some(runtime) = TEXT_TO_TEXT_RUNTIME.get()
-        && let Ok(map) = runtime.read()
-        && let Some(model) = map.get(key)
-    {
-        return Some(model.clone());
+    if let Some(runtime) = TEXT_TO_TEXT_RUNTIME.get() {
+        let map = runtime.read().await;
+        if let Some(model) = map.get(key) {
+            return Some(model.clone());
+        }
     }
 
     // Fall back to static registry

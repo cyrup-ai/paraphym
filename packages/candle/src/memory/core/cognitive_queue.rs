@@ -156,6 +156,8 @@ impl CognitiveProcessingQueue {
     ///
     /// SYNC CONTEXT: This function is intentionally non-async.
     pub fn flush_batches(&self) -> Result<(), String> {
+        // SYNC LOCK: batch_accumulator uses std::sync::Mutex (not tokio::sync)
+        // because this function is NOT async. This is correct usage.
         let mut accumulator = self
             .batch_accumulator
             .lock()

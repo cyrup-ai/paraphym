@@ -17,8 +17,8 @@ use candle_transformers::models::{
 };
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc;
+use std::sync::Arc;
+use tokio::sync::{mpsc, Mutex as TokioMutex};
 use tokenizers::Tokenizer;
 use tokio_stream::Stream;
 
@@ -38,8 +38,8 @@ enum FluxRequest {
 /// Thread spawns lazily on first use.
 #[derive(Clone, Debug)]
 pub struct FluxSchnell {
-    request_tx: Arc<Mutex<Option<mpsc::UnboundedSender<FluxRequest>>>>,
-    device: Arc<Mutex<Option<Device>>>,
+    request_tx: Arc<TokioMutex<Option<mpsc::UnboundedSender<FluxRequest>>>>,
+    device: Arc<TokioMutex<Option<Device>>>,
 }
 
 /// T5-XXL encoder with tokenizer
@@ -71,8 +71,8 @@ impl FluxSchnell {
     #[inline]
     pub fn new() -> Self {
         Self {
-            request_tx: Arc::new(Mutex::new(None)),
-            device: Arc::new(Mutex::new(None)),
+            request_tx: Arc::new(TokioMutex::new(None)),
+            device: Arc::new(TokioMutex::new(None)),
         }
     }
 
@@ -80,19 +80,17 @@ impl FluxSchnell {
     ///
     /// Returns sender for communication with model thread.
     /// Thread spawns on first call, subsequent calls return cached sender.
-    fn ensure_thread_spawned(
+    async fn ensure_thread_spawned(
         &self,
         device: &Device,
     ) -> Result<mpsc::UnboundedSender<FluxRequest>, String> {
         // Check if thread already spawned
         {
-            let tx_guard = self.request_tx.lock()
-                .map_err(|e| format!("Lock poisoned: {}", e))?;
+            let tx_guard = self.request_tx.lock().await;
             
             if let Some(sender) = tx_guard.as_ref() {
                 // Validate device matches worker device
-                let device_guard = self.device.lock()
-                    .map_err(|e| format!("Lock poisoned: {}", e))?;
+                let device_guard = self.device.lock().await;
                 
                 if let Some(worker_device) = device_guard.as_ref() {
                     if !devices_match(worker_device, device) {
@@ -155,15 +153,13 @@ impl FluxSchnell {
 
         // Cache sender
         {
-            let mut tx_guard = self.request_tx.lock()
-                .map_err(|e| format!("Lock poisoned: {}", e))?;
+            let mut tx_guard = self.request_tx.lock().await;
             *tx_guard = Some(request_tx.clone());
         }
 
         // Cache device
         {
-            let mut device_guard = self.device.lock()
-                .map_err(|e| format!("Lock poisoned: {}", e))?;
+            let mut device_guard = self.device.lock().await;
             *device_guard = Some(device.clone());
         }
 
@@ -332,21 +328,22 @@ impl ImageGenerationModel for FluxSchnell {
     ) -> Pin<Box<dyn Stream<Item = ImageGenerationChunk> + Send>> {
         let prompt = prompt.to_string();
         let config = config.clone();
+        let device = device.clone();
+        let self_clone = self.clone();
 
-        // Ensure model thread is spawned
-        let request_tx = match self.ensure_thread_spawned(device) {
-            Ok(tx) => tx,
-            Err(e) => {
-                return Box::pin(crate::async_stream::spawn_stream(move |response_tx| async move {
+        Box::pin(crate::async_stream::spawn_stream(move |response_tx| async move {
+            // Ensure model thread is spawned
+            let request_tx = match self_clone.ensure_thread_spawned(&device).await {
+                Ok(tx) => tx,
+                Err(e) => {
                     let _ = response_tx.send(ImageGenerationChunk::Error(format!(
                         "Failed to spawn model thread: {}",
                         e
                     )));
-                }));
-            }
-        };
+                    return;
+                }
+            };
 
-        Box::pin(crate::async_stream::spawn_stream(move |response_tx| async move {
             // Send generation request to model thread
             if let Err(e) = request_tx.send(FluxRequest::Generate {
                 prompt,
