@@ -1428,7 +1428,8 @@ impl CognitiveState {
         let duration = target_time.duration_since(source_time)
             .unwrap_or_else(|_| source_time.duration_since(target_time).unwrap_or_default());
         
-        let temporal_distance = duration.as_millis() as i64;
+        // Saturating cast to i64 to prevent overflow for very large durations
+        let temporal_distance = duration.as_millis().min(i64::MAX as u128) as i64;
 
         // Create causal link
         let link = CausalLink::new(
