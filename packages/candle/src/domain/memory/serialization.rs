@@ -4,17 +4,17 @@ use std::hash::{Hash, Hasher};
 /// Fast hash function for content-based embedding generation
 #[inline]
 #[must_use]
-pub fn content_hash(content: &str) -> u64 {
+pub fn content_hash(content: &str) -> i64 {
     let mut hasher = DefaultHasher::new();
     content.hash(&mut hasher);
-    hasher.finish()
+    hasher.finish() as i64  // Cast to i64 for SurrealDB compatibility
 }
 
 /// Zero-allocation binary format for memory records
 #[derive(Debug, Clone)]
 pub struct MemoryRecord {
-    pub input_hash: u64,
-    pub output_hash: u64,
+    pub input_hash: i64,
+    pub output_hash: i64,
     pub timestamp: u64,
     pub input_length: u32,
     pub output_length: u32,
@@ -38,8 +38,8 @@ impl MemoryRecord {
     #[inline]
     pub fn serialize_to_buffer(&self, buffer: &mut SerializationBuffer) {
         buffer.clear();
-        buffer.write_u64(self.input_hash);
-        buffer.write_u64(self.output_hash);
+        buffer.write_i64(self.input_hash);
+        buffer.write_i64(self.output_hash);
         buffer.write_u64(self.timestamp);
         buffer.write_u32(self.input_length);
         buffer.write_u32(self.output_length);
@@ -55,9 +55,9 @@ impl MemoryRecord {
         }
 
         let mut pos = 0;
-        let input_hash = u64::from_le_bytes(buffer.data[pos..pos + 8].try_into().ok()?);
+        let input_hash = i64::from_le_bytes(buffer.data[pos..pos + 8].try_into().ok()?);
         pos += 8;
-        let output_hash = u64::from_le_bytes(buffer.data[pos..pos + 8].try_into().ok()?);
+        let output_hash = i64::from_le_bytes(buffer.data[pos..pos + 8].try_into().ok()?);
         pos += 8;
         let timestamp = u64::from_le_bytes(buffer.data[pos..pos + 8].try_into().ok()?);
         pos += 8;
@@ -122,6 +122,12 @@ impl SerializationBuffer {
     /// Write u32 in little-endian format
     #[inline]
     pub fn write_u32(&mut self, value: u32) {
+        self.data.extend_from_slice(&value.to_le_bytes());
+    }
+
+    /// Write i64 in little-endian format
+    #[inline]
+    pub fn write_i64(&mut self, value: i64) {
         self.data.extend_from_slice(&value.to_le_bytes());
     }
 

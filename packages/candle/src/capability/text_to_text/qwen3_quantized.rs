@@ -5,7 +5,6 @@
 //! from 80-120 tokens/s depending on hardware (M3 Mac: 95+, M1/M2: 80-100, CPU: 30-50).
 
 use std::num::NonZeroU32;
-use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -16,7 +15,6 @@ use candle_transformers::generation::{LogitsProcessor, Sampling};
 use tokio_stream::Stream;
 use crate::async_stream;
 use crate::core::generation::TokenOutputStream;
-use serde::{Deserialize, Serialize};
 
 use crate::core::{Engine, EngineConfig};
 

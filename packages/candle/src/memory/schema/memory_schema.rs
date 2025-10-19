@@ -15,7 +15,7 @@ pub struct MemoryNodeSchema {
     /// Content of the memory
     pub content: String,
     /// Content hash for fast deduplication and lookup
-    pub content_hash: u64,
+    pub content_hash: i64,
     /// Type of memory
     pub memory_type: MemoryTypeEnum,
     /// Metadata associated with the memory

@@ -32,7 +32,7 @@ use log; // For logging in create_memory
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct MemoryNodeCreateContent {
     pub content: String,
-    pub content_hash: u64,
+    pub content_hash: i64,
     pub memory_type: MemoryTypeEnum,
     pub metadata: MemoryMetadataSchema,
 }
@@ -1970,13 +1970,13 @@ impl SurrealDBMemoryManager {
     /// memories with the same content hash.
     ///
     /// # Arguments
-    /// * `hash` - The u64 content hash to search for
+    /// * `hash` - The i64 content hash to search for
     ///
     /// # Returns
     /// * `Ok(true)` - A memory with this content hash exists
     /// * `Ok(false)` - No memory with this content hash exists
     /// * `Err(Error)` - Database query failed
-    pub async fn document_exists_by_hash(&self, hash: u64) -> Result<bool> {
+    pub async fn document_exists_by_hash(&self, hash: i64) -> Result<bool> {
         let query = "SELECT id FROM memory WHERE content_hash = $hash LIMIT 1";
 
         let mut response = self
@@ -1998,13 +1998,13 @@ impl SurrealDBMemoryManager {
     /// Returns the full memory node if a document with the given hash exists.
     ///
     /// # Arguments
-    /// * `hash` - The u64 content hash to search for
+    /// * `hash` - The i64 content hash to search for
     ///
     /// # Returns
     /// * `Ok(Some(MemoryNode))` - Found memory with this hash
     /// * `Ok(None)` - No memory with this hash exists
     /// * `Err(Error)` - Database query failed
-    pub async fn find_document_by_hash(&self, hash: u64) -> Result<Option<MemoryNode>> {
+    pub async fn find_document_by_hash(&self, hash: i64) -> Result<Option<MemoryNode>> {
         let query = "SELECT * FROM memory WHERE content_hash = $hash LIMIT 1";
 
         let mut response = self
@@ -2028,7 +2028,7 @@ impl SurrealDBMemoryManager {
     /// fresh in the temporal decay model.
     ///
     /// # Arguments
-    /// * `hash` - The u64 content hash to search for
+    /// * `hash` - The i64 content hash to search for
     /// * `timestamp` - The new timestamp (DateTime<Utc>)
     ///
     /// # Returns
@@ -2037,7 +2037,7 @@ impl SurrealDBMemoryManager {
     /// * `Err(Error)` - Database update failed
     pub async fn update_document_age_by_hash(
         &self,
-        hash: u64,
+        hash: i64,
         timestamp: chrono::DateTime<chrono::Utc>,
     ) -> Result<bool> {
         // Update both updated_at and last_accessed_at to "freshen" the document

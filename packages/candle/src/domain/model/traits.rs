@@ -97,11 +97,28 @@ pub trait CandleModel: Send + Sync + std::fmt::Debug + 'static {
     where
         Self: Sized,
     {
-        async {
+        async move {
+            use hf_hub::Cache;
+            
+            // Check cache first - fast path without locks or network calls
+            let cache = Cache::from_env();
+            let cache_repo = cache.model(repo_key.to_string());
+            
+            if let Some(cached_path) = cache_repo.get(filename) {
+                // Verify file exists and is not empty or corrupted
+                if let Ok(metadata) = std::fs::metadata(&cached_path) {
+                    if metadata.len() > 0 {
+                        log::info!("✅ Using cached file: {}", cached_path.display());
+                        return Ok(cached_path);
+                    }
+                }
+            }
+            
+            // File not in cache or invalid - proceed with download
+            log::info!("⬇️  Downloading {} from {}", filename, repo_key);
+            
             use hf_hub::api::tokio::ApiBuilder;
 
-            // from_env() reads HF_HOME and HF_ENDPOINT, but NOT HF_TOKEN
-            // HF_TOKEN must be added manually
             let mut builder = ApiBuilder::from_env();
             
             if let Ok(token) = std::env::var("HF_TOKEN") {
@@ -112,6 +129,7 @@ pub trait CandleModel: Send + Sync + std::fmt::Debug + 'static {
             let repo = api.model(repo_key.to_string());
             let path = repo.get(filename).await?;
 
+            log::info!("✅ Download complete: {}", filename);
             Ok(path)
         }
     }

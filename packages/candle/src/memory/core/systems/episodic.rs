@@ -126,7 +126,7 @@ pub struct EpisodicEvent {
     pub content: MemoryContent,
 
     /// Content hash for fast deduplication and lookup
-    pub content_hash: u64,
+    pub content_hash: i64,
 
     /// Context associated with the event
     pub context: Vec<EpisodicContext>,
