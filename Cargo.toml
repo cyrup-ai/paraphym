@@ -42,3 +42,5 @@ lru = "0.16.1"
 once_cell = "1.21.3"
 tokio = "1.47.1"
 
+[patch.crates-io]
+num-bigint-dig = { path = "forks/num-bigint" }

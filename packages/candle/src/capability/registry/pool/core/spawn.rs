@@ -180,7 +180,16 @@ where
                 spawn_fn(worker_idx, allocation_guard)?;
             }
 
-            return Ok(());
+            info!(
+                workers_spawned = workers_to_spawn,
+                "Workers spawned successfully for {}",
+                registry_key
+            );
+
+            // Wait for at least one worker to be ready before returning
+            // This prevents race condition where prompt request arrives before workers finish loading
+            debug!("Waiting for {} workers to become ready...", workers_to_spawn);
+            return pool.wait_for_workers(registry_key, Duration::from_secs(30)).await;
         } else {
             return pool.wait_for_workers(registry_key, Duration::from_secs(30)).await;
         }

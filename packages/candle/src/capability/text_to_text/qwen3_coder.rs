@@ -1,21 +1,18 @@
-//! Provides streaming completion capabilities using local Qwen3-Coder-30B models
-//! with zero allocation patterns and tokio stream streaming.
+//! Provides streaming completion capabilities using local Qwen3 models
+//! with quantized GGUF models for efficient inference.
 //!
-//! This implementation uses the Candle ML framework for local model inference,
-//! specifically targeting Qwen architecture models optimized for code generation.
+//! This implementation uses Candle's native quantized_qwen3 for optimal performance.
 
 use std::num::NonZeroU32;
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use candle_core::DType;
+use candle_core::{DType, Device, Tensor};
 use candle_core::quantized::gguf_file;
-use candle_transformers::models::llama::LlamaConfig;
+use candle_transformers::models::quantized_qwen3::ModelWeights as Qwen3Model;
 use tokio_stream::Stream;
 use crate::async_stream;
-// SIMD optimizations for high-performance inference
-use paraphym_simd::get_cpu_features;
 use serde::{Deserialize, Serialize};
 
 use crate::core::{Engine, EngineConfig};

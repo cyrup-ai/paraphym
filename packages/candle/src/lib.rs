@@ -49,8 +49,6 @@ pub mod extensions;
 pub mod image;
 /// Memory system with cognitive features and vector storage
 pub mod memory;
-/// Worker pool infrastructure for keeping models loaded in memory
-pub mod pool;
 /// Prompt processing utilities
 pub mod prompt;
 /// Shared Tokio runtime for avoiding multiple runtime creation
@@ -95,7 +93,7 @@ pub mod prelude {
     pub use crate::workflow::{CandleExecutableWorkflow, CandleWorkflowStep, candle_workflow};
 
     // Pool infrastructure for transparent worker management
-    pub use crate::pool::{Pool, PoolError, init_maintenance};
+    pub use crate::capability::registry::pool::{Pool, PoolError, init_maintenance};
 
     pub struct CandleLibrary;
 
@@ -131,8 +129,8 @@ pub use prelude::*;
 // Text-to-image providers (also available through prelude)
 pub use capability::text_to_image::{FluxSchnell, StableDiffusion35Turbo};
 
-// Pool infrastructure
-pub use pool::{Pool, PoolError, init_maintenance};
+// Pool infrastructure (part of registry)
+pub use capability::registry::pool::{Pool, PoolError, init_maintenance};
 
 #[cfg(test)]
 mod tests {

@@ -1,46 +1,45 @@
+use candle_core::Device;
 use once_cell::sync::Lazy;
 use tokio::sync::{mpsc, oneshot};
-use std::pin::Pin;
 use std::sync::Arc;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio_stream::Stream;
 
-use crate::capability::traits::TextToTextCapable;
-use crate::domain::completion::CandleCompletionParams;
-use crate::domain::context::chunk::CandleCompletionChunk;
-use crate::domain::prompt::CandlePrompt;
-use crate::pool::core::memory_governor::AllocationGuard;
-use crate::pool::core::types::{HealthPing, HealthPong, select_worker_power_of_two};
-use crate::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
+use crate::capability::traits::TextToImageCapable;
+use crate::domain::image_generation::{ImageGenerationChunk, ImageGenerationConfig};
+use crate::capability::registry::pool::core::memory_governor::AllocationGuard;
+use crate::capability::registry::pool::core::types::{HealthPing, HealthPong, select_worker_power_of_two};
+use crate::capability::registry::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
 
-/// Type alias for text completion streaming response sender
-type CompletionResponse = oneshot::Sender<
-    Result<Pin<Box<dyn Stream<Item = CandleCompletionChunk> + Send>>, PoolError>
+/// Type alias for image generation streaming response sender
+type ImageGenerationResponse = oneshot::Sender<
+    Result<Pin<Box<dyn Stream<Item = ImageGenerationChunk> + Send>>, PoolError>
 >;
 
-/// Request for prompt() operation (streaming response)
-pub struct PromptRequest {
-    pub prompt: CandlePrompt,
-    pub params: CandleCompletionParams,
-    pub response: CompletionResponse,
+/// Request for generate_image() operation (streaming response)
+pub struct GenerateImageRequest {
+    pub prompt: String,
+    pub config: ImageGenerationConfig,
+    pub device: Device,
+    pub response: ImageGenerationResponse,
 }
 
-/// TextToText-specific worker handle with channel
-#[derive(Clone)]
-pub struct TextToTextWorkerHandle {
+/// TextToImage-specific worker handle with channel
+pub struct TextToImageWorkerHandle {
     pub core: WorkerHandle,
-    pub prompt_tx: mpsc::UnboundedSender<PromptRequest>,
+    pub generate_image_tx: mpsc::UnboundedSender<GenerateImageRequest>,
     pub shutdown_tx: mpsc::UnboundedSender<()>,
     pub registry_key: String, // Added to enable cleanup on drop
 }
 
-impl crate::pool::core::types::PoolWorkerHandle for TextToTextWorkerHandle {
-    fn core(&self) -> &crate::pool::core::WorkerHandle {
+impl crate::capability::registry::pool::core::types::PoolWorkerHandle for TextToImageWorkerHandle {
+    fn core(&self) -> &crate::capability::registry::pool::core::WorkerHandle {
         &self.core
     }
 
-    fn core_mut(&mut self) -> &mut crate::pool::core::WorkerHandle {
+    fn core_mut(&mut self) -> &mut crate::capability::registry::pool::core::WorkerHandle {
         &mut self.core
     }
 
@@ -49,7 +48,7 @@ impl crate::pool::core::types::PoolWorkerHandle for TextToTextWorkerHandle {
     }
 }
 
-impl std::ops::Deref for TextToTextWorkerHandle {
+impl std::ops::Deref for TextToImageWorkerHandle {
     type Target = WorkerHandle;
 
     fn deref(&self) -> &Self::Target {
@@ -57,46 +56,22 @@ impl std::ops::Deref for TextToTextWorkerHandle {
     }
 }
 
-/// Channels used by text to text worker
-pub struct TextToTextWorkerChannels {
-    pub prompt_rx: mpsc::UnboundedReceiver<PromptRequest>,
-    pub shutdown_rx: mpsc::UnboundedReceiver<()>,
-    pub health_rx: mpsc::UnboundedReceiver<HealthPing>,
-    pub health_tx: mpsc::UnboundedSender<HealthPong>,
-}
-
-/// Context for text to text worker
-pub struct TextToTextWorkerContext {
-    pub worker_id: usize,
-    pub registry_key: String,
-    pub state: Arc<AtomicU32>,
-}
-
-/// Worker loop for TextToText models
+/// Worker loop for TextToImage models
 ///
-/// Processes streaming prompt requests. Worker calls trait method which
-/// returns Pin<Box<dyn Stream<Item = CandleCompletionChunk> + Send>>. Stream is sent back to caller
+/// Processes streaming requests. Worker calls trait method which
+/// returns Pin<Box<dyn Stream<Item = ImageGenerationChunk> + Send>>. Stream is sent back to caller
 /// who forwards chunks to end user.
-pub async fn text_to_text_worker<T: TextToTextCapable>(
+pub async fn text_to_image_worker<T: TextToImageCapable>(
     model: T,
-    channels: TextToTextWorkerChannels,
-    context: TextToTextWorkerContext,
+    mut generate_image_rx: mpsc::UnboundedReceiver<GenerateImageRequest>,
+    mut shutdown_rx: mpsc::UnboundedReceiver<()>,
+    mut health_rx: mpsc::UnboundedReceiver<HealthPing>,
+    health_tx: mpsc::UnboundedSender<HealthPong>,
+    worker_id: usize,
+    state: Arc<AtomicU32>,
 ) {
-    use crate::pool::core::worker_state::WorkerState;
-    use std::time::Duration;
-
-    // Destructure channels and context
-    let TextToTextWorkerChannels {
-        mut prompt_rx,
-        mut shutdown_rx,
-        mut health_rx,
-        health_tx,
-    } = channels;
-    let TextToTextWorkerContext {
-        worker_id,
-        registry_key: _registry_key,
-        state,
-    } = context;
+    use crate::capability::registry::pool::core::worker_state::WorkerState;
+    use std::time::{Duration, SystemTime};
 
     // Track last activity for idle detection
     let mut last_activity = SystemTime::now();
@@ -117,12 +92,11 @@ pub async fn text_to_text_worker<T: TextToTextCapable>(
         }
 
         tokio::select! {
-            Some(req) = prompt_rx.recv() => {
+            Some(req) = generate_image_rx.recv() => {
                 // Transition: Ready/Idle → Processing
                 state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
 
-                // Model method returns tokio Stream directly
-                let stream = model.prompt(req.prompt, &req.params);
+                let stream = model.generate_image(&req.prompt, &req.config, &req.device);
                 let _ = req.response.send(Ok(stream));
 
                 // Transition: Processing → Ready
@@ -144,7 +118,7 @@ pub async fn text_to_text_worker<T: TextToTextCapable>(
                 let _ = health_tx.send(pong);
             }
             Some(_) = shutdown_rx.recv() => {
-                log::info!("TextToText worker {} shutting down", worker_id);
+                log::info!("TextToImage worker {} shutting down", worker_id);
                 // Transition: Ready/Idle → Evicting
                 state.store(WorkerState::Evicting as u32, std::sync::atomic::Ordering::Release);
                 break;
@@ -153,18 +127,18 @@ pub async fn text_to_text_worker<T: TextToTextCapable>(
     }
 }
 
-/// Global TextToText pool instance
-static TEXT_TO_TEXT_POOL: Lazy<Pool<TextToTextWorkerHandle>> =
+/// Global TextToImage pool instance
+static TEXT_TO_IMAGE_POOL: Lazy<Pool<TextToImageWorkerHandle>> =
     Lazy::new(|| Pool::new(PoolConfig::default()));
 
-/// Access global TextToText pool
-pub fn text_to_text_pool() -> &'static Pool<TextToTextWorkerHandle> {
-    &TEXT_TO_TEXT_POOL
+/// Access global TextToImage pool
+pub fn text_to_image_pool() -> &'static Pool<TextToImageWorkerHandle> {
+    &TEXT_TO_IMAGE_POOL
 }
 
-impl Pool<TextToTextWorkerHandle> {
-    /// Spawn worker for TextToText model
-    pub fn spawn_text_to_text_worker<T, F, Fut>(
+impl Pool<TextToImageWorkerHandle> {
+    /// Spawn worker for TextToImage model
+    pub fn spawn_text_to_image_worker<T, F, Fut>(
         &self,
         registry_key: &str,
         model_loader: F,
@@ -172,12 +146,12 @@ impl Pool<TextToTextWorkerHandle> {
         allocation_guard: AllocationGuard,
     ) -> Result<(), PoolError>
     where
-        T: TextToTextCapable + Send + 'static,
+        T: TextToImageCapable + Send + 'static,
         F: FnOnce() -> Fut + Send + 'static,
         Fut: std::future::Future<Output = Result<T, PoolError>> + Send + 'static,
     {
         // Create unbounded channels for worker communication
-        let (prompt_tx, prompt_rx) = mpsc::unbounded_channel();
+        let (generate_image_tx, generate_image_rx) = mpsc::unbounded_channel();
         let (shutdown_tx, shutdown_rx) = mpsc::unbounded_channel();
         let (health_tx_main, health_rx_worker) = mpsc::unbounded_channel();
         let (health_tx_worker, health_rx_main) = mpsc::unbounded_channel();
@@ -185,7 +159,6 @@ impl Pool<TextToTextWorkerHandle> {
         // Get worker ID before moving into thread
         let worker_id = self.next_worker_id();
         let registry_key_clone = registry_key.to_string();
-        let registry_key_for_handle = registry_key.to_string();
         let per_worker_mb_clone = per_worker_mb;
 
         // Create state before spawning thread so we can clone it
@@ -195,7 +168,7 @@ impl Pool<TextToTextWorkerHandle> {
 
         // Spawn worker task
         tokio::spawn(async move {
-            use crate::pool::core::worker_state::WorkerState;
+            use crate::capability::registry::pool::core::worker_state::WorkerState;
 
             // Guard held by worker task - will drop on exit
             let _memory_guard = allocation_guard;
@@ -206,10 +179,9 @@ impl Pool<TextToTextWorkerHandle> {
                 std::sync::atomic::Ordering::Release,
             );
 
-            // Load model
             let model = match model_loader().await {
                 Ok(m) => {
-                    log::info!("TextToText worker {} ready", worker_id);
+                    log::info!("TextToImage worker {} ready", worker_id);
                     // Transition: Loading → Ready
                     state_clone.store(
                         WorkerState::Ready as u32,
@@ -218,34 +190,33 @@ impl Pool<TextToTextWorkerHandle> {
                     m
                 }
                 Err(e) => {
-                    log::error!("TextToText worker {} failed: {}", worker_id, e);
+                    log::error!(
+                        "TextToImage worker {} model loading failed: {}",
+                        worker_id,
+                        e
+                    );
                     // Transition: Loading → Failed
                     state_clone.store(
                         WorkerState::Failed as u32,
                         std::sync::atomic::Ordering::Release,
                     );
 
-                    // Clean up memory tracking
+                    // Clean up memory tracking (CRITICAL FIX)
                     // This prevents memory leak when model loading fails
-                    text_to_text_pool().remove_memory(per_worker_mb_clone);
+                    text_to_image_pool().remove_memory(per_worker_mb_clone);
 
-                    return; // Exit task without running worker loop
+                    return;
                 }
             };
 
-            text_to_text_worker(
+            text_to_image_worker(
                 model,
-                TextToTextWorkerChannels {
-                    prompt_rx,
-                    shutdown_rx,
-                    health_rx: health_rx_worker,
-                    health_tx: health_tx_worker,
-                },
-                TextToTextWorkerContext {
-                    worker_id,
-                    registry_key: registry_key_clone.clone(),
-                    state: Arc::clone(&state_clone),
-                },
+                generate_image_rx,
+                shutdown_rx,
+                health_rx_worker,
+                health_tx_worker,
+                worker_id,
+                Arc::clone(&state_clone),
             ).await;
 
             // Transition: Ready → Dead (when worker loop exits)
@@ -255,7 +226,7 @@ impl Pool<TextToTextWorkerHandle> {
             );
         });
 
-        // Create handles
+        // Create handles (state already created above before spawning)
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -264,8 +235,8 @@ impl Pool<TextToTextWorkerHandle> {
         let pending_requests = Arc::new(AtomicUsize::new(0));
         let last_used = Arc::new(AtomicU64::new(now));
 
-        // Store capability-specific handle (state already created above before spawning)
-        let full_handle = TextToTextWorkerHandle {
+        // Store capability-specific handle
+        let full_handle = TextToImageWorkerHandle {
             core: WorkerHandle {
                 pending_requests,
                 last_used,
@@ -276,9 +247,9 @@ impl Pool<TextToTextWorkerHandle> {
                 health_rx: Arc::new(tokio::sync::Mutex::new(health_rx_main)),
                 state,
             },
-            prompt_tx,
+            generate_image_tx,
             shutdown_tx,
-            registry_key: registry_key_for_handle.clone(),
+            registry_key: registry_key_clone.clone(),
         };
 
         // Single registration point - no duplication
@@ -290,31 +261,35 @@ impl Pool<TextToTextWorkerHandle> {
         Ok(())
     }
 
-    /// Generate completion using pooled worker (returns stream)
-    pub fn prompt(
+    /// Generate image using pooled worker (returns tokio Stream)
+    pub fn generate_image(
         &self,
         registry_key: &str,
-        prompt: CandlePrompt,
-        params: CandleCompletionParams,
-    ) -> Pin<Box<dyn Stream<Item = CandleCompletionChunk> + Send>> {
+        prompt: &str,
+        config: &ImageGenerationConfig,
+        device: &Device,
+    ) -> Pin<Box<dyn Stream<Item = ImageGenerationChunk> + Send>> {
         // Clone for move into closure
         let registry_key = registry_key.to_string();
+        let prompt = prompt.to_string();
+        let config = config.clone();
+        let device = device.clone();
         let is_shutting_down = self.is_shutting_down();
         let request_timeout_secs = self.config().request_timeout_secs;
 
         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Check shutdown
             if is_shutting_down {
-                let _ = tx.send(CandleCompletionChunk::Error("Pool shutting down".to_string()));
+                let _ = tx.send(ImageGenerationChunk::Error("Pool shutting down".to_string()));
                 return;
             }
 
             // Get circuit breaker for this model and check state
-            let pool = text_to_text_pool();
+            let pool = text_to_image_pool();
             let circuit = pool.get_circuit_breaker(&registry_key);
 
             if !circuit.can_request() {
-                let _ = tx.send(CandleCompletionChunk::Error(format!(
+                let _ = tx.send(ImageGenerationChunk::Error(format!(
                     "Circuit breaker open for {}",
                     registry_key
                 )));
@@ -329,23 +304,22 @@ impl Pool<TextToTextWorkerHandle> {
             let workers = match pool.workers().get(&registry_key) {
                 Some(w) => w,
                 None => {
-                    let _ = tx.send(CandleCompletionChunk::Error(format!("No workers for {}", registry_key)));
+                    let _ = tx.send(ImageGenerationChunk::Error(format!("No workers for {}", registry_key)));
                     return;
                 }
             };
 
             if workers.is_empty() {
-                let _ = tx.send(CandleCompletionChunk::Error("No workers available".to_string()));
+                let _ = tx.send(ImageGenerationChunk::Error("No workers available".to_string()));
                 return;
             }
 
             // Find alive worker with least load using Power of Two Choices (O(1))
-            let alive_workers: Vec<_> = workers.iter().filter(|w| w.core.is_alive()).collect();
-
+            let alive_workers: Vec<_> = workers.iter().filter(|w| w.is_alive()).collect();
             let worker = match select_worker_power_of_two(&alive_workers, |w| &w.core) {
                 Some(w) => w,
                 None => {
-                    let _ = tx.send(CandleCompletionChunk::Error(format!(
+                    let _ = tx.send(ImageGenerationChunk::Error(format!(
                         "No alive workers for {}",
                         registry_key
                     )));
@@ -359,12 +333,13 @@ impl Pool<TextToTextWorkerHandle> {
 
             // Send request to worker
             let (response_tx, response_rx) = oneshot::channel();
-            if let Err(e) = worker.prompt_tx.send(PromptRequest {
+            if let Err(e) = worker.generate_image_tx.send(GenerateImageRequest {
                 prompt,
-                params,
+                config,
+                device,
                 response: response_tx,
             }) {
-                let _ = tx.send(CandleCompletionChunk::Error(format!("Failed to send request: {}", e)));
+                let _ = tx.send(ImageGenerationChunk::Error(format!("Failed to send request: {}", e)));
                 worker.core.pending_requests.fetch_sub(1, Ordering::Release);
                 return;
             }
@@ -382,7 +357,7 @@ impl Pool<TextToTextWorkerHandle> {
                     circuit.record_failure();
                     pool.metrics().total_errors.fetch_add(1, Ordering::Relaxed);
 
-                    let _ = tx.send(CandleCompletionChunk::Error(format!("Worker error: {}", e)));
+                    let _ = tx.send(ImageGenerationChunk::Error(format!("Worker error: {}", e)));
                     worker.core.pending_requests.fetch_sub(1, Ordering::Release);
                     return;
                 }
@@ -391,7 +366,7 @@ impl Pool<TextToTextWorkerHandle> {
                     circuit.record_failure();
                     pool.metrics().total_errors.fetch_add(1, Ordering::Relaxed);
 
-                    let _ = tx.send(CandleCompletionChunk::Error("Response channel closed".to_string()));
+                    let _ = tx.send(ImageGenerationChunk::Error("Response channel closed".to_string()));
                     worker.core.pending_requests.fetch_sub(1, Ordering::Release);
                     return;
                 }
@@ -402,7 +377,7 @@ impl Pool<TextToTextWorkerHandle> {
                         .total_timeouts
                         .fetch_add(1, Ordering::Relaxed);
 
-                    let _ = tx.send(CandleCompletionChunk::Error("Request timeout".to_string()));
+                    let _ = tx.send(ImageGenerationChunk::Error("Request timeout".to_string()));
                     worker.core.pending_requests.fetch_sub(1, Ordering::Release);
                     return;
                 }

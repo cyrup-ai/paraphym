@@ -5,9 +5,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::capability::traits::ImageEmbeddingCapable;
-use crate::pool::core::memory_governor::AllocationGuard;
-use crate::pool::core::types::{HealthPing, HealthPong, select_worker_power_of_two};
-use crate::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
+use crate::capability::registry::pool::core::memory_governor::AllocationGuard;
+use crate::capability::registry::pool::core::types::{HealthPing, HealthPong, select_worker_power_of_two};
+use crate::capability::registry::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
 
 /// Request for embed_image() operation
 pub struct EmbedImageRequest {
@@ -45,12 +45,12 @@ pub struct ImageEmbeddingWorkerHandle {
     pub registry_key: String, // Added to enable cleanup on drop
 }
 
-impl crate::pool::core::types::PoolWorkerHandle for ImageEmbeddingWorkerHandle {
-    fn core(&self) -> &crate::pool::core::WorkerHandle {
+impl crate::capability::registry::pool::core::types::PoolWorkerHandle for ImageEmbeddingWorkerHandle {
+    fn core(&self) -> &crate::capability::registry::pool::core::WorkerHandle {
         &self.core
     }
 
-    fn core_mut(&mut self) -> &mut crate::pool::core::WorkerHandle {
+    fn core_mut(&mut self) -> &mut crate::capability::registry::pool::core::WorkerHandle {
         &mut self.core
     }
 
@@ -98,7 +98,7 @@ pub async fn image_embedding_worker<T: ImageEmbeddingCapable>(
     channels: ImageEmbeddingWorkerChannels,
     context: ImageEmbeddingWorkerContext,
 ) {
-    use crate::pool::core::worker_state::WorkerState;
+    use crate::capability::registry::pool::core::worker_state::WorkerState;
     use std::time::{Duration, SystemTime};
 
     // Destructure channels and context
@@ -256,7 +256,7 @@ impl Pool<ImageEmbeddingWorkerHandle> {
 
         // Spawn worker task
         tokio::spawn(async move {
-            use crate::pool::core::worker_state::WorkerState;
+            use crate::capability::registry::pool::core::worker_state::WorkerState;
 
             // Guard held by worker task - will drop on exit
             let _memory_guard = allocation_guard;

@@ -3,10 +3,10 @@ use std::time::{Duration, Instant};
 
 use log::{info, warn};
 
-use crate::pool::capabilities::{
+use super::capabilities::{
     image_embedding_pool, text_embedding_pool, text_to_image_pool, text_to_text_pool, vision_pool,
 };
-use crate::pool::core::Pool;
+use super::core::Pool;
 
 /// Begin shutdown sequence for all pools
 ///
@@ -73,7 +73,7 @@ fn all_pools_drained() -> bool {
 /// Count pending requests in a pool
 ///
 /// Iterates all workers across all registry keys and sums pending_requests.
-fn count_pool_pending<T: crate::pool::core::types::PoolWorkerHandle>(pool: &Pool<T>) -> usize {
+fn count_pool_pending<T: super::core::types::PoolWorkerHandle>(pool: &Pool<T>) -> usize {
     let mut total = 0;
 
     // Iterate DashMap entries (registry_key -> Vec<WorkerHandle>)

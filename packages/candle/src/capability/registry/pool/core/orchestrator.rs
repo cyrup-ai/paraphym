@@ -13,7 +13,7 @@ use prometheus::core::{Collector, Desc};
 use super::worker_state::{WorkerState, UnifiedWorkerHandle, CircuitBreaker, CircuitBreakerConfig};
 use super::request_queue::{RequestQueue, PriorityRequest};
 use super::memory_governor::{MemoryGovernor, MemoryPressure};
-use crate::pool::core::PoolError;
+use super::PoolError;
 
 /// Orchestrates worker lifecycle across all models
 pub struct WorkerOrchestrator<Req: Send + 'static, Resp: Send + 'static> {

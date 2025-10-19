@@ -149,7 +149,7 @@ impl PoolMetrics {
     ///
     /// Returns metrics formatted for Prometheus scraping.
     /// Call this from HTTP /metrics endpoint handler.
-    pub async fn get_prometheus_metrics<W>(&self, pool: &crate::pool::core::Pool<W>) -> String
+    pub async fn get_prometheus_metrics<W>(&self, pool: &super::Pool<W>) -> String
     where
         W: PoolWorkerHandle,
     {
@@ -263,10 +263,10 @@ impl PoolMetrics {
         output.push_str("# HELP pool_memory_pressure Memory pressure level (0-3)\n");
         output.push_str("# TYPE pool_memory_pressure gauge\n");
         let pressure_value = match memory_stats.pressure {
-            crate::pool::core::memory_governor::MemoryPressure::Low => 0,
-            crate::pool::core::memory_governor::MemoryPressure::Normal => 1,
-            crate::pool::core::memory_governor::MemoryPressure::High => 2,
-            crate::pool::core::memory_governor::MemoryPressure::Critical => 3,
+            super::memory_governor::MemoryPressure::Low => 0,
+            super::memory_governor::MemoryPressure::Normal => 1,
+            super::memory_governor::MemoryPressure::High => 2,
+            super::memory_governor::MemoryPressure::Critical => 3,
         };
         output.push_str(&format!("pool_memory_pressure {}\n", pressure_value));
 
@@ -360,20 +360,20 @@ impl WorkerHandle {
     }
 
     /// Get current worker state
-    pub fn get_state(&self) -> crate::pool::core::worker_state::WorkerState {
-        use crate::pool::core::worker_state::WorkerState;
+    pub fn get_state(&self) -> super::worker_state::WorkerState {
+        use super::worker_state::WorkerState;
         let state_val = self.state.load(Ordering::Acquire);
         WorkerState::from(state_val)
     }
 
     /// Set worker state (atomic)
-    pub fn set_state(&self, new_state: crate::pool::core::worker_state::WorkerState) {
+    pub fn set_state(&self, new_state: super::worker_state::WorkerState) {
         self.state.store(new_state as u32, Ordering::Release);
     }
 
     /// Check if worker can accept requests
     pub fn can_accept_requests(&self) -> bool {
-        use crate::pool::core::worker_state::WorkerState;
+        use super::worker_state::WorkerState;
         matches!(
             self.get_state(),
             WorkerState::Ready | WorkerState::Processing | WorkerState::Idle
@@ -382,7 +382,7 @@ impl WorkerHandle {
 
     /// Check if worker should be evicted
     pub fn is_evictable(&self) -> bool {
-        use crate::pool::core::worker_state::WorkerState;
+        use super::worker_state::WorkerState;
         matches!(self.get_state(), WorkerState::Ready | WorkerState::Idle)
     }
 }

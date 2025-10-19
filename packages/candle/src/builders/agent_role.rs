@@ -267,7 +267,7 @@ impl CandleAgentRoleAgent {
 struct AgentBuilderState {
     name: String,
     text_to_text_model: TextToTextModel,
-    text_embedding_model: TextEmbeddingModel,
+    text_embedding_model: Option<TextEmbeddingModel>,
     temperature: f64,
     max_tokens: u64,
     memory_read_timeout: u64,
@@ -672,15 +672,13 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
             .map(|t| t.get().into())
             .unwrap_or(2000);
 
-        // Get default embedding model from registry
-        let default_embedding_model =
-            registry::get::<TextEmbeddingModel>("dunzhang/stella_en_400M_v5")
-                .expect("Default embedding model not found in registry");
+        // Get default embedding model from registry (if available)
+        let default_embedding_model = registry::get::<TextEmbeddingModel>("dunzhang/stella_en_400M_v5");
 
         CandleAgentBuilderImpl {
             name: self.name,
             text_to_text_model: model,
-            text_embedding_model: self.text_embedding_model.unwrap_or(default_embedding_model),
+            text_embedding_model: self.text_embedding_model.or(default_embedding_model),
             temperature: self.temperature,
             max_tokens: self.max_tokens.unwrap_or(model_max_tokens),
             memory_read_timeout: self.memory_read_timeout,
@@ -871,10 +869,9 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
             .map(|t| t.get().into())
             .unwrap_or(2000);
 
-        // Get default embedding model from registry
-        let embedding_model = self.text_embedding_model.unwrap_or_else(|| {
+        // Get default embedding model from registry (if available)
+        let embedding_model = self.text_embedding_model.or_else(|| {
             registry::get::<TextEmbeddingModel>("dunzhang/stella_en_400M_v5")
-                .expect("Default embedding model not found in registry")
         });
 
         CandleAgentBuilderImpl {
@@ -912,7 +909,7 @@ pub struct AgentDebugInfo {
 pub struct CandleAgentBuilderImpl {
     name: String,
     text_to_text_model: TextToTextModel,
-    text_embedding_model: TextEmbeddingModel,
+    text_embedding_model: Option<TextEmbeddingModel>,
     temperature: f64,
     max_tokens: u64,
     memory_read_timeout: u64,
@@ -964,7 +961,7 @@ impl CandleAgentRoleBuilder for CandleAgentBuilderImpl {
     }
 
     fn embedding_model(mut self, model: TextEmbeddingModel) -> impl CandleAgentRoleBuilder {
-        self.text_embedding_model = model;
+        self.text_embedding_model = Some(model);
         self
     }
 
@@ -1164,7 +1161,7 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
     }
 
     fn embedding_model(mut self, model: TextEmbeddingModel) -> Self {
-        self.text_embedding_model = model;
+        self.text_embedding_model = Some(model);
         self
     }
 
@@ -1331,46 +1328,53 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                 }
                 CandleChatLoop::UserPrompt(user_message)
                 | CandleChatLoop::Reprompt(user_message) => {
-                            // ALWAYS create memory internally - WE GUARANTEE MEMORY
-                            // Database connection and memory manager initialization
-                            use surrealdb::engine::any::connect;
-                            use crate::memory::core::manager::surreal::SurrealDBMemoryManager;
-                            use crate::memory::primitives::node::MemoryNode;
-                            use crate::memory::primitives::types::{MemoryContent, MemoryTypeEnum};
-                            use chrono::Utc;
+                    // Memory initialization (only if embedding model available)
+                    // Memory features require embeddings for search functionality
+                    let memory: Option<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>> = if let Some(ref emb_model) = embedding_model {
+                        use surrealdb::engine::any::connect;
+                        use crate::memory::core::manager::surreal::SurrealDBMemoryManager;
+                        use crate::memory::primitives::node::MemoryNode;
+                        use crate::memory::primitives::types::{MemoryContent, MemoryTypeEnum};
+                        use chrono::Utc;
 
-                    let db_path = dirs::cache_dir()
-                        .unwrap_or_else(|| std::path::PathBuf::from("."))
-                        .join("paraphym")
-                        .join("agent.db");
+                        let db_path = dirs::cache_dir()
+                            .unwrap_or_else(|| std::path::PathBuf::from("."))
+                            .join("paraphym")
+                            .join("agent.db");
 
-                    if let Some(parent) = db_path.parent() {
-                        let _ = tokio::fs::create_dir_all(parent).await;
-                    }
-
-                    let db_url = format!("surrealkv://{}", db_path.display());
-
-                    // Connect to database using .await
-                    let db = match connect(&db_url).await {
-                        Ok(db) => db,
-                        Err(e) => {
+                        // Ensure database directory exists
+                        if let Some(parent) = db_path.parent()
+                            && let Err(e) = tokio::fs::create_dir_all(parent).await
+                        {
                             let _ = sender.send(CandleMessageChunk::Error(
-                                format!("Failed to connect to database: {}", e)
+                                format!("Failed to create database directory: {}", e)
                             ));
                             return;
                         }
-                    };
 
-                    // Initialize database namespace using .await
-                    if let Err(e) = db.use_ns("candle").use_db("agent").await {
-                        let _ = sender.send(CandleMessageChunk::Error(
-                            format!("Failed to initialize database namespace: {}", e)
-                        ));
-                        return;
-                    }
+                        let db_url = format!("surrealkv://{}", db_path.display());
 
-                    // Create and initialize memory manager using .await
-                    let manager = match SurrealDBMemoryManager::with_embedding_model(db, embedding_model.clone()).await {
+                        // Connect to database using .await
+                        let db = match connect(&db_url).await {
+                            Ok(db) => db,
+                            Err(e) => {
+                                let _ = sender.send(CandleMessageChunk::Error(
+                                    format!("Failed to connect to database: {}", e)
+                                ));
+                                return;
+                            }
+                        };
+
+                        // Initialize database namespace using .await
+                        if let Err(e) = db.use_ns("candle").use_db("agent").await {
+                            let _ = sender.send(CandleMessageChunk::Error(
+                                format!("Failed to initialize database namespace: {}", e)
+                            ));
+                            return;
+                        }
+
+                        // Create and initialize memory manager using .await
+                        let manager = match SurrealDBMemoryManager::with_embedding_model(db, emb_model.clone()).await {
                         Ok(mgr) => mgr,
                         Err(e) => {
                             let _ = sender.send(CandleMessageChunk::Error(
@@ -1380,18 +1384,17 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                         }
                     };
 
-                    if let Err(e) = manager.initialize().await {
-                        let _ = sender.send(CandleMessageChunk::Error(
-                            format!("Failed to initialize memory tables: {}", e)
-                        ));
-                        return;
-                    }
+                        if let Err(e) = manager.initialize().await {
+                            let _ = sender.send(CandleMessageChunk::Error(
+                                format!("Failed to initialize memory tables: {}", e)
+                            ));
+                            return;
+                        }
 
-                    let memory: Option<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>> =
-                        Some(Arc::new(manager) as Arc<dyn crate::memory::core::manager::surreal::MemoryManager>);
+                        let mem: Arc<dyn crate::memory::core::manager::surreal::MemoryManager> =
+                            Arc::new(manager) as Arc<dyn crate::memory::core::manager::surreal::MemoryManager>;
 
-                    // Ingest documents from context fields into memory using .await
-                    if let Some(ref mem_mgr) = memory {
+                        // Ingest documents from context fields into memory using .await
                         // Load from context_file
                         if let Some(ctx) = context_file {
                             let doc_stream = ctx.load();
@@ -1410,7 +1413,7 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                                     metadata: crate::memory::primitives::metadata::MemoryMetadata::new(),
                                     relevance_score: None,
                                 };
-                                if let Err(e) = mem_mgr.create_memory(memory_node).await {
+                                if let Err(e) = mem.create_memory(memory_node).await {
                                     log::error!("Failed to ingest document: {:?}", e);
                                 }
                             }
@@ -1434,7 +1437,7 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                                     metadata: crate::memory::primitives::metadata::MemoryMetadata::new(),
                                     relevance_score: None,
                                 };
-                                if let Err(e) = mem_mgr.create_memory(memory_node).await {
+                                if let Err(e) = mem.create_memory(memory_node).await {
                                     log::error!("Failed to ingest document: {:?}", e);
                                 }
                             }
@@ -1458,7 +1461,7 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                                     metadata: crate::memory::primitives::metadata::MemoryMetadata::new(),
                                     relevance_score: None,
                                 };
-                                if let Err(e) = mem_mgr.create_memory(memory_node).await {
+                                if let Err(e) = mem.create_memory(memory_node).await {
                                     log::error!("Failed to ingest document: {:?}", e);
                                 }
                             }
@@ -1482,12 +1485,17 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                                     metadata: crate::memory::primitives::metadata::MemoryMetadata::new(),
                                     relevance_score: None,
                                 };
-                                if let Err(e) = mem_mgr.create_memory(memory_node).await {
+                                if let Err(e) = mem.create_memory(memory_node).await {
                                     log::error!("Failed to ingest document: {:?}", e);
                                 }
                             }
                         }
-                    }
+
+                        Some(mem)
+                    } else {
+                        // No embedding model available - memory features disabled
+                        None
+                    };
 
                     // Initialize tool router - ALWAYS create with default reasoner plugin
                     let tool_router = {
@@ -1568,6 +1576,8 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
 
                         // Memory context injection
                         let memory_context: Option<String> = if let Some(ref mem_manager) = memory {
+                            use crate::memory::primitives::node::MemoryNode;
+                            
                             let memory_stream = mem_manager.search_by_content(&user_message);
                             let timeout_duration = std::time::Duration::from_millis(memory_read_timeout);
 

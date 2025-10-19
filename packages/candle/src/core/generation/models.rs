@@ -520,6 +520,8 @@ pub struct CandleQuantizedPhiModel {
     device: Device,
     /// Vocabulary size
     vocab_size: usize,
+    /// End-of-sequence token ID from GGUF metadata
+    eos_token_id: Option<u32>,
 }
 
 impl CandleQuantizedPhiModel {
@@ -528,12 +530,19 @@ impl CandleQuantizedPhiModel {
         model_weights: quantized_phi3::ModelWeights,
         device: Device,
         vocab_size: usize,
+        eos_token_id: Option<u32>,
     ) -> Self {
         Self {
             model_weights,
             device,
             vocab_size,
+            eos_token_id,
         }
+    }
+
+    /// Get the EOS token ID extracted from GGUF metadata
+    pub fn eos_token_id(&self) -> Option<u32> {
+        self.eos_token_id
     }
 
     /// Load a quantized Phi model from a GGUF file
@@ -553,7 +562,7 @@ impl CandleQuantizedPhiModel {
         let device_clone = device.clone();
 
         // CRITICAL: Run blocking GGUF operations on a blocking thread to avoid blocking async runtime
-        let (model, vocab_size) = tokio::task::spawn_blocking(move || -> Result<_, candle_core::Error> {
+        let (model, vocab_size, eos_token_id) = tokio::task::spawn_blocking(move || -> Result<_, candle_core::Error> {
             // Read GGUF content
             let gguf_content = gguf_file::Content::read(&mut file)?;
 
@@ -567,7 +576,17 @@ impl CandleQuantizedPhiModel {
                 })
                 .unwrap_or(100352); // Phi-4 default vocab size
 
-            log::info!("Loading Phi model from GGUF with vocab_size={}", vocab_size);
+            // Extract EOS token ID from GGUF metadata
+            let eos_token_id = gguf_content
+                .metadata
+                .get("tokenizer.ggml.eos_token_id")
+                .and_then(|v| match v {
+                    gguf_file::Value::U32(id) => Some(*id),
+                    gguf_file::Value::I32(id) if *id >= 0 => Some(*id as u32),
+                    _ => None,
+                });
+
+            log::info!("Loading Phi model from GGUF with vocab_size={}, eos_token_id={:?}", vocab_size, eos_token_id);
             
             // Log available metadata keys to understand what Phi-4 uses
             log::info!("GGUF metadata keys (first 30):");
@@ -582,7 +601,7 @@ impl CandleQuantizedPhiModel {
             
             let model = quantized_phi3::ModelWeights::from_gguf(use_flash_attn, gguf_content, &mut file, &device_clone)?;
             
-            Ok((model, vocab_size))
+            Ok((model, vocab_size, eos_token_id))
         })
         .await
         .map_err(|e| {
@@ -597,7 +616,7 @@ impl CandleQuantizedPhiModel {
         })?;
 
         log::info!("✅ Phi model loaded successfully!");
-        Ok(Self::new(model, device, vocab_size))
+        Ok(Self::new(model, device, vocab_size, eos_token_id))
     }
 }
 

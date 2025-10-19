@@ -88,15 +88,22 @@ impl TextGenerator {
         special_tokens: SpecialTokens,
     ) -> impl Stream<Item = crate::domain::context::chunk::CandleStringChunk> {
         async_stream::spawn_stream(move |tx| async move {
+            log::info!(">>> GENERATE STARTED: max_tokens={}, prompt_len={}, eos={:?}", 
+                max_tokens, prompt.len(), special_tokens.eos_token_id);
             self.stats.start_generation();
 
             // Encode prompt to tokens using tokenizer (async to avoid blocking runtime)
             let tokenizer = self.tokenizer.clone();
             let prompt_str = prompt.clone();
+            log::info!(">>> Encoding prompt...");
             let tokens = match tokio::task::spawn_blocking(move || {
                 tokenizer.encode(prompt_str.as_str(), true)
             }).await {
-                Ok(Ok(encoded)) => encoded.get_ids().to_vec(),
+                Ok(Ok(encoded)) => {
+                    let ids = encoded.get_ids().to_vec();
+                    log::info!(">>> Prompt encoded to {} tokens", ids.len());
+                    ids
+                },
                 Ok(Err(e)) => {
                     log::error!("Prompt encoding error: {}", e);
                     return;
@@ -112,13 +119,17 @@ impl TextGenerator {
             let mut position = 0;
 
             // Initial forward pass - wrap tensor ops in spawn_blocking
+            log::info!(">>> Creating initial input tensor...");
             let tokens_clone = tokens.clone();
             let device_clone = self.device.clone();
             let initial_input = match tokio::task::spawn_blocking(move || {
                 let tensor = Tensor::new(tokens_clone.as_slice(), &device_clone)?;
                 tensor.unsqueeze(0)
             }).await {
-                Ok(Ok(unsqueezed)) => unsqueezed,
+                Ok(Ok(unsqueezed)) => {
+                    log::info!(">>> Initial tensor created");
+                    unsqueezed
+                },
                 Ok(Err(e)) => {
                     log::error!("Initial tensor creation error: {}", e);
                     return;
@@ -129,12 +140,19 @@ impl TextGenerator {
                 }
             };
 
+            log::info!(">>> Running initial forward pass...");
             let initial_logits = match self.model.forward(&initial_input, position).await {
-                Ok(logits) => match logits.squeeze(0) {
-                    Ok(squeezed) => squeezed,
-                    Err(e) => {
-                        log::error!("Initial logits squeeze error: {}", e);
-                        return;
+                Ok(logits) => {
+                    log::info!(">>> Forward pass completed, squeezing logits...");
+                    match logits.squeeze(0) {
+                        Ok(squeezed) => {
+                            log::info!(">>> Logits squeezed successfully");
+                            squeezed
+                        },
+                        Err(e) => {
+                            log::error!("Initial logits squeeze error: {}", e);
+                            return;
+                        }
                     }
                 },
                 Err(e) => {
@@ -145,11 +163,15 @@ impl TextGenerator {
 
             self.stats.record_forward_pass();
             // Convert logits to vec - wrap in spawn_blocking for CPU-bound operation
+            log::info!(">>> Converting logits to vector...");
             let logits_clone = initial_logits.clone();
             let logits_vec = match tokio::task::spawn_blocking(move || {
                 logits_clone.to_vec1::<f32>()
             }).await {
-                Ok(Ok(v)) => v,
+                Ok(Ok(v)) => {
+                    log::info!(">>> Logits converted, vocab_size={}", v.len());
+                    v
+                },
                 Ok(Err(e)) => {
                     log::error!("Converting initial logits to vector error: {}", e);
                     return;
@@ -159,8 +181,12 @@ impl TextGenerator {
                     return;
                 }
             };
+            log::info!(">>> Sampling first token...");
             let mut next_token = match self.sample_token(&logits_vec, &tokens).await {
-                Ok(token) => token,
+                Ok(token) => {
+                    log::info!(">>> Sampled token: {}", token);
+                    token
+                },
                 Err(e) => {
                     log::error!("Initial SIMD sampling error: {}", e);
                     return;
@@ -176,19 +202,16 @@ impl TextGenerator {
 
             position += 1;
 
-            // Check termination before decoding
-            if self.should_stop(next_token, &special_tokens) {
-                self.stats.stop_generation();
-                return; // Graceful EOS termination
-            }
-
             // Decode and emit initial token (async to avoid blocking runtime)
+            // Note: We decode and send the first token even if it's EOS to ensure at least one chunk is emitted
+            log::info!("🎯 First token generated: {}", next_token);
             let tokenizer = self.tokenizer.clone();
             let token_to_decode = next_token;
             match tokio::task::spawn_blocking(move || {
                 tokenizer.decode(&[token_to_decode], false)
             }).await {
                 Ok(Ok(token_str)) => {
+                    log::info!("✅ Sending first token: '{}'", token_str);
                     let _ = tx.send(CandleStringChunk(token_str));
                 }
                 Ok(Err(e)) => {
@@ -200,6 +223,13 @@ impl TextGenerator {
                     return;
                 }
             };
+
+            // Check termination AFTER sending first token
+            if self.should_stop(next_token, &special_tokens) {
+                log::info!("STOP: First token was EOS ({}), stopping generation", next_token);
+                self.stats.stop_generation();
+                return; // Graceful EOS termination after at least one token sent
+            }
 
             // Generation loop - stream each token as generated
             for _index in 1..max_tokens {

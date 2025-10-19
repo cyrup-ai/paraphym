@@ -349,6 +349,8 @@ pub struct LoadedPhi4ReasoningModel {
     tokenizer: tokenizers::Tokenizer,
     device: candle_core::Device,
     engine: Engine,
+    /// End-of-sequence token ID from GGUF metadata
+    eos_token_id: Option<u32>,
 }
 
 impl std::fmt::Debug for LoadedPhi4ReasoningModel {
@@ -421,13 +423,17 @@ impl LoadedPhi4ReasoningModel {
                 as Box<dyn std::error::Error + Send + Sync>
         })?;
         
-        log::info!("✅ Model loaded into memory! All future requests will reuse this cached model.");
+        // Extract EOS token ID from the model
+        let eos_token_id = model.eos_token_id();
+        log::info!("✅ Model loaded into memory! EOS token ID: {:?}", eos_token_id);
+        log::info!("All future requests will reuse this cached model.");
 
         Ok(Self {
             model: Arc::new(tokio::sync::Mutex::new(model)),  // Cache the loaded model with Mutex for safe async access!
             tokenizer,
             device,
             engine: base.engine.clone(),
+            eos_token_id,
         })
     }
 }
@@ -438,11 +444,14 @@ impl crate::capability::traits::TextToTextCapable for LoadedPhi4ReasoningModel {
         prompt: CandlePrompt,
         params: &CandleCompletionParams,
     ) -> Pin<Box<dyn Stream<Item = CandleCompletionChunk> + Send>> {
+        log::info!(">>> LoadedPhi4ReasoningModel::prompt() CALLED with prompt content length: {}", prompt.content.len());
+        
         // Clone pre-loaded resources for the generation closure
         let engine = self.engine.clone();
         let model = self.model.clone();  // ✅ Use CACHED model
         let device = self.device.clone();
         let tokenizer = self.tokenizer.clone(); // ✅ Clone pre-loaded tokenizer
+        let eos_token_id = self.eos_token_id; // Clone EOS token ID
         
         log::info!("🚀 Using CACHED model from memory - no loading needed!");
 
@@ -516,6 +525,17 @@ impl crate::capability::traits::TextToTextCapable for LoadedPhi4ReasoningModel {
                     .with_frequency_penalty(0.0)
                     .with_presence_penalty(0.0);
 
+                // Set up special tokens for Phi-4 BEFORE creating TextGenerator
+                // Use EOS token ID from GGUF metadata, or query tokenizer for '<|im_end|>'
+                let eos_token_id_final = eos_token_id.or_else(|| {
+                    let token_id = tokenizer.token_to_id("<|im_end|>");
+                    if token_id.is_none() {
+                        log::warn!("⚠️ EOS token '<|im_end|>' not found in tokenizer vocabulary!");
+                    }
+                    token_id
+                });
+                log::info!("🔑 Using EOS token ID: {:?} (for '<|im_end|>')", eos_token_id_final);
+
                 // Create TextGenerator with CACHED model and pre-loaded tokenizer
                 // Use SharedModel wrapper to share the Arc<Mutex<Model>> across generate() calls
                 let text_generator = TextGenerator::new(
@@ -528,11 +548,9 @@ impl crate::capability::traits::TextToTextCapable for LoadedPhi4ReasoningModel {
                     device,
                     sampling_config,
                 );
-
-                // Set up special tokens for Phi-4
                 let special_tokens = SpecialTokens {
                     bos_token_id: None, // Phi doesn't use BOS
-                    eos_token_id: Some(2),
+                    eos_token_id: eos_token_id_final,
                     pad_token_id: None,
                 };
 
@@ -547,12 +565,18 @@ impl crate::capability::traits::TextToTextCapable for LoadedPhi4ReasoningModel {
                 });
 
                 // Generate and forward text stream
-                let mut stream = text_generator.generate(prompt_text, max_tokens_u32, special_tokens);
+                log::info!("🎬 Starting generation with max_tokens={}, EOS={:?}", max_tokens_u32, eos_token_id_final);
+                let mut stream = text_generator.generate(prompt_text.clone(), max_tokens_u32, special_tokens);
+                let mut chunk_count = 0;
                 while let Some(chunk) = stream.next().await {
+                    chunk_count += 1;
+                    log::info!("📦 Chunk #{}: {:?}", chunk_count, chunk);
                     if tx.send(chunk).is_err() {
+                        log::error!("❌ Failed to send chunk");
                         break;
                     }
                 }
+                log::info!("✅ Generation complete, sent {} chunks", chunk_count);
             })
         }))
     }

@@ -55,7 +55,7 @@ impl CliRunner {
         use tokio_stream::StreamExt;
         
         // Initialize pool maintenance thread (lazy init)
-        crate::pool::init_maintenance();
+        crate::capability::registry::pool::init_maintenance();
 
         // Setup Ctrl+C handler for graceful shutdown
         let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel(1);
@@ -73,7 +73,7 @@ impl CliRunner {
         tokio::spawn(async move {
             if shutdown_rx.recv().await.is_some() {
                 eprintln!("\nShutdown signal received, draining pools...");
-                crate::pool::begin_shutdown(5).await; // 5 second timeout
+                crate::capability::registry::pool::begin_shutdown(5).await; // 5 second timeout
                 std::process::exit(0);
             }
         });

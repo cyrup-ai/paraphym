@@ -146,7 +146,7 @@ impl<W: PoolWorkerHandle> Pool<W> {
     /// Returns the number of workers removed.
     #[instrument(skip(self), fields(registry_key = %registry_key))]
     pub fn validate_workers(&self, registry_key: &str) -> usize {
-        use crate::pool::core::worker_state::WorkerState;
+        use super::worker_state::WorkerState;
 
         let mut removed_count = 0;
 
@@ -284,9 +284,20 @@ impl<W: PoolWorkerHandle> Pool<W> {
         let start = Instant::now();
 
         loop {
-            // Check if workers are ready
-            if self.has_workers(registry_key) {
-                debug!("Workers ready for {}", registry_key);
+            // Check if at least one worker is in Ready/Idle state (not just spawned, but actually ready)
+            let has_ready_worker = self.workers
+                .get(registry_key)
+                .map(|workers| {
+                    workers.iter().any(|w| {
+                        let state = w.core().state.load(std::sync::atomic::Ordering::Acquire);
+                        state == super::worker_state::WorkerState::Ready as u32
+                            || state == super::worker_state::WorkerState::Idle as u32
+                    })
+                })
+                .unwrap_or(false);
+
+            if has_ready_worker {
+                debug!("At least one worker is ready for {}", registry_key);
                 return Ok(());
             }
 

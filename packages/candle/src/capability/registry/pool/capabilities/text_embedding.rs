@@ -5,10 +5,10 @@ use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::capability::traits::TextEmbeddingCapable;
-use crate::pool::WorkerState;
-use crate::pool::core::memory_governor::AllocationGuard;
-use crate::pool::core::types::{HealthPing, HealthPong, select_worker_power_of_two};
-use crate::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
+use crate::capability::registry::pool::WorkerState;
+use crate::capability::registry::pool::core::memory_governor::AllocationGuard;
+use crate::capability::registry::pool::core::types::{HealthPing, HealthPong, select_worker_power_of_two};
+use crate::capability::registry::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
 
 /// Request for embed() operation
 pub struct EmbedRequest {
@@ -34,12 +34,12 @@ pub struct TextEmbeddingWorkerHandle {
     pub registry_key: String, // Added to enable cleanup on drop
 }
 
-impl crate::pool::core::types::PoolWorkerHandle for TextEmbeddingWorkerHandle {
-    fn core(&self) -> &crate::pool::core::WorkerHandle {
+impl crate::capability::registry::pool::core::types::PoolWorkerHandle for TextEmbeddingWorkerHandle {
+    fn core(&self) -> &crate::capability::registry::pool::core::WorkerHandle {
         &self.core
     }
 
-    fn core_mut(&mut self) -> &mut crate::pool::core::WorkerHandle {
+    fn core_mut(&mut self) -> &mut crate::capability::registry::pool::core::WorkerHandle {
         &mut self.core
     }
 
@@ -84,7 +84,7 @@ pub async fn text_embedding_worker<T: TextEmbeddingCapable>(
     channels: TextEmbeddingWorkerChannels,
     context: TextEmbeddingWorkerContext,
 ) {
-    use crate::pool::core::worker_state::WorkerState;
+    use crate::capability::registry::pool::core::worker_state::WorkerState;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     // Destructure channels and context

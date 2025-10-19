@@ -30,7 +30,7 @@
 //! - MODEL_POOL.md Scenario 5: Worker lifecycle
 
 use crate::domain::model::traits::CandleModel;
-use crate::pool::core::PoolError;
+use super::PoolError;
 use std::thread;
 
 /// Spawn worker thread with model loader closure

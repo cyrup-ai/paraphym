@@ -4,40 +4,18 @@
 //! architecture. The engine routes requests to appropriate AI providers using atomic
 //! operations and borrowed data to eliminate allocations in hot paths.
 
-use std::pin::Pin;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
-use log::error;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio_stream::Stream;
 use crate::async_stream;
 
-use crate::domain::completion::response::CompletionResponse;
 use crate::domain::context::chunk::{CandleCompletionChunk, CandleStringChunk};
 use crate::domain::model::CandleUsage;
-
-/// Parameters for completion execution
-#[derive(Debug, Clone)]
-pub struct CompletionParams {
-    pub request_id: u64,
-    pub registry_key: String,
-    pub provider: String,
-    pub api_key: Option<String>,
-    pub timeout: u64,
-    pub max_tokens: Option<u32>,
-    pub temperature: Option<f32>,
-    pub streaming: bool,
-    pub endpoint: Option<String>,
-    pub prompt: String,
-    pub system_prompt: Option<String>,
-    pub history: Vec<String>,
-    pub tools: Vec<String>,
-    pub metadata: Option<String>,
-}
 
 /// Engine-specific error types with minimal allocations
 #[derive(Error, Debug, Clone)]
@@ -217,71 +195,6 @@ impl EngineConfig {
             ));
         }
 
-        Ok(())
-    }
-}
-
-/// Engine completion request using borrowed data to avoid allocations
-#[derive(Debug)]
-pub struct CompletionRequest<'a> {
-    pub prompt: &'a str,
-    pub system_prompt: Option<&'a str>,
-    pub conversation_history: &'a [&'a str],
-    pub tools: &'a [&'a str],
-    pub metadata: Option<&'a str>,
-}
-
-impl<'a> CompletionRequest<'a> {
-    /// Create a new completion request with borrowed data
-    #[inline]
-    pub fn new(prompt: &'a str) -> Self {
-        Self {
-            prompt,
-            system_prompt: None,
-            conversation_history: &[],
-            tools: &[],
-            metadata: None,
-        }
-    }
-
-    /// Set system prompt
-    #[must_use]
-    #[inline]
-    pub fn with_system_prompt(mut self, system_prompt: &'a str) -> Self {
-        self.system_prompt = Some(system_prompt);
-        self
-    }
-
-    /// Set conversation history
-    #[must_use]
-    #[inline]
-    pub fn with_history(mut self, history: &'a [&'a str]) -> Self {
-        self.conversation_history = history;
-        self
-    }
-
-    /// Set available tools
-    #[must_use]
-    #[inline]
-    pub fn with_tools(mut self, tools: &'a [&'a str]) -> Self {
-        self.tools = tools;
-        self
-    }
-
-    /// Set metadata
-    #[must_use]
-    #[inline]
-    pub fn with_metadata(mut self, metadata: &'a str) -> Self {
-        self.metadata = Some(metadata);
-        self
-    }
-
-    /// Validate request
-    #[inline]
-    pub fn validate(&self) -> EngineResult<()> {
-        if self.prompt.is_empty() {
-            return Err(EngineError::InvalidInput);
-        }
         Ok(())
     }
 }
@@ -495,85 +408,6 @@ impl Engine {
                 successful_requests.fetch_add(1, Ordering::Relaxed);
             }
         })
-    }
-
-    /// Process completion request as stream (new primary API)
-    #[inline]
-    pub fn process_completion_stream(
-        &self,
-        request: CompletionRequest<'_>,
-    ) -> Pin<Box<dyn Stream<Item = CompletionResponse<'static>> + Send>> {
-        // Validate request first
-        if let Err(e) = request.validate() {
-            return Box::pin(async_stream::spawn_stream::<CompletionResponse<'static>, _, _>(move |_tx: tokio::sync::mpsc::UnboundedSender<CompletionResponse<'static>>| async move {
-                log::error!("process_completion_stream validation: {}", e);
-            }));
-        }
-
-        // Atomic operations for metrics (lock-free)
-        let request_id = self.request_count.fetch_add(1, Ordering::Relaxed);
-        self.active_requests.fetch_add(1, Ordering::Relaxed);
-
-        // Clone necessary data for async processing
-        let registry_key = self.config.registry_key.clone();
-        let provider = self.config.provider.clone();
-        let api_key = self.config.api_key.clone();
-        let timeout = self.config.timeout_seconds;
-        let max_tokens = self.config.max_tokens;
-        let temperature = self.config.temperature;
-        let streaming = self.config.enable_streaming;
-        let endpoint = self.config.endpoint_url.clone();
-
-        // Convert borrowed request data to owned for async processing
-        let prompt = request.prompt.to_string();
-        let system_prompt = request.system_prompt.map(|s| s.to_string());
-        let history: Vec<String> = request
-            .conversation_history
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        let tools: Vec<String> = request.tools.iter().map(|s| s.to_string()).collect();
-        let metadata = request.metadata.map(|s| s.to_string());
-
-        Box::pin(async_stream::spawn_stream::<CompletionResponse<'static>, _, _>(move |tx: tokio::sync::mpsc::UnboundedSender<CompletionResponse<'static>>| async move {
-            let params = CompletionParams {
-                request_id,
-                registry_key,
-                provider,
-                api_key,
-                timeout,
-                max_tokens,
-                temperature,
-                streaming,
-                endpoint,
-                prompt,
-                system_prompt,
-                history,
-                tools,
-                metadata,
-            };
-            // Legacy API deprecated - return error directing users to new orchestration pattern
-            let error_response = CompletionResponse {
-                text: "Direct engine completion processing deprecated. Use provider.prompt() with coordinate_generation() instead.".into(),
-                model: params.registry_key.into(),
-                provider: Some(params.provider.into()),
-                usage: None,
-                finish_reason: Some("error".into()),
-                response_time_ms: Some(0),
-                generation_time_ms: Some(0),
-                tokens_per_second: Some(0.0),
-            };
-            let _ = tx.send(error_response);
-        }))
-    }
-
-    /// Get streaming completion results (convenience method)
-    #[inline]
-    pub fn get_completion_stream(
-        &self,
-        request: CompletionRequest<'_>,
-    ) -> impl Stream<Item = CompletionResponse<'static>> {
-        self.process_completion_stream(request)
     }
 
     /// Get engine statistics

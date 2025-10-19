@@ -2,10 +2,10 @@ use std::sync::atomic::Ordering;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::{debug, info, instrument, warn};
 
-use crate::pool::capabilities::{
+use super::capabilities::{
     image_embedding_pool, text_embedding_pool, text_to_image_pool, text_to_text_pool, vision_pool,
 };
-use crate::pool::core::Pool;
+use super::core::Pool;
 
 /// Check if all workers for a model are idle
 ///
@@ -13,11 +13,11 @@ use crate::pool::core::Pool;
 /// - It has no pending requests (pending_requests == 0)
 /// - It hasn't been used for at least idle_threshold_secs seconds
 /// - It's in an evictable state (Ready or Idle, not Loading or Processing)
-fn all_workers_idle<W: crate::pool::core::types::PoolWorkerHandle>(
+fn all_workers_idle<W: super::core::types::PoolWorkerHandle>(
     workers: &[W],
     idle_threshold_secs: u64,
 ) -> bool {
-    use crate::pool::core::worker_state::WorkerState;
+    use super::core::worker_state::WorkerState;
 
     if workers.is_empty() {
         return false;
@@ -51,7 +51,7 @@ fn all_workers_idle<W: crate::pool::core::types::PoolWorkerHandle>(
 ///
 /// Returns the index of the worker with the oldest last_used timestamp.
 /// Returns None if workers vector is empty.
-fn find_lru_worker<W: crate::pool::core::types::PoolWorkerHandle>(workers: &[W]) -> Option<usize> {
+fn find_lru_worker<W: super::core::types::PoolWorkerHandle>(workers: &[W]) -> Option<usize> {
     workers
         .iter()
         .enumerate()
@@ -61,8 +61,8 @@ fn find_lru_worker<W: crate::pool::core::types::PoolWorkerHandle>(workers: &[W])
 
 /// Remove dead and failed workers from pool
 #[instrument(skip(pool))]
-fn cleanup_dead_workers<W: crate::pool::core::types::PoolWorkerHandle>(pool: &Pool<W>) {
-    use crate::pool::core::worker_state::WorkerState;
+fn cleanup_dead_workers<W: super::core::types::PoolWorkerHandle>(pool: &Pool<W>) {
+    use super::core::worker_state::WorkerState;
 
     for entry in pool.workers().iter() {
         let registry_key = entry.key();
@@ -113,7 +113,7 @@ fn cleanup_dead_workers<W: crate::pool::core::types::PoolWorkerHandle>(pool: &Po
 /// # Returns
 /// Ok(()) on success, Err with description on failure
 #[instrument(skip(pool), fields(registry_key = %registry_key, worker_idx = worker_idx))]
-fn evict_worker<W: crate::pool::core::types::PoolWorkerHandle>(
+fn evict_worker<W: super::core::types::PoolWorkerHandle>(
     pool: &Pool<W>,
     registry_key: &str,
     worker_idx: usize,
@@ -170,7 +170,7 @@ fn evict_worker<W: crate::pool::core::types::PoolWorkerHandle>(
 /// Checks each worker's health and removes dead workers.
 /// Should be called before idle eviction to ensure accurate state.
 #[instrument(skip(pool))]
-fn validate_pool_health<T: crate::pool::core::types::PoolWorkerHandle>(
+fn validate_pool_health<T: super::core::types::PoolWorkerHandle>(
     pool: &'static Pool<T>,
     pool_name: &str,
 ) {
@@ -193,7 +193,7 @@ fn validate_pool_health<T: crate::pool::core::types::PoolWorkerHandle>(
 ///
 /// Iterates over all models in the pool and evicts one LRU worker
 /// per idle model.
-fn process_pool_maintenance<W: crate::pool::core::types::PoolWorkerHandle>(
+fn process_pool_maintenance<W: super::core::types::PoolWorkerHandle>(
     pool: &'static Pool<W>,
     idle_threshold_secs: u64,
     pool_name: &str,
