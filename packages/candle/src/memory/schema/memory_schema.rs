@@ -34,6 +34,7 @@ pub struct MemoryMetadataSchema {
     /// Vector embedding
     pub embedding: Option<Vec<f32>>,
     /// Custom metadata
+    #[serde(default)]
     pub custom: serde_json::Value,
 }
 
