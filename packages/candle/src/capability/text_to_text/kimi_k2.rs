@@ -44,7 +44,7 @@ impl CandleKimiK2Model {
             .map(|t| t.get())
             .unwrap_or(131072);
         let vocab_size = KIMI_K2_MODEL_INFO.vocab_size.unwrap_or(32000);
-        let default_temperature = KIMI_K2_MODEL_INFO.default_temperature.unwrap_or(0.7);
+        let default_temperature = KIMI_K2_MODEL_INFO.default_temperature.unwrap_or(0.0);
 
         // Create model configuration for Kimi K2 (Llama-based architecture)
         let model_config = LlamaConfig {
@@ -339,7 +339,7 @@ pub static KIMI_K2_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     image_size: None,
     image_mean: None,
     image_std: None,
-    default_temperature: Some(0.7),
+    default_temperature: Some(0.0),  // Greedy sampling for deterministic output
     default_top_k: Some(50),
     default_top_p: Some(0.9),
     supports_kv_cache: true,
@@ -547,7 +547,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedKimiK2Model {
         let temperature = if params.temperature != 1.0 {
             params.temperature
         } else {
-            KIMI_K2_MODEL_INFO.default_temperature.unwrap_or(0.7)
+            KIMI_K2_MODEL_INFO.default_temperature.unwrap_or(0.0)
         };
 
         // Extract additional params or use defaults

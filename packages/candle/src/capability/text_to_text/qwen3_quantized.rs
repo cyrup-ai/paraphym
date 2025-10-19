@@ -112,36 +112,6 @@ impl CandleModel for CandleQwen3QuantizedModel {
     }
 }
 
-/// Qwen3 Quantized completion request format for HTTP API compatibility
-#[derive(Debug, Serialize, Deserialize)]
-#[allow(dead_code)]
-struct CandleQwenCompletionRequest {
-    prompt: String,
-    temperature: f64,
-    max_tokens: u64,
-    stream: bool,
-    model: String,
-}
-
-/// Validate that the model path exists and is accessible
-///
-/// # Errors
-/// Returns error if the path does not exist or is not accessible
-#[allow(dead_code)]
-fn validate_model_path(path: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let model_path = Path::new(path);
-
-    if !model_path.exists() {
-        return Err(format!("Model path does not exist: {}", path).into());
-    }
-
-    if !model_path.is_dir() && !model_path.is_file() {
-        return Err(format!("Model path is neither file nor directory: {}", path).into());
-    }
-
-    Ok(())
-}
-
 /// Loaded Qwen3 Quantized model that keeps resources in memory for worker threads
 ///
 /// This model pre-loads the actual model into memory with safe async mutable access,
@@ -251,7 +221,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3QuantizedModel 
         let temperature = if params.temperature != 1.0 {
             params.temperature
         } else {
-            QWEN3_QUANTIZED_MODEL_INFO.default_temperature.unwrap_or(0.8)
+            QWEN3_QUANTIZED_MODEL_INFO.default_temperature.unwrap_or(0.0)
         };
 
         // Extract additional params or use defaults
