@@ -9,9 +9,10 @@
 use candle_core::Device;
 use log::error;
 use paraphym_candle::{
-    ImageGenerationChunk, ImageGenerationConfig, ImageGenerationModel, StableDiffusion35Turbo,
-    tensor_to_image, StreamExt,
+    ImageGenerationChunk, ImageGenerationConfig, tensor_to_image, StreamExt,
 };
+use paraphym_candle::capability::registry;
+use paraphym_candle::capability::traits::TextToImageCapable;
 use std::io::Write;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
@@ -37,11 +38,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let device = Device::cuda_if_available(0)?;
     writeln!(&mut stdout, "📱 Device: {:?}", device)?;
 
-    // 2. Create provider
+    // 2. Get provider from registry
     stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow)))?;
-    writeln!(&mut stdout, "📥 Creating SD3.5 provider...")?;
+    writeln!(&mut stdout, "📥 Getting SD3.5 provider from registry...")?;
     stdout.reset()?;
-    let provider = StableDiffusion35Turbo::new();
+    let provider = registry::get_text_to_image("stabilityai/stable-diffusion-3.5-large-turbo")
+        .expect("SD3.5 Turbo model must be registered");
     stdout.set_color(ColorSpec::new().set_fg(Some(Color::Green)))?;
     writeln!(
         &mut stdout,
@@ -75,7 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     stdout.reset()?;
 
     // 4. Generate image with progress tracking
-    let mut stream = provider.generate(prompt, &config, &device);
+    let mut stream = provider.generate_image(prompt, &config, &device);
 
     let mut final_image = None;
     while let Some(chunk) = stream.next().await {

@@ -1,12 +1,13 @@
-//! Committee Types with Direct Model Usage
+//! Committee Types with Registry-Based Model Usage
 //!
-//! Committee evaluation using CandleKimiK2Model and CandleQwen3CoderModel directly.
+//! Committee evaluation using the registry pattern for proper model caching.
 
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio_stream::StreamExt;
 
-use crate::capability::text_to_text::{CandleKimiK2Model, CandleQwen3CoderModel};
+use crate::capability::text_to_text::{CandleKimiK2Model, CandleQwen3QuantizedModel};
+use crate::capability::registry::TextToTextModel;
 use crate::capability::traits::TextToTextCapable;
 use crate::domain::{
     completion::CandleCompletionParams, context::chunk::CandleCompletionChunk, prompt::CandlePrompt,
@@ -35,34 +36,33 @@ impl Default for CommitteeConfig {
 
 // CommitteeModelPool removed - use models directly
 
-/// Committee for memory evaluation using models directly
+/// Committee for memory evaluation using registry-based models
 #[derive(Debug)]
 pub struct Committee {
     pub config: CommitteeConfig,
-    pub kimi_model: Arc<CandleKimiK2Model>,
-    pub qwen_model: Arc<CandleQwen3CoderModel>,
+    pub kimi_model: TextToTextModel,
+    pub qwen_model: TextToTextModel,
 }
 
 impl Committee {
     pub async fn new(config: CommitteeConfig) -> Result<Self, CognitiveError> {
-        let kimi_model = Arc::new(
+        let kimi_base = Arc::new(
             CandleKimiK2Model::new()
                 .map_err(|e| CognitiveError::InitializationError(e.to_string()))?,
         );
-        let qwen_model = Arc::new(
-            CandleQwen3CoderModel::new()
-                .await
+        let qwen_base = Arc::new(
+            CandleQwen3QuantizedModel::new()
                 .map_err(|e| CognitiveError::InitializationError(e.to_string()))?,
         );
 
         Ok(Self {
             config,
-            kimi_model,
-            qwen_model,
+            kimi_model: TextToTextModel::KimiK2(kimi_base),
+            qwen_model: TextToTextModel::Qwen3Quantized(qwen_base),
         })
     }
 
-    /// Evaluate content using KimiK2 model directly
+    /// Evaluate content using KimiK2 model via registry
     pub async fn evaluate(&self, content: &str) -> Result<f64, CognitiveError> {
         let evaluation_prompt = format!(
             "Evaluate the quality of this content on a scale from 0.0 to 1.0, considering factors like clarity, relevance, and completeness. Return only a decimal number between 0.0 and 1.0.\n\nContent:\n{}",
@@ -72,7 +72,7 @@ impl Committee {
         let prompt = CandlePrompt::new(&evaluation_prompt);
         let params = CandleCompletionParams::default();
 
-        // Use real model.prompt() method
+        // Use registry model which properly uses LoadedModel pattern
         let mut response = String::new();
         let mut stream = Box::pin(self.kimi_model.prompt(prompt, &params));
 

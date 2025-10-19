@@ -9,9 +9,10 @@
 use candle_core::Device;
 use log::error;
 use paraphym_candle::{
-    FluxSchnell, ImageGenerationChunk, ImageGenerationConfig, ImageGenerationModel, tensor_to_image,
-    StreamExt,
+    ImageGenerationChunk, ImageGenerationConfig, tensor_to_image, StreamExt,
 };
+use paraphym_candle::capability::registry;
+use paraphym_candle::capability::traits::TextToImageCapable;
 use std::io::Write;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
@@ -31,11 +32,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let device = Device::cuda_if_available(0)?;
     writeln!(&mut stdout, "📱 Device: {:?}", device)?;
 
-    // 2. Create provider
+    // 2. Get provider from registry
     stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow)))?;
-    writeln!(&mut stdout, "📥 Creating FLUX provider...")?;
+    writeln!(&mut stdout, "📥 Getting FLUX provider from registry...")?;
     stdout.reset()?;
-    let provider = FluxSchnell::new();
+    let provider = registry::get_text_to_image("black-forest-labs/FLUX.1-schnell")
+        .expect("FLUX.1-schnell model must be registered");
     stdout.set_color(ColorSpec::new().set_fg(Some(Color::Green)))?;
     writeln!(
         &mut stdout,
@@ -69,7 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     stdout.reset()?;
 
     // 4. Generate image
-    let mut stream = provider.generate(prompt, &config, &device);
+    let mut stream = provider.generate_image(prompt, &config, &device);
 
     let mut final_image = None;
     while let Some(chunk) = stream.next().await {

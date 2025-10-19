@@ -133,3 +133,7 @@ pub use runtime::{
     unregister_image_embedding, unregister_text_to_image, unregister_text_to_text,
     RegistrationError,
 };
+
+// Test module
+#[cfg(test)]
+mod tests;

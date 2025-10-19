@@ -38,12 +38,16 @@ impl std::error::Error for RegistrationError {}
 /// in ANY capability registry (prevents both same-capability and cross-capability duplicates).
 ///
 /// # Example
-/// ```rust
+/// 
+/// **Note**: This function is for internal use only. External code cannot 
+/// construct model instances directly. Use `registry::get()` to access models.
+/// 
+/// ```rust,no_run
+/// // Internal use only - external code cannot import concrete types
 /// use paraphym_candle::capability::registry;
-/// use paraphym_candle::capability::image_embedding::ClipVisionEmbeddingModel;
-///
-/// let model = ClipVisionEmbeddingModel::from_model(clip_model, 512);
-/// registry::register_image_embedding("my-clip-model", model).await?;
+/// 
+/// // Model registration happens internally during initialization
+/// // External code should use: registry::get::<ImageEmbeddingModel>("model-key")
 /// ```
 pub async fn register_image_embedding(
     key: impl Into<String>,
@@ -75,12 +79,16 @@ pub async fn register_image_embedding(
 /// in ANY capability registry (prevents both same-capability and cross-capability duplicates).
 ///
 /// # Example
-/// ```rust
+/// 
+/// **Note**: This function is for internal use only. External code cannot 
+/// construct model instances directly. Use `registry::get()` to access models.
+/// 
+/// ```rust,no_run
+/// // Internal use only - external code cannot import concrete types
 /// use paraphym_candle::capability::registry;
-/// use paraphym_candle::capability::text_to_image::FluxSchnell;
-///
-/// let model = FluxSchnell::from_pretrained().unwrap();
-/// registry::register_text_to_image("flux-schnell", model).await?;
+/// 
+/// // Model registration happens internally during initialization
+/// // External code should use: registry::get::<TextToImageModel>("model-key")
 /// ```
 pub async fn register_text_to_image(
     key: impl Into<String>,
@@ -112,17 +120,16 @@ pub async fn register_text_to_image(
 /// in ANY capability registry (prevents both same-capability and cross-capability duplicates).
 ///
 /// # Example
-/// ```rust
+/// 
+/// **Note**: This function is for internal use only. External code cannot 
+/// construct model instances directly. Use `registry::get()` to access models.
+/// 
+/// ```rust,no_run
+/// // Internal use only - external code cannot import concrete types  
 /// use paraphym_candle::capability::registry;
-/// use paraphym_candle::capability::text_to_text::CandleQwen3CoderModel;
-/// use std::sync::Arc;
-///
-/// // Inside async context:
-/// let model = CandleQwen3CoderModel::new().await?;
-/// registry::register_text_to_text(
-///     "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
-///     TextToTextModel::Qwen3Coder(Arc::new(model))
-/// ).await?;
+/// 
+/// // Model registration happens internally during initialization
+/// // External code should use: registry::get::<TextToTextModel>("model-key")
 /// ```
 pub async fn register_text_to_text(
     key: impl Into<String>,

@@ -6,5 +6,5 @@ pub mod flux_schnell;
 pub mod stable_diffusion_35_turbo;
 
 // Re-exports for convenience
-pub use flux_schnell::FluxSchnell;
-pub use stable_diffusion_35_turbo::StableDiffusion35Turbo;
+pub(crate) use flux_schnell::FluxSchnell;
+pub(crate) use stable_diffusion_35_turbo::StableDiffusion35Turbo;

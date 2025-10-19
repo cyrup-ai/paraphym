@@ -5,4 +5,4 @@
 pub mod llava;
 
 // Re-exports for convenience
-pub use llava::LLaVAModel;
+pub(crate) use llava::LLaVAModel;

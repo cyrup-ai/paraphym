@@ -9,8 +9,8 @@ pub mod nvembed;
 pub mod stella;
 
 // Re-exports for convenience
-pub use bert::CandleBertEmbeddingModel;
-pub use gte_qwen::CandleGteQwenEmbeddingModel;
-pub use jina_bert::CandleJinaBertEmbeddingModel;
-pub use nvembed::CandleNvEmbedEmbeddingModel;
-pub use stella::StellaEmbeddingModel;
+pub(crate) use bert::CandleBertEmbeddingModel;
+pub(crate) use gte_qwen::CandleGteQwenEmbeddingModel;
+pub(crate) use jina_bert::CandleJinaBertEmbeddingModel;
+pub(crate) use nvembed::CandleNvEmbedEmbeddingModel;
+pub(crate) use stella::StellaEmbeddingModel;

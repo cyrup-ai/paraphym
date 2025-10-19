@@ -10,7 +10,7 @@ use crate::capability::text_embedding::{
     CandleNvEmbedEmbeddingModel, StellaEmbeddingModel,
 };
 use crate::capability::text_to_text::{
-    CandleKimiK2Model, CandlePhi4ReasoningModel,
+    CandleKimiK2Model, CandlePhi4ReasoningModel, CandleQwen3QuantizedModel,
 };
 use crate::capability::vision::LLaVAModel;
 use crate::domain::model::traits::CandleModel;
@@ -37,6 +37,10 @@ pub(super) static TEXT_TO_TEXT_UNIFIED: LazyLock<RwLock<HashMap<String, TextToTe
         let model = Arc::new(CandlePhi4ReasoningModel::default());
         let key = model.info().registry_key.to_string();
         map.insert(key, TextToTextModel::Phi4Reasoning(model));
+
+        let model = Arc::new(CandleQwen3QuantizedModel::default());
+        let key = model.info().registry_key.to_string();
+        map.insert(key, TextToTextModel::Qwen3Quantized(model));
 
         RwLock::new(map)
     });

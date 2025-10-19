@@ -6,7 +6,7 @@ use rpc_router::HandlerResult;
 use tokio::sync::{mpsc, oneshot};
 
 // Candle inference imports
-use paraphym_candle::capability::text_to_text::CandleKimiK2Model;
+use paraphym_candle::capability::registry::{self, TextToTextModel};
 use paraphym_candle::capability::traits::TextToTextCapable;
 use paraphym_candle::domain::completion::{
     CandleCompletionParams, CandleCompletionChunk,
@@ -84,13 +84,13 @@ pub fn sampling_create_message_pending(request: CreateMessageRequest) -> AsyncSa
             return;
         }
 
-        // Initialize CandleKimiK2Model for local inference
-        let provider = match CandleKimiK2Model::new() {
-            Ok(p) => p,
-            Err(e) => {
-                error!("Failed to initialize CandleKimiK2Model: {}", e);
+        // Get model from registry (uses worker pool for efficiency)
+        let provider = match registry::get::<TextToTextModel>("unsloth/Kimi-K2-Instruct-GGUF") {
+            Some(p) => p,
+            None => {
+                error!("Failed to get KimiK2 model from registry");
                 let _ = tx_result.send(Err(rpc_router::HandlerError::new(
-                    "Failed to initialize local model provider",
+                    "Model not available in registry",
                 )));
                 return;
             }
@@ -199,13 +199,13 @@ pub fn sampling_create_message_stream(request: CreateMessageRequest) -> Sampling
     let (tx_stream, rx_stream) = mpsc::channel::<HandlerResult<CreateMessageResult>>(16);
 
     tokio::spawn(async move {
-        // Initialize CandleKimiK2Model
-        let provider = match CandleKimiK2Model::new() {
-            Ok(p) => p,
-            Err(e) => {
-                error!("Failed to initialize CandleKimiK2Model for streaming: {}", e);
+        // Get model from registry (uses worker pool for efficiency)
+        let provider = match registry::get::<TextToTextModel>("unsloth/Kimi-K2-Instruct-GGUF") {
+            Some(p) => p,
+            None => {
+                error!("Failed to get KimiK2 model from registry for streaming");
                 let _ = tx_stream.send(Err(rpc_router::HandlerError::new(
-                    "Failed to initialize local model provider",
+                    "Model not available in registry",
                 ))).await;
                 return;
             }

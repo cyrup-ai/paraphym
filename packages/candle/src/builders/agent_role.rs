@@ -853,13 +853,12 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
     /// Convert to agent - EXACT syntax: .into_agent()
     fn into_agent(self) -> impl CandleAgentBuilder {
         use crate::capability::registry;
-        use crate::capability::text_to_text::CandlePhi4ReasoningModel;
         use crate::domain::model::traits::CandleModel;
-        use std::sync::Arc;
 
         // Get default text-to-text model if not set
         let text_model = self.text_to_text_model.unwrap_or_else(|| {
-            TextToTextModel::Phi4Reasoning(Arc::new(CandlePhi4ReasoningModel::default()))
+            registry::get::<TextToTextModel>("unsloth/phi-4-reasoning")
+                .expect("phi4-reasoning model must be registered")
         });
 
         // Get max_tokens from model's ModelInfo
