@@ -112,8 +112,9 @@ pub mod stringified_json {
     where
         D: Deserializer<'de>,
     {
-        let s = <&str>::deserialize(deserializer)?;
-        serde_json::from_str(s).map_err(serde::de::Error::custom)
+        use std::borrow::Cow;
+        let s = <Cow<'de, str>>::deserialize(deserializer)?;
+        serde_json::from_str(&s).map_err(serde::de::Error::custom)
     }
 }
 

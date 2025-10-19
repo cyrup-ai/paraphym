@@ -67,7 +67,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .into_agent()
         .chat(move |_conversation| {
-            CandleChatLoop::UserPrompt(query)
+            let query = query.clone();
+            async move {
+                CandleChatLoop::UserPrompt(query)
+            }
         })?;
 
     // Consume the stream
@@ -100,7 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             chunk
         })
         .into_agent()
-        .chat(|_conversation| {
+        .chat(|_conversation| async move {
             // In a real app, you could inspect conversation history here
             CandleChatLoop::UserPrompt("What is 15 * 24?".to_string())
         })?;
@@ -128,7 +131,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             chunk
         })
         .into_agent()
-        .chat(|_conversation| {
+        .chat(|_conversation| async move {
             CandleChatLoop::UserPrompt(
                 "What are the trade-offs between monolithic and microservices architectures?".to_string()
             )

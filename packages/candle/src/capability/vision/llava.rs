@@ -28,15 +28,38 @@ enum LLaVARequest {
     Ask {
         image_path: String,
         question: String,
+        config: Option<VisionConfig>,
         response_tx: mpsc::UnboundedSender<Result<String, String>>,
     },
     AskUrl {
         image_url: String,
         question: String,
+        config: Option<VisionConfig>,
         response_tx: mpsc::UnboundedSender<Result<String, String>>,
     },
     #[allow(dead_code)] // Reserved for graceful shutdown implementation
     Shutdown,
+}
+
+/// Configuration for vision model generation
+///
+/// Controls sampling behavior for LLaVA vision-language generation.
+/// Follows the same pattern as CandleCompletionParams for text-to-text models.
+#[derive(Debug, Clone)]
+pub struct VisionConfig {
+    /// Sampling temperature (0.0 = greedy, >0.0 = sampling)
+    pub temperature: f64,
+    /// Maximum tokens to generate
+    pub max_tokens: Option<usize>,
+}
+
+impl Default for VisionConfig {
+    fn default() -> Self {
+        Self {
+            temperature: 0.0,
+            max_tokens: None,
+        }
+    }
 }
 
 /// Image processing configuration for LLaVA
@@ -53,6 +76,82 @@ struct GenerationConfig {
     temperature: f64,
     max_new_tokens: usize,
     use_kv_cache: bool,
+}
+
+/// Builder for vision model queries with configurable parameters
+///
+/// FOLLOWS PRODUCT-WIDE IMMUTABLE BUILDER PATTERN
+/// - Methods take `mut self` (consuming)
+/// - Methods return `Self` (owned)
+/// - Enables fluent chaining
+///
+/// # Example
+/// ```rust
+/// model.query()
+///     .temperature(0.7)
+///     .max_tokens(256)
+///     .describe_image("image.jpg", "what is this?")
+/// ```
+#[derive(Clone)]
+pub struct VisionQueryBuilder {
+    model: LLaVAModel,
+    config: VisionConfig,
+}
+
+impl VisionQueryBuilder {
+    /// Create new builder with default config
+    fn new(model: LLaVAModel) -> Self {
+        Self {
+            model,
+            config: VisionConfig::default(),
+        }
+    }
+
+    /// Set sampling temperature (0.0 = greedy, >0.0 = sampling)
+    ///
+    /// IMMUTABLE BUILDER PATTERN: Consumes self, returns new self
+    pub fn temperature(mut self, temp: f64) -> Self {
+        self.config.temperature = temp;
+        self
+    }
+
+    /// Set maximum tokens to generate
+    ///
+    /// IMMUTABLE BUILDER PATTERN: Consumes self, returns new self
+    pub fn max_tokens(mut self, tokens: usize) -> Self {
+        self.config.max_tokens = Some(tokens);
+        self
+    }
+
+    /// Describe image with query using configured parameters
+    ///
+    /// Final consumption of builder - returns Stream
+    pub async fn describe_image(
+        self,
+        image_path: &str,
+        query: &str
+    ) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
+        self.model.describe_image_internal(
+            image_path,
+            query,
+            self.config
+        ).await
+    }
+
+    /// Describe image from URL with query using configured parameters
+    ///
+    /// Final consumption of builder - returns Stream
+    pub async fn describe_url(
+        self,
+        url: &str,
+        query: &str
+    ) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
+        self.model.describe_url_internal(
+            url,
+            query,
+            self.config
+        ).await
+    }
 }
 
 /// LLaVA vision-language provider
@@ -143,6 +242,24 @@ impl LLaVAModel {
         }
     }
 
+    /// ONLY public entry point for vision generation
+    ///
+    /// Builder pattern is the ONLY public API.
+    /// Direct describe_image/describe_url are PRIVATE.
+    ///
+    /// # Example
+    /// ```rust
+    /// let model = LLaVAModel::new();
+    /// model.query()
+    ///     .temperature(0.7)
+    ///     .max_tokens(256)
+    ///     .describe_image("image.jpg", "what is this?")
+    ///     .await;
+    /// ```
+    pub fn query(&self) -> VisionQueryBuilder {
+        VisionQueryBuilder::new(self.clone())
+    }
+
     /// Ensure model thread is spawned (lazy initialization)
     ///
     /// Returns sender for communication with model thread.
@@ -208,11 +325,17 @@ impl LLaVAModel {
         tokio::task::spawn_blocking(move || {
             // Create a new tokio runtime for this blocking thread
             // Use multi_thread with 1 worker to enable spawn_blocking within worker
-            let rt = tokio::runtime::Builder::new_multi_thread()
+            let rt = match tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(1)
                 .enable_all()
                 .build()
-                .expect("Failed to create worker runtime");
+            {
+                Ok(rt) => rt,
+                Err(e) => {
+                    let _ = init_tx.send(Err(format!("Failed to create worker runtime: {}", e)));
+                    return;
+                }
+            };
             
             let local = tokio::task::LocalSet::new();
             rt.block_on(local.run_until(async move {
@@ -314,8 +437,20 @@ impl LLaVAModel {
                 LLaVARequest::Ask {
                     image_path,
                     question,
+                    config: user_config,
                     response_tx,
                 } => {
+                    // Compute effective config from user config or defaults
+                    let effective_gen_config = if let Some(user_cfg) = user_config {
+                        GenerationConfig {
+                            temperature: user_cfg.temperature,
+                            max_new_tokens: user_cfg.max_tokens.unwrap_or(gen_config.max_new_tokens),
+                            use_kv_cache: gen_config.use_kv_cache,
+                        }
+                    } else {
+                        gen_config
+                    };
+
                     let result = Self::process_ask(
                         LLaVAModelRefs {
                             model: &model,
@@ -327,7 +462,7 @@ impl LLaVAModel {
                         &question,
                         LLaVAConfigs {
                             image_config,
-                            gen_config,
+                            gen_config: effective_gen_config,
                         },
                     )
                     .await;
@@ -336,8 +471,20 @@ impl LLaVAModel {
                 LLaVARequest::AskUrl {
                     image_url,
                     question,
+                    config: user_config,
                     response_tx,
                 } => {
+                    // Compute effective config from user config or defaults
+                    let effective_gen_config = if let Some(user_cfg) = user_config {
+                        GenerationConfig {
+                            temperature: user_cfg.temperature,
+                            max_new_tokens: user_cfg.max_tokens.unwrap_or(gen_config.max_new_tokens),
+                            use_kv_cache: gen_config.use_kv_cache,
+                        }
+                    } else {
+                        gen_config
+                    };
+
                     let result = Self::process_ask_url(
                         LLaVAModelRefs {
                             model: &model,
@@ -349,7 +496,7 @@ impl LLaVAModel {
                         &question,
                         LLaVAConfigs {
                             image_config,
-                            gen_config,
+                            gen_config: effective_gen_config,
                         },
                     )
                     .await;
@@ -691,11 +838,11 @@ impl LLaVAModel {
             .map_err(|e| format!("Sampling failed: {}", e))
     }
 
-    /// Describe an image with a text query (sends request to model thread)
+    /// PRIVATE: Internal implementation for describe_image
     ///
-    /// Thread spawns lazily on first call. Uses multimodal embedding fusion
-    /// and autoregressive generation.
-    pub async fn describe_image(&self, image_path: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
+    /// Called by VisionQueryBuilder with user-configured parameters.
+    /// Thread spawns lazily on first call.
+    async fn describe_image_internal(&self, image_path: &str, query: &str, config: VisionConfig) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
         // Ensure thread is spawned (lazy initialization)
         let sender = match self.ensure_thread_spawned().await {
             Ok(s) => s,
@@ -711,6 +858,7 @@ impl LLaVAModel {
         if let Err(e) = sender.send(LLaVARequest::Ask {
             image_path: image_path.to_string(),
             question: query.to_string(),
+            config: Some(config),
             response_tx,
         }) {
             return Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
@@ -733,10 +881,11 @@ impl LLaVAModel {
         }
     }
 
-    /// Describe an image from URL with a text query
+    /// PRIVATE: Internal implementation for describe_url
     ///
-    /// Same as describe_image() but loads image from URL
-    pub async fn describe_url(&self, image_url: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
+    /// Called by VisionQueryBuilder with user-configured parameters.
+    /// Thread spawns lazily on first call.
+    async fn describe_url_internal(&self, image_url: &str, query: &str, config: VisionConfig) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
         // Ensure thread is spawned (lazy initialization)
         let sender = match self.ensure_thread_spawned().await {
             Ok(s) => s,
@@ -752,6 +901,7 @@ impl LLaVAModel {
         if let Err(e) = sender.send(LLaVARequest::AskUrl {
             image_url: image_url.to_string(),
             question: query.to_string(),
+            config: Some(config),
             response_tx,
         }) {
             return Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
@@ -786,8 +936,8 @@ impl LLaVAModel {
         let question = question.to_string();
         
         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-            // Call describe_image and forward its stream
-            let stream = model.describe_image(&image_path, &question).await;
+            // Call internal method with default config
+            let stream = model.describe_image_internal(&image_path, &question, VisionConfig::default()).await;
             use tokio_stream::StreamExt;
             tokio::pin!(stream);
             while let Some(chunk) = stream.next().await {
@@ -800,6 +950,36 @@ impl LLaVAModel {
 impl CandleModel for LLaVAModel {
     fn info(&self) -> &'static CandleModelInfo {
         &LLAVA_MODEL_INFO
+    }
+}
+
+impl crate::capability::traits::VisionCapable for LLaVAModel {
+    fn describe_image(&self, image_path: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
+        let model = self.clone();
+        let image_path = image_path.to_string();
+        let query = query.to_string();
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+            let stream = model.describe_image_internal(&image_path, &query, VisionConfig::default()).await;
+            tokio::pin!(stream);
+            use tokio_stream::StreamExt;
+            while let Some(chunk) = stream.next().await {
+                let _ = tx.send(chunk);
+            }
+        }))
+    }
+
+    fn describe_url(&self, url: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
+        let model = self.clone();
+        let url = url.to_string();
+        let query = query.to_string();
+        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
+            let stream = model.describe_url_internal(&url, &query, VisionConfig::default()).await;
+            tokio::pin!(stream);
+            use tokio_stream::StreamExt;
+            while let Some(chunk) = stream.next().await {
+                let _ = tx.send(chunk);
+            }
+        }))
     }
 }
 
@@ -839,30 +1019,10 @@ impl CandleModel for LoadedLLaVAModel {
 
 impl crate::capability::traits::VisionCapable for LoadedLLaVAModel {
     fn describe_image(&self, image_path: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
-        let model = self.model.clone();
-        let image_path = image_path.to_string();
-        let query = query.to_string();
-        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-            let stream = model.describe_image(&image_path, &query).await;
-            tokio::pin!(stream);
-            use tokio_stream::StreamExt;
-            while let Some(chunk) = stream.next().await {
-                let _ = tx.send(chunk);
-            }
-        }))
+        self.model.describe_image(image_path, query)
     }
 
     fn describe_url(&self, url: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
-        let model = self.model.clone();
-        let url = url.to_string();
-        let query = query.to_string();
-        Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-            let stream = model.describe_url(&url, &query).await;
-            tokio::pin!(stream);
-            use tokio_stream::StreamExt;
-            while let Some(chunk) = stream.next().await {
-                let _ = tx.send(chunk);
-            }
-        }))
+        self.model.describe_url(url, query)
     }
 }

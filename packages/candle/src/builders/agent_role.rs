@@ -1282,10 +1282,11 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
         self
     }
 
-    /// Chat with closure - EXACT syntax: .chat(|conversation| ChatLoop)
-    fn chat<F>(self, handler: F) -> Result<Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>, AgentError>
+    /// Chat with async closure - EXACT syntax: .chat(|conversation| async { ChatLoop })
+    fn chat<F, Fut>(self, handler: F) -> Result<Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>, AgentError>
     where
-        F: FnOnce(&CandleAgentConversation) -> CandleChatLoop + Send + 'static,
+        F: FnOnce(&CandleAgentConversation) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = CandleChatLoop> + Send + 'static,
     {
         let provider = self.text_to_text_model;
         let embedding_model = self.text_embedding_model;
@@ -1308,8 +1309,8 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
             // Create initial empty conversation for handler to inspect
             let initial_conversation = CandleAgentConversation::new();
 
-            // Execute handler to get CandleChatLoop result
-            let chat_loop_result = handler(&initial_conversation);
+            // Execute async handler to get CandleChatLoop result
+            let chat_loop_result = handler(&initial_conversation).await;
 
             // Process CandleChatLoop result
             match chat_loop_result {

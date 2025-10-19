@@ -104,8 +104,10 @@ where
         // _guard drops here, releasing spawn lock
         Ok(())
     } else {
-        // Another thread is spawning - wait for it to complete (30s timeout)
-        pool.wait_for_workers(registry_key, Duration::from_secs(30)).await
+        // Another thread is spawning - wait for it to complete
+        // 6 hour timeout allows for large model downloads (e.g., Llama 70B ~40GB)
+        // on slow connections without premature failures
+        pool.wait_for_workers(registry_key, Duration::from_secs(6 * 3600)).await
     }
 }
 

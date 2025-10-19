@@ -151,9 +151,9 @@ impl SamplingConfig {
 }
 
 impl Default for SamplingConfig {
-    /// Default configuration with balanced settings
+    /// Default configuration with deterministic greedy sampling
     fn default() -> Self {
-        Self::new(0.8) // Slightly creative but stable
+        Self::new(0.0) // Greedy sampling for deterministic output
     }
 }
 /// Preset configuration for deterministic generation
@@ -203,12 +203,12 @@ mod tests {
 
     #[test]
     fn test_builder_pattern() {
-        let config = SamplingConfig::new(0.7)
+        let config = SamplingConfig::new(0.0)
             .with_top_k(50)
             .with_top_p(0.9)
             .with_repetition_penalty(1.1);
 
-        assert_eq!(config.temperature, 0.7);
+        assert_eq!(config.temperature, 0.0);
         assert_eq!(config.top_k, Some(50));
         assert_eq!(config.top_p, Some(0.9));
         assert_eq!(config.repetition_penalty, 1.1);

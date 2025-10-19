@@ -118,12 +118,8 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
         // Clone self for async context
         let model_clone = self.clone();
 
-        // Build sampling config
-        let temperature = if params.temperature != 1.0 {
-            params.temperature
-        } else {
-            self.info().default_temperature.unwrap_or(0.0)  // Greedy sampling for deterministic output
-        };
+        // Build sampling config - use temperature from params directly
+        let temperature = params.temperature;
 
         // Clone engine Arc for the coordinate_generation call
         let engine = self.engine.clone();
@@ -456,11 +452,8 @@ impl crate::capability::traits::TextToTextCapable for LoadedPhi4ReasoningModel {
         log::info!("🚀 Using CACHED model from memory - no loading needed!");
 
         // Build sampling config
-        let temperature = if params.temperature != 1.0 {
-            params.temperature
-        } else {
-            PHI4_REASONING_MODEL_INFO.default_temperature.unwrap_or(0.0)  // Greedy sampling for deterministic output
-        };
+        // Use temperature from params directly
+        let temperature = params.temperature;
 
         // Extract additional params or use defaults
         let top_k = params

@@ -215,12 +215,8 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3QuantizedModel 
 
         log::info!("🚀 Using CACHED model from memory - no loading needed!");
 
-        // Build sampling config
-        let temperature = if params.temperature != 1.0 {
-            params.temperature
-        } else {
-            QWEN3_QUANTIZED_MODEL_INFO.default_temperature.unwrap_or(0.0)
-        };
+        // Build sampling config - use temperature from params directly
+        let temperature = params.temperature;
 
         // Extract additional params or use defaults
         let top_k = params

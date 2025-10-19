@@ -4,6 +4,7 @@
 //! including traits, information, registry, and error handling.
 
 pub mod capabilities;
+pub mod download_lock;
 pub mod error;
 pub mod info;
 pub mod traits;

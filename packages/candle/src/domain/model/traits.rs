@@ -98,9 +98,15 @@ pub trait CandleModel: Send + Sync + std::fmt::Debug + 'static {
         Self: Sized,
     {
         async move {
-            use hf_hub::Cache;
+            use crate::domain::model::download_lock::acquire_download_lock;
             
-            // Check cache first - fast path without locks or network calls
+            // CRITICAL: Acquire application-level lock BEFORE attempting download
+            // This prevents race conditions when multiple workers spawn simultaneously
+            let lock = acquire_download_lock(repo_key, filename).await;
+            let _guard = lock.lock().await;
+            
+            // Check cache first (file might be ready if we waited for lock)
+            use hf_hub::Cache;
             let cache = Cache::from_env();
             let cache_repo = cache.model(repo_key.to_string());
             
@@ -108,14 +114,14 @@ pub trait CandleModel: Send + Sync + std::fmt::Debug + 'static {
                 // Verify file exists and is not empty or corrupted
                 if let Ok(metadata) = std::fs::metadata(&cached_path) {
                     if metadata.len() > 0 {
-                        log::info!("✅ Using cached file: {}", cached_path.display());
+                        log::info!("✅ Using cached file (available after lock wait): {}", filename);
                         return Ok(cached_path);
                     }
                 }
             }
             
-            // File not in cache or invalid - proceed with download
-            log::info!("⬇️  Downloading {} from {}", filename, repo_key);
+            // We hold lock and file not cached - proceed with download
+            log::info!("⬇️  Starting download: {} from {}", filename, repo_key);
             
             use hf_hub::api::tokio::ApiBuilder;
 
@@ -130,7 +136,9 @@ pub trait CandleModel: Send + Sync + std::fmt::Debug + 'static {
             let path = repo.get(filename).await?;
 
             log::info!("✅ Download complete: {}", filename);
+            
             Ok(path)
+            // Lock released here when _guard drops
         }
     }
 }

@@ -10,9 +10,9 @@ use paraphym_candle::cli::{CliArgs, CliRunner};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize env_logger for application logging
+    // Initialize env_logger - only show warnings/errors for clean UI
     env_logger::Builder::from_default_env()
-        .filter_level(log::LevelFilter::Info)
+        .filter_level(log::LevelFilter::Warn)
         .init();
 
     // Initialize Rustls crypto provider for TLS/HTTPS connections

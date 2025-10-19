@@ -5,12 +5,10 @@
 
 use anyhow::{Context, Result};
 use std::io::Write;
-use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 use super::args::CliArgs;
 use super::config::CliConfig;
 use super::handler::{CommandResult, InputHandler, InputHandlerResult};
-use super::prompt::PromptBuilder;
 
 use crate::builders::agent_role::{CandleAgentBuilder, CandleAgentRoleBuilder, CandleFluentAi};
 use crate::domain::chat::CandleChatLoop;
@@ -20,7 +18,6 @@ use crate::util::input_resolver::resolve_input;
 pub struct CliRunner {
     args: CliArgs,
     config: CliConfig,
-    prompt_builder: PromptBuilder,
     handler: InputHandler,
 }
 
@@ -45,7 +42,6 @@ impl CliRunner {
         Ok(Self {
             args,
             config,
-            prompt_builder: PromptBuilder::new(),
             handler,
         })
     }
@@ -57,59 +53,18 @@ impl CliRunner {
         // Initialize pool maintenance thread (lazy init)
         crate::capability::registry::pool::init_maintenance();
 
-        // Setup Ctrl+C handler for graceful shutdown
-        let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel(1);
-
+        // Setup Ctrl+C handler for IMMEDIATE exit
         ctrlc::set_handler(move || {
-            // Send shutdown signal (handler is called each time Ctrl+C pressed)
-            if shutdown_tx.blocking_send(()).is_err() {
-                // Channel closed - main thread already exiting
-                eprintln!("Shutdown already in progress");
-            }
+            eprintln!("\n\nExiting...");
+            std::process::exit(0);
         })
         .map_err(|e| anyhow::anyhow!("Failed to set Ctrl-C handler: {}", e))?;
 
-        // Spawn shutdown monitor task
-        tokio::spawn(async move {
-            if shutdown_rx.recv().await.is_some() {
-                eprintln!("\nShutdown signal received, draining pools...");
-                crate::capability::registry::pool::begin_shutdown(5).await; // 5 second timeout
-                std::process::exit(0);
-            }
-        });
-
-        let mut stdout = StandardStream::stdout(ColorChoice::Always);
-
-        // Log warning if tools are specified (WASM loading not yet implemented)
-        if !self.args.tools.is_empty() {
-            let mut stderr = StandardStream::stderr(ColorChoice::Always);
-            stderr.set_color(ColorSpec::new().set_fg(Some(Color::Yellow)))?;
-            writeln!(
-                &mut stderr,
-                "⚠️  Warning: {} tool(s) specified but dynamic WASM loading not yet implemented:",
-                self.args.tools.len()
-            )?;
-            for tool in &self.args.tools {
-                writeln!(&mut stderr, "    - {}", tool)?;
-            }
-            writeln!(
-                &mut stderr,
-                "    Tools will be available in a future release."
-            )?;
-            stderr.reset()?;
-        }
-
-        // Display banner
-        stdout.set_color(ColorSpec::new().set_fg(Some(Color::Cyan)))?;
-        writeln!(&mut stdout, "\n=== Candle Chat CLI ===")?;
-        writeln!(&mut stdout, "Agent Role: {}", self.args.agent_role)?;
-        writeln!(&mut stdout, "Temperature: {}", self.args.temperature)?;
-        writeln!(
-            &mut stdout,
-            "Type your message or use commands (/help for list)"
-        )?;
-        writeln!(&mut stdout, "Use Ctrl+C to exit\n")?;
-        stdout.reset()?;
+        // Clean, minimal banner
+        println!("\n╭─────────────────────────────────────╮");
+        println!("│  🤖  Interactive AI Chat           │");
+        println!("╰─────────────────────────────────────╯");
+        println!("\nType /help for commands • Ctrl+C to exit\n");
 
         // Resolve system prompt using smart input resolution
         let system_prompt = if let Some(ref prompt_input) = self.args.system_prompt {
@@ -133,12 +88,6 @@ You are a master at refactoring code, remembering to check for code that ALREADY
             )
         };
 
-        // Clone for use in closure - wrap in Arc<Mutex<>> for interior mutability
-        use std::sync::Arc;
-        use tokio::sync::Mutex;
-        let handler = Arc::new(Mutex::new(self.handler.clone()));
-        let prompt_builder = self.prompt_builder.clone();
-
         // Build agent - use agent_role defaults, set properties, optionally override model
         let agent_builder = CandleFluentAi::agent_role(&self.args.agent_role).into_agent();
 
@@ -154,139 +103,107 @@ You are a master at refactoring code, remembering to check for code that ALREADY
                 .system_prompt(system_prompt.clone())
                 .memory_read_timeout(self.args.memory_read_timeout)
                 .max_tokens(self.args.max_tokens.unwrap_or(2000))
+                .on_chunk(|chunk| async move {
+                    use crate::domain::chat::message::CandleMessageChunk;
+                    if let CandleMessageChunk::Text(ref text) = chunk {
+                        print!("{}", text);
+                        let _ = std::io::stdout().flush();
+                    }
+                    chunk
+                })
         } else {
             agent_builder
                 .temperature(self.args.temperature)
                 .system_prompt(system_prompt.clone())
                 .memory_read_timeout(self.args.memory_read_timeout)
                 .max_tokens(self.args.max_tokens.unwrap_or(2000))
+                .on_chunk(|chunk| async move {
+                    use crate::domain::chat::message::CandleMessageChunk;
+                    if let CandleMessageChunk::Text(ref text) = chunk {
+                        print!("{}", text);
+                        let _ = std::io::stdout().flush();
+                    }
+                    chunk
+                })
         };
 
-        let agent = agent.on_conversation_turn(
-            move |_conversation: &crate::domain::agent::role::CandleAgentConversation, agent| {
-                // Clone for async block
-                let prompt_builder = prompt_builder.clone();
-                let handler = handler.clone();
-                let agent = agent.clone();
+        // Use async closure with direct tokio stdin reading
+        let handler = std::sync::Arc::new(std::sync::Mutex::new(self.handler.clone()));
+        
+        let stream = agent.chat(move |_conversation| {
+            let handler = handler.clone();
+            async move {
+                use tokio::io::{AsyncBufReadExt, BufReader};
                 
-                async move {
-                    let input = match prompt_builder.get_user_input("You: ") {
-                    Ok(i) => i,
-                    Err(e) => {
-                        let mut stderr = StandardStream::stderr(ColorChoice::Always);
-                        let _ = stderr.set_color(ColorSpec::new().set_fg(Some(Color::Red)));
-                        let _ = writeln!(&mut stderr, "Input error: {}", e);
-                        let _ = stderr.reset();
-                        return agent.chat(CandleChatLoop::Break);
-                    }
-                };
-
-                // Await the handler lock and call - fully async!
-                let handler_result = handler.lock().await.handle(&input);
-
-                match handler_result {
-                    InputHandlerResult::Exit => {
-                        let mut stdout = StandardStream::stdout(ColorChoice::Always);
-                        let _ = stdout.set_color(ColorSpec::new().set_fg(Some(Color::Cyan)));
-                        let _ = writeln!(&mut stdout, "Goodbye!");
-                        let _ = stdout.reset();
-                        agent.chat(CandleChatLoop::Break)
-                    }
-                    InputHandlerResult::Command(cmd_result) => {
-                        let output = CliRunner::format_command_result(&cmd_result);
-                        let mut stdout = StandardStream::stdout(ColorChoice::Always);
-                        let _ = stdout.set_color(ColorSpec::new().set_fg(Some(Color::White)));
-                        let _ = writeln!(&mut stdout, "{}", output);
-                        let _ = stdout.reset();
-                        agent.chat(CandleChatLoop::UserPrompt("".to_string()))
-                    }
-                    InputHandlerResult::None => {
-                        agent.chat(CandleChatLoop::UserPrompt("".to_string()))
-                    }
-                    InputHandlerResult::Chat(message) => {
-                        use tokio_stream::StreamExt;
-
-                        let agent_clone = agent.clone();
-
-                        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
-                            // Async resolve without blocking
-                            let resolved =
-                                resolve_input(&message).await.unwrap_or(message.clone());
-
-                            // Get chat stream with resolved input
-                            let chat_stream =
-                                agent_clone.chat(CandleChatLoop::UserPrompt(resolved));
-                            tokio::pin!(chat_stream);
-
-                            // Forward all chunks
-                            while let Some(chunk) = chat_stream.next().await {
-                                let _ = sender.send(chunk);
+                print!("\n> You: ");
+                let _ = std::io::stdout().flush();
+                
+                let stdin = tokio::io::stdin();
+                let mut reader = BufReader::new(stdin);
+                let mut input = String::new();
+                
+                match reader.read_line(&mut input).await {
+                    Ok(0) => CandleChatLoop::Break, // EOF
+                    Ok(_) => {
+                        let input = input.trim();
+                        
+                        // Handle input via InputHandler
+                        let handler_result = match handler.lock() {
+                            Ok(mut h) => h.handle(input),
+                            Err(_) => InputHandlerResult::Exit,
+                        };
+                        
+                        match handler_result {
+                            InputHandlerResult::Exit => {
+                                println!("Goodbye!");
+                                CandleChatLoop::Break
                             }
-                        }))
+                            InputHandlerResult::Command(cmd_result) => {
+                                let output = Self::format_command_result(&cmd_result);
+                                println!("{}", output);
+                                CandleChatLoop::Reprompt(String::new())
+                            }
+                            InputHandlerResult::None => {
+                                CandleChatLoop::Reprompt(String::new())
+                            }
+                            InputHandlerResult::Chat(message) => {
+                                CandleChatLoop::UserPrompt(message)
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Input error: {}", e);
+                        CandleChatLoop::Break
                     }
                 }
-                }
-            },
-        );
-
-        // Start conversation
-        let stream = agent.chat(|_| CandleChatLoop::UserPrompt("Ready to chat!".to_string()))?;
+            }
+        })?;
         tokio::pin!(stream);
 
-        // Consume stream - loop happens via on_conversation_turn recursion
-        print!("Assistant: ");
+        // Consume stream
+        println!("\n💭 ");
         while let Some(chunk) = stream.next().await {
             use crate::domain::chat::message::CandleMessageChunk;
             match chunk {
-                CandleMessageChunk::Text(text) => {
-                    print!("{}", text);
-                    std::io::Write::flush(&mut std::io::stdout()).ok();
+                CandleMessageChunk::Text(_) => {
+                    // Text already printed via on_chunk handler
                 }
                 CandleMessageChunk::Complete {
                     text,
-                    token_count,
-                    elapsed_secs,
-                    tokens_per_sec,
                     ..
                 } => {
                     if !text.is_empty() {
                         print!("{}", text);
                     }
-
-                    let mut stdout = StandardStream::stdout(ColorChoice::Always);
-                    let _ = writeln!(&mut stdout);
-
-                    // Display metrics from library if available
-                    if let (Some(tc), Some(es), Some(tps)) =
-                        (token_count, elapsed_secs, tokens_per_sec)
-                    {
-                        let _ = stdout.set_color(ColorSpec::new().set_fg(Some(Color::Green)));
-                        let _ = writeln!(
-                            &mut stdout,
-                            "✓ {} tokens in {:.2}s ({:.1} tokens/sec)",
-                            tc, es, tps
-                        );
-                        let _ = stdout.reset();
-                    }
+                    println!("\n");
                 }
                 CandleMessageChunk::Error(err) => {
-                    let mut stderr = StandardStream::stderr(ColorChoice::Always);
-                    let _ = stderr.set_color(ColorSpec::new().set_fg(Some(Color::Red)));
-                    let _ = writeln!(&mut stderr, "\nError: {}", err);
-                    let _ = stderr.reset();
+                    eprintln!("\n❌ {}", err);
                 }
                 CandleMessageChunk::ToolCallStart { name, .. } => {
-                    let mut stdout = StandardStream::stdout(ColorChoice::Always);
-                    let _ = stdout.set_color(ColorSpec::new().set_fg(Some(Color::Magenta)));
-                    let _ = writeln!(&mut stdout, "\n[Calling tool: {}]", name);
-                    let _ = stdout.reset();
+                    println!("\n🔧 {}", name);
                 }
-                CandleMessageChunk::ToolCallComplete { name, .. } => {
-                    let mut stdout = StandardStream::stdout(ColorChoice::Always);
-                    let _ = stdout.set_color(ColorSpec::new().set_fg(Some(Color::Magenta)));
-                    let _ = writeln!(&mut stdout, "[Tool {} completed]", name);
-                    let _ = stdout.reset();
-                }
+                CandleMessageChunk::ToolCallComplete { .. } => {}
                 _ => {}
             }
         }
@@ -331,7 +248,6 @@ impl Default for CliRunner {
         Self {
             args: CliArgs::default(),
             config,
-            prompt_builder: PromptBuilder::default(),
             handler,
         }
     }

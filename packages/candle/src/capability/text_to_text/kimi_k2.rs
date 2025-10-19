@@ -544,11 +544,8 @@ impl crate::capability::traits::TextToTextCapable for LoadedKimiK2Model {
         log::info!("🚀 Using CACHED model from memory - no loading needed!");
 
         // Build sampling config
-        let temperature = if params.temperature != 1.0 {
-            params.temperature
-        } else {
-            KIMI_K2_MODEL_INFO.default_temperature.unwrap_or(0.0)
-        };
+        // Use temperature from params directly
+        let temperature = params.temperature;
 
         // Extract additional params or use defaults
         let top_k = params

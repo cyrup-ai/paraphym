@@ -16,7 +16,7 @@ use paraphym_candle::prelude::*;
 fn candle_agent_role_example() -> AsyncStream<CandleMessageChunk> {
     let stream = CandleFluentAi::agent_role("rusty-squire")
         // .completion_provider(CandleKimiK2Provider::with_config("./models/kimi-k2".to_string(), CandleKimiK2Config::default())) // TODO: Re-enable when providers module is ready
-        .temperature(1.0)
+        .temperature(0.0)  // Greedy sampling for deterministic output
         .max_tokens(8000)
         .system_prompt("Act as a Rust developers 'right hand man'.
             You possess deep expertise in using tools to research rust, cargo doc and github libraries.
@@ -74,7 +74,7 @@ fn candle_agent_role_example() -> AsyncStream<CandleMessageChunk> {
 fn candle_chat_loop_example() -> AsyncStream<CandleMessageChunk> {
     CandleFluentAi::agent_role("helpful assistant")
         .model(CandleModels::KimiK2)
-        .temperature(0.7)
+        .temperature(0.0)  // Greedy sampling for deterministic output
         .on_chunk(|chunk| {
             // Real-time streaming - print each token as it arrives
             // All formatting and coloring happens automatically here
