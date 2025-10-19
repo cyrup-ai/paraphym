@@ -14,7 +14,7 @@ use super::pool::core::{PoolError, ensure_workers_spawned_adaptive};
 use crate::capability::text_to_text::{
     kimi_k2::LoadedKimiK2Model,
     phi4_reasoning::LoadedPhi4ReasoningModel,
-    qwen3_coder::LoadedQwen3CoderModel,
+    qwen3_quantized::LoadedQwen3QuantizedModel,
 };
 
 use super::enums::TextToTextModel;
@@ -27,7 +27,7 @@ impl TextToTextCapable for TextToTextModel {
     ) -> Pin<Box<dyn Stream<Item = CandleCompletionChunk> + Send>> {
         match self {
             Self::KimiK2(m) => spawn_stream_kimi_k2(m.clone(), prompt, params.clone()),
-            Self::Qwen3Coder(m) => spawn_stream_qwen3_coder(m.clone(), prompt, params.clone()),
+            Self::Qwen3Quantized(m) => spawn_stream_qwen3_quantized(m.clone(), prompt, params.clone()),
             Self::Phi4Reasoning(m) => spawn_stream_phi4_reasoning(m.clone(), prompt, params.clone()),
         }
     }
@@ -84,5 +84,5 @@ macro_rules! impl_text_to_text_spawn {
 
 // Generate functions for each model type
 impl_text_to_text_spawn!(spawn_stream_kimi_k2, crate::capability::text_to_text::kimi_k2::CandleKimiK2Model, LoadedKimiK2Model);
-impl_text_to_text_spawn!(spawn_stream_qwen3_coder, crate::capability::text_to_text::qwen3_coder::CandleQwen3CoderModel, LoadedQwen3CoderModel);
+impl_text_to_text_spawn!(spawn_stream_qwen3_quantized, crate::capability::text_to_text::qwen3_quantized::CandleQwen3QuantizedModel, LoadedQwen3QuantizedModel);
 impl_text_to_text_spawn!(spawn_stream_phi4_reasoning, crate::capability::text_to_text::phi4_reasoning::CandlePhi4ReasoningModel, LoadedPhi4ReasoningModel);

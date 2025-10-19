@@ -92,24 +92,16 @@ impl TextGenerator {
                 max_tokens, prompt.len(), special_tokens.eos_token_id);
             self.stats.start_generation();
 
-            // Encode prompt to tokens using tokenizer (async to avoid blocking runtime)
-            let tokenizer = self.tokenizer.clone();
-            let prompt_str = prompt.clone();
+            // Encode prompt to tokens using tokenizer (fast CPU operation)
             log::info!(">>> Encoding prompt...");
-            let tokens = match tokio::task::spawn_blocking(move || {
-                tokenizer.encode(prompt_str.as_str(), true)
-            }).await {
-                Ok(Ok(encoded)) => {
+            let tokens = match self.tokenizer.encode(prompt.as_str(), true) {
+                Ok(encoded) => {
                     let ids = encoded.get_ids().to_vec();
                     log::info!(">>> Prompt encoded to {} tokens", ids.len());
                     ids
                 },
-                Ok(Err(e)) => {
-                    log::error!("Prompt encoding error: {}", e);
-                    return;
-                }
                 Err(e) => {
-                    log::error!("Tokenizer spawn_blocking error: {}", e);
+                    log::error!("Prompt encoding error: {}", e);
                     return;
                 }
             };
@@ -118,24 +110,21 @@ impl TextGenerator {
             let mut all_tokens = tokens.clone();
             let mut position = 0;
 
-            // Initial forward pass - wrap tensor ops in spawn_blocking
+            // Initial forward pass - fast tensor creation
             log::info!(">>> Creating initial input tensor...");
-            let tokens_clone = tokens.clone();
-            let device_clone = self.device.clone();
-            let initial_input = match tokio::task::spawn_blocking(move || {
-                let tensor = Tensor::new(tokens_clone.as_slice(), &device_clone)?;
-                tensor.unsqueeze(0)
-            }).await {
-                Ok(Ok(unsqueezed)) => {
-                    log::info!(">>> Initial tensor created");
-                    unsqueezed
+            let initial_input = match Tensor::new(tokens.as_slice(), &self.device) {
+                Ok(tensor) => match tensor.unsqueeze(0) {
+                    Ok(unsqueezed) => {
+                        log::info!(">>> Initial tensor created");
+                        unsqueezed
+                    },
+                    Err(e) => {
+                        log::error!("Initial tensor unsqueeze error: {}", e);
+                        return;
+                    }
                 },
-                Ok(Err(e)) => {
-                    log::error!("Initial tensor creation error: {}", e);
-                    return;
-                }
                 Err(e) => {
-                    log::error!("Tensor spawn_blocking error: {}", e);
+                    log::error!("Initial tensor creation error: {}", e);
                     return;
                 }
             };
@@ -162,22 +151,15 @@ impl TextGenerator {
             };
 
             self.stats.record_forward_pass();
-            // Convert logits to vec - wrap in spawn_blocking for CPU-bound operation
+            // Convert logits to vec - fast CPU operation
             log::info!(">>> Converting logits to vector...");
-            let logits_clone = initial_logits.clone();
-            let logits_vec = match tokio::task::spawn_blocking(move || {
-                logits_clone.to_vec1::<f32>()
-            }).await {
-                Ok(Ok(v)) => {
+            let logits_vec = match initial_logits.to_vec1::<f32>() {
+                Ok(v) => {
                     log::info!(">>> Logits converted, vocab_size={}", v.len());
                     v
                 },
-                Ok(Err(e)) => {
-                    log::error!("Converting initial logits to vector error: {}", e);
-                    return;
-                }
                 Err(e) => {
-                    log::error!("Logits spawn_blocking error: {}", e);
+                    log::error!("Converting initial logits to vector error: {}", e);
                     return;
                 }
             };
@@ -202,24 +184,16 @@ impl TextGenerator {
 
             position += 1;
 
-            // Decode and emit initial token (async to avoid blocking runtime)
+            // Decode and emit initial token - fast CPU operation
             // Note: We decode and send the first token even if it's EOS to ensure at least one chunk is emitted
             log::info!("🎯 First token generated: {}", next_token);
-            let tokenizer = self.tokenizer.clone();
-            let token_to_decode = next_token;
-            match tokio::task::spawn_blocking(move || {
-                tokenizer.decode(&[token_to_decode], false)
-            }).await {
-                Ok(Ok(token_str)) => {
+            match self.tokenizer.decode(&[next_token], false) {
+                Ok(token_str) => {
                     log::info!("✅ Sending first token: '{}'", token_str);
                     let _ = tx.send(CandleStringChunk(token_str));
                 }
-                Ok(Err(e)) => {
-                    log::error!("Initial token decoding error: {}", e);
-                    return;
-                }
                 Err(e) => {
-                    log::error!("Tokenizer spawn_blocking error: {}", e);
+                    log::error!("Initial token decoding error: {}", e);
                     return;
                 }
             };
@@ -233,20 +207,17 @@ impl TextGenerator {
 
             // Generation loop - stream each token as generated
             for _index in 1..max_tokens {
-                // Prepare input tensor for next forward pass - wrap in spawn_blocking
-                let token_to_convert = next_token;
-                let device_clone = self.device.clone();
-                let input = match tokio::task::spawn_blocking(move || {
-                    let tensor = Tensor::new(&[token_to_convert], &device_clone)?;
-                    tensor.unsqueeze(0)
-                }).await {
-                    Ok(Ok(unsqueezed)) => unsqueezed,
-                    Ok(Err(e)) => {
-                        log::error!("Tensor creation in loop error: {}", e);
-                        break;
-                    }
+                // Prepare input tensor for next forward pass - fast CPU operation
+                let input = match Tensor::new(&[next_token], &self.device) {
+                    Ok(tensor) => match tensor.unsqueeze(0) {
+                        Ok(unsqueezed) => unsqueezed,
+                        Err(e) => {
+                            log::error!("Tensor unsqueeze in loop error: {}", e);
+                            break;
+                        }
+                    },
                     Err(e) => {
-                        log::error!("Tensor spawn_blocking error: {}", e);
+                        log::error!("Tensor creation in loop error: {}", e);
                         break;
                     }
                 };
@@ -267,18 +238,11 @@ impl TextGenerator {
                 };
 
                 self.stats.record_forward_pass();
-                // SIMD sampling using existing infrastructure - wrap in spawn_blocking
-                let logits_clone = logits.clone();
-                let logits_vec = match tokio::task::spawn_blocking(move || {
-                    logits_clone.to_vec1::<f32>()
-                }).await {
-                    Ok(Ok(v)) => v,
-                    Ok(Err(e)) => {
-                        log::error!("Converting logits to vector in loop error: {}", e);
-                        break;
-                    }
+                // SIMD sampling using existing infrastructure - fast CPU operation
+                let logits_vec = match logits.to_vec1::<f32>() {
+                    Ok(v) => v,
                     Err(e) => {
-                        log::error!("Logits spawn_blocking error: {}", e);
+                        log::error!("Converting logits to vector in loop error: {}", e);
                         break;
                     }
                 };
@@ -304,21 +268,13 @@ impl TextGenerator {
                     break; // Graceful EOS termination
                 }
 
-                // Decode and emit individual token (async to avoid blocking runtime)
-                let tokenizer = self.tokenizer.clone();
-                let token_to_decode = next_token;
-                match tokio::task::spawn_blocking(move || {
-                    tokenizer.decode(&[token_to_decode], false)
-                }).await {
-                    Ok(Ok(token_str)) => {
+                // Decode and emit individual token - fast CPU operation
+                match self.tokenizer.decode(&[next_token], false) {
+                    Ok(token_str) => {
                         let _ = tx.send(CandleStringChunk(token_str)); // Individual token streaming
                     }
-                    Ok(Err(e)) => {
-                        log::error!("Token decoding in loop error: {}", e);
-                        break;
-                    }
                     Err(e) => {
-                        log::error!("Tokenizer spawn_blocking error: {}", e);
+                        log::error!("Token decoding in loop error: {}", e);
                         break;
                     }
                 };

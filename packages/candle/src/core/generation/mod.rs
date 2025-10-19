@@ -51,6 +51,7 @@ pub mod generator;
 pub mod metrics;
 pub mod models;
 pub mod stats;
+pub mod token_output_stream;
 pub mod tokens;
 pub mod types;
 
@@ -65,5 +66,6 @@ pub use models::{
     CandleQuantizedPhiModel,
 };
 pub use stats::GenerationStatistics;
+pub use token_output_stream::TokenOutputStream;
 pub use tokens::{SpecialTokens, TokenHistory, TokenProb};
 pub use types::{CandleResult, LogitsBuffer, SAMPLING_CACHE_SIZE, SIMD_THRESHOLD};

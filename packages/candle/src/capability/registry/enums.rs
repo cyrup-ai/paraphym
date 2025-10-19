@@ -12,7 +12,7 @@ use crate::capability::text_embedding::{
 };
 use crate::capability::text_to_image::{FluxSchnell, StableDiffusion35Turbo};
 use crate::capability::text_to_text::{
-    CandleKimiK2Model, CandlePhi4ReasoningModel, CandleQwen3CoderModel,
+    CandleKimiK2Model, CandlePhi4ReasoningModel, CandleQwen3QuantizedModel,
 };
 use crate::capability::vision::LLaVAModel;
 
@@ -24,7 +24,7 @@ use crate::capability::vision::LLaVAModel;
 #[derive(Clone, Debug)]
 pub enum TextToTextModel {
     KimiK2(Arc<CandleKimiK2Model>),
-    Qwen3Coder(Arc<CandleQwen3CoderModel>),
+    Qwen3Quantized(Arc<CandleQwen3QuantizedModel>),
     Phi4Reasoning(Arc<CandlePhi4ReasoningModel>),
 }
 
@@ -76,7 +76,7 @@ impl CandleModel for TextToTextModel {
     fn info(&self) -> &'static CandleModelInfo {
         match self {
             Self::KimiK2(m) => m.info(),
-            Self::Qwen3Coder(m) => m.info(),
+            Self::Qwen3Quantized(m) => m.info(),
             Self::Phi4Reasoning(m) => m.info(),
         }
     }
