@@ -127,7 +127,7 @@ impl Default for CandleModelConfig {
             provider: String::from("openai"),
             registry_key: String::from("gpt-4"),
             model_version: None,
-            temperature: 0.7,
+            temperature: 0.0,  // Greedy sampling for chat - deterministic output
             max_tokens: Some(2048),
             top_p: Some(1.0),
             top_k: None,
@@ -1384,7 +1384,7 @@ impl Default for CandleModelConfigData {
             provider: String::new(),
             registry_key: String::new(),
             model_version: None,
-            temperature: 0.7,
+            temperature: 0.0,  // Greedy sampling for chat - deterministic output
             max_tokens: None,
             top_p: None,
             top_k: None,

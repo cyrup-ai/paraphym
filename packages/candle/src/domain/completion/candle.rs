@@ -148,7 +148,7 @@ impl<'a> CompletionCoreRequest<'a> {
         Self {
             prompt: ArrayVec::new(),
             max_tokens: 1000,
-            temperature: 0.7,
+            temperature: 0.0,  // Greedy sampling for completions - deterministic output
             top_k: 50,
             top_p: 0.9,
             stop_tokens: SmallVec::new(),

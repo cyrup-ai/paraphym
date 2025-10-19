@@ -122,7 +122,7 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
         let temperature = if params.temperature != 1.0 {
             params.temperature
         } else {
-            self.info().default_temperature.unwrap_or(0.7)
+            self.info().default_temperature.unwrap_or(0.0)  // Greedy sampling for deterministic output
         };
 
         // Clone engine Arc for the coordinate_generation call
@@ -319,7 +319,7 @@ pub static PHI4_REASONING_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     image_size: None,
     image_mean: None,
     image_std: None,
-    default_temperature: Some(0.7),
+    default_temperature: Some(0.0),  // REQUIRED for reasoning models - greedy sampling
     default_top_k: Some(50),
     default_top_p: Some(0.95),
     supports_kv_cache: true, // MixFormer uses internal KV cache
@@ -459,7 +459,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedPhi4ReasoningModel {
         let temperature = if params.temperature != 1.0 {
             params.temperature
         } else {
-            PHI4_REASONING_MODEL_INFO.default_temperature.unwrap_or(0.7)
+            PHI4_REASONING_MODEL_INFO.default_temperature.unwrap_or(0.0)  // Greedy sampling for deterministic output
         };
 
         // Extract additional params or use defaults

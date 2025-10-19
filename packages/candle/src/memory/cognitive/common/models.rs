@@ -50,7 +50,7 @@ impl Default for LocalModelConfig {
     fn default() -> Self {
         Self {
             max_tokens: Some(512),
-            temperature: Some(0.7),
+            temperature: Some(0.0),  // Greedy sampling for cognitive operations - deterministic output
             local_only: true,
         }
     }

@@ -857,8 +857,8 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
 
         // Get default text-to-text model if not set
         let text_model = self.text_to_text_model.unwrap_or_else(|| {
-            registry::get::<TextToTextModel>("unsloth/phi-4-reasoning")
-                .expect("phi4-reasoning model must be registered")
+            registry::get::<TextToTextModel>("qwen-3")
+                .expect("qwen-3 model must be registered")
         });
 
         // Get max_tokens from model's ModelInfo

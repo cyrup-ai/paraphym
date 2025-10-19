@@ -135,7 +135,7 @@ mod tests {
     fn test_architecture_md_syntax_works() {
         // Test that ARCHITECTURE.md builder pattern still works after all fixes
         let _agent = CandleFluentAi::agent_role("test-agent")
-            .temperature(0.7)
+            .temperature(0.0)  // Greedy sampling example - deterministic output
             .max_tokens(1000)
             .system_prompt("You are a helpful assistant")
             .into_agent();

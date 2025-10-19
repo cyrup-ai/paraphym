@@ -100,7 +100,7 @@ impl Default for EngineConfig {
             api_key: None,
             timeout_seconds: 30,
             max_tokens: Some(4096),
-            temperature: Some(0.7),
+            temperature: Some(0.0),  // Global default: greedy sampling for deterministic output
             enable_streaming: false,
             endpoint_url: None,
         }

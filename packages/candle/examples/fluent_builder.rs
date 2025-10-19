@@ -6,7 +6,7 @@
 //! # Usage
 //!
 //! ```bash
-//! # Uses phi-4-reasoning by default (no .model() needed!)
+//! # Uses qwen-3 by default (no .model() needed!)
 //! cargo run --example fluent_builder --release
 //!
 //! # With custom query
@@ -46,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Query: {}", args.query);
     println!("Temperature: {}", args.temperature);
     println!("Max Tokens: {}", args.max_tokens);
-    println!("Model: phi-4-reasoning (default)");
+    println!("Model: qwen-3 (default)");
     println!("{}\n", "=".repeat(80));
 
     // Example 1: Simple one-shot query with fluent chain
