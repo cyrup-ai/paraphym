@@ -2,6 +2,7 @@
 
 use super::super::*;
 use surrealdb::engine::any::connect;
+use tokio_stream::StreamExt;
 use crate::memory::core::manager::surreal::SurrealDBMemoryManager;
 use crate::memory::core::manager::coordinator::MemoryCoordinator;
 use crate::memory::primitives::node::MemoryNode;
@@ -36,10 +37,7 @@ pub(super) async fn initialize_memory_coordinator(
     }
 
     // Create SurrealDBMemoryManager
-    let surreal_manager = match SurrealDBMemoryManager::with_embedding_model(db, emb_model.clone()) {
-        Ok(mgr) => mgr,
-        Err(e) => return Err(format!("Failed to create memory manager: {}", e)),
-    };
+    let surreal_manager = SurrealDBMemoryManager::with_embedding_model(db, emb_model.clone());
 
     if let Err(e) = surreal_manager.initialize().await {
         return Err(format!("Failed to initialize memory tables: {}", e));
@@ -65,17 +63,16 @@ pub(super) async fn load_context_into_memory(
 ) -> Result<(), String> {
     // Load from context_file
     if let Some(ctx) = context_file {
-        let docs = match ctx.get_documents().await {
-            Ok(d) => d,
-            Err(e) => return Err(format!("Failed to load context file: {}", e)),
-        };
-        for doc in docs {
-            let content = MemoryContent::new(&doc.content);
+        let stream = ctx.load();
+        tokio::pin!(stream);
+        while let Some(doc) = stream.next().await {
+            let content = MemoryContent::new(&doc.data);
             let mut node = MemoryNode::new(MemoryTypeEnum::Semantic, content);
-            node.metadata.source = Some(doc.source);
-            node.metadata.tags = doc.tags;
+            node.metadata.source = doc.additional_props.get("path")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             node.metadata.importance = 0.5;
-            
+
             let pending = memory.create_memory(node);
             if let Err(e) = pending.await {
                 log::warn!("Failed to ingest document into memory: {:?}", e);
@@ -85,17 +82,16 @@ pub(super) async fn load_context_into_memory(
 
     // Load from context_files
     if let Some(ctx) = context_files {
-        let docs = match ctx.get_documents().await {
-            Ok(d) => d,
-            Err(e) => return Err(format!("Failed to load context files: {}", e)),
-        };
-        for doc in docs {
-            let content = MemoryContent::new(&doc.content);
+        let stream = ctx.load();
+        tokio::pin!(stream);
+        while let Some(doc) = stream.next().await {
+            let content = MemoryContent::new(&doc.data);
             let mut node = MemoryNode::new(MemoryTypeEnum::Semantic, content);
-            node.metadata.source = Some(doc.source);
-            node.metadata.tags = doc.tags;
+            node.metadata.source = doc.additional_props.get("path")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             node.metadata.importance = 0.5;
-            
+
             let pending = memory.create_memory(node);
             if let Err(e) = pending.await {
                 log::warn!("Failed to ingest document into memory: {:?}", e);
@@ -105,17 +101,16 @@ pub(super) async fn load_context_into_memory(
 
     // Load from context_directory
     if let Some(ctx) = context_directory {
-        let docs = match ctx.get_documents().await {
-            Ok(d) => d,
-            Err(e) => return Err(format!("Failed to load context directory: {}", e)),
-        };
-        for doc in docs {
-            let content = MemoryContent::new(&doc.content);
+        let stream = ctx.load();
+        tokio::pin!(stream);
+        while let Some(doc) = stream.next().await {
+            let content = MemoryContent::new(&doc.data);
             let mut node = MemoryNode::new(MemoryTypeEnum::Semantic, content);
-            node.metadata.source = Some(doc.source);
-            node.metadata.tags = doc.tags;
+            node.metadata.source = doc.additional_props.get("path")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             node.metadata.importance = 0.5;
-            
+
             let pending = memory.create_memory(node);
             if let Err(e) = pending.await {
                 log::warn!("Failed to ingest document into memory: {:?}", e);
@@ -125,17 +120,16 @@ pub(super) async fn load_context_into_memory(
 
     // Load from context_github
     if let Some(ctx) = context_github {
-        let docs = match ctx.get_documents().await {
-            Ok(d) => d,
-            Err(e) => return Err(format!("Failed to load context github: {}", e)),
-        };
-        for doc in docs {
-            let content = MemoryContent::new(&doc.content);
+        let stream = ctx.load();
+        tokio::pin!(stream);
+        while let Some(doc) = stream.next().await {
+            let content = MemoryContent::new(&doc.data);
             let mut node = MemoryNode::new(MemoryTypeEnum::Semantic, content);
-            node.metadata.source = Some(doc.source);
-            node.metadata.tags = doc.tags;
+            node.metadata.source = doc.additional_props.get("path")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             node.metadata.importance = 0.5;
-            
+
             let pending = memory.create_memory(node);
             if let Err(e) = pending.await {
                 log::warn!("Failed to ingest document into memory: {:?}", e);
