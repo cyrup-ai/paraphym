@@ -16,7 +16,7 @@ use tokio::sync::broadcast;
 use std::pin::Pin;
 use tokio_stream::Stream;
 
-use crate::domain::context::chunk::CandleCollectionChunk;
+use crate::domain::context::chunks::CandleCollectionChunk;
 use crate::domain::util::unix_timestamp_nanos;
 
 use super::events::RealTimeEvent;

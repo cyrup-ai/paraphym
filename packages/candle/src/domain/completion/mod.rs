@@ -37,4 +37,4 @@ pub type CandleCompletionResponse<'a> = CompletionResponse<'a>;
 pub use types::{CandleCompletionParams, CandleModelParams};
 
 // Re-export CandleCompletionChunk from context/chunk.rs
-pub use crate::domain::context::chunk::CandleCompletionChunk;
+pub use crate::domain::context::chunks::CandleCompletionChunk;

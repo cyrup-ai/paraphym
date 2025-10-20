@@ -302,7 +302,7 @@ impl ChatSearcher {
         &self,
         results: Vec<SearchResult>,
         options: Option<ExportOptions>,
-    ) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunk::CandleJsonChunk> + Send>> {
+    ) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunks::CandleJsonChunk> + Send>> {
         self.exporter.export_stream(results, options)
     }
 

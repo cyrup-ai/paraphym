@@ -10,7 +10,6 @@
 //! The module provides a clean, unified interface for all context operations
 //! while maintaining high performance and memory integration capabilities.
 
-pub mod chunk;
 pub mod chunks;
 pub mod document;
 pub mod extraction;
@@ -21,7 +20,7 @@ pub mod realtime;
 pub mod traits;
 
 // Re-export all types for easy access
-pub use chunk::*;
+pub use chunks::*;
 pub use document::*;
 pub use extraction::*;
 pub use loader::*;

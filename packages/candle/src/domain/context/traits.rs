@@ -35,7 +35,7 @@ pub trait CandleContext: Send + Sync + 'static {
     ///
     /// # Returns
     /// tokio Stream indicating whether refresh was successful
-    fn refresh(&self) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunk::CandleRefreshResult> + Send>>;
+    fn refresh(&self) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunks::CandleRefreshResult> + Send>>;
 
     /// Get context capabilities and supported operations
     ///
@@ -377,10 +377,10 @@ impl CandleContext for CandleFileContext {
         self.metadata.clone()
     }
 
-    fn refresh(&self) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunk::CandleRefreshResult> + Send>> {
+    fn refresh(&self) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunks::CandleRefreshResult> + Send>> {
         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // For files, always return success since file system access is always "fresh"
-            let _ = tx.send(crate::domain::context::chunk::CandleRefreshResult::success());
+            let _ = tx.send(crate::domain::context::chunks::CandleRefreshResult::success());
         }))
     }
 

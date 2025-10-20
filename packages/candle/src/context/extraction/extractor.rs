@@ -18,7 +18,7 @@ use crate::domain::{
     completion::{
         types::CandleCompletionParams as CompletionParams,
     },
-    context::chunk::{CandleCompletionChunk, FinishReason},
+    context::chunks::{CandleCompletionChunk, FinishReason},
     prompt::CandlePrompt as Prompt,
 };
 

@@ -134,7 +134,7 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
     pub fn new(
         model: M,
         system_prompt: impl Into<String>,
-    ) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunk::CandleResult<Self, AgentError>> + Send>> {
+    ) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunks::CandleResult<Self, AgentError>> + Send>> {
         let system_prompt = system_prompt.into();
         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Initialize memory system with cognitive settings optimized for performance
@@ -166,7 +166,7 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
                 {
                     Ok(manager) => manager,
                     Err(e) => {
-                        let _ = tx.send(crate::domain::context::chunk::CandleResult {
+                        let _ = tx.send(crate::domain::context::chunks::CandleResult {
                             result: Err(AgentError::MemoryInitializationFailed(e.to_string())),
                         });
                         return;
@@ -192,7 +192,7 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
             };
 
             // Send the successfully created agent
-            let _ = tx.send(crate::domain::context::chunk::CandleResult { result: Ok(agent) });
+            let _ = tx.send(crate::domain::context::chunks::CandleResult { result: Ok(agent) });
         }))
     }
 
@@ -213,7 +213,7 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
         model: M,
         system_prompt: impl Into<String>,
         memory_config: ComprehensiveMemoryConfig,
-    ) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunk::CandleResult<Self, AgentError>> + Send>> {
+    ) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunks::CandleResult<Self, AgentError>> + Send>> {
         let system_prompt = system_prompt.into();
         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Convert comprehensive config to Memory::new() format
@@ -272,7 +272,7 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
                 {
                     Ok(manager) => manager,
                     Err(e) => {
-                        let _ = tx.send(crate::domain::context::chunk::CandleResult {
+                        let _ = tx.send(crate::domain::context::chunks::CandleResult {
                             result: Err(AgentError::Config(format!(
                                 "Failed to initialize memory: {e}"
                             ))),
@@ -300,7 +300,7 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
             };
 
             // Send the successfully created agent
-            let _ = tx.send(crate::domain::context::chunk::CandleResult { result: Ok(agent) });
+            let _ = tx.send(crate::domain::context::chunks::CandleResult { result: Ok(agent) });
         }))
     }
 
@@ -321,7 +321,7 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
         model: M,
         system_prompt: impl Into<String>,
         memory: Arc<SurrealDBMemoryManager>,
-    ) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunk::CandleResult<Self, AgentError>> + Send>> {
+    ) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunks::CandleResult<Self, AgentError>> + Send>> {
         let system_prompt = system_prompt.into();
         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Create memory tool with zero-allocation initialization
@@ -341,7 +341,7 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
             };
 
             let _ =
-                tx.send(crate::domain::context::chunk::CandleResult { result: Ok(agent) });
+                tx.send(crate::domain::context::chunks::CandleResult { result: Ok(agent) });
         }))
     }
 

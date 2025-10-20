@@ -8,7 +8,7 @@ use tokenizers::Tokenizer;
 use tokio_stream::Stream;
 use crate::async_stream;
 
-use crate::domain::context::chunk::CandleStringChunk;
+use crate::domain::context::chunks::CandleStringChunk;
 use cyrup_simd::logits::LogitsProcessor as LogitsProcessorTrait;
 use cyrup_simd::logits::constraints::GenerationConstraint;
 
@@ -86,7 +86,7 @@ impl TextGenerator {
         prompt: String,
         max_tokens: u32,
         special_tokens: SpecialTokens,
-    ) -> impl Stream<Item = crate::domain::context::chunk::CandleStringChunk> {
+    ) -> impl Stream<Item = crate::domain::context::chunks::CandleStringChunk> {
         async_stream::spawn_stream(move |tx| async move {
             log::info!(">>> GENERATE STARTED: max_tokens={}, prompt_len={}, eos={:?}", 
                 max_tokens, prompt.len(), special_tokens.eos_token_id);

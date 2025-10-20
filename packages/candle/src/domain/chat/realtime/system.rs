@@ -70,11 +70,11 @@ impl RealtimeChat {
     }
 
     /// Start the real-time chat system
-    pub fn start(&mut self) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunk::CandleUnitChunk> + Send>> {
+    pub fn start(&mut self) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunks::CandleUnitChunk> + Send>> {
         if self.is_running {
             return Box::pin(crate::async_stream::spawn_stream(|tx| async move {
                 // Already running - send success immediately
-                let _ = tx.send(crate::domain::context::chunk::CandleUnitChunk::Success);
+                let _ = tx.send(crate::domain::context::chunks::CandleUnitChunk::Success);
             }));
         }
         self.is_running = true;
@@ -87,7 +87,7 @@ impl RealtimeChat {
             // Start both streams concurrently
             // This is a simplified merge - in a full implementation you'd handle both streams properly
             // Send success to indicate startup completed
-            let _ = tx.send(crate::domain::context::chunk::CandleUnitChunk::Success);
+            let _ = tx.send(crate::domain::context::chunks::CandleUnitChunk::Success);
         }))
     }
 

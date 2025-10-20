@@ -152,7 +152,7 @@ impl CandleConfigurationManager {
     pub fn update_config(
         &self,
         new_config: CandleChatConfig,
-    ) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunk::CandleUnit> + Send>> {
+    ) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunks::CandleUnit> + Send>> {
         let manager = self.clone();
 
         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
@@ -195,7 +195,7 @@ impl CandleConfigurationManager {
             let _ = manager.change_notifier.send(change_event);
 
             // Emit completion
-            let _ = tx.send(crate::domain::context::chunk::CandleUnit(()));
+            let _ = tx.send(crate::domain::context::chunks::CandleUnit(()));
         }))
     }
 
@@ -204,7 +204,7 @@ impl CandleConfigurationManager {
         &self,
         section: &str,
         updater: F,
-    ) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunk::CandleUnit> + Send>>
+    ) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunks::CandleUnit> + Send>>
     where
         F: FnOnce(&mut CandleChatConfig) + Send + 'static,
     {
@@ -253,7 +253,7 @@ impl CandleConfigurationManager {
             let _ = manager.change_notifier.send(change_event);
 
             // Emit completion
-            let _ = tx.send(crate::domain::context::chunk::CandleUnit(()));
+            let _ = tx.send(crate::domain::context::chunks::CandleUnit(()));
         }))
     }
 

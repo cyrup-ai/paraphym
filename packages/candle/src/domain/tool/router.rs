@@ -11,7 +11,7 @@ use serde_json::Value;
 use std::pin::Pin;
 use tokio_stream::Stream;
 
-use crate::domain::context::chunk::CandleJsonChunk;
+use crate::domain::context::chunks::CandleJsonChunk;
 use cylo::{BackendConfig, Cylo, ExecutionRequest, ExecutionResult, create_backend};
 use sweet_mcp_type::{JsonValue, ToolInfo};
 

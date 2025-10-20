@@ -12,7 +12,7 @@ use crate::capability::traits::TextToTextCapable;
 use crate::domain::{
     chat::message::types::CandleMessageRole as MessageRole,
     completion::types::CandleCompletionParams as CompletionParams,
-    context::chunk::{CandleCompletionChunk, FinishReason},
+    context::chunks::{CandleCompletionChunk, FinishReason},
     prompt::CandlePrompt as Prompt,
 };
 

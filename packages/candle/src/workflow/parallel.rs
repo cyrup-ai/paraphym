@@ -17,7 +17,7 @@ use smallvec::SmallVec;
 use std::pin::Pin;
 use tokio_stream::{Stream, StreamExt};
 
-use crate::domain::context::chunk::ParallelResult;
+use crate::domain::context::chunks::ParallelResult;
 use crate::workflow::ops::{DynOp, Op};
 
 /// N-way parallel execution combinator for concurrent processing

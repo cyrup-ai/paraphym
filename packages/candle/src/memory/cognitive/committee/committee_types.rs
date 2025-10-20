@@ -10,7 +10,7 @@ use crate::capability::text_to_text::{CandleKimiK2Model, CandleQwen3QuantizedMod
 use crate::capability::registry::TextToTextModel;
 use crate::capability::traits::TextToTextCapable;
 use crate::domain::{
-    completion::CandleCompletionParams, context::chunk::CandleCompletionChunk, prompt::CandlePrompt,
+    completion::CandleCompletionParams, context::chunks::CandleCompletionChunk, prompt::CandlePrompt,
 };
 use crate::memory::cognitive::types::CognitiveError;
 

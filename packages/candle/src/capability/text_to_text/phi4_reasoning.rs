@@ -3,18 +3,18 @@
 //! This provider implements the TextToTextCapable trait for the Phi-4-reasoning
 //! model with integrated chain-of-thought reasoning capabilities.
 
+use std::future::Future;
 use std::num::NonZeroU32;
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
 
-use async_trait::async_trait;
 use tokio_stream::Stream;
 use crate::async_stream;
 
 use crate::core::Engine;
 use crate::domain::model::{info::CandleModelInfo, traits::CandleModel};
 use crate::domain::{
-    completion::CandleCompletionParams, context::chunk::CandleCompletionChunk, prompt::CandlePrompt,
+    completion::CandleCompletionParams, context::chunks::CandleCompletionChunk, prompt::CandlePrompt,
 };
 
 /// Chat template constant for Phi-4-reasoning
@@ -159,7 +159,7 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
                     SamplingConfig, generator::TextGenerator, models::CandleQuantizedPhiModel,
                     tokens::SpecialTokens,
                 };
-                use crate::domain::context::chunk::CandleStringChunk;
+                use crate::domain::context::chunks::CandleStringChunk;
                 use candle_core::Device;
                 use tokenizers::Tokenizer;
                 use tokio_stream::StreamExt;
@@ -590,13 +590,14 @@ struct SharedPhiModel {
     vocab_size: usize,
 }
 
-#[async_trait]
 impl crate::core::generation::models::CandleModel for SharedPhiModel {
-    async fn forward(&mut self, input: &candle_core::Tensor, index_pos: usize) -> Result<candle_core::Tensor, crate::domain::model::error::CandleModelError> {
-        // Lock the mutex to get mutable access to the model
-        let mut model = self.model.lock().await;
-        // Call the async forward method on the locked model
-        model.forward(input, index_pos).await
+    fn forward(&mut self, input: &candle_core::Tensor, index_pos: usize) -> Pin<Box<dyn Future<Output = Result<candle_core::Tensor, crate::domain::model::error::CandleModelError>> + Send + '_>> {
+        Box::pin(async move {
+            // Lock the mutex to get mutable access to the model
+            let mut model = self.model.lock().await;
+            // Call the async forward method on the locked model
+            model.forward(input, index_pos).await
+        })
     }
 
     fn device(&self) -> &candle_core::Device {

@@ -14,7 +14,7 @@ use thiserror::Error;
 use tokio_stream::Stream;
 use crate::async_stream;
 
-use crate::domain::context::chunk::{CandleCompletionChunk, CandleStringChunk};
+use crate::domain::context::chunks::{CandleCompletionChunk, CandleStringChunk};
 use crate::domain::model::CandleUsage;
 
 /// Engine-specific error types with minimal allocations
@@ -388,9 +388,9 @@ impl Engine {
             let final_chunk = CandleCompletionChunk::Complete {
                 text: String::new(),
                 finish_reason: if has_error {
-                    Some(crate::domain::context::chunk::FinishReason::Error)
+                    Some(crate::domain::context::chunks::FinishReason::Error)
                 } else {
-                    Some(crate::domain::context::chunk::FinishReason::Stop)
+                    Some(crate::domain::context::chunks::FinishReason::Stop)
                 },
                 usage: Some(CandleUsage {
                     input_tokens: 0, // Provider can set this if needed

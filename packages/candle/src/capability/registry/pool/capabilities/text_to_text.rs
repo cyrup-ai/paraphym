@@ -8,7 +8,7 @@ use tokio_stream::Stream;
 
 use crate::capability::traits::TextToTextCapable;
 use crate::domain::completion::CandleCompletionParams;
-use crate::domain::context::chunk::CandleCompletionChunk;
+use crate::domain::context::chunks::CandleCompletionChunk;
 use crate::domain::prompt::CandlePrompt;
 use crate::capability::registry::pool::core::memory_governor::AllocationGuard;
 use crate::capability::registry::pool::core::types::{HealthPing, HealthPong, select_worker_power_of_two};

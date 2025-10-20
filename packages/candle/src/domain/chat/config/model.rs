@@ -194,12 +194,12 @@ impl CandleModelConfig {
 
     /// Validate the model configuration
     #[must_use]
-    pub fn validate(&self) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunk::CandleUnit> + Send>> {
+    pub fn validate(&self) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunks::CandleUnit> + Send>> {
         let _config = self.clone();
         // Use spawn_stream for streaming-only architecture - emit success immediately
         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Emit success via sender - validation happens during stream processing
-            let _ = tx.send(crate::domain::context::chunk::CandleUnit(()));
+            let _ = tx.send(crate::domain::context::chunks::CandleUnit(()));
         }))
     }
 }

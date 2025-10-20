@@ -5,7 +5,7 @@ use std::pin::Pin;
 use tokio_stream::Stream;
 
 use super::types::{ExportFormat, ExportOptions, SearchError, SearchResult};
-use crate::domain::context::chunk::CandleJsonChunk;
+use crate::domain::context::chunks::CandleJsonChunk;
 
 /// Search result exporter with streaming capabilities
 pub struct SearchExporter {

@@ -13,7 +13,7 @@ use std::pin::Pin;
 
 use crate::domain::completion::CandleCompletionChunk;
 use crate::domain::completion::types::CandleCompletionParams;
-use crate::domain::context::chunk::CandleStringChunk;
+use crate::domain::context::chunks::CandleStringChunk;
 use crate::domain::image_generation::{ImageGenerationChunk, ImageGenerationConfig};
 use crate::domain::model::traits::{CandleModel, GenerationParams};
 use crate::domain::prompt::CandlePrompt;

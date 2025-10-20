@@ -3,7 +3,7 @@
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio_stream::Stream;
-use crate::domain::context::chunk::CandleStringChunk;
+use crate::domain::context::chunks::CandleStringChunk;
 use crate::capability::traits::VisionCapable;
 use crate::domain::model::traits::CandleModel;
 use super::pool::capabilities::vision_pool;

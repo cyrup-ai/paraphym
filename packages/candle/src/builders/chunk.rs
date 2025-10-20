@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::collections::HashMap;
 
 use crate::domain::{
-    context::chunk::{CandleChatMessageChunk as ChatMessageChunk, CandleCompletionChunk as CompletionChunk, CandleDocumentChunk as DocumentChunk, CandleFinishReason as FinishReason, CandleUsage as Usage},
+    context::chunks::{CandleChatMessageChunk as ChatMessageChunk, CandleCompletionChunk as CompletionChunk, CandleDocumentChunk as DocumentChunk, CandleFinishReason as FinishReason, CandleUsage as Usage},
     chat::message::types::CandleMessageRole as MessageRole};
 use serde_json::Value;
 

@@ -4,6 +4,7 @@
 //! This implementation uses the Candle ML framework for local model inference,
 //! specifically targeting Llama-compatible models for high-performance text generation.
 
+use std::future::Future;
 use std::num::NonZeroU32;
 use std::path::Path;
 use std::pin::Pin;
@@ -21,7 +22,7 @@ use crate::core::{Engine, EngineConfig};
 use crate::domain::model::{info::CandleModelInfo, traits::CandleModel};
 use crate::domain::{
     completion::CandleCompletionParams,
-    context::chunk::CandleCompletionChunk,
+    context::chunks::CandleCompletionChunk,
     prompt::CandlePrompt,
 };
 
@@ -650,13 +651,14 @@ struct SharedKimiModel {
     vocab_size: usize,
 }
 
-#[async_trait::async_trait]
 impl crate::core::generation::models::CandleModel for SharedKimiModel {
-    async fn forward(&mut self, input: &candle_core::Tensor, index_pos: usize) -> Result<candle_core::Tensor, crate::domain::model::error::CandleModelError> {
-        // Lock the mutex to get mutable access to the model
-        let mut model = self.model.lock().await;
-        // Call the async forward method on the locked model
-        model.forward(input, index_pos).await
+    fn forward(&mut self, input: &candle_core::Tensor, index_pos: usize) -> Pin<Box<dyn Future<Output = Result<candle_core::Tensor, crate::domain::model::error::CandleModelError>> + Send + '_>> {
+        Box::pin(async move {
+            // Lock the mutex to get mutable access to the model
+            let mut model = self.model.lock().await;
+            // Call the async forward method on the locked model
+            model.forward(input, index_pos).await
+        })
     }
 
     fn device(&self) -> &candle_core::Device {

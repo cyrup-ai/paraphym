@@ -5,10 +5,11 @@
 //! interface for model operations.
 
 use std::collections::HashSet;
+use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use candle_core::quantized::gguf_file;
 use candle_core::{Device, Tensor};
 use candle_nn::VarBuilder;
@@ -46,13 +47,12 @@ impl<T> SendPtr<T> {
 ///
 /// Defines the interface that all Candle models must implement for
 /// integration with the text generation system.
-#[async_trait]
 pub trait CandleModel: Send + Sync {
     /// Perform a forward pass through the model (async)
     /// 
     /// Implementations should wrap CPU/GPU compute in spawn_blocking
     /// to avoid blocking the async runtime.
-    async fn forward(&mut self, input: &Tensor, position: usize) -> CandleResult<Tensor>;
+    fn forward(&mut self, input: &Tensor, position: usize) -> Pin<Box<dyn Future<Output = CandleResult<Tensor>> + Send + '_>>;
 
     /// Get the model's device
     fn device(&self) -> &Device;
@@ -201,17 +201,18 @@ impl CandleLlamaModel {
     }
 }
 
-#[async_trait]
 impl CandleModel for CandleLlamaModel {
-    async fn forward(&mut self, input: &Tensor, position: usize) -> CandleResult<Tensor> {
-        let input_clone = input.clone();
-        let model_ptr = unsafe { SendPtr::new(self as *mut Self) };
-        
-        tokio::task::spawn_blocking(move || unsafe {
-            model_ptr.into_mut().forward_sync(&input_clone, position)
+    fn forward(&mut self, input: &Tensor, position: usize) -> Pin<Box<dyn Future<Output = CandleResult<Tensor>> + Send + '_>> {
+        Box::pin(async move {
+            let input_clone = input.clone();
+            let model_ptr = unsafe { SendPtr::new(self as *mut Self) };
+            
+            tokio::task::spawn_blocking(move || unsafe {
+                model_ptr.into_mut().forward_sync(&input_clone, position)
+            })
+            .await
+            .map_err(|e| CandleModelError::Internal(format!("spawn_blocking failed: {}", e).into()))?
         })
-        .await
-        .map_err(|e| CandleModelError::Internal(format!("spawn_blocking failed: {}", e).into()))?
     }
 
     fn device(&self) -> &Device {
@@ -319,17 +320,18 @@ impl CandleQuantizedLlamaModel {
     }
 }
 
-#[async_trait]
 impl CandleModel for CandleQuantizedLlamaModel {
-    async fn forward(&mut self, input: &Tensor, position: usize) -> CandleResult<Tensor> {
-        let input_clone = input.clone();
-        let model_ptr = unsafe { SendPtr::new(self as *mut Self) };
-        
-        tokio::task::spawn_blocking(move || unsafe {
-            model_ptr.into_mut().forward_sync(&input_clone, position)
+    fn forward(&mut self, input: &Tensor, position: usize) -> Pin<Box<dyn Future<Output = CandleResult<Tensor>> + Send + '_>> {
+        Box::pin(async move {
+            let input_clone = input.clone();
+            let model_ptr = unsafe { SendPtr::new(self as *mut Self) };
+            
+            tokio::task::spawn_blocking(move || unsafe {
+                model_ptr.into_mut().forward_sync(&input_clone, position)
+            })
+            .await
+            .map_err(|e| CandleModelError::Internal(format!("spawn_blocking failed: {}", e).into()))?
         })
-        .await
-        .map_err(|e| CandleModelError::Internal(format!("spawn_blocking failed: {}", e).into()))?
     }
 
     fn device(&self) -> &Device {
@@ -486,17 +488,18 @@ impl CandleQuantizedMixFormerModel {
     }
 }
 
-#[async_trait]
 impl CandleModel for CandleQuantizedMixFormerModel {
-    async fn forward(&mut self, input: &Tensor, position: usize) -> CandleResult<Tensor> {
-        let input_clone = input.clone();
-        let model_ptr = unsafe { SendPtr::new(self as *mut Self) };
-        
-        tokio::task::spawn_blocking(move || unsafe {
-            model_ptr.into_mut().forward_sync(&input_clone, position)
+    fn forward(&mut self, input: &Tensor, position: usize) -> Pin<Box<dyn Future<Output = CandleResult<Tensor>> + Send + '_>> {
+        Box::pin(async move {
+            let input_clone = input.clone();
+            let model_ptr = unsafe { SendPtr::new(self as *mut Self) };
+            
+            tokio::task::spawn_blocking(move || unsafe {
+                model_ptr.into_mut().forward_sync(&input_clone, position)
+            })
+            .await
+            .map_err(|e| CandleModelError::Internal(format!("spawn_blocking failed: {}", e).into()))?
         })
-        .await
-        .map_err(|e| CandleModelError::Internal(format!("spawn_blocking failed: {}", e).into()))?
     }
 
     fn device(&self) -> &Device {
@@ -627,17 +630,18 @@ impl CandleQuantizedPhiModel {
     }
 }
 
-#[async_trait]
 impl CandleModel for CandleQuantizedPhiModel {
-    async fn forward(&mut self, input: &Tensor, index_pos: usize) -> CandleResult<Tensor> {
-        let input_clone = input.clone();
-        let model_ptr = unsafe { SendPtr::new(self as *mut Self) };
-        
-        tokio::task::spawn_blocking(move || unsafe {
-            model_ptr.into_mut().forward_sync(&input_clone, index_pos)
+    fn forward(&mut self, input: &Tensor, index_pos: usize) -> Pin<Box<dyn Future<Output = CandleResult<Tensor>> + Send + '_>> {
+        Box::pin(async move {
+            let input_clone = input.clone();
+            let model_ptr = unsafe { SendPtr::new(self as *mut Self) };
+            
+            tokio::task::spawn_blocking(move || unsafe {
+                model_ptr.into_mut().forward_sync(&input_clone, index_pos)
+            })
+            .await
+            .map_err(|e| CandleModelError::Internal(format!("spawn_blocking failed: {}", e).into()))?
         })
-        .await
-        .map_err(|e| CandleModelError::Internal(format!("spawn_blocking failed: {}", e).into()))?
     }
 
     fn device(&self) -> &Device {

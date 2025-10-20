@@ -57,7 +57,7 @@ impl CandleConversationTagger {
         name: String,
         description: String,
         category: String,
-    ) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunk::CandleCollectionChunk<String>> + Send>> {
+    ) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunks::CandleCollectionChunk<String>> + Send>> {
         let id: String = Uuid::new_v4().to_string();
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -80,7 +80,7 @@ impl CandleConversationTagger {
         self.stats.total_tags += 1;
 
         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-            let result = crate::domain::context::chunk::CandleCollectionChunk {
+            let result = crate::domain::context::chunks::CandleCollectionChunk {
                 items: id,
                 error_message: None,
             };
