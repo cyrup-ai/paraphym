@@ -13,4 +13,4 @@ pub(crate) use bert::CandleBertEmbeddingModel;
 pub(crate) use gte_qwen::CandleGteQwenEmbeddingModel;
 pub(crate) use jina_bert::CandleJinaBertEmbeddingModel;
 pub(crate) use nvembed::CandleNvEmbedEmbeddingModel;
-pub(crate) use stella::StellaEmbeddingModel;
+pub(crate) use stella::{StellaEmbeddingModel, LoadedStellaModel};

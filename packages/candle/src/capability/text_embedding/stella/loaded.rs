@@ -271,3 +271,108 @@ impl TextEmbeddingCapable for LoadedStellaModel {
                 Ok::<Vec<f32>, String>(embedding_vec)
             })
             .await
+            .map_err(|e| {
+                Box::new(std::io::Error::other(
+                    format!("Spawn blocking failed: {}", e),
+                )) as Box<dyn std::error::Error + Send + Sync>
+            })?
+            .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>)?;
+
+            Ok(embedding_vec)
+        })
+    }
+
+    fn batch_embed(
+        &self,
+        texts: &[String],
+        task: Option<String>,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<
+                        Vec<Vec<f32>>,
+                        Box<dyn std::error::Error + Send + Sync>,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
+        let texts = texts.to_vec();
+        // Clone for move into spawn_blocking
+        let tokenizer = self.tokenizer.clone();
+        let model = self.model.clone();
+        let device = self.device.clone();
+        
+        Box::pin(async move {
+            // Wrap CPU-intensive operations in spawn_blocking to avoid blocking async runtime
+            let embeddings_vec = tokio::task::spawn_blocking(move || {
+                let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+
+                // Format with instruction prefix
+                let formatted_texts = format_with_instruction(
+                    &text_refs,
+                    task.as_deref(),
+                );
+
+                // Tokenize batch
+                let encodings = tokenizer
+                    .encode_batch(formatted_texts, true)
+                    .map_err(|e| format!("Batch tokenization failed: {}", e))?;
+
+                // Create batch tensors
+                let ids_vecs: Vec<Vec<u32>> = encodings.iter().map(|e| e.get_ids().to_vec()).collect();
+                let mask_vecs: Vec<Vec<u32>> = encodings
+                    .iter()
+                    .map(|e| e.get_attention_mask().to_vec())
+                    .collect();
+
+                let input_ids = Tensor::new(ids_vecs, &device)
+                    .map_err(|e| format!("Failed to create batch input tensor: {}", e))?;
+                let attention_mask = Tensor::new(mask_vecs, &device)
+                    .map_err(|e| format!("Failed to create batch attention mask: {}", e))?
+                    .to_dtype(DType::U8)
+                    .map_err(|e| format!("Failed to convert mask dtype: {}", e))?;
+
+                // Forward pass - lock synchronous mutex in blocking context
+                let mut model_guard = model
+                    .lock()
+                    .map_err(|_| "Failed to lock model mutex".to_string())?;
+                let embeddings = model_guard
+                    .forward_norm(&input_ids, &attention_mask)
+                    .map_err(|e| format!("Stella batch forward pass failed: {}", e))?;
+
+                // Convert to Vec<Vec<f32>>
+                embeddings
+                    .to_vec2::<f32>()
+                    .map_err(|e| format!("Failed to convert batch embeddings to vec: {}", e))
+            })
+            .await
+            .map_err(|e| {
+                Box::new(std::io::Error::other(
+                    format!("Spawn blocking failed: {}", e),
+                )) as Box<dyn std::error::Error + Send + Sync>
+            })?
+            .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>)?;
+
+            Ok(embeddings_vec)
+        })
+    }
+
+    fn embedding_dimension(&self) -> usize {
+        self.config.embed_head.out_features
+    }
+
+    fn recommended_batch_size(&self) -> usize {
+        match self.variant {
+            ModelVariant::Large => 8,
+            ModelVariant::Small => 16,
+        }
+    }
+
+    fn max_batch_size(&self) -> usize {
+        match self.variant {
+            ModelVariant::Large => 32,
+            ModelVariant::Small => 64,
+        }
+    }
+}
