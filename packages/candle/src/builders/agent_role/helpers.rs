@@ -258,18 +258,18 @@ pub(crate) fn format_memory_context(
 
 pub trait ConversationHistoryArgs {
     /// Convert this into conversation history format
-    fn into_history(self) -> Option<ZeroOneOrMany<(CandleMessageRole, String)>>;
+    fn into_history(self) -> ZeroOneOrMany<(CandleMessageRole, String)>;
 }
 
 impl ConversationHistoryArgs for (CandleMessageRole, &str) {
-    fn into_history(self) -> Option<ZeroOneOrMany<(CandleMessageRole, String)>> {
-        Some(ZeroOneOrMany::one((self.0, self.1.to_string())))
+    fn into_history(self) -> ZeroOneOrMany<(CandleMessageRole, String)> {
+        ZeroOneOrMany::one((self.0, self.1.to_string()))
     }
 }
 
 impl ConversationHistoryArgs for (CandleMessageRole, String) {
-    fn into_history(self) -> Option<ZeroOneOrMany<(CandleMessageRole, String)>> {
-        Some(ZeroOneOrMany::one(self))
+    fn into_history(self) -> ZeroOneOrMany<(CandleMessageRole, String)> {
+        ZeroOneOrMany::one(self)
     }
 }
 
@@ -278,17 +278,27 @@ where
     T1: ConversationHistoryArgs,
     T2: ConversationHistoryArgs,
 {
-    fn into_history(self) -> Option<ZeroOneOrMany<(CandleMessageRole, String)>> {
-        match (self.0.into_history(), self.1.into_history()) {
-            (Some(h1), Some(h2)) => {
-                let mut combined = h1;
-                for item in h2.into_iter() {
-                    combined = combined.with_pushed(item);
-                }
-                Some(combined)
+    fn into_history(self) -> ZeroOneOrMany<(CandleMessageRole, String)> {
+        let h1 = self.0.into_history();
+        let h2 = self.1.into_history();
+        
+        match (h1, h2) {
+            (ZeroOneOrMany::None, h) | (h, ZeroOneOrMany::None) => h,
+            (ZeroOneOrMany::One(m1), ZeroOneOrMany::One(m2)) => {
+                ZeroOneOrMany::Many(vec![m1, m2])
             }
-            (Some(h), None) | (None, Some(h)) => Some(h),
-            (None, None) => None,
+            (ZeroOneOrMany::One(m), ZeroOneOrMany::Many(mut msgs)) => {
+                msgs.insert(0, m);
+                ZeroOneOrMany::Many(msgs)
+            }
+            (ZeroOneOrMany::Many(mut msgs), ZeroOneOrMany::One(m)) => {
+                msgs.push(m);
+                ZeroOneOrMany::Many(msgs)
+            }
+            (ZeroOneOrMany::Many(mut msgs1), ZeroOneOrMany::Many(msgs2)) => {
+                msgs1.extend(msgs2);
+                ZeroOneOrMany::Many(msgs1)
+            }
         }
     }
 }
@@ -299,36 +309,49 @@ where
     T2: ConversationHistoryArgs,
     T3: ConversationHistoryArgs,
 {
-    fn into_history(self) -> Option<ZeroOneOrMany<(CandleMessageRole, String)>> {
-        let (h1, h2, h3) = (
-            self.0.into_history(),
-            self.1.into_history(),
-            self.2.into_history(),
-        );
-        match (h1, h2, h3) {
-            (Some(mut combined), h2_opt, h3_opt) => {
-                if let Some(h2) = h2_opt {
-                    for item in h2.into_iter() {
-                        combined = combined.with_pushed(item);
-                    }
-                }
-                if let Some(h3) = h3_opt {
-                    for item in h3.into_iter() {
-                        combined = combined.with_pushed(item);
-                    }
-                }
-                Some(combined)
+    fn into_history(self) -> ZeroOneOrMany<(CandleMessageRole, String)> {
+        let h1 = self.0.into_history();
+        let h2 = self.1.into_history();
+        let h3 = self.2.into_history();
+        
+        // Merge all three by first merging h1 and h2, then merging result with h3
+        let combined_12 = match (h1, h2) {
+            (ZeroOneOrMany::None, h) | (h, ZeroOneOrMany::None) => h,
+            (ZeroOneOrMany::One(m1), ZeroOneOrMany::One(m2)) => {
+                ZeroOneOrMany::Many(vec![m1, m2])
             }
-            (None, Some(mut combined), h3_opt) => {
-                if let Some(h3) = h3_opt {
-                    for item in h3.into_iter() {
-                        combined = combined.with_pushed(item);
-                    }
-                }
-                Some(combined)
+            (ZeroOneOrMany::One(m), ZeroOneOrMany::Many(mut msgs)) => {
+                msgs.insert(0, m);
+                ZeroOneOrMany::Many(msgs)
             }
-            (None, None, Some(h3)) => Some(h3),
-            (None, None, None) => None,
+            (ZeroOneOrMany::Many(mut msgs), ZeroOneOrMany::One(m)) => {
+                msgs.push(m);
+                ZeroOneOrMany::Many(msgs)
+            }
+            (ZeroOneOrMany::Many(mut msgs1), ZeroOneOrMany::Many(msgs2)) => {
+                msgs1.extend(msgs2);
+                ZeroOneOrMany::Many(msgs1)
+            }
+        };
+        
+        // Now merge combined_12 with h3
+        match (combined_12, h3) {
+            (ZeroOneOrMany::None, h) | (h, ZeroOneOrMany::None) => h,
+            (ZeroOneOrMany::One(m1), ZeroOneOrMany::One(m2)) => {
+                ZeroOneOrMany::Many(vec![m1, m2])
+            }
+            (ZeroOneOrMany::One(m), ZeroOneOrMany::Many(mut msgs)) => {
+                msgs.insert(0, m);
+                ZeroOneOrMany::Many(msgs)
+            }
+            (ZeroOneOrMany::Many(mut msgs), ZeroOneOrMany::One(m)) => {
+                msgs.push(m);
+                ZeroOneOrMany::Many(msgs)
+            }
+            (ZeroOneOrMany::Many(mut msgs1), ZeroOneOrMany::Many(msgs2)) => {
+                msgs1.extend(msgs2);
+                ZeroOneOrMany::Many(msgs1)
+            }
         }
     }
 }

@@ -69,6 +69,7 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
             on_chunk_handler: self.on_chunk_handler,
             on_tool_result_handler: self.on_tool_result_handler,
             on_conversation_turn_handler: self.on_conversation_turn_handler,
+            conversation_history: self.conversation_history,
         }
     }
 
@@ -169,12 +170,13 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
         self
     }
 
-    fn on_chunk<F, Fut>(self, _handler: F) -> impl CandleAgentRoleBuilder
+    fn on_chunk<F, Fut>(mut self, handler: F) -> impl CandleAgentRoleBuilder
     where
         F: Fn(CandleMessageChunk) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = CandleMessageChunk> + Send + 'static,
     {
-        // Cannot set handler without a model - return self unchanged
+        let wrapped = move |chunk: CandleMessageChunk| Box::pin(handler(chunk)) as Pin<Box<dyn std::future::Future<Output = CandleMessageChunk> + Send>>;
+        self.on_chunk_handler = Some(Arc::new(wrapped));
         self
     }
 
@@ -198,9 +200,10 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
     }
 
     fn conversation_history(
-        self,
-        _history: impl ConversationHistoryArgs,
+        mut self,
+        history: impl ConversationHistoryArgs,
     ) -> impl CandleAgentRoleBuilder {
+        self.conversation_history = history.into_history();
         self
     }
 
@@ -268,6 +271,7 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
             on_chunk_handler: self.on_chunk_handler,
             on_tool_result_handler: self.on_tool_result_handler,
             on_conversation_turn_handler: self.on_conversation_turn_handler,
+            conversation_history: self.conversation_history,
         }
     }
 }

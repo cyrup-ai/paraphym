@@ -21,6 +21,7 @@ pub struct CandleAgentRoleBuilderImpl {
     pub(super) on_chunk_handler: Option<OnChunkHandler>,
     pub(super) on_tool_result_handler: Option<OnToolResultHandler>,
     pub(super) on_conversation_turn_handler: Option<OnConversationTurnHandler>,
+    pub(super) conversation_history: ZeroOneOrMany<(CandleMessageRole, String)>,
 }
 
 impl std::fmt::Debug for CandleAgentRoleBuilderImpl {
@@ -119,6 +120,7 @@ You are a master at refactoring code, remembering to check for code that ALREADY
             on_chunk_handler: None,
             on_tool_result_handler: None,
             on_conversation_turn_handler: None,
+            conversation_history: ZeroOneOrMany::None,
         }
     }
 }

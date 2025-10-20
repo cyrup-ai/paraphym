@@ -508,3 +508,308 @@ Should return nothing. If it finds files, delete them.
 1. `/Volumes/samsung_t9/paraphym/packages/candle/src/memory/core/manager/surreal/mod.rs`
 2. `/Volumes/samsung_t9/paraphym/packages/candle/src/memory/core/manager/surreal/types.rs`
 3. `/Volumes/samsung_t9/paraphym/packages/candle/src/memory/core/manager/surreal/futures.rs`
+4. `/Volumes/samsung_t9/paraphym/packages/candle/src/memory/core/manager/surreal/trait_def.rs`
+5. `/Volumes/samsung_t9/paraphym/packages/candle/src/memory/core/manager/surreal/manager.rs`
+6. `/Volumes/samsung_t9/paraphym/packages/candle/src/memory/core/manager/surreal/operations.rs`
+7. `/Volumes/samsung_t9/paraphym/packages/candle/src/memory/core/manager/surreal/queries.rs`
+
+### File to DELETE:
+1. `/Volumes/samsung_t9/paraphym/packages/candle/src/memory/core/manager/surreal.rs` ⚠️ **MUST DELETE**
+
+### Files that need NO changes:
+- `/Volumes/samsung_t9/paraphym/packages/candle/src/memory/core/manager/mod.rs` (already correct)
+- All importing files (API preserved via re-exports)
+
+## DEFINITION OF DONE
+
+- [ ] Directory `surreal/` created with 7 new `.rs` files
+- [ ] `surreal/types.rs` exists and contains ~100 lines
+- [ ] `surreal/futures.rs` exists and contains ~300 lines  
+- [ ] `surreal/trait_def.rs` exists and contains ~100 lines
+- [ ] `surreal/manager.rs` exists and contains ~400 lines
+- [ ] `surreal/operations.rs` exists and contains ~900 lines
+- [ ] `surreal/queries.rs` exists and contains ~360 lines
+- [ ] `surreal/mod.rs` exists and re-exports all public items
+- [ ] Original `surreal.rs` is **DELETED** (not renamed, not moved)
+- [ ] No `.bak`, `.old`, or `.backup` files exist
+- [ ] `cargo check` passes without errors or warnings
+- [ ] All functionality preserved (verified by compilation)
+- [ ] Public API unchanged (imports still work)
+- [ ] No single module exceeds 900 lines
+
+
+## RESEARCH NOTES
+
+### File Location
+`[surreal.rs](../../packages/candle/src/memory/core/manager/surreal.rs)` - 2,062 lines
+
+### Current Module Structure
+```
+packages/candle/src/memory/core/
+├── manager/
+│   ├── coordinator.rs (1,330 lines - separate decomposition task)
+│   ├── mod.rs (7 lines - re-exports)
+│   └── surreal.rs (2,062 lines - THIS TASK)
+├── ops/ (already decomposed)
+├── primitives/ (already decomposed)
+├── systems/ (already decomposed)
+└── schema/ (already exists)
+```
+
+### Imports Used Throughout
+
+The file heavily uses these crates and modules:
+- `surrealdb::{Surreal, engine::any::Any}` - database client
+- `crate::memory::primitives::{MemoryNode, MemoryRelationship}` - core types
+- `crate::memory::schema::*` - schema definitions
+- `crate::capability::registry::TextEmbeddingModel` - embeddings
+- `crate::domain::memory::cognitive::types::{CognitiveState, EntanglementType}` - quantum memory
+- `tokio::sync::oneshot` - async communication
+- `futures_util::Stream` - async streams
+- `serde::{Serialize, Deserialize}` - serialization
+
+### Key Implementation Patterns
+
+#### Pattern 1: Future Wrapper
+Every async operation returns a wrapper that implements `Future`:
+
+```rust
+// Template used 11 times in the codebase
+pub struct PendingOperation {
+    rx: tokio::sync::oneshot::Receiver<Result<ReturnType>>,
+}
+
+impl PendingOperation {
+    pub fn new(rx: tokio::sync::oneshot::Receiver<Result<ReturnType>>) -> Self {
+        Self { rx }
+    }
+}
+
+impl Future for PendingOperation {
+    type Output = Result<ReturnType>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) 
+        -> std::task::Poll<Self::Output> 
+    {
+        match Pin::new(&mut self.rx).poll(cx) {
+            std::task::Poll::Ready(Ok(result)) => std::task::Poll::Ready(result),
+            std::task::Poll::Ready(Err(_)) => {
+                std::task::Poll::Ready(Err(Error::Other("Channel closed".to_string())))
+            }
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+}
+```
+
+This pattern is repeated for 11 different types. Extract to `futures.rs`.
+
+#### Pattern 2: Database Query with SurrealDB
+
+Most trait methods follow this pattern:
+```rust
+fn operation(&self, params: Params) -> PendingResult {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let db = self.db.clone();
+    
+    tokio::spawn(async move {
+        let result = async {
+            // SurrealDB query
+            let result: Vec<Record> = db
+                .query("SELECT * FROM memory WHERE ...")
+                .bind(("param", value))
+                .await?
+                .take(0)?;
+            
+            // Convert SurrealDB record to domain type
+            Ok(convert_result(result))
+        }
+        .await;
+        
+        let _ = tx.send(result);
+    });
+    
+    PendingResult::new(rx)
+}
+```
+
+This appears in `operations.rs` (~40 times).
+
+#### Pattern 3: Stream-based Results
+
+For operations returning multiple items:
+```rust
+pub struct MemoryStream {
+    rx: tokio::sync::mpsc::UnboundedReceiver<Result<MemoryNode>>,
+}
+
+impl futures_util::Stream for MemoryStream {
+    type Item = Result<MemoryNode>;
+    // ... implementation
+}
+```
+
+Used for search and query operations in `queries.rs`.
+
+### Critical Dependencies
+
+Files that import from `surreal.rs`:
+
+1. **[domain/memory/tool.rs](../../packages/candle/src/domain/memory/tool.rs)**
+   - Line 22: `use crate::memory::core::manager::SurrealDBMemoryManager;`
+   - Line 57: `memory: Arc<SurrealDBMemoryManager>`
+   - Will continue working via re-export
+
+2. **[domain/memory/traits.rs](../../packages/candle/src/domain/memory/traits.rs)**
+   - Line 145: Comment referencing `SurrealDBMemoryManager`
+   - Will continue working via re-export
+
+### Line Count Verification
+
+Target module sizes after decomposition:
+
+| Module | Lines | Status |
+|--------|-------|--------|
+| `types.rs` | ~100 | ✅ Well below 500 |
+| `futures.rs` | ~300 | ✅ Well below 500 |
+| `trait_def.rs` | ~100 | ✅ Well below 500 |
+| `manager.rs` | ~400 | ✅ Well below 500 |
+| `operations.rs` | ~900 | ⚠️ Largest but acceptable (single trait impl) |
+| `queries.rs` | ~360 | ✅ Well below 500 |
+| `mod.rs` | ~30 | ✅ Minimal |
+| **Total** | **~2,190** | ✅ Matches original + overhead |
+
+The ~130 line difference accounts for:
+- Module declarations (7 files × ~3 lines)
+- Re-export statements (7 files × ~5 lines)
+- Module documentation comments (7 files × ~10 lines)
+
+### Migration and Export/Import Logic
+
+The file includes complex migration logic (lines 638-679):
+```rust
+pub async fn run_migrations(&self) -> Result<()> {
+    let migration_mgr = MigrationManager::new(
+        self.db.clone(),
+        BuiltinMigrations::all(),
+    );
+    migration_mgr.run_all_migrations().await
+}
+```
+
+And export/import (lines 680-846):
+- Exports to JSON/Binary formats
+- Imports with conflict resolution
+- Transaction support
+
+Keep these together in `manager.rs` as they're infrastructure methods.
+
+
+### Quantum Memory Features
+
+The file implements quantum entanglement operations:
+- `update_quantum_signature()` 
+- `get_quantum_signature()`
+- `create_entanglement_edge()`
+- `get_entangled_memories()`
+- `get_entangled_by_type()`
+- `traverse_entanglement_graph()`
+- `expand_via_entanglement()`
+
+These are part of the `MemoryManager` trait and go in `operations.rs`.
+
+### Embedding Integration
+
+The manager can auto-generate embeddings:
+```rust
+pub struct SurrealDBMemoryManager {
+    db: Surreal<Any>,
+    embedding_model: Option<TextEmbeddingModel>,
+}
+```
+
+If `embedding_model` is set, `create_memory()` automatically generates embeddings for search.
+
+See `search_by_text()` in lines 1876-1892 for usage.
+
+### Error Handling
+
+All operations use the custom `Result<T>` type:
+```rust
+pub type Result<T> = std::result::Result<T, Error>;
+```
+
+Where `Error` comes from `crate::memory::utils::error::Error`.
+
+Maintain this pattern across all modules.
+
+## IMPLEMENTATION CHECKLIST
+
+### Before Starting
+- [ ] Read the complete `surreal.rs` file (2,062 lines)
+- [ ] Understand the 6-module decomposition plan
+- [ ] Create the `surreal/` directory
+
+
+### Module Creation (in order)
+- [ ] Create `surreal/types.rs` (lines 1-95) 
+- [ ] Create `surreal/futures.rs` (lines 96-393)
+- [ ] Create `surreal/trait_def.rs` (lines 394-488)
+- [ ] Create `surreal/manager.rs` (lines 489-846)
+- [ ] Create `surreal/operations.rs` (lines 847-1703)
+- [ ] Create `surreal/queries.rs` (lines 1704-2063)
+- [ ] Create `surreal/mod.rs` (aggregator)
+
+### Verification
+- [ ] Run `cargo check` - should pass
+- [ ] Verify no backup files exist
+- [ ] **DELETE** `surreal.rs` completely
+- [ ] Run `cargo check` again - should still pass
+- [ ] Check that imports in `tool.rs` and `traits.rs` still work
+
+### Cleanup
+- [ ] Remove any `.bak`, `.old`, `.backup` files
+- [ ] Verify `surreal.rs` no longer exists
+- [ ] Commit the decomposition
+
+## SUCCESS CRITERIA
+
+This task is successful when:
+
+1. ✅ The original 2,062-line `surreal.rs` is **completely deleted**
+2. ✅ Seven new files exist in `surreal/` directory
+3. ✅ No single module exceeds 900 lines
+4. ✅ `cargo check` passes without errors
+5. ✅ Public API is preserved (all imports still work)
+6. ✅ No backup files pollute the codebase
+7. ✅ All 71 original functions/methods are present across the new modules
+8. ✅ Code is production quality with no stubs or placeholders
+
+## REFERENCES
+
+### Source Files
+- Current file: `[surreal.rs](../../packages/candle/src/memory/core/manager/surreal.rs)`
+- Parent module: `[manager/mod.rs](../../packages/candle/src/memory/core/manager/mod.rs)`
+- Coordinator (sibling): `[coordinator.rs](../../packages/candle/src/memory/core/manager/coordinator.rs)` (1,330 lines - separate task)
+
+### Dependencies  
+- Memory primitives: `[src/memory/primitives/](../../packages/candle/src/memory/primitives/)`
+- Memory schema: `[src/memory/schema/](../../packages/candle/src/memory/schema/)`
+- Cognitive types: `[src/domain/memory/cognitive/types.rs](../../packages/candle/src/domain/memory/cognitive/types.rs)`
+- Error types: `[src/memory/utils/error.rs](../../packages/candle/src/memory/utils/error.rs)`
+
+### Importers
+- `[domain/memory/tool.rs](../../packages/candle/src/domain/memory/tool.rs)` - Memory tool integration
+- `[domain/memory/traits.rs](../../packages/candle/src/domain/memory/traits.rs)` - Trait definitions
+
+### SurrealDB Documentation
+- Query language: https://surrealdb.com/docs/surrealql
+- Rust SDK: https://docs.rs/surrealdb/latest/surrealdb/
+- Graph relations: https://surrealdb.com/docs/surrealql/statements/relate
+
+---
+
+**Task Created:** 2024-10-19  
+**Estimated Time:** 2-3 hours  
+**Complexity:** High (large refactoring)  
+**Prerequisites:** Understanding of Rust module system, async/await, SurrealDB

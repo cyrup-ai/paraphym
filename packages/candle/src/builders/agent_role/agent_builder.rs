@@ -28,6 +28,7 @@ pub struct CandleAgentBuilderImpl {
     pub(super) on_chunk_handler: Option<OnChunkHandler>,
     pub(super) on_tool_result_handler: Option<OnToolResultHandler>,
     pub(super) on_conversation_turn_handler: Option<OnConversationTurnHandler>,
+    pub(super) conversation_history: ZeroOneOrMany<(CandleMessageRole, String)>,
 }
 
 impl std::fmt::Debug for CandleAgentBuilderImpl {

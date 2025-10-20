@@ -153,6 +153,7 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
         let context_github = self.context_github;
         let additional_params = self.additional_params;
         let metadata = self.metadata;
+        let conversation_history = self.conversation_history;
 
         Ok(Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
             // Create initial empty conversation for handler to inspect
@@ -455,12 +456,44 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                             None
                         };
 
-                        // Create prompt with memory context and system prompt (always present)
-                        let full_prompt = match memory_context {
-                            Some(mem_ctx) => {
+                        // Format conversation history if provided
+                        let history_context = match &conversation_history {
+                            ZeroOneOrMany::None => String::new(),
+                            ZeroOneOrMany::One((role, message)) => {
+                                format!("\n# Conversation History:\n{}: {}\n", 
+                                    match role {
+                                        CandleMessageRole::User => "User",
+                                        CandleMessageRole::Assistant => "Assistant",
+                                        _ => "System",
+                                    },
+                                    message
+                                )
+                            }
+                            ZeroOneOrMany::Many(messages) => {
+                                let mut hist = String::from("\n# Conversation History:\n");
+                                for (role, message) in messages {
+                                    match role {
+                                        CandleMessageRole::User => hist.push_str(&format!("User: {}\n", message)),
+                                        CandleMessageRole::Assistant => hist.push_str(&format!("Assistant: {}\n", message)),
+                                        _ => {}
+                                    }
+                                }
+                                hist
+                            }
+                        };
+
+                        // Create prompt with memory context, conversation history, and system prompt
+                        let full_prompt = match (memory_context, !history_context.is_empty()) {
+                            (Some(mem_ctx), true) => {
+                                format!("{}\n\n{}{}\n\nUser: {}", &system_prompt, mem_ctx, history_context, user_message)
+                            }
+                            (Some(mem_ctx), false) => {
                                 format!("{}\n\n{}\n\nUser: {}", &system_prompt, mem_ctx, user_message)
                             }
-                            None => {
+                            (None, true) => {
+                                format!("{}{}\n\nUser: {}", &system_prompt, history_context, user_message)
+                            }
+                            (None, false) => {
                                 format!("{}\n\nUser: {}", &system_prompt, user_message)
                             }
                         };

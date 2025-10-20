@@ -2,7 +2,7 @@
 
 mod helpers;
 mod traits;
-mod stubs;
+mod role_builder_impl;
 mod role_builder;
 mod agent_builder;
 mod chat;
@@ -10,7 +10,7 @@ mod chat;
 pub use helpers::{CandleAgentRoleAgent, CandleFluentAi, ConversationHistoryArgs};
 pub(crate) use helpers::format_memory_context;
 pub use traits::{CandleAgentRoleBuilder, CandleMcpServerBuilder, CandleAgentBuilder};
-pub use stubs::{McpServerConfig, CandleMcpServerBuilderImpl};
+pub use role_builder_impl::{McpServerConfig, CandleMcpServerBuilderImpl};
 pub use role_builder::CandleAgentRoleBuilderImpl;
 pub use agent_builder::{CandleAgentBuilderImpl, AgentDebugInfo};
 
