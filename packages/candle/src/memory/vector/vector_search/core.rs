@@ -1,11 +1,9 @@
 //! Main VectorSearch implementation
 
 use std::cmp::Ordering;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
-use surrealdb::Value;
 
 use crate::capability::registry::TextEmbeddingModel;
 use crate::capability::traits::TextEmbeddingCapable;
@@ -16,7 +14,7 @@ use crate::domain::memory::cognitive::types::{
     CognitiveProcessor, CognitiveProcessorConfig, DecisionOutcome,
 };
 
-use super::types::{SearchResult, DeferredResult, FinalResult};
+use super::types::SearchResult;
 use super::options::SearchOptions;
 use super::cognitive::{CognitiveSearchState, process_deferred_results};
 use super::helpers::task_string;
@@ -358,68 +356,6 @@ impl VectorSearch {
 
         // Collect results in order
         let mut results = vec![Vec::new(); texts.len()];
-        while let Some((index, result)) = rx.recv().await {
-            match result {
-                Ok(search_results) => results[index] = search_results,
-                Err(e) => return Err(e),
-            }
-        }
-
-        Ok(results)
-    }
-
-    /// Batch search by multiple embedding vectors
-    ///
-    /// # Arguments
-    /// * `embeddings` - Array of query vectors
-    /// * `options` - Search options applied to all queries
-    ///
-    /// # Returns
-    /// Result containing array of search results (one per query)
-    pub async fn batch_search_by_embedding(
-        &self,
-        embeddings: &[Vec<f32>],
-        options: Option<SearchOptions>,
-    ) -> Result<Vec<Vec<SearchResult>>> {
-        if embeddings.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        // Create channel for results
-        let (tx, mut rx) = mpsc::channel(embeddings.len());
-
-        // Spawn concurrent search tasks
-        for (index, embedding) in embeddings.iter().enumerate() {
-            let searcher = self.clone();
-            let embedding = embedding.clone();
-            let opts = options.clone();
-            let tx = tx.clone();
-
-            tokio::spawn(async move {
-                let result = tokio::task::spawn_blocking(move || {
-                    searcher.search_by_embedding(&embedding, opts)
-                })
-                .await;
-
-                let final_result = match result {
-                    Ok(inner_result) => inner_result,
-                    Err(e) => Err(crate::memory::utils::error::Error::Other(format!(
-                        "Task join error: {}",
-                        e
-                    ))),
-                };
-
-                if tx.send((index, final_result)).await.is_err() {
-                    log::error!("Failed to send search result for batch index {}", index);
-                }
-            });
-        }
-
-        // Important: drop the original sender so the channel can close
-        drop(tx);
-
-        // Collect results in order
-        let mut results = vec![Vec::new(); embeddings.len()];
         while let Some((index, result)) = rx.recv().await {
             match result {
                 Ok(search_results) => results[index] = search_results,

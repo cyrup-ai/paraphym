@@ -5,7 +5,6 @@ use surrealdb::engine::any::connect;
 use crate::memory::core::manager::surreal::SurrealDBMemoryManager;
 use crate::memory::primitives::node::MemoryNode;
 use crate::memory::primitives::types::{MemoryContent, MemoryTypeEnum};
-use chrono::Utc;
 
 pub(super) async fn initialize_memory_manager(
     emb_model: &TextEmbeddingModel,
