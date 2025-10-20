@@ -8,8 +8,9 @@ mod agent_builder;
 mod chat;
 
 pub use helpers::{CandleAgentRoleAgent, CandleFluentAi, ConversationHistoryArgs};
+pub(crate) use helpers::format_memory_context;
 pub use traits::{CandleAgentRoleBuilder, CandleMcpServerBuilder, CandleAgentBuilder};
-pub use stubs::McpServerConfig;
+pub use stubs::{McpServerConfig, CandleMcpServerBuilderImpl};
 pub use role_builder::CandleAgentRoleBuilderImpl;
 pub use agent_builder::{CandleAgentBuilderImpl, AgentDebugInfo};
 
@@ -37,11 +38,21 @@ pub(crate) type OnToolResultHandler = Arc<dyn Fn(&[String]) -> Pin<Box<dyn std::
 pub(crate) type OnConversationTurnHandler = Arc<dyn Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> Pin<Box<dyn std::future::Future<Output = Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>> + Send>> + Send + Sync>;
 
 pub(crate) struct AgentBuilderState {
+    pub name: String,
     pub text_to_text_model: TextToTextModel,
+    pub text_embedding_model: Option<TextEmbeddingModel>,
     pub temperature: f64,
     pub max_tokens: u64,
+    pub memory_read_timeout: u64,
     pub system_prompt: String,
     pub tools: ZeroOneOrMany<ToolInfo>,
+    pub context_file: Option<CandleContext<CandleFile>>,
+    pub context_files: Option<CandleContext<CandleFiles>>,
+    pub context_directory: Option<CandleContext<CandleDirectory>>,
+    pub context_github: Option<CandleContext<CandleGithub>>,
+    pub additional_params: std::collections::HashMap<String, String>,
+    pub metadata: std::collections::HashMap<String, String>,
     pub on_chunk_handler: Option<OnChunkHandler>,
     pub on_tool_result_handler: Option<OnToolResultHandler>,
+    pub on_conversation_turn_handler: Option<OnConversationTurnHandler>,
 }

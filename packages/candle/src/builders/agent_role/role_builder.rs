@@ -1,22 +1,26 @@
+//! CandleAgentRoleBuilderImpl - builder before model
+
+use super::*;
+
 /// First builder - no provider yet
-struct CandleAgentRoleBuilderImpl {
-    name: String,
-    text_to_text_model: Option<TextToTextModel>,
-    text_embedding_model: Option<TextEmbeddingModel>,
-    temperature: f64,
-    max_tokens: Option<u64>,
-    memory_read_timeout: u64,
-    system_prompt: String,
-    tools: ZeroOneOrMany<ToolInfo>,
-    context_file: Option<CandleContext<CandleFile>>,
-    context_files: Option<CandleContext<CandleFiles>>,
-    context_directory: Option<CandleContext<CandleDirectory>>,
-    context_github: Option<CandleContext<CandleGithub>>,
-    additional_params: std::collections::HashMap<String, String>,
-    metadata: std::collections::HashMap<String, String>,
-    on_chunk_handler: Option<OnChunkHandler>,
-    on_tool_result_handler: Option<OnToolResultHandler>,
-    on_conversation_turn_handler: Option<OnConversationTurnHandler>,
+pub struct CandleAgentRoleBuilderImpl {
+    pub(super) name: String,
+    pub(super) text_to_text_model: Option<TextToTextModel>,
+    pub(super) text_embedding_model: Option<TextEmbeddingModel>,
+    pub(super) temperature: f64,
+    pub(super) max_tokens: Option<u64>,
+    pub(super) memory_read_timeout: u64,
+    pub(super) system_prompt: String,
+    pub(super) tools: ZeroOneOrMany<ToolInfo>,
+    pub(super) context_file: Option<CandleContext<CandleFile>>,
+    pub(super) context_files: Option<CandleContext<CandleFiles>>,
+    pub(super) context_directory: Option<CandleContext<CandleDirectory>>,
+    pub(super) context_github: Option<CandleContext<CandleGithub>>,
+    pub(super) additional_params: std::collections::HashMap<String, String>,
+    pub(super) metadata: std::collections::HashMap<String, String>,
+    pub(super) on_chunk_handler: Option<OnChunkHandler>,
+    pub(super) on_tool_result_handler: Option<OnToolResultHandler>,
+    pub(super) on_conversation_turn_handler: Option<OnConversationTurnHandler>,
 }
 
 impl std::fmt::Debug for CandleAgentRoleBuilderImpl {

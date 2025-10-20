@@ -3,8 +3,8 @@
 use super::*;
 
 pub struct CandleMcpServerBuilderImpl<T> {
-    parent_builder: T,
-    binary_path: Option<String>,
+    pub(super) parent_builder: T,
+    pub(super) binary_path: Option<String>,
 }
 
 impl<T> CandleMcpServerBuilder for CandleMcpServerBuilderImpl<T>
@@ -204,10 +204,11 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
         self
     }
 
-    /// Chat with closure - EXACT syntax: .chat(|conversation| ChatLoop)
-    fn chat<F>(self, _handler: F) -> Result<Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>, AgentError>
+    /// Chat with async closure - EXACT syntax: .chat(|conversation| async { ChatLoop })
+    fn chat<F, Fut>(self, _handler: F) -> Result<Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>, AgentError>
     where
-        F: FnOnce(&CandleAgentConversation) -> CandleChatLoop + Send + 'static,
+        F: Fn(&CandleAgentConversation) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = CandleChatLoop> + Send + 'static,
     {
         Ok(Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let _ = sender.send(CandleMessageChunk::Error(

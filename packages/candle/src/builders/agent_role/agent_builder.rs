@@ -11,23 +11,23 @@ pub struct AgentDebugInfo {
 
 /// Agent builder implementation
 pub struct CandleAgentBuilderImpl {
-    name: String,
-    text_to_text_model: TextToTextModel,
-    text_embedding_model: Option<TextEmbeddingModel>,
-    temperature: f64,
-    max_tokens: u64,
-    memory_read_timeout: u64,
-    system_prompt: String,
-    tools: ZeroOneOrMany<ToolInfo>,
-    context_file: Option<CandleContext<CandleFile>>,
-    context_files: Option<CandleContext<CandleFiles>>,
-    context_directory: Option<CandleContext<CandleDirectory>>,
-    context_github: Option<CandleContext<CandleGithub>>,
-    additional_params: std::collections::HashMap<String, String>,
-    metadata: std::collections::HashMap<String, String>,
-    on_chunk_handler: Option<OnChunkHandler>,
-    on_tool_result_handler: Option<OnToolResultHandler>,
-    on_conversation_turn_handler: Option<OnConversationTurnHandler>,
+    pub(super) name: String,
+    pub(super) text_to_text_model: TextToTextModel,
+    pub(super) text_embedding_model: Option<TextEmbeddingModel>,
+    pub(super) temperature: f64,
+    pub(super) max_tokens: u64,
+    pub(super) memory_read_timeout: u64,
+    pub(super) system_prompt: String,
+    pub(super) tools: ZeroOneOrMany<ToolInfo>,
+    pub(super) context_file: Option<CandleContext<CandleFile>>,
+    pub(super) context_files: Option<CandleContext<CandleFiles>>,
+    pub(super) context_directory: Option<CandleContext<CandleDirectory>>,
+    pub(super) context_github: Option<CandleContext<CandleGithub>>,
+    pub(super) additional_params: std::collections::HashMap<String, String>,
+    pub(super) metadata: std::collections::HashMap<String, String>,
+    pub(super) on_chunk_handler: Option<OnChunkHandler>,
+    pub(super) on_tool_result_handler: Option<OnToolResultHandler>,
+    pub(super) on_conversation_turn_handler: Option<OnConversationTurnHandler>,
 }
 
 impl std::fmt::Debug for CandleAgentBuilderImpl {
@@ -192,10 +192,11 @@ impl CandleAgentRoleBuilder for CandleAgentBuilderImpl {
         self
     }
 
-    /// Chat with closure - EXACT syntax: .chat(|conversation| ChatLoop)
-    fn chat<F>(self, _handler: F) -> Result<Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>, AgentError>
+    /// Chat with async closure - EXACT syntax: .chat(|conversation| async { ChatLoop })
+    fn chat<F, Fut>(self, _handler: F) -> Result<Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>, AgentError>
     where
-        F: FnOnce(&CandleAgentConversation) -> CandleChatLoop + Send + 'static,
+        F: Fn(&CandleAgentConversation) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = CandleChatLoop> + Send + 'static,
     {
         Ok(Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let _ = sender.send(CandleMessageChunk::Text("Hello from Candle!".to_string()));
@@ -205,7 +206,10 @@ impl CandleAgentRoleBuilder for CandleAgentBuilderImpl {
     fn chat_with_message(self, message: impl Into<String>) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>> {
         let msg = message.into();
         // Use CandleAgentRoleBuilder::chat explicitly to avoid ambiguity
-        CandleAgentRoleBuilder::chat(self, move |_| CandleChatLoop::UserPrompt(msg)).unwrap_or_else(
+        CandleAgentRoleBuilder::chat(self, move |_| {
+            let msg = msg.clone();
+            async move { CandleChatLoop::UserPrompt(msg) }
+        }).unwrap_or_else(
             |_| {
                 Box::pin(crate::async_stream::spawn_stream(|sender| async move {
                     let _ = sender.send(CandleMessageChunk::Error("Chat failed".to_string()));

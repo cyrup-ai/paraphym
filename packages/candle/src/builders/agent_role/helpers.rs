@@ -3,7 +3,7 @@
 use super::*;
 
 pub struct CandleAgentRoleAgent {
-    state: Arc<AgentBuilderState>,
+    pub(super) state: Arc<AgentBuilderState>,
 }
 
 impl CandleAgentRoleAgent {
@@ -222,32 +222,9 @@ impl CandleAgentRoleAgent {
     }
 }
 
-/// Shared builder state for recursive agent calls
-#[derive(Clone)]
-#[allow(dead_code)] // Fields are part of builder state but not directly read
-struct AgentBuilderState {
-    name: String,
-    text_to_text_model: TextToTextModel,
-    text_embedding_model: Option<TextEmbeddingModel>,
-    temperature: f64,
-    max_tokens: u64,
-    memory_read_timeout: u64,
-    system_prompt: String,
-    tools: ZeroOneOrMany<ToolInfo>,
-    context_file: Option<CandleContext<CandleFile>>,
-    context_files: Option<CandleContext<CandleFiles>>,
-    context_directory: Option<CandleContext<CandleDirectory>>,
-    context_github: Option<CandleContext<CandleGithub>>,
-    additional_params: std::collections::HashMap<String, String>,
-    metadata: std::collections::HashMap<String, String>,
-    on_chunk_handler: Option<OnChunkHandler>,
-    on_tool_result_handler: Option<OnToolResultHandler>,
-    on_conversation_turn_handler: Option<OnConversationTurnHandler>,
-}
-
 /// Agent role builder trait - elegant zero-allocation builder pattern (PUBLIC API)
 
-fn format_memory_context(
+pub(crate) fn format_memory_context(
     memories: &[crate::memory::primitives::node::MemoryNode],
     max_tokens: usize,
 ) -> String {
