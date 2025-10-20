@@ -58,8 +58,8 @@ impl TemporalContext {
     pub fn get_causal_predecessors(&self, memory_id: Uuid) -> Vec<Uuid> {
         self.causal_links
             .iter()
-            .filter(|link| link.consequent_id == memory_id)
-            .map(|link| link.antecedent_id)
+            .filter(|link| link.target_id == memory_id)
+            .map(|link| link.source_id)
             .collect()
     }
 
@@ -68,8 +68,8 @@ impl TemporalContext {
     pub fn get_causal_successors(&self, memory_id: Uuid) -> Vec<Uuid> {
         self.causal_links
             .iter()
-            .filter(|link| link.antecedent_id == memory_id)
-            .map(|link| link.consequent_id)
+            .filter(|link| link.source_id == memory_id)
+            .map(|link| link.target_id)
             .collect()
     }
 }
@@ -83,28 +83,27 @@ impl Default for TemporalContext {
 /// Causal link between memories
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CausalLink {
-    /// Antecedent memory (cause)
-    pub antecedent_id: Uuid,
-    /// Consequent memory (effect)
-    pub consequent_id: Uuid,
+    /// Source event ID
+    pub source_id: Uuid,
+    /// Target event ID
+    pub target_id: Uuid,
     /// Causal strength (0.0 to 1.0)
     pub strength: f32,
-    /// Confidence in causal relationship (0.0 to 1.0)
-    pub confidence: f32,
-    /// Timestamp when link was established
-    pub created_at: SystemTime,
+    /// Temporal distance in milliseconds
+    pub temporal_distance: i64,
 }
 
 impl CausalLink {
     /// Create new causal link
+    #[inline]
+    #[allow(dead_code)] // TODO: Implement causal reasoning in cognitive state system
     #[must_use]
-    pub fn new(antecedent_id: Uuid, consequent_id: Uuid, strength: f32, confidence: f32) -> Self {
+    pub fn new(source_id: Uuid, target_id: Uuid, strength: f32, temporal_distance: i64) -> Self {
         Self {
-            antecedent_id,
-            consequent_id,
+            source_id,
+            target_id,
             strength: strength.clamp(0.0, 1.0),
-            confidence: confidence.clamp(0.0, 1.0),
-            created_at: SystemTime::now(),
+            temporal_distance,
         }
     }
 }

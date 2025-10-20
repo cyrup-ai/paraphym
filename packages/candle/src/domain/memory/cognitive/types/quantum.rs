@@ -10,10 +10,7 @@ use uuid::Uuid;
 use paraphym_simd::similarity::cosine_similarity;
 
 use super::atomics::{AtomicF32, AtomicF64};
-use crate::domain::memory::cognitive::types::state::CognitiveError;
-
-/// Type alias for Result with CognitiveError
-pub type CognitiveResult<T> = Result<T, CognitiveError>;
+use crate::domain::memory::cognitive::types::state::{CognitiveError, CognitiveResult};
 
 /// Quantum-inspired signature for entanglement-based routing
 #[derive(Debug, Clone)]
@@ -38,26 +35,41 @@ pub struct QuantumSignature {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[repr(align(32))] // Align to 32 bytes for AVX2 SIMD operations
 pub struct AlignedCoherenceFingerprint {
-    /// Coherence amplitude values (SIMD-aligned)
-    pub data: Vec<f32>,
-    /// Dimension for validation
+    /// Amplitude values for quantum states
+    pub amplitudes: Vec<f32>,
+    /// Phase angles for quantum interference
+    pub phases: Vec<f32>,
+    /// Dimension for consistency checking
     pub dimension: usize,
 }
 
 impl AlignedCoherenceFingerprint {
-    /// Create new aligned coherence fingerprint
+    /// Create new coherence fingerprint
+    ///
+    /// # Errors
+    ///
+    /// Returns `CognitiveError` if amplitudes and phases vectors have different dimensions
     #[inline]
-    #[must_use]
-    pub fn new(data: Vec<f32>) -> Self {
-        let dimension = data.len();
-        Self { data, dimension }
+    pub fn new(amplitudes: Vec<f32>, phases: Vec<f32>) -> Result<Self, CognitiveError> {
+        if amplitudes.len() != phases.len() {
+            return Err(CognitiveError::InvalidQuantumState(
+                "Amplitudes and phases must have same dimension".to_string(),
+            ));
+        }
+
+        let dimension = amplitudes.len();
+        Ok(Self {
+            amplitudes,
+            phases,
+            dimension,
+        })
     }
 
     /// Check if fingerprint is empty
     #[inline]
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.data.is_empty()
+        self.amplitudes.is_empty()
     }
 
     /// Calculate state probability using quantum Born rule
@@ -65,7 +77,7 @@ impl AlignedCoherenceFingerprint {
     #[must_use]
     pub fn state_probability(&self) -> f32 {
         // |ψ|² = sum of squared amplitudes
-        self.data.iter().map(|x| x * x).sum::<f32>()
+        self.amplitudes.iter().map(|x| x * x).sum::<f32>()
     }
 
     /// Apply quantum gate operation
@@ -76,21 +88,21 @@ impl AlignedCoherenceFingerprint {
     #[inline]
     pub fn apply_gate(&mut self, gate_matrix: &[f32]) -> Result<(), CognitiveError> {
         if gate_matrix.len() != self.dimension * self.dimension {
-            return Err(CognitiveError::InvalidDimensions(format!(
+            return Err(CognitiveError::InvalidQuantumOperation(format!(
                 "Gate matrix size {} doesn't match fingerprint dimension {}²",
                 gate_matrix.len(),
                 self.dimension
             )));
         }
 
-        let mut new_data = vec![0.0; self.dimension];
+        let mut new_amplitudes = vec![0.0; self.dimension];
         for i in 0..self.dimension {
             for j in 0..self.dimension {
-                new_data[i] += gate_matrix[i * self.dimension + j] * self.data[j];
+                new_amplitudes[i] += gate_matrix[i * self.dimension + j] * self.amplitudes[j];
             }
         }
 
-        self.data = new_data;
+        self.amplitudes = new_amplitudes;
         Ok(())
     }
 
@@ -107,14 +119,18 @@ impl AlignedCoherenceFingerprint {
         }
 
         // Use SIMD-optimized cosine similarity as entanglement measure
-        Some(cosine_similarity(&self.data, &other.data))
+        Some(cosine_similarity(&self.amplitudes, &other.amplitudes))
     }
 }
 
 impl Default for AlignedCoherenceFingerprint {
     #[inline]
     fn default() -> Self {
-        Self::new(Vec::new())
+        Self {
+            amplitudes: Vec::new(),
+            phases: Vec::new(),
+            dimension: 0,
+        }
     }
 }
 
@@ -143,23 +159,8 @@ impl QuantumSignature {
         amplitudes: Vec<f32>,
         phases: Vec<f32>,
     ) -> Result<Self, CognitiveError> {
-        if amplitudes.len() != phases.len() {
-            return Err(CognitiveError::InvalidDimensions(format!(
-                "Amplitudes (len={}) and phases (len={}) must have same dimension",
-                amplitudes.len(),
-                phases.len()
-            )));
-        }
-
-        // Construct complex wavefunction: ψ = a * e^(iφ)
-        // We store the real part: a * cos(φ)
-        let coherence_data: Vec<f32> = amplitudes
-            .iter()
-            .zip(phases.iter())
-            .map(|(a, p)| a * p.cos())
-            .collect();
-
-        let coherence_fingerprint = AlignedCoherenceFingerprint::new(coherence_data);
+        // Create coherence fingerprint with validation
+        let coherence_fingerprint = AlignedCoherenceFingerprint::new(amplitudes.clone(), phases)?;
 
         // Calculate initial collapse probability from amplitudes
         let collapse_probability = amplitudes.iter().map(|x| x * x).sum::<f32>();
@@ -190,6 +191,30 @@ impl QuantumSignature {
             creation_time,
             decoherence_rate,
         })
+    }
+
+    /// Create quantum signature with full data
+    #[inline]
+    #[allow(dead_code)] // TODO: Used for deserialization from storage
+    #[must_use]
+    pub fn new_with_data(
+        coherence_fingerprint: AlignedCoherenceFingerprint,
+        entanglement_bonds: Vec<EntanglementBond>,
+        superposition_contexts: Vec<Arc<str>>,
+        collapse_probability: f32,
+        quantum_entropy: f64,
+        creation_time: SystemTime,
+        decoherence_rate: f64,
+    ) -> Self {
+        Self {
+            coherence_fingerprint,
+            entanglement_bonds: Arc::new(RwLock::new(entanglement_bonds)),
+            superposition_contexts,
+            collapse_probability: Arc::new(AtomicF32::new(collapse_probability)),
+            quantum_entropy: Arc::new(AtomicF64::new(quantum_entropy)),
+            creation_time,
+            decoherence_rate,
+        }
     }
 
     /// Apply decoherence based on elapsed time

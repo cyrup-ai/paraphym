@@ -399,7 +399,7 @@ impl CognitiveState {
     ) -> Result<(), CognitiveError> {
         // Validate stimulus is not empty
         if stimulus.is_empty() {
-            return Err(CognitiveError::InvalidDimensions(
+            return Err(CognitiveError::OperationFailed(
                 "Stimulus vector cannot be empty".to_string(),
             ));
         }
@@ -431,24 +431,39 @@ impl Default for CognitiveState {
     }
 }
 
+/// Result type for cognitive operations
+pub type CognitiveResult<T> = Result<T, CognitiveError>;
+
 /// Cognitive operation errors
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum CognitiveError {
-    /// Invalid dimensions for quantum or activation operations
-    #[error("Invalid dimensions: {0}")]
-    InvalidDimensions(String),
+    /// Invalid quantum state
+    #[error("Invalid quantum state: {0}")]
+    InvalidQuantumState(String),
+
+    /// Invalid quantum operation
+    #[error("Invalid quantum operation: {0}")]
+    InvalidQuantumOperation(String),
+
+    /// Memory capacity exceeded
+    #[error("Memory capacity exceeded: {0}")]
+    MemoryCapacityExceeded(String),
+
+    /// Temporal inconsistency
+    #[error("Temporal inconsistency: {0}")]
+    TemporalInconsistency(String),
+
+    /// Attention overflow
+    #[error("Attention overflow: {0}")]
+    AttentionOverflow(String),
 
     /// Lock poisoned error
     #[error("Lock poisoned: {0}")]
     LockPoisoned(String),
 
-    /// Memory operation failed
-    #[error("Memory operation failed: {0}")]
-    MemoryOperationFailed(String),
-
-    /// Memory capacity exceeded
-    #[error("Memory capacity exceeded: {0}")]
-    MemoryCapacityExceeded(String),
+    /// Dimension mismatch
+    #[error("Dimension mismatch: expected {expected}, got {got}")]
+    DimensionMismatch { expected: usize, got: usize },
 
     /// Operation failed
     #[error("Operation failed: {0}")]

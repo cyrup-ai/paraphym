@@ -10,12 +10,9 @@ use uuid::Uuid;
 
 use paraphym_simd::similarity::cosine_similarity;
 
-use super::state::{CognitiveState, CognitiveError};
+use super::state::{CognitiveState, CognitiveError, CognitiveResult};
 use super::atomics::AtomicF32;
 use crate::domain::util::unix_timestamp_nanos;
-
-/// Type alias for Result with CognitiveError
-pub type CognitiveResult<T> = Result<T, CognitiveError>;
 
 /// High-level cognitive memory system
 #[derive(Debug, Clone)]
