@@ -13,55 +13,55 @@
 //!
 //! The configuration system uses a three-tier priority hierarchy:
 //!
-//! 1. **Profile Preset (Base)** - Selected via `PARAPHYM_MEMORY_PROFILE`
+//! 1. **Profile Preset (Base)** - Selected via `CYRUP_MEMORY_PROFILE`
 //!    - `development` or `dev`: Development-optimized settings
 //!    - `production` or `prod`: Production-optimized settings
 //!    - `default`: Balanced default settings
 //!
-//! 2. **TOML Config File (Overrides Preset)** - Loaded via `PARAPHYM_CONFIG_PATH`
+//! 2. **TOML Config File (Overrides Preset)** - Loaded via `CYRUP_CONFIG_PATH`
 //!    - Supports full configuration file specification
 //!    - Overrides preset values when present
 //!    - Optional - system works without config file
 //!
 //! 3. **Environment Variables (Highest Priority)** - Individual setting overrides
-//!    - All variables use `PARAPHYM_*` prefix
+//!    - All variables use `CYRUP_*` prefix
 //!    - Override both preset and file configuration
 //!    - Allow runtime configuration without file changes
 //!
 //! ### Supported Environment Variables
 //!
 //! #### Performance Configuration
-//! - `PARAPHYM_MEMORY_MAX_OPERATIONS` - Max concurrent operations (default: varies by profile)
-//! - `PARAPHYM_MEMORY_TIMEOUT_MS` - Operation timeout in milliseconds (default: 30000)
-//! - `PARAPHYM_MEMORY_CACHE_SIZE` - Memory cache size (default: varies by profile)
-//! - `PARAPHYM_MEMORY_BATCH_SIZE` - Batch processing size (default: 100)
+//! - `CYRUP_MEMORY_MAX_OPERATIONS` - Max concurrent operations (default: varies by profile)
+//! - `CYRUP_MEMORY_TIMEOUT_MS` - Operation timeout in milliseconds (default: 30000)
+//! - `CYRUP_MEMORY_CACHE_SIZE` - Memory cache size (default: varies by profile)
+//! - `CYRUP_MEMORY_BATCH_SIZE` - Batch processing size (default: 100)
 //!
 //! #### Retention Configuration
-//! - `PARAPHYM_MEMORY_RETENTION_SECONDS` - Default retention period (default: 2592000 = 30 days)
-//! - `PARAPHYM_MEMORY_MAX_AGE_SECONDS` - Maximum age before cleanup (default: 31536000 = 1 year)
-//! - `PARAPHYM_MEMORY_MAX_ACTIVE` - Maximum active memories (default: 1000000)
+//! - `CYRUP_MEMORY_RETENTION_SECONDS` - Default retention period (default: 2592000 = 30 days)
+//! - `CYRUP_MEMORY_MAX_AGE_SECONDS` - Maximum age before cleanup (default: 31536000 = 1 year)
+//! - `CYRUP_MEMORY_MAX_ACTIVE` - Maximum active memories (default: 1000000)
 //!
 //! #### Security Configuration
-//! - `PARAPHYM_MEMORY_ENABLE_ENCRYPTION` - Enable encryption (default: false)
-//! - `PARAPHYM_MEMORY_MAX_FAILED_ATTEMPTS` - Security lockout threshold (default: 5)
+//! - `CYRUP_MEMORY_ENABLE_ENCRYPTION` - Enable encryption (default: false)
+//! - `CYRUP_MEMORY_MAX_FAILED_ATTEMPTS` - Security lockout threshold (default: 5)
 //!
 //! #### Monitoring Configuration
-//! - `PARAPHYM_MEMORY_METRICS_INTERVAL_SECONDS` - Metrics collection interval (default: 30)
+//! - `CYRUP_MEMORY_METRICS_INTERVAL_SECONDS` - Metrics collection interval (default: 30)
 //!
 //! ### Configuration Loading Example
 //!
 //! ```bash
 //! # Use production profile with custom cache size
-//! export PARAPHYM_MEMORY_PROFILE=production
-//! export PARAPHYM_MEMORY_CACHE_SIZE=100000
+//! export CYRUP_MEMORY_PROFILE=production
+//! export CYRUP_MEMORY_CACHE_SIZE=100000
 //!
 //! # Or load from TOML config file
-//! export PARAPHYM_CONFIG_PATH=/etc/paraphym/config.toml
+//! export CYRUP_CONFIG_PATH=/etc/cyrup/config.toml
 //!
 //! # Or combine all three (env vars have highest priority)
-//! export PARAPHYM_MEMORY_PROFILE=production
-//! export PARAPHYM_CONFIG_PATH=/etc/paraphym/config.toml
-//! export PARAPHYM_MEMORY_TIMEOUT_MS=60000  # Override file/preset timeout
+//! export CYRUP_MEMORY_PROFILE=production
+//! export CYRUP_CONFIG_PATH=/etc/cyrup/config.toml
+//! export CYRUP_MEMORY_TIMEOUT_MS=60000  # Override file/preset timeout
 //! ```
 //!
 //! ### Validation and Safety
@@ -75,7 +75,7 @@
 //!
 //! The configuration system manages **`SurrealDB` with `SurrealKV`** storage:
 //! - Connection string: `surrealkv://./data/memory.db` (default)
-//! - Namespace: `paraphym`
+//! - Namespace: `cyrup`
 //! - Database: `memory`
 //! - Connection pooling with configurable pool size
 
@@ -137,7 +137,7 @@ thread_local! {
 /// Create default configuration for the domain
 fn create_default_config() -> MemoryConfig {
     // 1. Load preset based on profile
-    let profile = std::env::var("PARAPHYM_MEMORY_PROFILE")
+    let profile = std::env::var("CYRUP_MEMORY_PROFILE")
         .ok()
         .unwrap_or_else(|| "default".to_string());
 
@@ -184,7 +184,7 @@ fn create_default_config() -> MemoryConfig {
 /// Apply environment variable overrides to memory configuration
 fn apply_env_overrides(config: &mut MemoryConfig) {
     // Performance overrides
-    if let Some(max_ops) = std::env::var("PARAPHYM_MEMORY_MAX_OPERATIONS")
+    if let Some(max_ops) = std::env::var("CYRUP_MEMORY_MAX_OPERATIONS")
         .ok()
         .and_then(|s| s.parse().ok())
     {
@@ -192,7 +192,7 @@ fn apply_env_overrides(config: &mut MemoryConfig) {
         log::debug!("Override: max_concurrent_operations={max_ops}");
     }
 
-    if let Some(timeout) = std::env::var("PARAPHYM_MEMORY_TIMEOUT_MS")
+    if let Some(timeout) = std::env::var("CYRUP_MEMORY_TIMEOUT_MS")
         .ok()
         .and_then(|s| s.parse().ok())
     {
@@ -200,7 +200,7 @@ fn apply_env_overrides(config: &mut MemoryConfig) {
         log::debug!("Override: operation_timeout_ms={timeout}");
     }
 
-    if let Some(cache_size) = std::env::var("PARAPHYM_MEMORY_CACHE_SIZE")
+    if let Some(cache_size) = std::env::var("CYRUP_MEMORY_CACHE_SIZE")
         .ok()
         .and_then(|s| s.parse().ok())
     {
@@ -208,7 +208,7 @@ fn apply_env_overrides(config: &mut MemoryConfig) {
         log::debug!("Override: cache_size={cache_size}");
     }
 
-    if let Some(batch_size) = std::env::var("PARAPHYM_MEMORY_BATCH_SIZE")
+    if let Some(batch_size) = std::env::var("CYRUP_MEMORY_BATCH_SIZE")
         .ok()
         .and_then(|s| s.parse().ok())
     {
@@ -217,7 +217,7 @@ fn apply_env_overrides(config: &mut MemoryConfig) {
     }
 
     // Retention overrides
-    if let Some(retention) = std::env::var("PARAPHYM_MEMORY_RETENTION_SECONDS")
+    if let Some(retention) = std::env::var("CYRUP_MEMORY_RETENTION_SECONDS")
         .ok()
         .and_then(|s| s.parse().ok())
     {
@@ -225,7 +225,7 @@ fn apply_env_overrides(config: &mut MemoryConfig) {
         log::debug!("Override: default_retention_seconds={retention}");
     }
 
-    if let Some(max_age) = std::env::var("PARAPHYM_MEMORY_MAX_AGE_SECONDS")
+    if let Some(max_age) = std::env::var("CYRUP_MEMORY_MAX_AGE_SECONDS")
         .ok()
         .and_then(|s| s.parse().ok())
     {
@@ -233,7 +233,7 @@ fn apply_env_overrides(config: &mut MemoryConfig) {
         log::debug!("Override: max_age_seconds={max_age}");
     }
 
-    if let Some(max_memories) = std::env::var("PARAPHYM_MEMORY_MAX_ACTIVE")
+    if let Some(max_memories) = std::env::var("CYRUP_MEMORY_MAX_ACTIVE")
         .ok()
         .and_then(|s| s.parse().ok())
     {
@@ -242,7 +242,7 @@ fn apply_env_overrides(config: &mut MemoryConfig) {
     }
 
     // Security overrides
-    if let Some(enable_encryption) = std::env::var("PARAPHYM_MEMORY_ENABLE_ENCRYPTION")
+    if let Some(enable_encryption) = std::env::var("CYRUP_MEMORY_ENABLE_ENCRYPTION")
         .ok()
         .and_then(|s| s.parse().ok())
     {
@@ -250,7 +250,7 @@ fn apply_env_overrides(config: &mut MemoryConfig) {
         log::debug!("Override: enable_encryption={enable_encryption}");
     }
 
-    if let Some(max_attempts) = std::env::var("PARAPHYM_MEMORY_MAX_FAILED_ATTEMPTS")
+    if let Some(max_attempts) = std::env::var("CYRUP_MEMORY_MAX_FAILED_ATTEMPTS")
         .ok()
         .and_then(|s| s.parse().ok())
     {
@@ -259,7 +259,7 @@ fn apply_env_overrides(config: &mut MemoryConfig) {
     }
 
     // Monitoring overrides
-    if let Some(interval) = std::env::var("PARAPHYM_MEMORY_METRICS_INTERVAL_SECONDS")
+    if let Some(interval) = std::env::var("CYRUP_MEMORY_METRICS_INTERVAL_SECONDS")
         .ok()
         .and_then(|s| s.parse().ok())
     {
@@ -270,7 +270,7 @@ fn apply_env_overrides(config: &mut MemoryConfig) {
 
 /// Load configuration from TOML file if specified
 fn load_config_file() -> Option<MemoryConfig> {
-    let config_path = std::env::var("PARAPHYM_CONFIG_PATH").ok()?;
+    let config_path = std::env::var("CYRUP_CONFIG_PATH").ok()?;
 
     // Use std::fs for genuine static initialization (not a bridge)
     let content = std::fs::read_to_string(&config_path).ok()?;

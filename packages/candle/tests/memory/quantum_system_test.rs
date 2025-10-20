@@ -4,10 +4,10 @@
 
 use std::sync::Arc;
 
-use paraphym_memory::cognitive::quantum::{
+use cyrup_memory::cognitive::quantum::{
     EnhancedQuery, QuantumConfig, QuantumRouter, QueryIntent,
 };
-use paraphym_memory::cognitive::state::CognitiveStateManager;
+use cyrup_memory::cognitive::state::CognitiveStateManager;
 
 #[tokio::test]
 async fn test_quantum_router_basic() {
@@ -52,7 +52,7 @@ async fn test_quantum_router_basic() {
 
 #[test]
 fn test_cognitive_memory_node_creation() {
-    use paraphym_memory::{CognitiveMemoryNode, memory::MemoryTypeEnum};
+    use cyrup_memory::{CognitiveMemoryNode, memory::MemoryTypeEnum};
 
     let node = CognitiveMemoryNode::new("Test content".to_string(), MemoryTypeEnum::Semantic);
 
@@ -62,7 +62,7 @@ fn test_cognitive_memory_node_creation() {
 
 #[test]
 fn test_complex_number_operations() {
-    use paraphym_memory::cognitive::quantum::Complex64;
+    use cyrup_memory::cognitive::quantum::Complex64;
 
     let c1 = Complex64::new(3.0, 4.0);
     let c2 = Complex64::new(1.0, 2.0);
@@ -83,7 +83,7 @@ fn test_complex_number_operations() {
 
 #[tokio::test]
 async fn test_cognitive_state_manager() {
-    use paraphym_memory::cognitive::state::{
+    use cyrup_memory::cognitive::state::{
         AbstractionLevel, CognitiveState, CognitiveStateManager, SemanticContext,
     };
 
@@ -115,8 +115,8 @@ async fn test_cognitive_state_manager() {
 
 #[test]
 fn test_evolution_metadata() {
-    use paraphym_memory::cognitive::evolution::EvolutionMetadata;
-    use paraphym_memory::{MemoryNode, memory::MemoryTypeEnum};
+    use cyrup_memory::cognitive::evolution::EvolutionMetadata;
+    use cyrup_memory::{MemoryNode, memory::MemoryTypeEnum};
 
     let memory = MemoryNode::new("test".to_string(), MemoryTypeEnum::Semantic);
     let metadata = EvolutionMetadata::new(&memory);
@@ -128,7 +128,7 @@ fn test_evolution_metadata() {
 
 #[tokio::test]
 async fn test_attention_mechanism() {
-    use paraphym_memory::cognitive::attention::{
+    use cyrup_memory::cognitive::attention::{
         AttentionConfig, AttentionMechanism, CognitiveAttentionWeights,
     };
 
@@ -165,7 +165,7 @@ async fn test_attention_mechanism() {
 
 #[test]
 fn test_measurement_basis() {
-    use paraphym_memory::cognitive::quantum::measurement::{BasisType, MeasurementBasis};
+    use cyrup_memory::cognitive::quantum::measurement::{BasisType, MeasurementBasis};
 
     let computational = MeasurementBasis::computational();
     assert!(matches!(computational.basis_type, BasisType::Computational));

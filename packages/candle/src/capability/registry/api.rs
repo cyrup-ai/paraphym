@@ -23,7 +23,7 @@ use crate::domain::model::traits::CandleModel;
 ///
 /// # Example
 /// ```rust
-/// use paraphym_candle::capability::registry::{self, TextToTextModel, TextEmbeddingModel};
+/// use cyrup_candle::capability::registry::{self, TextToTextModel, TextEmbeddingModel};
 ///
 /// // Works for static models
 /// let text_model: TextToTextModel = registry::get("unsloth/Kimi-K2-Instruct-GGUF").unwrap();
@@ -116,7 +116,7 @@ impl FromRegistry for AnyModel {
 ///
 /// # Example
 /// ```rust
-/// use paraphym_candle::capability::registry;
+/// use cyrup_candle::capability::registry;
 ///
 /// if let Some(model) = registry::get_text_to_text("unsloth/Kimi-K2-Instruct-GGUF") {
 ///     // model implements TextToTextCapable
@@ -170,7 +170,7 @@ pub fn get_model(registry_key: &str) -> Option<impl CandleModel> {
 ///
 /// # Example
 /// ```rust
-/// use paraphym_candle::capability::registry;
+/// use cyrup_candle::capability::registry;
 ///
 /// if let Some(model) = registry::get_by_provider_and_name("candle-kimi", "kimi-k2-instruct") {
 ///     // model is AnyModel enum
@@ -272,7 +272,7 @@ pub fn count_models_by_provider() -> Vec<(&'static str, usize)> {
 ///
 /// # Example
 /// ```rust
-/// use paraphym_candle::capability::registry;
+/// use cyrup_candle::capability::registry;
 ///
 /// for key in registry::all_registry_keys() {
 ///     println!("Registered: {}", key);
@@ -306,7 +306,7 @@ pub fn all_registry_keys() -> Vec<String> {
 ///
 /// # Example
 /// ```rust
-/// use paraphym_candle::capability::registry;
+/// use cyrup_candle::capability::registry;
 ///
 /// if registry::has_model("unsloth/Kimi-K2-Instruct-GGUF") {
 ///     println!("Kimi K2 is available");

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Paraphym implements a multi-stage tool calling system that uses constrained generation to ensure reliable JSON responses at each stage. The system follows OpenAI-compatible function calling patterns while leveraging SweetMCP's unified tool interface and our internal constraint system for guaranteed valid outputs.
+Cyrup implements a multi-stage tool calling system that uses constrained generation to ensure reliable JSON responses at each stage. The system follows OpenAI-compatible function calling patterns while leveraging SweetMCP's unified tool interface and our internal constraint system for guaranteed valid outputs.
 
 **Key Architecture**: Just like the current Claude Code environment, the LLM sees one unified tool list containing both MCP protocol tools and native tools, with SweetMCP handling transparent routing to the appropriate execution method.
 
@@ -112,7 +112,7 @@ pub async fn initialize_tool_registry(
         
         // Initialize connection and negotiate capabilities
         let client_info = Implementation {
-            name: "Paraphym".to_string(),
+            name: "Cyrup".to_string(),
             version: "1.0.0".to_string(),
         };
         client.initialize(JsonValue::from({}), client_info).await?;

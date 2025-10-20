@@ -1,7 +1,7 @@
 //! Zero-cost async-aware transformation nodes with blazing-fast performance
 //!
 //! This module provides the Op trait system for building composable, high-performance
-//! workflow operations using paraphym streams-only architecture. All operations are
+//! workflow operations using cyrup streams-only architecture. All operations are
 //! zero-allocation in hot paths with extensive inlining for maximum performance.
 
 use std::marker::PhantomData;
@@ -78,7 +78,7 @@ where
 ///
 /// ## Example
 /// ```rust,no_run
-/// use paraphym_candle::workflow::ops::{Op, map};
+/// use cyrup_candle::workflow::ops::{Op, map};
 ///
 /// let double_op = map(|x: i32| x * 2);
 /// let stream = double_op.call(5);
@@ -88,7 +88,7 @@ pub trait Op<In, Out>: Send + Sync + Clone + 'static {
     /// Execute the operation with streaming output
     ///
     /// Takes input of type `In` and produces a stream of `Out` values
-    /// using tokio Stream. This follows the paraphym unwrapped stream
+    /// using tokio Stream. This follows the cyrup unwrapped stream
     /// architecture for maximum performance.
     ///
     /// ## Implementation Requirements
@@ -335,7 +335,7 @@ where
 ///
 /// ## Example
 /// ```rust,no_run
-/// use paraphym_candle::workflow::ops::map;
+/// use cyrup_candle::workflow::ops::map;
 ///
 /// let double = map(|x: i32| x * 2);
 /// let result_stream = double.call(5);
@@ -362,7 +362,7 @@ where
 ///
 /// ## Example
 /// ```rust,no_run
-/// use paraphym_candle::workflow::ops::passthrough;
+/// use cyrup_candle::workflow::ops::passthrough;
 ///
 /// let identity = passthrough::<i32>();
 /// let result_stream = identity.call(42);
@@ -385,7 +385,7 @@ where
 ///
 /// ## Example
 /// ```rust,no_run
-/// use paraphym_candle::workflow::ops::{map, then};
+/// use cyrup_candle::workflow::ops::{map, then};
 ///
 /// let double = map(|x: i32| x * 2);
 /// let add_one = map(|x: i32| x + 1);

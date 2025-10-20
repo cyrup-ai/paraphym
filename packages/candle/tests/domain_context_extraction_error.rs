@@ -1,4 +1,4 @@
-use paraphym_candle::domain::context::ExtractionError;
+use cyrup_candle::domain::context::ExtractionError;
 
 #[test]
 fn test_validation_error() {

@@ -50,7 +50,7 @@ impl CliConfig {
     /// Get default config file path
     pub fn default_path() -> PathBuf {
         if let Some(config_dir) = dirs::config_dir() {
-            let app_config = config_dir.join("paraphym");
+            let app_config = config_dir.join("cyrup");
             fs::create_dir_all(&app_config).ok();
             app_config.join("candle-chat.json")
         } else {

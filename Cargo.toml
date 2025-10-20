@@ -26,7 +26,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 authors = ["CYRUP AI"]
-repository = "https://github.com/cyrup-ai/paraphym"
+repository = "https://github.com/cyrup-ai/cyrup"
 
 [workspace.dependencies]
 ahash = "0.8.12"

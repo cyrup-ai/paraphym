@@ -1,6 +1,6 @@
 //! Tests for CLI configuration management
 
-use paraphym_candle::cli::config::*;
+use cyrup_candle::cli::config::*;
 use std::env;
 use std::fs;
 

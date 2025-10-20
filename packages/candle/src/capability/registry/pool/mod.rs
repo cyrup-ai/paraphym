@@ -38,7 +38,7 @@
 //! Pool integration is **transparent** to users. Simply call registry methods:
 //!
 //! ```rust,no_run
-//! use paraphym_candle::capability::registry::{self, TextEmbeddingModel};
+//! use cyrup_candle::capability::registry::{self, TextEmbeddingModel};
 //!
 //! // Get model from registry (pool integration happens automatically)
 //! let model = registry::get::<TextEmbeddingModel>("dunzhang/stella_en_1.5B_v5")?;
@@ -57,7 +57,7 @@
 //!
 //! ```rust
 //! // In main.rs or CLI runner
-//! paraphym_candle::pool::init_maintenance();
+//! cyrup_candle::pool::init_maintenance();
 //! ```
 //!
 //! This is done automatically in the CLI runner ([`crate::cli::runner::CliRunner::run`]).
@@ -152,10 +152,10 @@
 //!
 //! ```bash
 //! # Info only
-//! RUST_LOG=paraphym_candle::pool=info cargo run
+//! RUST_LOG=cyrup_candle::pool=info cargo run
 //!
 //! # Debug (includes memory usage)
-//! RUST_LOG=paraphym_candle::pool=debug cargo run
+//! RUST_LOG=cyrup_candle::pool=debug cargo run
 //!
 //! # All logs
 //! RUST_LOG=debug cargo run
@@ -260,7 +260,7 @@ static MAINTENANCE_THREAD: Lazy<Option<tokio::task::JoinHandle<()>>> =
 ///
 /// ```rust
 /// // In CLI runner or main.rs
-/// paraphym_candle::pool::init_maintenance();
+/// cyrup_candle::pool::init_maintenance();
 /// ```
 ///
 /// The maintenance thread:

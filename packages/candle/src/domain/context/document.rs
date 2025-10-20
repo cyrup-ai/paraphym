@@ -3,7 +3,7 @@
 //! This module provides document types, content formats, and basic document loading
 //! functionality. Originally from document.rs.
 
-// Removed paraphym_http3::async_task import - not needed for streams-only architecture
+// Removed cyrup_http3::async_task import - not needed for streams-only architecture
 use std::collections::HashMap;
 
 use cyrup_sugars::prelude::MessageChunk;
@@ -113,7 +113,7 @@ pub enum CandleDocumentMediaType {
     Binary,
 }
 
-// Builder implementations moved to paraphym/src/builders/document.rs
+// Builder implementations moved to cyrup/src/builders/document.rs
 
 impl CandleDocument {
     /// Extract the text content from the document
@@ -136,7 +136,7 @@ impl DocumentLoader {
     #[must_use]
     pub fn load(self) -> CandleDocument {
         // For domain use, return a simple text document
-        // Full loading logic is in paraphym builders
+        // Full loading logic is in cyrup builders
         CandleDocument {
             data: format!("Document from: {}", self.path),
             format: Some(CandleContentFormat::Text),
@@ -146,7 +146,7 @@ impl DocumentLoader {
     }
 }
 
-// All builder implementations moved to paraphym/src/builders/document.rs
+// All builder implementations moved to cyrup/src/builders/document.rs
 
 // Removed BadTraitImpl implementation - not needed for streams-only architecture
 // impl BadTraitImpl for Document {

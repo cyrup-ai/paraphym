@@ -189,7 +189,7 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
 
                         let db_path = dirs::cache_dir()
                             .unwrap_or_else(|| std::path::PathBuf::from("."))
-                            .join("paraphym")
+                            .join("cyrup")
                             .join("agent.db");
 
                         // Ensure database directory exists

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "Cap'n Proto client for SweetMCP protocol extension demonstration"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/cyrusnimda/paraphym"
+repository = "https://github.com/cyrusnimda/cyrup"
 keywords = ["mcp", "capnproto", "client", "protocol", "rpc"]
 categories = ["api-bindings", "network-programming"]
 

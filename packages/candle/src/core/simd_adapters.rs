@@ -1,10 +1,10 @@
 //! SIMD Adapter Module for Candle
 //!
-//! Bridge functions between paraphym_simd API and generation.rs data structures.
-//! Uses the existing paraphym_simd operations directly without duplication.
+//! Bridge functions between cyrup_simd API and generation.rs data structures.
+//! Uses the existing cyrup_simd operations directly without duplication.
 
 use arrayvec::ArrayVec;
-use paraphym_simd::{SimdError, argmax, scale_temperature, softmax};
+use cyrup_simd::{SimdError, argmax, scale_temperature, softmax};
 
 use crate::core::generation::{CandleResult, LogitsBuffer, TokenProb};
 use crate::domain::model::error::CandleModelError as CandleError;
@@ -51,7 +51,7 @@ pub fn simd_softmax_with_cache(
     logits: &LogitsBuffer,
     prob_cache: &mut ArrayVec<TokenProb, SAMPLING_CACHE_SIZE>,
 ) -> CandleResult<Vec<f32>> {
-    // Compute SIMD softmax using existing paraphym_simd function
+    // Compute SIMD softmax using existing cyrup_simd function
     let probabilities = match softmax(logits.as_slice()) {
         Ok(probs) => probs,
         Err(simd_err) => {
@@ -88,7 +88,7 @@ pub fn simd_argmax_with_bounds(
     probabilities: &[f32],
     prob_cache: &ArrayVec<TokenProb, SAMPLING_CACHE_SIZE>,
 ) -> CandleResult<u32> {
-    // Compute SIMD argmax using existing paraphym_simd function
+    // Compute SIMD argmax using existing cyrup_simd function
     let max_idx = match argmax(probabilities) {
         Ok(idx) => idx,
         Err(simd_err) => {
@@ -135,7 +135,7 @@ pub fn simd_argmax_with_bounds(
 /// # Returns
 /// * `bool` - True if SIMD should be used
 pub fn should_use_simd(array_size: usize, simd_threshold: usize, simd_enabled: bool) -> bool {
-    simd_enabled && array_size >= simd_threshold && paraphym_simd::simd_available()
+    simd_enabled && array_size >= simd_threshold && cyrup_simd::simd_available()
 }
 
 /// Convert SIMD error to appropriate fallback strategy description

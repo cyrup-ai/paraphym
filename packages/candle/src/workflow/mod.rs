@@ -1,6 +1,6 @@
 //! Candle workflow execution system - streams-only architecture
 //!
-//! This module provides a complete workflow execution system built on paraphym
+//! This module provides a complete workflow execution system built on cyrup
 //! streams-only architecture with candle prefixes. All operations use unwrapped
 //! AsyncStream<Out> without Future/Result wrapping in execution paths.
 //!

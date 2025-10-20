@@ -3,7 +3,7 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
-use paraphym_simd::cosine_similarity;
+use cyrup_simd::cosine_similarity;
 use surrealdb::Value;
 
 use super::vector_store::{VectorMetadata, VectorSearchResult, VectorStore};

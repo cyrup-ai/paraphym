@@ -3,8 +3,8 @@
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::hint::black_box;
-use paraphym_simd::ops::softmax::SOFTMAX_DISPATCH;
-use paraphym_simd::runtime::{get_cpu_features, CpuFeatures};
+use cyrup_simd::ops::softmax::SOFTMAX_DISPATCH;
+use cyrup_simd::runtime::{get_cpu_features, CpuFeatures};
 use rand::Rng;
 
 /// Generate test data in specified range

@@ -9,7 +9,7 @@
 //! ```rust,no_run
 //! use serde::{Deserialize, Serialize};
 //! use schemars::JsonSchema;
-//! use paraphym_simd::serde_constraints::constraint_for_type;
+//! use cyrup_simd::serde_constraints::constraint_for_type;
 //!
 //! #[derive(Serialize, Deserialize, JsonSchema)]
 //! struct User {
@@ -51,7 +51,7 @@ use crate::logits::constraints::{
 /// ```rust,no_run
 /// use serde::{Deserialize, Serialize};
 /// use schemars::JsonSchema;
-/// use paraphym_simd::serde_constraints::constraint_for_type;
+/// use cyrup_simd::serde_constraints::constraint_for_type;
 ///
 /// #[derive(Serialize, Deserialize, JsonSchema)]
 /// struct Person {
@@ -88,7 +88,7 @@ where
 ///
 /// # Example
 /// ```rust,no_run
-/// use paraphym_simd::serde_constraints::constraint_for_schema;
+/// use cyrup_simd::serde_constraints::constraint_for_schema;
 ///
 /// let schema = r#"{
 ///     "type": "object",
@@ -131,7 +131,7 @@ pub fn constraint_for_schema(
 ///
 /// # Example
 /// ```rust,no_run
-/// use paraphym_simd::serde_constraints::basic_json_constraint;
+/// use cyrup_simd::serde_constraints::basic_json_constraint;
 ///
 /// let constraint = basic_json_constraint(&tokenizer)?;
 /// // Ensures valid JSON syntax but allows any structure
@@ -148,7 +148,7 @@ pub fn basic_json_constraint(tokenizer: &Tokenizer) -> AnyResult<JsonConstraint<
 ///
 /// # Example
 /// ```rust,no_run
-/// use paraphym_simd::serde_constraints::ConstraintBuilder;
+/// use cyrup_simd::serde_constraints::ConstraintBuilder;
 ///
 /// let constraint = ConstraintBuilder::new(&tokenizer)
 ///     .with_type::<MyType>()

@@ -1,4 +1,4 @@
-use paraphym_simd::context::ProcessingContext;
+use cyrup_simd::context::ProcessingContext;
 
 #[test]
 fn test_processing_context() {

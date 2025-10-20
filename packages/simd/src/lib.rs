@@ -1,6 +1,6 @@
-//! Ultra-High-Performance SIMD Operations for paraphym Ecosystem
+//! Ultra-High-Performance SIMD Operations for cyrup Ecosystem
 //!
-//! Production-quality vectorized implementations shared across paraphym packages:
+//! Production-quality vectorized implementations shared across cyrup packages:
 //! - Vector similarity operations (from memory package)
 //! - Platform-specific optimizations and fallbacks
 //!
@@ -15,7 +15,7 @@
 //!
 //! **Similarity Operations:**
 //! ```rust,no_run
-//! use paraphym_simd::similarity::smart_cosine_similarity;
+//! use cyrup_simd::similarity::smart_cosine_similarity;
 //!
 //! let a = vec![1.0, 2.0, 3.0, 4.0];
 //! let b = vec![4.0, 3.0, 2.0, 1.0];

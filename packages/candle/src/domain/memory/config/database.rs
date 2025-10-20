@@ -522,7 +522,7 @@ impl Default for DatabaseConfig {
         Self {
             db_type: DatabaseType::SurrealDB,
             connection_string: "surrealkv://./data/memory.db".to_string(),
-            namespace: "paraphym".to_string(),
+            namespace: "cyrup".to_string(),
             database: "memory".to_string(),
             username: None,
             password: None,

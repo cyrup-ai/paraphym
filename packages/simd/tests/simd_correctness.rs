@@ -6,10 +6,10 @@
 #![cfg(feature = "bench")]
 
 use float_eq::assert_float_eq;
-use paraphym_simd::ops::argmax::ARGMAX_DISPATCH;
-use paraphym_simd::ops::softmax::SOFTMAX_DISPATCH;
-use paraphym_simd::ops::temperature::TEMPERATURE_DISPATCH;
-use paraphym_simd::runtime::CpuFeatures;
+use cyrup_simd::ops::argmax::ARGMAX_DISPATCH;
+use cyrup_simd::ops::softmax::SOFTMAX_DISPATCH;
+use cyrup_simd::ops::temperature::TEMPERATURE_DISPATCH;
+use cyrup_simd::runtime::CpuFeatures;
 use rand::Rng;
 
 const EPSILON: f32 = 1e-5;

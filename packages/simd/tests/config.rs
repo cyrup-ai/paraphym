@@ -1,4 +1,4 @@
-use paraphym_simd::config::{ProcessorConfig, ConfigError};
+use cyrup_simd::config::{ProcessorConfig, ConfigError};
 
 #[test]
 fn test_default_config() {

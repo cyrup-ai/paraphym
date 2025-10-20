@@ -1,6 +1,6 @@
 //! Memory builder implementations with zero-allocation, lock-free design
 //!
-//! Trait-based memory builders following paraphym architecture patterns.
+//! Trait-based memory builders following cyrup architecture patterns.
 //! All builders relocated from domain crate for proper architectural separation.
 
 use std::collections::HashMap;
@@ -427,7 +427,7 @@ impl AdvancedMemorySystemBuilder {
     pub fn production() -> MemoryResult<impl MemorySystemBuilder> {
         let database_config = DatabaseConfig::new(
             DatabaseType::PostgreSQL,
-            "postgresql://localhost:5432/paraphym_prod",
+            "postgresql://localhost:5432/cyrup_prod",
             "production",
             "memory_prod",
         )?;

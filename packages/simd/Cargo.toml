@@ -1,11 +1,11 @@
 [package]
-name = "paraphym_simd"
+name = "cyrup_simd"
 version = "0.1.0"
 edition = "2024"
-description = "Shared high-performance SIMD operations for paraphym ecosystem"
+description = "Shared high-performance SIMD operations for cyrup ecosystem"
 authors = ["Fluent AI Contributors"]
 license = "MIT"
-repository = "https://github.com/cyrusnimda/paraphym"
+repository = "https://github.com/cyrusnimda/cyrup"
 readme = "README.md"
 keywords = ["simd", "ml", "ai", "performance", "optimization"]
 categories = ["mathematics", "science", "algorithms", "concurrency"]

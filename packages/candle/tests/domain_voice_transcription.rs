@@ -1,4 +1,4 @@
-use paraphym_candle::domain::voice::transcription::{TranscriptionRequest, TranscriptionResponse};
+use cyrup_candle::domain::voice::transcription::{TranscriptionRequest, TranscriptionResponse};
 
 #[test]
 fn test_transcription_request_creation() {

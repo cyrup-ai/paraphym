@@ -1,4 +1,4 @@
-//! Chat-related builders extracted from paraphym_domain
+//! Chat-related builders extracted from cyrup_domain
 
 pub mod conversation_builder;
 pub mod history_manager_builder;

@@ -1,6 +1,6 @@
 //! Tests for autocompletion with fuzzy matching
 
-use paraphym_candle::cli::completion::*;
+use cyrup_candle::cli::completion::*;
 
 #[test]
 fn test_model_completer() {

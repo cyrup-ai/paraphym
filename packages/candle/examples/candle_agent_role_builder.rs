@@ -5,7 +5,7 @@
 //!
 //! Run with: cargo run --example candle_agent_role_builder --release
 
-use paraphym_candle::prelude::*;
+use cyrup_candle::prelude::*;
 use std::io::{self, Write};
 use tokio_stream::StreamExt;
 

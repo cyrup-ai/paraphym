@@ -19,7 +19,7 @@
 //! ```
 
 use clap::Parser;
-use paraphym_candle::prelude::*;
+use cyrup_candle::prelude::*;
 use std::io::{self, Write};
 
 #[derive(Parser, Debug)]
@@ -69,7 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Optionally override model
     let agent = if let Some(model_key) = args.model {
-        use paraphym_candle::capability::registry::{self, TextToTextModel};
+        use cyrup_candle::capability::registry::{self, TextToTextModel};
         
         let text_model = registry::get::<TextToTextModel>(&model_key)
             .ok_or_else(|| anyhow::anyhow!("Model not found: {}", model_key))?;

@@ -65,13 +65,13 @@ pub use config::vector::{
 pub use config::{DatabaseConfig, MemoryConfig, VectorStoreConfig};
 // Conditional re-exports for cognitive features
 // Removed unexpected cfg condition "cognitive" - feature does not exist
-// Re-export paraphym_memory types for convenience
-// Removed unexpected cfg condition "paraphym-memory" - feature does not exist
+// Re-export cyrup_memory types for convenience
+// Removed unexpected cfg condition "cyrup-memory" - feature does not exist
 // Re-export memory primitives from packages/memory for backward compatibility
 pub use crate::memory::core::primitives::MemoryNode;
 pub use ops::{EMBEDDING_DIMENSION, Op, SIMD_WIDTH, SMALL_EMBEDDING_DIMENSION};
-// Re-export CPU features from paraphym_simd
-pub use paraphym_simd::{CpuFeatures, CpuInfo, get_cpu_features, get_cpu_info};
+// Re-export CPU features from cyrup_simd
+pub use cyrup_simd::{CpuFeatures, CpuInfo, get_cpu_features, get_cpu_info};
 pub use primitives::*;
 // Re-export commonly used primitives types
 pub use primitives::{MemoryContent, MemoryTypeEnum};
@@ -81,7 +81,7 @@ pub use traits::{CandleMemory, CandleMemoryStats};
 
 // BoxFuture replaced with AsyncStream - use .collect() for Future-like behavior
 
-/// Fallback trait definition (removed unexpected cfg condition "paraphym-memory")
+/// Fallback trait definition (removed unexpected cfg condition "cyrup-memory")
 pub trait MemoryManagerTrait: Send + Sync {
     type Error;
     type MemoryNode;
@@ -100,7 +100,7 @@ pub type Error = primitives::MemoryError;
 
 // Compatibility aliases
 pub type VectorStoreError = Error;
-// MemoryError alias removed to avoid conflict with paraphym_memory::Error
+// MemoryError alias removed to avoid conflict with cyrup_memory::Error
 
 /// Memory system configuration combining all subsystem configurations
 /// Generic over any model that implements `CandleModel` + `TextToTextCapable`
@@ -224,7 +224,7 @@ impl MemorySystemConfig {
         Ok(Self {
             database: DatabaseConfig::new(
                 DatabaseType::PostgreSQL,
-                "postgresql://localhost:5432/paraphym",
+                "postgresql://localhost:5432/cyrup",
                 "production",
                 "memory_large",
             )?

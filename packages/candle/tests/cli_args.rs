@@ -1,6 +1,6 @@
 //! Tests for CLI argument parsing and validation
 
-use paraphym_candle::cli::args::*;
+use cyrup_candle::cli::args::*;
 
 #[test]
 fn test_default_args() {

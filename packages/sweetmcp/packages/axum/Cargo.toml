@@ -74,7 +74,7 @@ memchr = { version = "2.7" }
 # SIMD-accelerated string matching
 # fluent_ai = { path = "../../../fluent-ai" } # Temporarily disabled due to dependency issues
 # fluent_ai_memory = { path = "../../../memory", default-features = false, features = ["surreal-vector"] }
-paraphym_candle = { path = "../../../candle" }
+cyrup_candle = { path = "../../../candle" }
 termcolor = { workspace = true }
 
 [lib]

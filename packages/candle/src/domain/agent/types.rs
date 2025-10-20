@@ -195,7 +195,7 @@ pub trait ToolArgs {
     fn add_to(self, tools: &mut ZeroOneOrMany<ToolInfo>);
 }
 
-/// Trait for conversation history arguments - moved to paraphym/src/builders/
+/// Trait for conversation history arguments - moved to cyrup/src/builders/
 pub trait ConversationHistoryArgs {
     /// Convert this into conversation history format
     fn into_history(self) -> Option<ZeroOneOrMany<(MessageRole, String)>>;

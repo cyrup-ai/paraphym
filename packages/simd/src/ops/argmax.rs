@@ -1,4 +1,4 @@
-//! SIMD accelerated Argmax operations for paraphym
+//! SIMD accelerated Argmax operations for cyrup
 //!
 //! This module provides vectorized implementations of argmax operations
 //! optimized for AI inference tasks, focusing on zero-allocation and lock-free design.

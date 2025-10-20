@@ -1,4 +1,4 @@
-use paraphym_simd::{SIMD_WIDTH_8, VERSION};
+use cyrup_simd::{SIMD_WIDTH_8, VERSION};
 
 #[test]
 fn test_constants() {

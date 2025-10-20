@@ -1,11 +1,11 @@
 //! Test SIMD thread safety with concurrent spawn_blocking calls
 //!
-//! This test verifies that all paraphym-simd operations are thread-safe
+//! This test verifies that all cyrup-simd operations are thread-safe
 //! when used in concurrent spawn_blocking tasks.
 
 #[tokio::test]
 async fn test_concurrent_simd_operations() {
-    use paraphym_simd::{scale_temperature, topk_filtering_simd, prepare_nucleus_sampling_simd, softmax, argmax};
+    use cyrup_simd::{scale_temperature, topk_filtering_simd, prepare_nucleus_sampling_simd, softmax, argmax};
     
     // Spawn 100 concurrent tasks to stress test thread safety
     let handles: Vec<_> = (0..100)

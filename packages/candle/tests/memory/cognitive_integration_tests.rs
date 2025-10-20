@@ -4,8 +4,8 @@
 
 use std::time::Duration;
 
-use paraphym_memory::memory::MemoryTypeEnum;
-use paraphym_memory::{CognitiveMemoryManager, CognitiveSettings, MemoryManager, MemoryNode};
+use cyrup_memory::memory::MemoryTypeEnum;
+use cyrup_memory::{CognitiveMemoryManager, CognitiveSettings, MemoryManager, MemoryNode};
 
 /// Test backward compatibility with existing memory APIs
 #[tokio::test]
@@ -53,7 +53,7 @@ async fn test_cognitive_enhancement() {
         MemoryTypeEnum::Semantic,
     );
 
-    let cognitive_memory = paraphym_memory::CognitiveMemoryNode::from(base_memory);
+    let cognitive_memory = cyrup_memory::CognitiveMemoryNode::from(base_memory);
 
     assert!(!cognitive_memory.is_enhanced());
     assert_eq!(
@@ -123,10 +123,10 @@ async fn test_cognitive_search() {
 async fn test_quantum_routing_performance() {
     use std::sync::Arc;
 
-    use paraphym_memory::cognitive::quantum::{
+    use cyrup_memory::cognitive::quantum::{
         EnhancedQuery, QuantumConfig, QuantumRouter, QueryIntent,
     };
-    use paraphym_memory::cognitive::state::CognitiveStateManager;
+    use cyrup_memory::cognitive::state::CognitiveStateManager;
 
     let state_manager = Arc::new(CognitiveStateManager::new());
     let config = QuantumConfig::default();
@@ -161,14 +161,14 @@ async fn test_quantum_routing_performance() {
 async fn test_memory_usage() {
     use std::sync::Arc;
 
-    use paraphym_memory::cognitive::quantum::QuantumRouter;
-    use paraphym_memory::cognitive::state::CognitiveStateManager;
+    use cyrup_memory::cognitive::quantum::QuantumRouter;
+    use cyrup_memory::cognitive::state::CognitiveStateManager;
 
     let initial_memory = get_current_memory_usage();
 
     // Create cognitive components
     let state_manager = Arc::new(CognitiveStateManager::new());
-    let config = paraphym_memory::cognitive::quantum::QuantumConfig::default();
+    let config = cyrup_memory::cognitive::quantum::QuantumConfig::default();
     let _router = QuantumRouter::new(state_manager, config)
         .await
         .expect("Failed to create quantum router");
@@ -176,12 +176,12 @@ async fn test_memory_usage() {
     // Simulate some operations
     for _ in 0..100 {
         // Create temporary states that should be garbage collected
-        let _state = paraphym_memory::CognitiveState::new(
-            paraphym_memory::cognitive::state::SemanticContext {
+        let _state = cyrup_memory::CognitiveState::new(
+            cyrup_memory::cognitive::state::SemanticContext {
                 primary_concepts: vec!["test".to_string()],
                 secondary_concepts: vec![],
                 domain_tags: vec![],
-                abstraction_level: paraphym_memory::cognitive::state::AbstractionLevel::Concrete,
+                abstraction_level: cyrup_memory::cognitive::state::AbstractionLevel::Concrete,
             },
         );
     }
@@ -203,7 +203,7 @@ async fn test_memory_usage() {
 async fn test_evolution_engine() {
     use std::time::Duration;
 
-    use paraphym_memory::cognitive::evolution::{EvolutionEngine, PerformanceMetrics};
+    use cyrup_memory::cognitive::evolution::{EvolutionEngine, PerformanceMetrics};
 
     let mut engine = EvolutionEngine::new(0.1);
 
@@ -232,7 +232,7 @@ async fn test_evolution_engine() {
 /// Test attention mechanism for memory retrieval
 #[tokio::test]
 async fn test_attention_mechanism() {
-    use paraphym_memory::cognitive::attention::{
+    use cyrup_memory::cognitive::attention::{
         AttentionConfig, AttentionMechanism, CognitiveAttentionWeights,
     };
 

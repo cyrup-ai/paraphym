@@ -206,19 +206,19 @@ impl CandleAgentConversationMessage {
     }
 }
 
-/// Trait for context arguments - moved to paraphym/src/builders/
+/// Trait for context arguments - moved to cyrup/src/builders/
 pub trait CandleContextArgs {
     /// Add this context to the collection of contexts
     fn add_to(self, contexts: &mut Option<ZeroOneOrMany<Box<dyn std::any::Any + Send + Sync>>>);
 }
 
-/// Trait for tool arguments - moved to paraphym/src/builders/
+/// Trait for tool arguments - moved to cyrup/src/builders/
 pub trait CandleToolArgs {
     /// Add this tool to the collection of tools
     fn add_to(self, tools: &mut Option<ZeroOneOrMany<Box<dyn std::any::Any + Send + Sync>>>);
 }
 
-/// Trait for conversation history arguments - moved to paraphym/src/builders/
+/// Trait for conversation history arguments - moved to cyrup/src/builders/
 pub trait CandleConversationHistoryArgs {
     /// Convert this into conversation history format
     fn into_history(self) -> Option<ZeroOneOrMany<(CandleMessageRole, String)>>;

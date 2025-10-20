@@ -1,4 +1,4 @@
-//! CandleContext trait definition - mirrors paraphym-domain Context trait exactly
+//! CandleContext trait definition - mirrors cyrup-domain Context trait exactly
 //!
 //! This trait provides the core context interface for Candle-backed context implementations,
 //! enabling trait composition, testability, and 'room to move' architecture benefits.
@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 use tokio_stream::Stream;
 
-/// `CandleContext` trait - mirrors `paraphym-domain::Context` exactly with Candle prefix
+/// `CandleContext` trait - mirrors `cyrup-domain::Context` exactly with Candle prefix
 ///
 /// This trait enables:
 /// - Trait composition for flexible context architectures  

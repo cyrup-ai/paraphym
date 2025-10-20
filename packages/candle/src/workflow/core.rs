@@ -1,6 +1,6 @@
 //! Candle Workflow Core - Zero-allocation impl Trait workflow execution
 //!
-//! This module provides candle workflow traits and builders following paraphym
+//! This module provides candle workflow traits and builders following cyrup
 //! patterns exactly but with Candle prefixes. All execution uses tokio Stream<Out>
 //! with NO trait objects - only impl Trait patterns.
 
@@ -30,7 +30,7 @@ use crate::domain::context::WorkflowDataChunk;
 ///
 /// ## Example
 /// ```rust,no_run
-/// use paraphym_candle::workflow::{CandleWorkflowStep, WorkflowDataChunk};
+/// use cyrup_candle::workflow::{CandleWorkflowStep, WorkflowDataChunk};
 /// use tokio_stream::Stream;
 /// use std::pin::Pin;
 ///
@@ -38,7 +38,7 @@ use crate::domain::context::WorkflowDataChunk;
 ///
 /// impl CandleWorkflowStep<WorkflowDataChunk, WorkflowDataChunk> for ProcessingStep {
 ///     fn execute(&self, input: WorkflowDataChunk) -> Pin<Box<dyn Stream<Item = WorkflowDataChunk> + Send>> {
-///         Box::pin(paraphym_candle::async_stream::spawn_stream(move |tx| async move {
+///         Box::pin(cyrup_candle::async_stream::spawn_stream(move |tx| async move {
 ///             // Real execution logic - process the input chunk
 ///             let _ = tx.send(input);
 ///         }))

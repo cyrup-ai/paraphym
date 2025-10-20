@@ -380,7 +380,7 @@ where
     ///
     /// CLIP-style preprocessing:
     /// ```no_run
-    /// # use paraphym_candle::builders::image::{Image, ResizeFilter};
+    /// # use cyrup_candle::builders::image::{Image, ResizeFilter};
     /// # use candle_core::Device;
     /// # async fn example() -> Result<(), String> {
     /// let device = Device::Cpu;
@@ -395,7 +395,7 @@ where
     ///
     /// LLaVA-style preprocessing:
     /// ```no_run
-    /// # use paraphym_candle::builders::image::{Image, ResizeFilter};
+    /// # use cyrup_candle::builders::image::{Image, ResizeFilter};
     /// # use candle_core::Device;
     /// # async fn example() -> Result<(), String> {
     /// let device = Device::Cpu;
@@ -443,7 +443,7 @@ where
     ///
     /// # Example
     /// ```no_run
-    /// # use paraphym_candle::builders::image::{Image, ResizeFilter};
+    /// # use cyrup_candle::builders::image::{Image, ResizeFilter};
     /// # use candle_core::Device;
     /// # fn example() -> Result<(), String> {
     /// let device = Device::Cpu;

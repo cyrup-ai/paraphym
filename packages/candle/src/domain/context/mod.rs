@@ -11,6 +11,7 @@
 //! while maintaining high performance and memory integration capabilities.
 
 pub mod chunk;
+pub mod chunks;
 pub mod document;
 pub mod extraction;
 pub mod loader;

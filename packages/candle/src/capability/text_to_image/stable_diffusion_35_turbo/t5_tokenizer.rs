@@ -9,8 +9,8 @@
 //! # Usage
 //!
 //! ```no_run
-//! use paraphym_candle::capability::text_to_image::t5_tokenizer::T5TokenizerModel;
-//! use paraphym_candle::domain::model::traits::CandleModel;
+//! use cyrup_candle::capability::text_to_image::t5_tokenizer::T5TokenizerModel;
+//! use cyrup_candle::domain::model::traits::CandleModel;
 //!
 //! let tokenizer_path = T5TokenizerModel.huggingface_file("t5-v1_1-xxl.tokenizer.json")?;
 //! # Ok::<(), Box<dyn std::error::Error>>(())

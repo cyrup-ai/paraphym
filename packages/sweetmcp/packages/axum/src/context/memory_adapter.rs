@@ -9,11 +9,11 @@ use tokio::sync::RwLock;
 use chrono;
 use uuid;
 
-// Production memory system from paraphym_candle
-use paraphym_candle::memory::core::manager::surreal::SurrealDBMemoryManager;
-use paraphym_candle::memory::{MemoryManager, MemoryNode, MemoryMetadata}; // Import trait and correct types
-use paraphym_candle::memory::core::primitives::types::{MemoryTypeEnum, MemoryContent};
-use paraphym_candle::memory::monitoring::operations::OperationStatus;
+// Production memory system from cyrup_candle
+use cyrup_candle::memory::core::manager::surreal::SurrealDBMemoryManager;
+use cyrup_candle::memory::{MemoryManager, MemoryNode, MemoryMetadata}; // Import trait and correct types
+use cyrup_candle::memory::core::primitives::types::{MemoryTypeEnum, MemoryContent};
+use cyrup_candle::memory::monitoring::operations::OperationStatus;
 use futures::StreamExt; // For stream handling from async methods
 use serde_json::json;
 use std::collections::HashMap;
@@ -79,7 +79,7 @@ impl MemoryContextAdapter {
                 .map_err(|e| anyhow::anyhow!("Failed to update context: {}", e))?;
         } else {
             // Calculate content hash for deduplication
-            let content_hash = paraphym_candle::domain::memory::serialization::content_hash(&json_str);
+            let content_hash = cyrup_candle::domain::memory::serialization::content_hash(&json_str);
             
             // Create new memory node with metadata
             let memory = MemoryNode {

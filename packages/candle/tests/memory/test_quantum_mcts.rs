@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use paraphym_memory::cognitive::{
+use cyrup_memory::cognitive::{
     committee::CommitteeEvent,
     mcts::CodeState,
     performance::PerformanceAnalyzer,

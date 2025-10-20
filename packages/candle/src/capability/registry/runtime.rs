@@ -44,7 +44,7 @@ impl std::error::Error for RegistrationError {}
 /// 
 /// ```rust,no_run
 /// // Internal use only - external code cannot import concrete types
-/// use paraphym_candle::capability::registry;
+/// use cyrup_candle::capability::registry;
 /// 
 /// // Model registration happens internally during initialization
 /// // External code should use: registry::get::<ImageEmbeddingModel>("model-key")
@@ -85,7 +85,7 @@ pub async fn register_image_embedding(
 /// 
 /// ```rust,no_run
 /// // Internal use only - external code cannot import concrete types
-/// use paraphym_candle::capability::registry;
+/// use cyrup_candle::capability::registry;
 /// 
 /// // Model registration happens internally during initialization
 /// // External code should use: registry::get::<TextToImageModel>("model-key")
@@ -126,7 +126,7 @@ pub async fn register_text_to_image(
 /// 
 /// ```rust,no_run
 /// // Internal use only - external code cannot import concrete types  
-/// use paraphym_candle::capability::registry;
+/// use cyrup_candle::capability::registry;
 /// 
 /// // Model registration happens internally during initialization
 /// // External code should use: registry::get::<TextToTextModel>("model-key")
@@ -158,7 +158,7 @@ pub async fn register_text_to_text(
 ///
 /// # Example
 /// ```rust
-/// use paraphym_candle::capability::registry;
+/// use cyrup_candle::capability::registry;
 ///
 /// // Register a model
 /// registry::register_image_embedding("temp-model", model).await;

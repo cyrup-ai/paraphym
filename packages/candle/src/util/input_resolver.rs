@@ -20,7 +20,7 @@ use std::path::Path;
 ///
 /// # Examples
 /// ```no_run
-/// use paraphym_candle::util::input_resolver::resolve_input;
+/// use cyrup_candle::util::input_resolver::resolve_input;
 ///
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// // File path

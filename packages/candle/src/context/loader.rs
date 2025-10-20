@@ -228,7 +228,7 @@ impl<T: Send + Sync + fmt::Debug + Clone + 'static> LoaderImpl<T> {
     // Iterator functionality removed - use pattern-based loading instead
 }
 
-// Builder implementations moved to paraphym/src/builders/loader.rs
+// Builder implementations moved to cyrup/src/builders/loader.rs
 
 // Type alias for convenience
 pub type DefaultLoader<T> = LoaderImpl<T>;

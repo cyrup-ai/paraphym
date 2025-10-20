@@ -1,19 +1,18 @@
 [package]
-name = "paraphym_candle"
+name = "cyrup_candle"
 version = "0.1.0"
 edition = "2024"
 description = "High-performance AI framework with fluent API for building agents using Candle ML"
 license = "MIT"
-repository = "https://github.com/cyrusnimda/paraphym"
+repository = "https://github.com/cyrusnimda/cyrup"
 readme = "README.md"
 keywords = ["ai", "ml", "agents", "candle", "inference"]
 categories = ["science", "mathematics", "algorithms", "api-bindings"]
 
 
 [dependencies]
-async-trait = "0.1"
 bitflags = { version = "2.9.4", features = ["serde"] }
-paraphym_simd = { path = "../simd" }
+cyrup_simd = { path = "../simd" }
 cylo = { path = "../cylo" }
 ctrlc = { version = "3.4", features = ["termination"] }
 
@@ -230,11 +229,11 @@ hdrhistogram = "7.5.4"
 
 
 [[bin]]
-name = "paraphym"
+name = "cyrup"
 path = "src/main.rs"
 
 [lib]
-name = "paraphym_candle"
+name = "cyrup_candle"
 path = "src/lib.rs"
 
 

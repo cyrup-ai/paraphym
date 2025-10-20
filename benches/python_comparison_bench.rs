@@ -7,7 +7,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use paraphym_memory::{MemoryNode, memory::MemoryTypeEnum};
+use cyrup_memory::{MemoryNode, memory::MemoryTypeEnum};
 use rand::Rng;
 use rand::distr::Alphanumeric;
 // No longer using gix

@@ -8,7 +8,7 @@ use crossbeam_skiplist::SkipMap;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use paraphym_simd::similarity::cosine_similarity;
+use cyrup_simd::similarity::cosine_similarity;
 
 use super::state::{CognitiveState, CognitiveError, CognitiveResult};
 use super::atomics::AtomicF32;
@@ -411,7 +411,7 @@ impl PatternMatcher {
                 continue;
             }
 
-            // Use SIMD-optimized cosine similarity from paraphym_simd
+            // Use SIMD-optimized cosine similarity from cyrup_simd
             let similarity = cosine_similarity(input, stored_pattern);
             best_similarity = best_similarity.max(similarity);
         }

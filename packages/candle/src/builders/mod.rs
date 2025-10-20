@@ -1,6 +1,6 @@
 //! Builder patterns for candle components
 //!
-//! This module contains candle-specific builder patterns following paraphym
+//! This module contains candle-specific builder patterns following cyrup
 //! architecture but with candle prefixes. NO trait objects allowed - only
 //! impl Trait patterns for zero allocation.
 

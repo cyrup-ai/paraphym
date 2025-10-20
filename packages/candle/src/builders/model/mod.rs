@@ -1,4 +1,4 @@
-//! Model-related builders extracted from paraphym_domain
+//! Model-related builders extracted from cyrup_domain
 
 pub mod model_info_builder;
 

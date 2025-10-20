@@ -7,12 +7,12 @@ use serde_json::Value;
 use crate::memory::core_manager::MemoryManager;
 use crate::memory::vector::vector_search::{VectorSearch, SearchOptions};
 // Use domain types for traits and provider clients for completion services
-use paraphym_domain::{
+use cyrup_domain::{
     completion::CompletionProvider,
     chat::Message,
     error::CompletionError};
-// REMOVED: paraphym_provider - use model-info + http3 directly
-// use paraphym_provider::{
+// REMOVED: cyrup_provider - use model-info + http3 directly
+// use cyrup_provider::{
 //     openai::OpenAIClient,
 //     anthropic::AnthropicClient};
 use crate::memory::utils::error::Result;

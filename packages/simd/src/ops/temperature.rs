@@ -1,4 +1,4 @@
-//! SIMD accelerated Temperature Scaling operations for paraphym
+//! SIMD accelerated Temperature Scaling operations for cyrup
 //!
 //! This module provides vectorized implementations of temperature scaling operations
 //! optimized for AI inference tasks, focusing on zero-allocation and lock-free design.

@@ -1,4 +1,4 @@
-use paraphym_simd::similarity::metrics::{SimilarityMetrics, MetricsGuard};
+use cyrup_simd::similarity::metrics::{SimilarityMetrics, MetricsGuard};
 use std::sync::Arc;
 
 #[test]

@@ -1,6 +1,6 @@
 //! Tests for interactive prompt builder
 
-use paraphym_candle::cli::prompt::*;
+use cyrup_candle::cli::prompt::*;
 
 #[test]
 fn test_prompt_builder_creation() {

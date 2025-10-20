@@ -9,8 +9,8 @@
 //! # Usage
 //!
 //! ```no_run
-//! use paraphym_candle::capability::text_to_image::clip_g_tokenizer::ClipGTokenizer;
-//! use paraphym_candle::domain::model::traits::CandleModel;
+//! use cyrup_candle::capability::text_to_image::clip_g_tokenizer::ClipGTokenizer;
+//! use cyrup_candle::domain::model::traits::CandleModel;
 //!
 //! let tokenizer_path = ClipGTokenizer.huggingface_file("tokenizer.json")?;
 //! # Ok::<(), Box<dyn std::error::Error>>(())

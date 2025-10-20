@@ -1,14 +1,14 @@
 //! Memory Operations for Ultra-High Performance Memory System
 //!
 //! This module provides memory operation types, constants, and cache tracking
-//! utilities for the memory system. SIMD operations are provided by paraphym_simd.
+//! utilities for the memory system. SIMD operations are provided by cyrup_simd.
 //!
 //! CPU feature detection and vectorized operations are delegated to the
-//! production-grade paraphym_simd crate which provides comprehensive
+//! production-grade cyrup_simd crate which provides comprehensive
 //! AVX512/AVX2/SSE4.1/NEON support with runtime dispatch.
 
 // Removed unused imports: GlobalAlloc, Layout
-// Removed unused import: std::arch::x86_64::* (SIMD intrinsics provided by paraphym_simd)
+// Removed unused import: std::arch::x86_64::* (SIMD intrinsics provided by cyrup_simd)
 
 // Removed unused imports: align_of, size_of
 // Removed unused import: std::ptr::NonNull
@@ -30,8 +30,8 @@ use std::sync::LazyLock;
 // Removed unused imports: MemoryError, MemoryNode, MemoryRelationship, MemoryType
 // Removed unused import: crate::ZeroOneOrMany
 
-// REMOVED: paraphym_simd imports not needed - ops.rs is pure memory operations
-// CPU feature detection is available in domain::memory::mod which imports directly from paraphym_simd
+// REMOVED: cyrup_simd imports not needed - ops.rs is pure memory operations
+// CPU feature detection is available in domain::memory::mod which imports directly from cyrup_simd
 
 /// Standard embedding dimension for text embeddings (optimized for SIMD)
 pub const EMBEDDING_DIMENSION: usize = 768;

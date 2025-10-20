@@ -1,7 +1,7 @@
 //! Audio domain types
 //!
 //! Contains pure data structures for audio processing.
-//! Builder implementations are in the paraphym package.
+//! Builder implementations are in the cyrup package.
 
 use base64::{Engine as _, engine::general_purpose};
 use serde::{Deserialize, Serialize};

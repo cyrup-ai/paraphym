@@ -2,7 +2,7 @@
 //!
 //! This crate provides Candle-prefixed domain types and traits for AI services.
 //! All domain logic, message types, and business objects are defined here with Candle prefixes
-//! to ensure complete independence from the main paraphym domain package.
+//! to ensure complete independence from the main cyrup domain package.
 
 #![warn(rustdoc::missing_crate_level_docs)]
 #![forbid(unsafe_code)]

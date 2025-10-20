@@ -8,11 +8,11 @@
 
 use candle_core::Device;
 use log::error;
-use paraphym_candle::{
+use cyrup_candle::{
     ImageGenerationChunk, ImageGenerationConfig, tensor_to_image, StreamExt,
 };
-use paraphym_candle::capability::registry;
-use paraphym_candle::capability::traits::TextToImageCapable;
+use cyrup_candle::capability::registry;
+use cyrup_candle::capability::traits::TextToImageCapable;
 use std::io::Write;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 

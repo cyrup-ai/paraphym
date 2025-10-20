@@ -1,5 +1,5 @@
 use float_eq::assert_float_eq;
-use paraphym_simd::ops::{argmax, scale_temperature, softmax};
+use cyrup_simd::ops::{argmax, scale_temperature, softmax};
 
 #[test]
 fn test_temperature_scale_empty() {

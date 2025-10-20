@@ -6,7 +6,7 @@
 **Hardware**: Metal GPU (device 0)
 **Command**: 
 ```bash
-cd /Volumes/samsung_t9/paraphym/tmp/candle/candle-examples
+cd /Volumes/samsung_t9/cyrup/tmp/candle/candle-examples
 cargo run --example quantized-qwen3 --features metal --release -- \
   --which 1.7b \
   --prompt "What is 2+2?" \
@@ -107,7 +107,7 @@ This proves conclusively that:
 5. ✅ No hangs, deadlocks, or timeout issues **even with 20GB models**
 6. ✅ Scales perfectly from 1.7B to 32B parameters
 
-**DEFINITIVE PROOF: The 120+ second hang in Phi-4 (7.8GB) is 300-400x slower than expected and is ENTIRELY caused by paraphym_candle wrapper code bugs, NOT Candle or Metal!**
+**DEFINITIVE PROOF: The 120+ second hang in Phi-4 (7.8GB) is 300-400x slower than expected and is ENTIRELY caused by cyrup_candle wrapper code bugs, NOT Candle or Metal!**
 
 Model size comparison:
 - 1.7B (1.1GB): 0.36s load ← Works perfectly
@@ -117,9 +117,9 @@ Model size comparison:
 
 The wrapper code is adding **324x overhead** (120s / 0.37s) due to spawn_blocking abuse and race conditions.
 
-## Target Performance for paraphym_candle
+## Target Performance for cyrup_candle
 
-After fixes, paraphym_candle should achieve:
+After fixes, cyrup_candle should achieve:
 
 ### Qwen3 1.7B (1.1GB)
 - Model Load: < 1 second (baseline: 0.36s, allowing 2x overhead)

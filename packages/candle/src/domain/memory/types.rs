@@ -178,5 +178,5 @@ impl VectorStoreIndex {
             backend: Box::new(backend)}
     }
 
-    // VectorQueryBuilder moved to paraphym/src/builders/memory.rs
+    // VectorQueryBuilder moved to cyrup/src/builders/memory.rs
 }

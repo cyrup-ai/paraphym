@@ -2,7 +2,7 @@
 //!
 //! This module provides the foundational type system for image generation providers
 //! (Stable Diffusion 3.5, FLUX, etc.) to implement. It defines configuration, streaming
-//! chunks, and the provider trait following paraphym's AsyncStream pattern.
+//! chunks, and the provider trait following cyrup's AsyncStream pattern.
 
 use candle_core::Tensor;
 use cyrup_sugars::prelude::MessageChunk;

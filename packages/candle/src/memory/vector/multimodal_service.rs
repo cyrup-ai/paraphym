@@ -7,7 +7,7 @@ use crate::capability::registry::{ImageEmbeddingModel, TextEmbeddingModel};
 use crate::capability::traits::{ImageEmbeddingCapable, TextEmbeddingCapable};
 use crate::memory::core::manager::surreal::{PendingBatchEmbedding, PendingEmbedding};
 use crate::memory::utils::error::Result;
-use paraphym_simd::cosine_similarity;
+use cyrup_simd::cosine_similarity;
 
 /// Multimodal embedding service bridging text and vision embeddings
 ///
@@ -165,7 +165,7 @@ impl MultimodalEmbeddingService {
     /// Compute cross-modal similarity between text and image
     ///
     /// Embeds text using text model and image using vision provider,
-    /// then computes cosine similarity using paraphym_simd::cosine_similarity.
+    /// then computes cosine similarity using cyrup_simd::cosine_similarity.
     pub async fn text_image_similarity(&self, text: String, image_path: String) -> Result<f32> {
         // Embed text
         let text_emb = self.embed_text(text, None).await?;
@@ -182,7 +182,7 @@ impl MultimodalEmbeddingService {
             )));
         }
 
-        // Compute cosine similarity using paraphym_simd (SIMD-optimized)
+        // Compute cosine similarity using cyrup_simd (SIMD-optimized)
         Ok(cosine_similarity(&text_emb, &img_emb))
     }
 

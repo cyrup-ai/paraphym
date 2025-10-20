@@ -27,7 +27,7 @@ impl CandlePrompt {
     }
 }
 
-// PromptBuilder moved to paraphym/src/builders/prompt.rs
+// PromptBuilder moved to cyrup/src/builders/prompt.rs
 
 impl From<CandlePrompt> for String {
     fn from(val: CandlePrompt) -> Self {
@@ -41,4 +41,4 @@ impl std::fmt::Display for CandlePrompt {
     }
 }
 
-// PromptBuilder implementation moved to paraphym/src/builders/prompt.rs
+// PromptBuilder implementation moved to cyrup/src/builders/prompt.rs

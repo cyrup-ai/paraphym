@@ -1,6 +1,6 @@
 //! Tests for NotNaN utility module
 
-use paraphym_candle::domain::util::notnan::*;
+use cyrup_candle::domain::util::notnan::*;
 
 #[test]
 fn test_notnan_creation() {

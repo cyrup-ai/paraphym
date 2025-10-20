@@ -6,9 +6,9 @@
 //! These tests verify that all components work together correctly
 //! according to the architecture defined in CANDLE_GENERATION_PIPELINE.md
 
-use paraphym_candle::core::engine::{Engine, EngineConfig};
-use paraphym_candle::domain::context::chunk::{CandleCompletionChunk, CandleStringChunk};
-use paraphym_candle::StreamExt;
+use cyrup_candle::core::engine::{Engine, EngineConfig};
+use cyrup_candle::domain::context::chunk::{CandleCompletionChunk, CandleStringChunk};
+use cyrup_candle::StreamExt;
 
 /// Test 1: Provider Type Verification
 ///
@@ -51,7 +51,7 @@ fn test_engine_metrics_tracking() {
 
     // Coordinate a mock generation
     let _stream = engine.coordinate_generation(move || {
-        paraphym_candle::async_stream::spawn_stream(|sender| async move {
+        cyrup_candle::async_stream::spawn_stream(|sender| async move {
             let _ = sender.send(CandleStringChunk("test".to_string()));
         })
     });
@@ -92,7 +92,7 @@ async fn test_stream_conversion() {
 
     // Create stream with test data
     let completion_stream = engine.coordinate_generation(move || {
-        paraphym_candle::async_stream::spawn_stream(|sender| async move {
+        cyrup_candle::async_stream::spawn_stream(|sender| async move {
             let _ = sender.send(CandleStringChunk("Hello".to_string()));
             let _ = sender.send(CandleStringChunk(" World".to_string()));
         })
@@ -140,7 +140,7 @@ async fn test_stream_conversion() {
 #[tokio::test]
 async fn test_text_generator_with_mock_model() {
     use candle_core::{Device, Tensor};
-    use paraphym_candle::prelude::{
+    use cyrup_candle::prelude::{
         CandleModel, GenerationStatistics, SamplingConfig, SimdMetrics, SpecialTokens,
         TextGenerator, TokenHistory,
     };
@@ -158,7 +158,7 @@ async fn test_text_generator_with_mock_model() {
             &mut self,
             input: &Tensor,
             _position: usize,
-        ) -> paraphym_candle::core::generation::types::CandleResult<Tensor> {
+        ) -> cyrup_candle::core::generation::types::CandleResult<Tensor> {
             // Return mock logits favoring token 0
             let dims = input.dims();
             let batch_size = dims[0];
@@ -267,11 +267,11 @@ async fn test_text_generator_with_mock_model() {
 
 /// Test 5: SIMD Operations Availability
 ///
-/// Verifies that all SIMD operations from paraphym_simd are available and functional.
+/// Verifies that all SIMD operations from cyrup_simd are available and functional.
 /// This test validates the SIMD layer without requiring actual generation.
 #[test]
 fn test_simd_operations_available() {
-    use paraphym_simd::{argmax, scale_temperature, softmax};
+    use cyrup_simd::{argmax, scale_temperature, softmax};
 
     // Test temperature scaling
     let mut logits = vec![1.0, 2.0, 3.0, 4.0, 5.0];
@@ -328,7 +328,7 @@ async fn test_error_handling() {
     let config = EngineConfig::new("test-model", "test-provider");
     if let Ok(engine) = Engine::new(config) {
         let error_stream = engine.coordinate_generation(move || {
-            paraphym_candle::async_stream::spawn_stream(|sender| async move {
+            cyrup_candle::async_stream::spawn_stream(|sender| async move {
                 let _ = sender.send(CandleStringChunk("text".to_string()));
                 // Stream completes normally - errors would be CandleCompletionChunk::Error
             })

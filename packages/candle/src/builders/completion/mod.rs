@@ -1,4 +1,4 @@
-//! Completion-related builders extracted from paraphym_domain
+//! Completion-related builders extracted from cyrup_domain
 
 pub mod candle_completion_builder;
 pub mod completion_request_builder;

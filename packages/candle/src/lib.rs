@@ -8,7 +8,7 @@
 
 //! This crate provides Candle ML framework integration for AI services.
 //! All Candle-prefixed domain types, builders, and providers are defined here
-//! to ensure complete independence from the main paraphym packages.
+//! to ensure complete independence from the main cyrup packages.
 
 // Initialize performance optimizations on library load
 use std::sync::Once;
@@ -41,7 +41,7 @@ pub mod cli;
 /// Chat functionality is now available through domain::chat
 /// Core components (engine, generation, etc.)
 pub mod core;
-/// Candle domain types (replaces paraphym_domain dependency)
+/// Candle domain types (replaces cyrup_domain dependency)
 pub mod domain;
 /// Extension integration for Raycast and Alfred (macOS)
 pub mod extensions;
@@ -120,8 +120,8 @@ pub use crate::async_stream::{
     once,
     empty,
 };
-// SIMD operations from paraphym-simd for high-performance ML workloads
-pub use paraphym_simd;
+// SIMD operations from cyrup-simd for high-performance ML workloads
+pub use cyrup_simd;
 pub use prelude::*;
 
 // Pool infrastructure (part of registry)

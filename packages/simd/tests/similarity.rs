@@ -1,5 +1,5 @@
 use approx::assert_relative_eq;
-use paraphym_simd::similarity::{cosine_similarity, metrics, reset_metrics, active_implementation};
+use cyrup_simd::similarity::{cosine_similarity, metrics, reset_metrics, active_implementation};
 
 #[test]
 fn test_cosine_similarity() {

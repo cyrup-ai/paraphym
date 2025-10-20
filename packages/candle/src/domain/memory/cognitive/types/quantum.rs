@@ -7,7 +7,7 @@ use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use paraphym_simd::similarity::cosine_similarity;
+use cyrup_simd::similarity::cosine_similarity;
 
 use super::atomics::{AtomicF32, AtomicF64};
 use crate::domain::memory::cognitive::types::state::{CognitiveError, CognitiveResult};

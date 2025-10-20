@@ -269,7 +269,7 @@ where
 ///
 /// ## Example
 /// ```rust,no_run
-/// use paraphym_candle::workflow::parallel::ParallelBuilder;
+/// use cyrup_candle::workflow::parallel::ParallelBuilder;
 ///
 /// let parallel_ops = ParallelBuilder::new()
 ///     .add_operation(operation1)

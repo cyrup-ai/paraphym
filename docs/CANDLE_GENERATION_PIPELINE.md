@@ -41,7 +41,7 @@ The Candle generation pipeline provides local AI model inference using SIMD-acce
 - **Interface**: `generate(prompt, max_tokens, special_tokens)`
 
 ### 5. SIMD Operations
-- **Location**: `/packages/candle/src/core/simd_adapters.rs` + `paraphym_simd`
+- **Location**: `/packages/candle/src/core/simd_adapters.rs` + `cyrup_simd`
 - **Responsibility**: High-performance sampling operations
 - **Operations**: Temperature scaling, softmax, argmax, nucleus sampling, penalties
 
@@ -136,7 +136,7 @@ impl KimiK2Provider {
 
 ### 4. Performance Optimization
 - **Model loading once**: Provider loads model during initialization
-- **SIMD acceleration**: TextGenerator uses paraphym_simd for sampling
+- **SIMD acceleration**: TextGenerator uses cyrup_simd for sampling
 - **Streaming**: AsyncStream for real-time token delivery
 - **Zero allocation**: Hot path optimizations throughout
 

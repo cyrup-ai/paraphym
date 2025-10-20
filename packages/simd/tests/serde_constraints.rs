@@ -1,4 +1,4 @@
-use paraphym_simd::logits::constraints::{
+use cyrup_simd::logits::constraints::{
     GenerationConstraint, SchemaConstraint, SchemaVocabulary, regex_from_schema, regex_from_value,
 };
 use serde::{Deserialize, Serialize};

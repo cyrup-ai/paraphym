@@ -187,9 +187,10 @@ impl CandleAgentRoleBuilder for CandleAgentBuilderImpl {
     }
 
     fn conversation_history(
-        self,
-        _history: impl ConversationHistoryArgs,
+        mut self,
+        history: impl ConversationHistoryArgs,
     ) -> impl CandleAgentRoleBuilder {
+        self.conversation_history = history.into_history();
         self
     }
 

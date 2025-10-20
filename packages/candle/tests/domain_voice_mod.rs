@@ -1,4 +1,4 @@
-use paraphym_candle::domain::voice::{Audio, TranscriptionResponse};
+use cyrup_candle::domain::voice::{Audio, TranscriptionResponse};
 
 #[test]
 fn test_audio_creation() {

@@ -195,7 +195,7 @@ pub mod generation;
 /// Unified model configuration system for hundreds of models
 pub mod model_config;
 
-/// SIMD adapter functions for bridging paraphym_simd with generation types
+/// SIMD adapter functions for bridging cyrup_simd with generation types
 pub mod simd_adapters;
 
 /// Tokenization utilities for text processing

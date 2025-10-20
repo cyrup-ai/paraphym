@@ -1,4 +1,4 @@
-use paraphym_candle::domain::voice::audio::{Audio, AudioMediaType, ContentFormat};
+use cyrup_candle::domain::voice::audio::{Audio, AudioMediaType, ContentFormat};
 
 #[test]
 fn test_audio_creation() {

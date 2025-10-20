@@ -122,7 +122,7 @@ pub async fn run_server(
     
     // Memory system initialization
     // The production memory system is now initialized within MemoryContextAdapter::new()
-    // using paraphym_candle's SurrealDB-backed memory with vector embeddings
+    // using cyrup_candle's SurrealDB-backed memory with vector embeddings
     if let Some(_db_config) = &config.database {
         log::info!("Memory system will be initialized by context adapter");
     }

@@ -26,7 +26,7 @@ impl Prompt {
     }
 }
 
-// PromptBuilder moved to paraphym/src/builders/prompt.rs
+// PromptBuilder moved to cyrup/src/builders/prompt.rs
 
 impl From<Prompt> for String {
     fn from(val: Prompt) -> Self {
@@ -34,7 +34,7 @@ impl From<Prompt> for String {
     }
 }
 
-// PromptBuilder implementation moved to paraphym/src/builders/prompt.rs
+// PromptBuilder implementation moved to cyrup/src/builders/prompt.rs
 
 /// Candle-prefixed type alias for domain compatibility
 pub type CandlePrompt = Prompt;

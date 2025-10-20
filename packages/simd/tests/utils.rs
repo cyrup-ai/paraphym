@@ -1,4 +1,4 @@
-use paraphym_simd::utils::{simd_available, align_ptr, align_ptr_mut};
+use cyrup_simd::utils::{simd_available, align_ptr, align_ptr_mut};
 
 #[test]
 fn test_simd_available() {

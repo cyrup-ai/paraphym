@@ -14,7 +14,7 @@
 //! ```
 
 use clap::Parser;
-use paraphym_candle::prelude::*;
+use cyrup_candle::prelude::*;
 use std::io::{self, Write};
 
 #[derive(Parser, Debug)]

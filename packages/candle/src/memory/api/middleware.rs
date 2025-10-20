@@ -112,7 +112,7 @@ impl ApiKeyManager {
     /// Load API keys from secure configuration
     pub async fn from_env() -> Result<Self, SecurityConfigError> {
         let config_file = std::env::var("API_KEYS_FILE")
-            .unwrap_or_else(|_| "/etc/paraphym/api-keys.json".to_string());
+            .unwrap_or_else(|_| "/etc/cyrup/api-keys.json".to_string());
 
         if std::path::Path::new(&config_file).exists() {
             Self::from_file(&config_file).await

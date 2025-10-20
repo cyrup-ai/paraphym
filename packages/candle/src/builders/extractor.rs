@@ -63,8 +63,8 @@ where
 /// 
 /// # Example
 /// ```no_run
-/// use paraphym_candle::builders::extractor::extractor;
-/// use paraphym_candle::capability::registry;
+/// use cyrup_candle::builders::extractor::extractor;
+/// use cyrup_candle::capability::registry;
 /// use serde::{Deserialize, Serialize};
 /// 
 /// #[derive(Debug, Clone, Deserialize, Serialize, Default)]

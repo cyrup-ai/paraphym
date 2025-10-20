@@ -9,8 +9,8 @@ use tokio_stream::Stream;
 use crate::async_stream;
 
 use crate::domain::context::chunk::CandleStringChunk;
-use paraphym_simd::logits::LogitsProcessor as LogitsProcessorTrait;
-use paraphym_simd::logits::constraints::GenerationConstraint;
+use cyrup_simd::logits::LogitsProcessor as LogitsProcessorTrait;
+use cyrup_simd::logits::constraints::GenerationConstraint;
 
 use super::{
     config::SamplingConfig,
@@ -22,7 +22,7 @@ use super::{
 };
 
 // Import constraint types for schema-based generation
-use paraphym_simd::logits::constraints::{JsonConstraint, json::JsonState};
+use cyrup_simd::logits::constraints::{JsonConstraint, json::JsonState};
 
 /// Core text generation engine with SIMD acceleration
 ///
@@ -287,7 +287,7 @@ impl TextGenerator {
     }
     /// SIMD-optimized token sampling with comprehensive acceleration (async)
     pub async fn sample_token(&mut self, logits: &[f32], _context: &[u32]) -> CandleResult<u32> {
-        use paraphym_simd::{
+        use cyrup_simd::{
             argmax, prepare_nucleus_sampling_simd, scale_temperature, softmax, topk_filtering_simd,
         };
 
@@ -330,7 +330,7 @@ impl TextGenerator {
             }
 
             // Create processing context with all fields including constraints
-            let context = paraphym_simd::context::ProcessingContext {
+            let context = cyrup_simd::context::ProcessingContext {
                 temperature: config.temperature,
                 top_k: config.top_k,
                 top_p: config.top_p.map(|p| p as f32),
@@ -345,7 +345,7 @@ impl TextGenerator {
             };
 
             // Use ConstrainedLogitsProcessor for all processing including constraints
-            let processor_config = paraphym_simd::config::ProcessorConfig {
+            let processor_config = cyrup_simd::config::ProcessorConfig {
                 temperature: config.temperature,
                 top_k: config.top_k,
                 top_p: config.top_p.map(|p| p as f32),
@@ -355,7 +355,7 @@ impl TextGenerator {
             };
 
             let mut processor =
-                paraphym_simd::logits::constraints::ConstrainedLogitsProcessor::new(processor_config);
+                cyrup_simd::logits::constraints::ConstrainedLogitsProcessor::new(processor_config);
             processor.process(&mut logits, &context).map_err(|e| {
                 crate::domain::model::error::CandleModelError::OperationNotSupported(
                     e.to_string().into(),

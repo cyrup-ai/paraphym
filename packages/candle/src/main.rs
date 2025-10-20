@@ -6,7 +6,7 @@
 use log::error;
 use rustls::crypto::aws_lc_rs;
 
-use paraphym_candle::cli::{CliArgs, CliRunner};
+use cyrup_candle::cli::{CliArgs, CliRunner};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|e| format!("Failed to install rustls crypto provider: {:?}", e))?;
 
     // Initialize Candle performance optimizations
-    paraphym_candle::init_candle();
+    cyrup_candle::init_candle();
 
     // Parse CLI arguments
     let args = CliArgs::from_env();

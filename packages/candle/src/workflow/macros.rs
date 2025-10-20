@@ -31,7 +31,7 @@
 ///
 /// ## Usage
 /// ```rust,no_run
-/// use paraphym_candle::{parallel, workflow::ops::map};
+/// use cyrup_candle::{parallel, workflow::ops::map};
 ///
 /// let double = map(|x: i32| x * 2);
 /// let triple = map(|x: i32| x * 3);

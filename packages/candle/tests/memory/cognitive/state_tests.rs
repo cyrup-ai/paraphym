@@ -4,7 +4,7 @@
 
 use std::time::Duration;
 
-use paraphym_memory::cognitive::state::{
+use cyrup_memory::cognitive::state::{
     AbstractionLevel, AssociationType, CognitiveState, CognitiveStateManager, EmotionalValence,
     SemanticContext,
 };

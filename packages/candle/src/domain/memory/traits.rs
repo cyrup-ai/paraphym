@@ -1,4 +1,4 @@
-//! CandleMemory trait definition - mirrors paraphym-domain Memory trait exactly
+//! CandleMemory trait definition - mirrors cyrup-domain Memory trait exactly
 //!
 //! This trait provides the core memory interface for Candle-backed memory implementations,
 //! enabling trait composition, testability, and 'room to move' architecture benefits.
@@ -41,7 +41,7 @@ impl cyrup_sugars::prelude::MessageChunk for MemoryLookupResult {
     }
 }
 
-/// `CandleMemory` trait - mirrors `paraphym-domain::Memory` exactly with Candle prefix
+/// `CandleMemory` trait - mirrors `cyrup-domain::Memory` exactly with Candle prefix
 ///
 /// This trait enables:
 /// - Trait composition for flexible memory architectures  

@@ -90,4 +90,4 @@ pub enum TensorFormat {
     HWC,
 }
 
-// Builder implementations moved to paraphym/src/builders/image.rs
+// Builder implementations moved to cyrup/src/builders/image.rs

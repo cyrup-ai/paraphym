@@ -1,7 +1,7 @@
 //! Document builder implementations - Zero Box<dyn> trait-based architecture
 //!
 //! All document loading and processing logic with zero allocation.
-//! Uses domain-first architecture with proper paraphym_domain imports.
+//! Uses domain-first architecture with proper cyrup_domain imports.
 
 use std::collections::BTreeMap;
 use std::marker::PhantomData;

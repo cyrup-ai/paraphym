@@ -9,8 +9,8 @@
 //! # Usage
 //!
 //! ```no_run
-//! use paraphym_candle::capability::text_to_image::t5_config::T5ConfigModel;
-//! use paraphym_candle::domain::model::traits::CandleModel;
+//! use cyrup_candle::capability::text_to_image::t5_config::T5ConfigModel;
+//! use cyrup_candle::domain::model::traits::CandleModel;
 //!
 //! let config_path = T5ConfigModel.huggingface_file("config.json")?;
 //! # Ok::<(), Box<dyn std::error::Error>>(())

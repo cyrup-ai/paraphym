@@ -6,14 +6,14 @@ use rpc_router::HandlerResult;
 use tokio::sync::{mpsc, oneshot};
 
 // Candle inference imports
-use paraphym_candle::capability::registry::{self, TextToTextModel};
-use paraphym_candle::capability::traits::TextToTextCapable;
-use paraphym_candle::domain::completion::{
+use cyrup_candle::capability::registry::{self, TextToTextModel};
+use cyrup_candle::capability::traits::TextToTextCapable;
+use cyrup_candle::domain::completion::{
     CandleCompletionParams, CandleCompletionChunk,
 };
-use paraphym_candle::domain::prompt::CandlePrompt;
-use paraphym_candle::domain::model::CandleModel;
-use paraphym_candle::StreamExt;
+use cyrup_candle::domain::prompt::CandlePrompt;
+use cyrup_candle::domain::model::CandleModel;
+use cyrup_candle::StreamExt;
 
 // use fluent_ai::{FluentAi, Providers, Models}; // Temporarily disabled due to dependency issues
 use super::model::*;

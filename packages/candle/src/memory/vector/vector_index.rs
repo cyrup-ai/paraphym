@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use instant_distance::Builder;
-use paraphym_simd::cosine_similarity;
+use cyrup_simd::cosine_similarity;
 use serde::{Deserialize, Serialize};
 
 use crate::memory::utils::Result;
@@ -513,7 +513,7 @@ fn euclidean_distance(a: &[f32], b: &[f32]) -> f32 {
 
 #[inline]
 fn cosine_distance(a: &[f32], b: &[f32]) -> f32 {
-    // Use shared SIMD-optimized cosine similarity from paraphym-simd crate
+    // Use shared SIMD-optimized cosine similarity from cyrup-simd crate
     // Convert similarity to distance: distance = 1.0 - similarity
     1.0 - cosine_similarity(a, b)
 }

@@ -2,7 +2,7 @@
 //!
 //! A library represents a named and isolated memory namespace that can be used
 //! by one or many agents. This is a pure domain entity containing only the
-//! data structure - service logic is implemented in the paraphym package.
+//! data structure - service logic is implemented in the cyrup package.
 
 /// Library type for memory namespace isolation
 ///
@@ -15,7 +15,7 @@
 /// // Create a library from ARCHITECTURE.md
 /// let library = Library::named("obsidian_vault");
 ///
-/// // Use in agent role builder (service logic in paraphym package)
+/// // Use in agent role builder (service logic in cyrup package)
 /// FluentAi::agent_role("rusty-squire")
 ///     .memory(Library::named("obsidian_vault"))
 ///     .into_agent();
