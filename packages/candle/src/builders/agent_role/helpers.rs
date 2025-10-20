@@ -225,7 +225,7 @@ impl CandleAgentRoleAgent {
 /// Agent role builder trait - elegant zero-allocation builder pattern (PUBLIC API)
 
 pub(crate) fn format_memory_context(
-    memories: &[crate::memory::primitives::node::MemoryNode],
+    memories: &[crate::domain::memory::primitives::node::MemoryNode],
     max_tokens: usize,
 ) -> String {
     use std::fmt::Write;
@@ -235,18 +235,19 @@ pub(crate) fn format_memory_context(
 
     for memory in memories {
         // Approximate token count: chars / 4
-        let memory_tokens = memory.content.text.chars().count() / 4;
+        let content_text = memory.content().to_string();
+        let memory_tokens = content_text.chars().count() / 4;
 
         if token_count + memory_tokens > max_tokens {
             break; // Exceed budget, stop adding
         }
 
         // Format with relevance indicator
-        let relevance = memory.metadata.importance;
+        let relevance = memory.importance();
         let _ = writeln!(
             &mut context,
             "[Relevance: {:.2}] {}\n",
-            relevance, memory.content.text
+            relevance, content_text
         );
 
         token_count += memory_tokens;

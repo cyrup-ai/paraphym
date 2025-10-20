@@ -1,89 +1,74 @@
 //! Chat implementation for CandleAgentBuilder
 //!
-//! This module coordinates the chat functionality across several focused submodules:
+//! This module coordinates the chat functionality across focused submodules:
+//! - builder_methods: Simple builder pattern setters
+//! - handler_registration: Handler wrapping and Arc management
 //! - memory_ops: Memory initialization, context loading, and storage
-//! - chat_orchestration: Main chat loop with tools and memory
+//!
+//! Chat orchestration is delegated to domain::chat::session
 
+mod builder_methods;
+mod handler_registration;
 mod memory_ops;
-mod chat_orchestration;
 
 use super::*;
+use tokio_stream::StreamExt;
+use std::sync::Arc;
 
 impl CandleAgentBuilder for CandleAgentBuilderImpl {
-    fn model(mut self, model: TextToTextModel) -> Self {
-        self.text_to_text_model = model;
-        self
+    fn model(self, model: TextToTextModel) -> Self {
+        builder_methods::set_model(self, model)
     }
 
-    fn embedding_model(mut self, model: TextEmbeddingModel) -> Self {
-        self.text_embedding_model = Some(model);
-        self
+    fn embedding_model(self, model: TextEmbeddingModel) -> Self {
+        builder_methods::set_embedding_model(self, model)
     }
 
-    fn temperature(mut self, temp: f64) -> Self {
-        self.temperature = temp;
-        self
+    fn temperature(self, temp: f64) -> Self {
+        builder_methods::set_temperature(self, temp)
     }
 
-    fn max_tokens(mut self, max: u64) -> Self {
-        self.max_tokens = max;
-        self
+    fn max_tokens(self, max: u64) -> Self {
+        builder_methods::set_max_tokens(self, max)
     }
 
-    fn memory_read_timeout(mut self, timeout_ms: u64) -> Self {
-        self.memory_read_timeout = timeout_ms;
-        self
+    fn memory_read_timeout(self, timeout_ms: u64) -> Self {
+        builder_methods::set_memory_read_timeout(self, timeout_ms)
     }
 
-    fn system_prompt(mut self, prompt: impl Into<String>) -> Self {
-        self.system_prompt = prompt.into();
-        self
+    fn system_prompt(self, prompt: impl Into<String>) -> Self {
+        builder_methods::set_system_prompt(self, prompt.into())
     }
 
-    fn additional_params<P2>(mut self, params: P2) -> Self
+    fn additional_params<P2>(self, params: P2) -> Self
     where
         P2: IntoIterator<Item = (&'static str, &'static str)>,
     {
-        self.additional_params.extend(
-            params
-                .into_iter()
-                .map(|(k, v)| (k.to_string(), v.to_string())),
-        );
-        self
+        builder_methods::set_additional_params(self, params)
     }
 
-    fn metadata<Meta>(mut self, metadata: Meta) -> Self
+    fn metadata<Meta>(self, metadata: Meta) -> Self
     where
         Meta: IntoIterator<Item = (&'static str, &'static str)>,
     {
-        self.metadata.extend(
-            metadata
-                .into_iter()
-                .map(|(k, v)| (k.to_string(), v.to_string())),
-        );
-        self
+        builder_methods::set_metadata(self, metadata)
     }
 
     fn context(
-        mut self,
+        self,
         context1: CandleContext<CandleFile>,
         context2: CandleContext<CandleFiles>,
         context3: CandleContext<CandleDirectory>,
         context4: CandleContext<CandleGithub>,
     ) -> Self {
-        self.context_file = Some(context1);
-        self.context_files = Some(context2);
-        self.context_directory = Some(context3);
-        self.context_github = Some(context4);
-        self
+        builder_methods::set_context(self, context1, context2, context3, context4)
     }
 
-    fn tools<T>(mut self, tools: T) -> Self
+    fn tools<T>(self, tools: T) -> Self
     where
         T: Into<ZeroOneOrMany<ToolInfo>>,
     {
-        self.tools = tools.into();
-        self
+        builder_methods::set_tools(self, tools)
     }
 
     fn mcp_server<T>(self) -> impl CandleMcpServerBuilder
@@ -96,9 +81,8 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
         }
     }
 
-    fn add_mcp_server_config(self, _config: McpServerConfig) -> Self {
-        // MCP servers are handled through tools
-        self
+    fn add_mcp_server_config(self, config: McpServerConfig) -> Self {
+        builder_methods::add_mcp_server_config_impl(self, config)
     }
 
     fn on_chunk<F, Fut>(mut self, handler: F) -> Self
@@ -106,8 +90,7 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
         F: Fn(CandleMessageChunk) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = CandleMessageChunk> + Send + 'static,
     {
-        let wrapped = move |chunk: CandleMessageChunk| Box::pin(handler(chunk)) as Pin<Box<dyn std::future::Future<Output = CandleMessageChunk> + Send>>;
-        self.on_chunk_handler = Some(Arc::new(wrapped));
+        self.on_chunk_handler = Some(handler_registration::wrap_chunk_handler(handler));
         self
     }
 
@@ -116,8 +99,7 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
         F: Fn(&[String]) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = ()> + Send + 'static,
     {
-        let wrapped = move |results: &[String]| Box::pin(handler(results)) as Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
-        self.on_tool_result_handler = Some(Arc::new(wrapped));
+        self.on_tool_result_handler = Some(handler_registration::wrap_tool_result_handler(handler));
         self
     }
 
@@ -126,11 +108,7 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
         F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>> + Send + 'static,
     {
-        // Wrap the async handler to match the type alias
-        let wrapped_handler = move |conv: &CandleAgentConversation, agent: &CandleAgentRoleAgent| {
-            Box::pin(handler(conv, agent)) as Pin<Box<dyn std::future::Future<Output = Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>> + Send>>
-        };
-        self.on_conversation_turn_handler = Some(Arc::new(wrapped_handler));
+        self.on_conversation_turn_handler = Some(handler_registration::wrap_conversation_turn_handler(handler));
         self
     }
 
@@ -143,19 +121,86 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
         F: FnOnce(&CandleAgentConversation) -> Fut + Send + 'static,
         Fut: std::future::Future<Output = CandleChatLoop> + Send + 'static,
     {
-        chat_orchestration::execute_chat(self, handler)
+        // Build configurations
+        let model_config = self.build_model_config();
+        let chat_config = self.build_chat_config();
+        
+        // Extract all state from builder
+        let provider = self.text_to_text_model;
+        let embedding_model = self.text_embedding_model;
+        let tools: Arc<[ToolInfo]> = Vec::from(self.tools).into();
+        let metadata = self.metadata;
+        let conversation_history = self.conversation_history;
+        
+        // Extract handlers
+        let on_chunk_handler = self.on_chunk_handler;
+        let on_tool_result_handler = self.on_tool_result_handler;
+        let on_conversation_turn_handler = self.on_conversation_turn_handler;
+        
+        // Extract context sources (not currently used by session but prepared for future)
+        let _context_file = self.context_file;
+        let _context_files = self.context_files;
+        let _context_directory = self.context_directory;
+        let _context_github = self.context_github;
+        
+        Ok(Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
+            // Initialize memory manager if embedding model available
+            let memory = if let Some(ref emb_model) = embedding_model {
+                match memory_ops::initialize_memory_coordinator(emb_model).await {
+                    Ok(mgr) => mgr,
+                    Err(e) => {
+                        let _ = sender.send(CandleMessageChunk::Error(e));
+                        return;
+                    }
+                }
+            } else {
+                let _ = sender.send(CandleMessageChunk::Error(
+                    "Embedding model required for memory system".to_string()
+                ));
+                return;
+            };
+            
+            // Prepare context documents (currently empty but structured for future use)
+            let context_documents = Vec::new();
+            
+            // DELEGATE to domain::chat::session
+            let session_stream = crate::domain::chat::session::execute_chat_session(
+                model_config,
+                chat_config,
+                provider,
+                memory,
+                tools,
+                metadata,
+                context_documents,
+                conversation_history,
+                handler,
+                on_chunk_handler,
+                on_tool_result_handler,
+                on_conversation_turn_handler,
+            ).await;
+            
+            // Forward all chunks from session to sender
+            tokio::pin!(session_stream);
+            while let Some(chunk) = session_stream.next().await {
+                let _ = sender.send(chunk);
+            }
+        })))
     }
 
     fn chat_with_message(self, message: impl Into<String>) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>> {
         let msg = message.into();
-        match chat_orchestration::execute_chat(self, move |_| {
+        
+        // Use the main chat method with a simple handler
+        match CandleAgentBuilder::chat(self, move |_| {
             let msg = msg.clone();
             async move { CandleChatLoop::UserPrompt(msg) }
         }) {
             Ok(stream) => stream,
-            Err(_) => Box::pin(crate::async_stream::spawn_stream(|sender| async move {
-                let _ = sender.send(CandleMessageChunk::Error("Chat failed".to_string()));
-            })),
+            Err(e) => {
+                Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
+                    let _ = sender.send(CandleMessageChunk::Error(format!("Chat failed: {}", e)));
+                }))
+            }
         }
     }
 }

@@ -43,67 +43,13 @@ impl MemoryManager for MemoryCoordinator {
         self.surreal_manager.delete_relationship(id)
     }
 
-    fn query_by_type(&self, memory_type: CoreMemoryTypeEnum) -> MemoryStream {
-        self.surreal_manager.query_by_type(memory_type)
-    }
-
-    // QUANTUM-ROUTED SEARCH METHODS
-
-    fn search_by_content(&self, query: &str) -> MemoryStream {
-        let query = query.to_string();
-        let self_clone = self.clone();
-
-        let (tx, rx) = tokio::sync::mpsc::channel(100);
-
-        tokio::spawn(async move {
-            // Generate embedding lazily when stream is consumed
-            match self_clone.generate_embedding(&query).await {
-                Ok(emb) => {
-                    // Use vector search with cosine similarity
-                    let mut stream = self_clone.surreal_manager.search_by_vector(emb, 10);
-
-                    // Forward results through sender
-                    use futures_util::StreamExt;
-                    while let Some(result) = stream.next().await {
-                        if tx.send(result).await.is_err() {
-                            break;
-                        }
-                    }
-                }
-                Err(e) => {
-                    // Fall back to substring search
-                    log::warn!(
-                        "Embedding generation failed, falling back to substring search: {}",
-                        e
-                    );
-
-                    let mut stream = self_clone.surreal_manager.search_by_content(&query);
-
-                    // Forward results through sender
-                    use futures_util::StreamExt;
-                    while let Some(result) = stream.next().await {
-                        if tx.send(result).await.is_err() {
-                            break;
-                        }
-                    }
-                }
-            }
-        });
-
-        MemoryStream::new(rx)
-    }
-
     fn search_by_vector(&self, vector: Vec<f32>, limit: usize) -> MemoryStream {
         // Vector search already uses quantum strategy by default
         self.surreal_manager.search_by_vector(vector, limit)
     }
 
-    fn search_by_temporal(&self, query: &str, limit: usize) -> MemoryStream {
-        self.surreal_manager.search_by_temporal(query, limit)
-    }
-
-    fn search_by_pattern(&self, query: &str, limit: usize) -> MemoryStream {
-        self.surreal_manager.search_by_pattern(query, limit)
+    fn list_all_memories(&self, limit: usize, offset: usize) -> MemoryStream {
+        self.surreal_manager.list_all_memories(limit, offset)
     }
 
     fn update_quantum_signature(
@@ -123,31 +69,31 @@ impl MemoryManager for MemoryCoordinator {
         &self,
         source_id: &str,
         target_id: &str,
+        entanglement_type: EntanglementType,
         strength: f32,
-        bond_type: EntanglementType,
     ) -> PendingEntanglementEdge {
         self.surreal_manager
-            .create_entanglement_edge(source_id, target_id, strength, bond_type)
+            .create_entanglement_edge(source_id, target_id, entanglement_type, strength)
     }
 
-    fn get_entangled_memories(&self, memory_id: &str, min_strength: f32) -> MemoryStream {
+    fn get_entangled_memories(&self, memory_id: &str) -> MemoryStream {
         self.surreal_manager
-            .get_entangled_memories(memory_id, min_strength)
+            .get_entangled_memories(memory_id)
     }
 
-    fn get_entangled_by_type(&self, memory_id: &str, bond_type: EntanglementType) -> MemoryStream {
+    fn get_entangled_by_type(&self, memory_id: &str, entanglement_type: EntanglementType) -> MemoryStream {
         self.surreal_manager
-            .get_entangled_by_type(memory_id, bond_type)
+            .get_entangled_by_type(memory_id, entanglement_type)
     }
 
-    fn traverse_entanglement_graph(&self, memory_id: &str, max_depth: usize) -> MemoryStream {
+    fn traverse_entanglement_graph(&self, start_memory_id: &str, max_depth: usize, min_strength: f32) -> MemoryStream {
         self.surreal_manager
-            .traverse_entanglement_graph(memory_id, max_depth)
+            .traverse_entanglement_graph(start_memory_id, max_depth, min_strength)
     }
 
-    fn expand_via_entanglement(&self, memory_ids: Vec<String>, min_strength: f32) -> MemoryStream {
+    fn expand_via_entanglement(&self, seed_memory_ids: Vec<String>, expansion_factor: usize, min_strength: f32) -> MemoryStream {
         self.surreal_manager
-            .expand_via_entanglement(memory_ids, min_strength)
+            .expand_via_entanglement(seed_memory_ids, expansion_factor, min_strength)
     }
 }
 

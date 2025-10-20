@@ -3,12 +3,13 @@
 use super::super::*;
 use surrealdb::engine::any::connect;
 use crate::memory::core::manager::surreal::SurrealDBMemoryManager;
+use crate::memory::core::manager::coordinator::MemoryCoordinator;
 use crate::memory::primitives::node::MemoryNode;
 use crate::memory::primitives::types::{MemoryContent, MemoryTypeEnum};
 
-pub(super) async fn initialize_memory_manager(
+pub(super) async fn initialize_memory_coordinator(
     emb_model: &TextEmbeddingModel,
-) -> Result<Arc<dyn crate::memory::core::manager::surreal::MemoryManager>, String> {
+) -> Result<Arc<MemoryCoordinator>, String> {
     let db_path = dirs::cache_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("cyrup")
@@ -34,17 +35,25 @@ pub(super) async fn initialize_memory_manager(
         return Err(format!("Failed to initialize database namespace: {}", e));
     }
 
-    // Create and initialize memory manager
-    let manager = match SurrealDBMemoryManager::with_embedding_model(db, emb_model.clone()).await {
+    // Create SurrealDBMemoryManager
+    let surreal_manager = match SurrealDBMemoryManager::with_embedding_model(db, emb_model.clone()) {
         Ok(mgr) => mgr,
         Err(e) => return Err(format!("Failed to create memory manager: {}", e)),
     };
 
-    if let Err(e) = manager.initialize().await {
+    if let Err(e) = surreal_manager.initialize().await {
         return Err(format!("Failed to initialize memory tables: {}", e));
     }
 
-    Ok(Arc::new(manager) as Arc<dyn crate::memory::core::manager::surreal::MemoryManager>)
+    let surreal_arc = Arc::new(surreal_manager);
+
+    // Create MemoryCoordinator
+    let coordinator = match MemoryCoordinator::new(surreal_arc, emb_model.clone()).await {
+        Ok(coord) => coord,
+        Err(e) => return Err(format!("Failed to create memory coordinator: {:?}", e)),
+    };
+
+    Ok(Arc::new(coordinator))
 }
 
 pub(super) async fn load_context_into_memory(
@@ -135,27 +144,6 @@ pub(super) async fn load_context_into_memory(
     }
 
     Ok(())
-}
-
-pub(super) async fn search_memory_with_timeout(
-    memory: &Arc<dyn crate::memory::core::manager::surreal::MemoryManager>,
-    query: &str,
-    timeout_ms: u64,
-) -> Option<Vec<MemoryNode>> {
-    let search_future = memory.search(query, 10);
-    let timeout_duration = std::time::Duration::from_millis(timeout_ms);
-
-    match tokio::time::timeout(timeout_duration, search_future).await {
-        Ok(Ok(memories)) => Some(memories),
-        Ok(Err(e)) => {
-            log::warn!("Memory search failed: {:?}", e);
-            None
-        }
-        Err(_) => {
-            log::warn!("Memory search timed out after {}ms", timeout_ms);
-            None
-        }
-    }
 }
 
 pub(super) fn create_user_memory(

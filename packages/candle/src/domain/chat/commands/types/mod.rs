@@ -17,21 +17,6 @@ pub use self::{
 pub type CommandContext = CommandExecutionContext;
 pub type CommandOutput = CommandOutputData;
 
-/// Output type for command execution  
-#[derive(Debug, Clone)]
-pub enum OutputType {
-    /// Text output
-    Text,
-    /// JSON output
-    Json,
-    /// Binary output
-    Binary,
-    /// Stream output
-    Stream,
-    /// Error output
-    Error,
-}
-
 /// Command output data with execution metadata
 #[derive(Debug, Clone)]
 pub struct CommandOutputData {
@@ -57,57 +42,18 @@ pub struct CommandOutputData {
     pub data: Option<serde_json::Value>,
 }
 
-/// Command execution result
-#[derive(Debug, Clone)]
-pub enum CommandExecutionResult {
-    /// Successful execution
-    Success(String),
-    /// Failed execution
-    Failure(String),
-    /// Partial execution (streaming)
-    Partial(String),
-    /// Cancelled execution
-    Cancelled,
-    /// File result with metadata
-    File {
-        /// Path to the file
-        path: String,
-        /// File size in bytes
-        size_bytes: u64,
-        /// MIME type of the file
-        mime_type: String,
-    },
-    /// Data result with structured content
-    Data(serde_json::Value),
-}
-
-impl Default for CommandExecutionResult {
-    fn default() -> Self {
-        CommandExecutionResult::Success("Default command execution".to_string())
-    }
-}
-
-impl cyrup_sugars::prelude::MessageChunk for CommandExecutionResult {
-    fn bad_chunk(error: String) -> Self {
-        CommandExecutionResult::Failure(error)
-    }
-
-    fn error(&self) -> Option<&str> {
-        match self {
-            CommandExecutionResult::Failure(err) => Some(err),
-            _ => None,
-        }
-    }
-
-    fn is_error(&self) -> bool {
-        matches!(self, CommandExecutionResult::Failure(_))
-    }
-}
-
 // Submodules with clear separation of concerns and single responsibilities
 pub mod actions; // Action type definitions for command variants
 pub mod code_execution; // Code execution tool definitions and structures
-pub mod commands; // Main ImmutableChatCommand enum and variants
+
+// Command modules - decomposed from monolithic commands.rs
+pub mod command_enums; // Settings and output type enumerations
+pub mod command_results; // Command execution result types
+pub mod command_core; // Core ImmutableChatCommand enum definition
+pub mod command_introspection; // Command metadata and introspection methods
+pub mod command_validation; // Command validation logic
+
+pub mod commands; // Command type aggregator with 5 focused submodules
 pub mod errors; // Command errors and result types
 pub mod events; // Command execution events and context tracking
 pub mod metadata; // Command metadata and resource tracking

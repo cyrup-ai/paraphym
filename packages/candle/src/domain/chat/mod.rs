@@ -30,6 +30,7 @@ pub mod macros;
 pub mod message;
 pub mod realtime;
 pub mod search;
+pub mod session;
 pub mod templates;
 pub mod types;
 
@@ -65,6 +66,7 @@ pub use search::{
     ResultRanker as CandleResultRanker, SearchExporter as CandleSearchExporter,
     SearchQuery as CandleSearchQuery, SearchStatistics as CandleSearchStatistics,
 };
+pub use session::{execute_chat_session, SessionDocument};
 pub use templates::{
     ChatTemplate as CandleChatTemplate, TemplateCategory as CandleTemplateCategory,
     TemplateManager as CandleTemplateManager,
