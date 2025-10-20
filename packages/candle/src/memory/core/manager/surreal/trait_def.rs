@@ -33,6 +33,12 @@ pub trait MemoryManager: Send + Sync {
     /// Search memories by embedding vector similarity
     fn search_by_vector(&self, vector: Vec<f32>, limit: usize) -> MemoryStream;
 
+    /// Search memories by content text
+    fn search_by_content(&self, text: &str) -> MemoryStream;
+
+    /// Query memories by type
+    fn query_by_type(&self, memory_type: crate::memory::primitives::types::MemoryTypeEnum) -> MemoryStream;
+
     /// List all memories with pagination support
     fn list_all_memories(&self, limit: usize, offset: usize) -> MemoryStream;
 
@@ -95,4 +101,103 @@ pub trait MemoryManager: Send + Sync {
         expansion_factor: usize,
         min_strength: f32,
     ) -> MemoryStream;
+}
+
+// Blanket implementation for Arc<T> to enable trait methods on Arc-wrapped managers
+impl<T: MemoryManager + ?Sized> MemoryManager for std::sync::Arc<T> {
+    fn create_memory(&self, memory: MemoryNode) -> PendingMemory {
+        (**self).create_memory(memory)
+    }
+
+    fn get_memory(&self, id: &str) -> MemoryQuery {
+        (**self).get_memory(id)
+    }
+
+    fn update_memory(&self, memory: MemoryNode) -> PendingMemory {
+        (**self).update_memory(memory)
+    }
+
+    fn delete_memory(&self, id: &str) -> PendingDeletion {
+        (**self).delete_memory(id)
+    }
+
+    fn search_by_vector(&self, vector: Vec<f32>, limit: usize) -> MemoryStream {
+        (**self).search_by_vector(vector, limit)
+    }
+
+    fn search_by_content(&self, text: &str) -> MemoryStream {
+        (**self).search_by_content(text)
+    }
+
+    fn query_by_type(&self, memory_type: crate::memory::primitives::types::MemoryTypeEnum) -> MemoryStream {
+        (**self).query_by_type(memory_type)
+    }
+
+    fn list_all_memories(&self, limit: usize, offset: usize) -> MemoryStream {
+        (**self).list_all_memories(limit, offset)
+    }
+
+    fn create_relationship(&self, relationship: MemoryRelationship) -> PendingRelationship {
+        (**self).create_relationship(relationship)
+    }
+
+    fn get_relationships(&self, memory_id: &str) -> RelationshipStream {
+        (**self).get_relationships(memory_id)
+    }
+
+    fn delete_relationship(&self, id: &str) -> PendingDeletion {
+        (**self).delete_relationship(id)
+    }
+
+    fn update_quantum_signature(
+        &self,
+        memory_id: &str,
+        signature: CognitiveState,
+    ) -> PendingQuantumUpdate {
+        (**self).update_quantum_signature(memory_id, signature)
+    }
+
+    fn get_quantum_signature(&self, memory_id: &str) -> PendingQuantumSignature {
+        (**self).get_quantum_signature(memory_id)
+    }
+
+    fn create_entanglement_edge(
+        &self,
+        source_id: &str,
+        target_id: &str,
+        entanglement_type: EntanglementType,
+        strength: f32,
+    ) -> PendingEntanglementEdge {
+        (**self).create_entanglement_edge(source_id, target_id, entanglement_type, strength)
+    }
+
+    fn get_entangled_memories(&self, memory_id: &str) -> MemoryStream {
+        (**self).get_entangled_memories(memory_id)
+    }
+
+    fn get_entangled_by_type(
+        &self,
+        memory_id: &str,
+        entanglement_type: EntanglementType,
+    ) -> MemoryStream {
+        (**self).get_entangled_by_type(memory_id, entanglement_type)
+    }
+
+    fn traverse_entanglement_graph(
+        &self,
+        start_memory_id: &str,
+        max_depth: usize,
+        min_strength: f32,
+    ) -> MemoryStream {
+        (**self).traverse_entanglement_graph(start_memory_id, max_depth, min_strength)
+    }
+
+    fn expand_via_entanglement(
+        &self,
+        seed_memory_ids: Vec<String>,
+        expansion_factor: usize,
+        min_strength: f32,
+    ) -> MemoryStream {
+        (**self).expand_via_entanglement(seed_memory_ids, expansion_factor, min_strength)
+    }
 }

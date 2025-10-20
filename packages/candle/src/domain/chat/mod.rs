@@ -66,7 +66,7 @@ pub use search::{
     ResultRanker as CandleResultRanker, SearchExporter as CandleSearchExporter,
     SearchQuery as CandleSearchQuery, SearchStatistics as CandleSearchStatistics,
 };
-pub use session::{execute_chat_session, SessionDocument};
+pub use session::execute_chat_session;
 pub use templates::{
     ChatTemplate as CandleChatTemplate, TemplateCategory as CandleTemplateCategory,
     TemplateManager as CandleTemplateManager,

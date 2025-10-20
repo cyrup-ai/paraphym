@@ -6,6 +6,7 @@ use std::time::SystemTime;
 use futures_util::StreamExt;
 
 use crate::domain::memory::primitives::node::MemoryNode;
+use crate::memory::core::manager::surreal::trait_def::MemoryManager;
 use crate::memory::core::ops::filter::MemoryFilter;
 use crate::memory::utils::Result;
 

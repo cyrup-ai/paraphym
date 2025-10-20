@@ -15,6 +15,7 @@ use base64::{Engine as _, engine::general_purpose};
 use mime_guess;
 
 use crate::domain::context::CandleDocument as Document;
+use cyrup_sugars::prelude::MessageChunk;
 use super::types::*;
 
 /// Streaming context processor with atomic state tracking for Candle

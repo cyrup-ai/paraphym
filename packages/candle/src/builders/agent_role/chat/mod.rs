@@ -160,86 +160,7 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                 return;
             };
 
-            // Load context into memory system
-            if let Err(e) = memory_ops::load_context_into_memory(
-                &memory,
-                context_file.clone(),
-                context_files.clone(),
-                context_directory.clone(),
-                context_github.clone(),
-            ).await {
-                let _ = sender.send(CandleMessageChunk::Error(e));
-                return;
-            }
-
-            // Load all context documents using the .load() Stream API
-            let mut context_documents = Vec::new();
-
-            // Load from context_file
-            if let Some(ctx) = context_file {
-                let stream = ctx.load();
-                tokio::pin!(stream);
-                while let Some(doc) = stream.next().await {
-                    context_documents.push(crate::domain::chat::session::SessionDocument {
-                        content: doc.data,
-                        source: doc.additional_props.get("path")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("unknown")
-                            .to_string(),
-                        tags: vec![],
-                    });
-                }
-            }
-
-            // Load from context_files
-            if let Some(ctx) = context_files {
-                let stream = ctx.load();
-                tokio::pin!(stream);
-                while let Some(doc) = stream.next().await {
-                    context_documents.push(crate::domain::chat::session::SessionDocument {
-                        content: doc.data,
-                        source: doc.additional_props.get("path")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("unknown")
-                            .to_string(),
-                        tags: vec![],
-                    });
-                }
-            }
-
-            // Load from context_directory
-            if let Some(ctx) = context_directory {
-                let stream = ctx.load();
-                tokio::pin!(stream);
-                while let Some(doc) = stream.next().await {
-                    context_documents.push(crate::domain::chat::session::SessionDocument {
-                        content: doc.data,
-                        source: doc.additional_props.get("path")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("unknown")
-                            .to_string(),
-                        tags: vec![],
-                    });
-                }
-            }
-
-            // Load from context_github
-            if let Some(ctx) = context_github {
-                let stream = ctx.load();
-                tokio::pin!(stream);
-                while let Some(doc) = stream.next().await {
-                    context_documents.push(crate::domain::chat::session::SessionDocument {
-                        content: doc.data,
-                        source: doc.additional_props.get("path")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("unknown")
-                            .to_string(),
-                        tags: vec![],
-                    });
-                }
-            }
-            
-            // DELEGATE to domain::chat::session
+            // DELEGATE to domain::chat::session with raw context sources
             let session_stream = crate::domain::chat::session::execute_chat_session(
                 model_config,
                 chat_config,
@@ -247,7 +168,10 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
                 memory,
                 tools,
                 metadata,
-                context_documents,
+                context_file,
+                context_files,
+                context_directory,
+                context_github,
                 conversation_history,
                 handler,
                 on_chunk_handler,

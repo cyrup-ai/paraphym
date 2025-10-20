@@ -29,6 +29,7 @@ struct ExportPayload {
 }
 
 /// SurrealDB-backed memory manager implementation
+#[derive(Debug)]
 pub struct SurrealDBMemoryManager {
     pub(super) db: Surreal<Any>,
     pub(super) embedding_model: Option<TextEmbeddingModel>,

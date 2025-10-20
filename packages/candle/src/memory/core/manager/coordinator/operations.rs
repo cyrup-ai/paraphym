@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use crate::domain::memory::primitives::node::MemoryNode;
 use crate::memory::core::cognitive_queue::{CognitiveTask, CognitiveTaskType};
+use crate::memory::core::manager::surreal::trait_def::MemoryManager;
 use crate::memory::utils::Result;
 use crate::memory::MemoryMetadata;
 
@@ -60,7 +61,8 @@ impl MemoryCoordinator {
             // Update importance to reflect re-occurrence (boost by 10%)
             let current_importance = domain_memory.importance();
             let boosted_importance = (current_importance * 1.1).min(1.0);
-            domain_memory.set_importance(boosted_importance)?;
+            domain_memory.set_importance(boosted_importance)
+                .map_err(|e| crate::memory::utils::Error::Internal(format!("{:?}", e)))?;
 
             // Convert back and persist the refresh
             let memory_node = self.convert_domain_to_memory_node(&domain_memory);
@@ -131,16 +133,17 @@ impl MemoryCoordinator {
         // Add to in-memory repository cache
         {
             let mut repo = self.repository.write().await;
-            let domain_node = self.convert_memory_to_domain_node(&stored_memory)?;
-            repo.add(Arc::new(domain_node));
+            repo.add(stored_memory.clone());
         }
 
         // Queue for cognitive evaluation
         let task = CognitiveTask::new(
             stored_memory.id.clone(),
             CognitiveTaskType::CommitteeEvaluation,
+            5, // Default priority
         );
-        self.cognitive_queue.enqueue(task)?;
+        self.cognitive_queue.enqueue(task)
+            .map_err(|e| crate::memory::utils::Error::Internal(e))?;
 
         // Convert stored memory back to domain format for return
         let final_domain_memory = self.convert_memory_to_domain_node(&stored_memory)?;
@@ -223,9 +226,9 @@ impl MemoryCoordinator {
                         log::trace!("Using cached evaluation score: {}", score);
                     } else {
                         // Perform immediate evaluation
-                        let evaluation_result = self
+                        let score = self
                             .committee_evaluator
-                            .evaluate_memory(&domain_memory)
+                            .evaluate(&domain_memory.content().to_string())
                             .await
                             .map_err(|e| {
                                 crate::memory::utils::Error::Internal(format!(
@@ -233,8 +236,6 @@ impl MemoryCoordinator {
                                     e
                                 ))
                             })?;
-
-                        let score = evaluation_result.consensus_score;
 
                         // Cache the result
                         self.evaluation_cache.insert(memory_id.to_string(), score);
@@ -259,8 +260,7 @@ impl MemoryCoordinator {
         // Update in-memory repository
         {
             let mut repo = self.repository.write().await;
-            let domain_node = self.convert_memory_to_domain_node(&updated_memory)?;
-            repo.update(Arc::new(domain_node));
+            repo.update(updated_memory.clone());
         }
 
         // Convert back to domain format
@@ -277,7 +277,7 @@ impl MemoryCoordinator {
         // Remove from in-memory repository
         {
             let mut repo = self.repository.write().await;
-            repo.remove(memory_id);
+            repo.delete(memory_id);
         }
 
         log::info!("Deleted memory: {}", memory_id);

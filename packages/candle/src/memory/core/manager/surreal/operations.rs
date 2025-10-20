@@ -7,6 +7,7 @@
 use crate::capability::traits::TextEmbeddingCapable;
 use crate::domain::memory::cognitive::types::{CognitiveState, EntanglementType};
 use crate::memory::primitives::{MemoryNode, MemoryRelationship};
+use crate::memory::core::primitives::types::MemoryTypeEnum;
 use crate::memory::schema::memory_schema::MemoryNodeSchema;
 use crate::memory::schema::quantum_schema::QuantumSignatureSchema;
 use crate::memory::schema::relationship_schema::Relationship;
@@ -206,6 +207,68 @@ impl MemoryManager for SurrealDBMemoryManager {
                  ORDER BY vector_score DESC
                  LIMIT {}",
                 vector_json, limit
+            );
+
+            match db.query(&query).await {
+                Ok(mut response) => {
+                    let results: Vec<MemoryNodeSchema> = response.take(0).unwrap_or_default();
+
+                    for schema in results {
+                        let memory = SurrealDBMemoryManager::from_schema(schema);
+                        if tx.send(Ok(memory)).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(Err(Error::Database(format!("{:?}", e)))).await;
+                }
+            }
+        });
+
+        MemoryStream::new(rx)
+    }
+
+    fn search_by_content(&self, text: &str) -> MemoryStream {
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
+        let db = self.db.clone();
+        let search_text = text.to_string();
+
+        tokio::spawn(async move {
+            let query = format!(
+                "SELECT * FROM memory WHERE content CONTAINS \"{}\" ORDER BY metadata.created_at DESC LIMIT 100",
+                search_text.replace("\"", "\\\"")
+            );
+
+            match db.query(&query).await {
+                Ok(mut response) => {
+                    let results: Vec<MemoryNodeSchema> = response.take(0).unwrap_or_default();
+
+                    for schema in results {
+                        let memory = SurrealDBMemoryManager::from_schema(schema);
+                        if tx.send(Ok(memory)).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(Err(Error::Database(format!("{:?}", e)))).await;
+                }
+            }
+        });
+
+        MemoryStream::new(rx)
+    }
+
+    fn query_by_type(&self, memory_type: MemoryTypeEnum) -> MemoryStream {
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
+        let db = self.db.clone();
+
+        tokio::spawn(async move {
+            let type_str = format!("{:?}", memory_type);
+            let query = format!(
+                "SELECT * FROM memory WHERE memory_type = \"{}\" ORDER BY metadata.created_at DESC LIMIT 100",
+                type_str
             );
 
             match db.query(&query).await {

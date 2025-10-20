@@ -6,6 +6,15 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use tokio_stream::{Stream, StreamExt};
 
+// Context types (use provider:: to get the concrete struct, not the trait)
+use crate::domain::context::provider::{
+    CandleContext,
+    CandleFile,
+    CandleFiles,
+    CandleDirectory,
+    CandleGithub,
+};
+
 // Memory helper functions (copied from builders since they're not publicly exported)
 
 // Import domain types
@@ -70,22 +79,25 @@ pub async fn execute_chat_session<F, Fut>(
     // Configuration
     model_config: CandleModelConfig,
     chat_config: CandleChatConfig,
-    
+
     // Core components
     provider: TextToTextModel,
     memory: Arc<MemoryCoordinator>,
     tools: Arc<[ToolInfo]>,
     metadata: HashMap<String, String>,
-    
-    // Context (these replace context_file, context_files, etc.)
-    context_documents: Vec<SessionDocument>,
-    
-    // Conversation history  
+
+    // Context sources (raw, not pre-processed)
+    context_file: Option<CandleContext<CandleFile>>,
+    context_files: Option<CandleContext<CandleFiles>>,
+    context_directory: Option<CandleContext<CandleDirectory>>,
+    context_github: Option<CandleContext<CandleGithub>>,
+
+    // Conversation history
     conversation_history: ZeroOneOrMany<(CandleMessageRole, String)>,
-    
+
     // Handler
     handler: F,
-    
+
     // Optional callbacks
     on_chunk_handler: Option<Arc<dyn Fn(CandleMessageChunk) -> BoxFuture<'static, CandleMessageChunk> + Send + Sync>>,
     on_tool_result_handler: Option<Arc<dyn Fn(&[String]) -> BoxFuture<'static, ()> + Send + Sync>>,
@@ -96,29 +108,133 @@ where
     Fut: std::future::Future<Output = CandleChatLoop> + Send + 'static,
 {
     Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
-        // Load context documents into memory before handler execution
-        for doc in context_documents {
-            let doc_meta = MemoryMetadata {
-                user_id: metadata.get("user_id").cloned(),
-                agent_id: metadata.get("agent_id").cloned(),
-                context: "session_context".to_string(),
-                importance: 0.5,
-                keywords: vec![],
-                tags: doc.tags.clone(),
-                category: "context".to_string(),
-                source: Some(doc.source.clone()),
-                created_at: chrono::Utc::now(),
-                last_accessed_at: None,
-                embedding: None,
-                custom: serde_json::Value::Object(serde_json::Map::new()),
-            };
+        // Load context documents from all sources using .load() Stream API
 
-            if let Err(e) = memory.add_memory(
-                doc.content,
-                MemoryTypeEnum::Semantic,
-                Some(doc_meta)
-            ).await {
-                log::warn!("Failed to load context document: {:?}", e);
+        // Load from context_file
+        if let Some(ctx) = context_file {
+            let stream = ctx.load();
+            tokio::pin!(stream);
+            while let Some(doc) = stream.next().await {
+                let doc_meta = MemoryMetadata {
+                    user_id: metadata.get("user_id").cloned(),
+                    agent_id: metadata.get("agent_id").cloned(),
+                    context: "session_context".to_string(),
+                    importance: 0.5,
+                    keywords: vec![],
+                    tags: vec![],
+                    category: "context".to_string(),
+                    source: doc.additional_props.get("path")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string()),
+                    created_at: chrono::Utc::now(),
+                    last_accessed_at: None,
+                    embedding: None,
+                    custom: serde_json::Value::Object(serde_json::Map::new()),
+                };
+
+                if let Err(e) = memory.add_memory(
+                    doc.data,
+                    MemoryTypeEnum::Semantic,
+                    Some(doc_meta)
+                ).await {
+                    log::warn!("Failed to load context document: {:?}", e);
+                }
+            }
+        }
+
+        // Load from context_files
+        if let Some(ctx) = context_files {
+            let stream = ctx.load();
+            tokio::pin!(stream);
+            while let Some(doc) = stream.next().await {
+                let doc_meta = MemoryMetadata {
+                    user_id: metadata.get("user_id").cloned(),
+                    agent_id: metadata.get("agent_id").cloned(),
+                    context: "session_context".to_string(),
+                    importance: 0.5,
+                    keywords: vec![],
+                    tags: vec![],
+                    category: "context".to_string(),
+                    source: doc.additional_props.get("path")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string()),
+                    created_at: chrono::Utc::now(),
+                    last_accessed_at: None,
+                    embedding: None,
+                    custom: serde_json::Value::Object(serde_json::Map::new()),
+                };
+
+                if let Err(e) = memory.add_memory(
+                    doc.data,
+                    MemoryTypeEnum::Semantic,
+                    Some(doc_meta)
+                ).await {
+                    log::warn!("Failed to load context document: {:?}", e);
+                }
+            }
+        }
+
+        // Load from context_directory
+        if let Some(ctx) = context_directory {
+            let stream = ctx.load();
+            tokio::pin!(stream);
+            while let Some(doc) = stream.next().await {
+                let doc_meta = MemoryMetadata {
+                    user_id: metadata.get("user_id").cloned(),
+                    agent_id: metadata.get("agent_id").cloned(),
+                    context: "session_context".to_string(),
+                    importance: 0.5,
+                    keywords: vec![],
+                    tags: vec![],
+                    category: "context".to_string(),
+                    source: doc.additional_props.get("path")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string()),
+                    created_at: chrono::Utc::now(),
+                    last_accessed_at: None,
+                    embedding: None,
+                    custom: serde_json::Value::Object(serde_json::Map::new()),
+                };
+
+                if let Err(e) = memory.add_memory(
+                    doc.data,
+                    MemoryTypeEnum::Semantic,
+                    Some(doc_meta)
+                ).await {
+                    log::warn!("Failed to load context document: {:?}", e);
+                }
+            }
+        }
+
+        // Load from context_github
+        if let Some(ctx) = context_github {
+            let stream = ctx.load();
+            tokio::pin!(stream);
+            while let Some(doc) = stream.next().await {
+                let doc_meta = MemoryMetadata {
+                    user_id: metadata.get("user_id").cloned(),
+                    agent_id: metadata.get("agent_id").cloned(),
+                    context: "session_context".to_string(),
+                    importance: 0.5,
+                    keywords: vec![],
+                    tags: vec![],
+                    category: "context".to_string(),
+                    source: doc.additional_props.get("path")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string()),
+                    created_at: chrono::Utc::now(),
+                    last_accessed_at: None,
+                    embedding: None,
+                    custom: serde_json::Value::Object(serde_json::Map::new()),
+                };
+
+                if let Err(e) = memory.add_memory(
+                    doc.data,
+                    MemoryTypeEnum::Semantic,
+                    Some(doc_meta)
+                ).await {
+                    log::warn!("Failed to load context document: {:?}", e);
+                }
             }
         }
 

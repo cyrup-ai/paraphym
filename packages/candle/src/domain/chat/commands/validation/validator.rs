@@ -109,13 +109,13 @@ impl CommandValidator {
             } => self.config.validate_copy_command(message_id.as_deref(), content.as_deref()),
             ImmutableChatCommand::Retry {
                 command, attempts, ..
-            } => self.config.validate_retry_command(command.as_deref(), *attempts),
+            } => self.config.validate_retry_command(command.as_deref(), attempts.map(|a| a as usize)),
             ImmutableChatCommand::Undo { count, .. } => ValidationConfig::validate_undo_command(*count),
             ImmutableChatCommand::Chat {
                 message,
                 context,
                 priority,
-            } => self.config.validate_chat_command(message, context.as_deref(), *priority),
+            } => self.config.validate_chat_command(message, context.as_deref(), Some(*priority)),
         }
     }
 

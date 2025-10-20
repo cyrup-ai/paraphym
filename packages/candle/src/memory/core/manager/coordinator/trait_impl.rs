@@ -48,6 +48,14 @@ impl MemoryManager for MemoryCoordinator {
         self.surreal_manager.search_by_vector(vector, limit)
     }
 
+    fn search_by_content(&self, text: &str) -> MemoryStream {
+        self.surreal_manager.search_by_content(text)
+    }
+
+    fn query_by_type(&self, memory_type: CoreMemoryTypeEnum) -> MemoryStream {
+        self.surreal_manager.query_by_type(memory_type)
+    }
+
     fn list_all_memories(&self, limit: usize, offset: usize) -> MemoryStream {
         self.surreal_manager.list_all_memories(limit, offset)
     }
@@ -55,10 +63,10 @@ impl MemoryManager for MemoryCoordinator {
     fn update_quantum_signature(
         &self,
         memory_id: &str,
-        cognitive_state: &CognitiveState,
+        signature: CognitiveState,
     ) -> PendingQuantumUpdate {
         self.surreal_manager
-            .update_quantum_signature(memory_id, cognitive_state)
+            .update_quantum_signature(memory_id, signature)
     }
 
     fn get_quantum_signature(&self, memory_id: &str) -> PendingQuantumSignature {

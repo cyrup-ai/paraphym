@@ -70,7 +70,7 @@ pub async fn initialize(config: &MemoryConfig) -> Result<SurrealMemoryManager, E
     }
 
     // Create the memory manager with embeddings
-    let manager = SurrealMemoryManager::with_embeddings(db.clone()).await?;
+    let manager = SurrealMemoryManager::new(db.clone());
 
     // Initialize the manager (e.g., create tables/schemas if they don't exist)
     manager.initialize().await?;
