@@ -85,6 +85,7 @@ impl LiveMessageStreamer {
 
     /// Send message to normal queue with backpressure detection
     #[inline]
+    #[must_use]
     pub fn send_message(&self, mut message: LiveUpdateMessage) -> StreamingResult {
         let current_size = self.message_counter.load(Ordering::Acquire);
         let limit = self.queue_size_limit.load(Ordering::Acquire);
@@ -140,6 +141,7 @@ impl LiveMessageStreamer {
 
     /// Send message to priority queue with expedited processing
     #[inline]
+    #[must_use]
     pub fn send_priority_message(&self, mut message: LiveUpdateMessage) -> StreamingResult {
         let current_size = self.priority_message_counter.load(Ordering::Acquire);
         let limit = self.queue_size_limit.load(Ordering::Acquire);
@@ -195,6 +197,7 @@ impl LiveMessageStreamer {
 
     /// Subscribe to message stream with optional filters
     #[inline]
+    #[must_use]
     pub fn subscribe(&self, subscriber: StreamSubscriber) 
         -> Pin<Box<dyn Stream<Item = LiveUpdateMessage> + Send>> {
         let subscriber_arc = Arc::new(subscriber);
@@ -239,6 +242,7 @@ impl LiveMessageStreamer {
     }
 
     /// Start message processing task
+    #[must_use]
     pub fn start_processing(&self) -> Pin<Box<dyn Stream<Item = ProcessingEvent> + Send>> {
         processing::start_processing_stream(
             self.message_queue_rx.clone(),

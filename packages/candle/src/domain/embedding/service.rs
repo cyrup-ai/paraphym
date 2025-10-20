@@ -135,7 +135,7 @@ impl InMemoryEmbeddingCache {
         let hash = content_hash(content);
         for (i, val) in embedding.iter_mut().enumerate() {
             #[allow(clippy::cast_precision_loss)]
-            let hash_val = ((hash + i as i64) as f32) / (i64::MAX as f32);
+            let hash_val = ((hash + i64::try_from(i).unwrap_or(i64::MAX)) as f32) / (i64::MAX as f32);
             *val = hash_val;
         }
         embedding

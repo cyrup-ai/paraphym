@@ -19,7 +19,3 @@ pub use types::{SearchResult, KeywordSearchFn, RequestInfoCallback};
 pub use options::SearchOptions;
 pub use core::VectorSearch;
 pub use hybrid::HybridSearch;
-
-// Internal helpers available to other vector modules if needed
-pub(crate) use cognitive::{CognitiveSearchState, process_deferred_results};
-pub(crate) use helpers::task_string;

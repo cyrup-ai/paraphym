@@ -143,7 +143,7 @@ impl MemoryCoordinator {
             5, // Default priority
         );
         self.cognitive_queue.enqueue(task)
-            .map_err(|e| crate::memory::utils::Error::Internal(e))?;
+            .map_err(crate::memory::utils::Error::Internal)?;
 
         // Convert stored memory back to domain format for return
         let final_domain_memory = self.convert_memory_to_domain_node(&stored_memory)?;

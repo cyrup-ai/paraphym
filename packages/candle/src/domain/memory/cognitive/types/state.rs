@@ -340,10 +340,11 @@ impl CognitiveState {
     /// Returns `CognitiveError` if amplitudes and phases vectors have different dimensions
     #[inline]
     pub fn with_quantum_coherence(
-        amplitudes: Vec<f32>,
+        amplitudes: &[f32],
         phases: Vec<f32>,
     ) -> Result<Self, CognitiveError> {
         let quantum_signature = Arc::new(QuantumSignature::with_coherence(amplitudes, phases)?);
+
 
         Ok(Self {
             activation_pattern: AlignedActivationPattern::default(),
@@ -413,6 +414,9 @@ impl CognitiveState {
 
         // Calculate activation energy for attention update
         let energy = self.activation_pattern.energy();
+        // APPROVED BY DAVID MAPLE on 2025-10-20
+        // Precision loss is acceptable for neural network normalization (dimensions typically < 16M)
+        #[allow(clippy::cast_precision_loss)]
         let normalized_energy = (energy / self.activation_pattern.dimension as f32)
             .sqrt()
             .clamp(0.0, 1.0);

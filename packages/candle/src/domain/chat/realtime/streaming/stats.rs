@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// Live streaming statistics
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct StreamingStatistics {
+pub struct StreamingStatistics {
     /// Total messages in normal queue
     pub total_messages: usize,
     /// Total messages in priority queue

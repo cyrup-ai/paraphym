@@ -2,7 +2,6 @@
 
 use std::sync::{LazyLock, atomic::{AtomicU64, Ordering}};
 use std::time::{Duration, Instant};
-use atomic_counter::{AtomicCounter, RelaxedCounter};
 use super::types::ErrorCategory;
 use super::core::ZeroAllocError;
 use super::breaker::{ErrorCounter, ErrorCircuitBreaker};
@@ -31,34 +30,7 @@ impl ErrorAggregator {
     #[must_use]
     pub fn new(max_errors_per_window: usize, rate_window: Duration) -> Self {
         fn create_counter() -> ErrorCounter {
-            ErrorCounter {
-                total: RelaxedCounter::new(0),
-                by_category: [
-                    RelaxedCounter::new(0),
-                    RelaxedCounter::new(0),
-                    RelaxedCounter::new(0),
-                    RelaxedCounter::new(0),
-                    RelaxedCounter::new(0),
-                    RelaxedCounter::new(0),
-                    RelaxedCounter::new(0),
-                    RelaxedCounter::new(0),
-                    RelaxedCounter::new(0),
-                    RelaxedCounter::new(0),
-                ],
-                by_severity: [
-                    RelaxedCounter::new(0),
-                    RelaxedCounter::new(0),
-                    RelaxedCounter::new(0),
-                    RelaxedCounter::new(0),
-                ],
-                by_recoverability: [
-                    RelaxedCounter::new(0),
-                    RelaxedCounter::new(0),
-                    RelaxedCounter::new(0),
-                    RelaxedCounter::new(0),
-                ],
-                last_error: AtomicU64::new(0),
-            }
+            ErrorCounter::new()
         }
 
         Self {

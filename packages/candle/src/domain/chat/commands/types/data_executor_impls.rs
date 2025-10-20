@@ -1,6 +1,6 @@
 //! Data operation executor implementations
 //!
-//! Implements the DomainCommandExecutor trait for data operations:
+//\! Implements the `DomainCommandExecutor` trait for data operations:
 //! export, import, save, load, config, and settings.
 
 use std::pin::Pin;
@@ -8,7 +8,7 @@ use tokio_stream::Stream;
 
 use super::{
     executor_trait::DomainCommandExecutor,
-    executor_defs::*,
+    executor_defs::{DomainExportExecutor, DomainImportExecutor, DomainSaveExecutor, DomainLoadExecutor, DomainConfigExecutor, DomainSettingsExecutor},
     CommandExecutionContext, CommandExecutionResult, CommandInfo,
     ImmutableChatCommand, ValidationResult,
 };

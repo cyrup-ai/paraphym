@@ -8,7 +8,7 @@ use tokio_stream::Stream;
 
 use super::{
     executor_trait::DomainCommandExecutor,
-    executor_defs::*,
+    executor_defs::{DomainHelpExecutor, DomainClearExecutor, DomainExportExecutor, DomainConfigExecutor, DomainTemplateExecutor, DomainMacroExecutor, DomainSearchExecutor, DomainBranchExecutor, DomainSessionExecutor, DomainToolExecutor, DomainStatsExecutor, DomainThemeExecutor, DomainDebugExecutor, DomainHistoryExecutor, DomainSaveExecutor, DomainLoadExecutor, DomainImportExecutor, DomainSettingsExecutor, DomainCustomExecutor, DomainCopyExecutor, DomainRetryExecutor, DomainUndoExecutor, DomainChatExecutor},
     CommandExecutionContext, CommandExecutionResult, CommandInfo,
     ImmutableChatCommand, ValidationResult,
 };
@@ -139,6 +139,9 @@ impl DomainCommandExecutorEnum {
     }
 
     /// Validate parameters using enum dispatch
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the command parameters fail validation for the specific command type.
     #[inline]
     pub fn validate_parameters(&self, command: &ImmutableChatCommand) -> ValidationResult {
         match self {

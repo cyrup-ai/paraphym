@@ -156,17 +156,17 @@ impl QuantumSignature {
     /// Returns `CognitiveError` if amplitudes and phases have different dimensions
     #[inline]
     pub fn with_coherence(
-        amplitudes: Vec<f32>,
+        amplitudes: &[f32],
         phases: Vec<f32>,
     ) -> Result<Self, CognitiveError> {
         // Create coherence fingerprint with validation
-        let coherence_fingerprint = AlignedCoherenceFingerprint::new(amplitudes.clone(), phases)?;
+        let coherence_fingerprint = AlignedCoherenceFingerprint::new(amplitudes.to_owned(), phases)?;
 
         // Calculate initial collapse probability from amplitudes
         let collapse_probability = amplitudes.iter().map(|x| x * x).sum::<f32>();
 
         // Calculate initial entropy: H = -Σ p_i log(p_i)
-        let quantum_entropy = -amplitudes
+        let quantum_entropy = f64::from(-amplitudes
             .iter()
             .map(|a| {
                 let p = a * a;
@@ -176,7 +176,7 @@ impl QuantumSignature {
                     0.0
                 }
             })
-            .sum::<f32>() as f64;
+            .sum::<f32>());
 
         let superposition_contexts = Vec::new();
         let creation_time = SystemTime::now();

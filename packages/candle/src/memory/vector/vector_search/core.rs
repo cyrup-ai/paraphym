@@ -293,10 +293,9 @@ impl VectorSearch {
         });
 
         // Apply final limit
-        if let Some(limit) = options.limit {
-            if search_results.len() > limit {
-                search_results.truncate(limit);
-            }
+        if let Some(limit) = options.limit
+            && search_results.len() > limit {
+            search_results.truncate(limit);
         }
 
         // Strip vectors if not requested (memory optimization)

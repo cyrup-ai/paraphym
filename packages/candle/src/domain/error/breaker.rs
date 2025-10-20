@@ -1,7 +1,7 @@
 //! Error-specific circuit breaker with statistics
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use atomic_counter::{AtomicCounter, RelaxedCounter};
 use super::circuit_breaker::{CircuitBreaker, CircuitBreakerState, CircuitBreakerError};
 use super::core::ZeroAllocError;

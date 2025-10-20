@@ -1,4 +1,4 @@
-//! MacroSystem implementation for recording and playback
+//\! `MacroSystem` implementation for recording and playback
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,9 +11,9 @@ use atomic_counter::{AtomicCounter, ConsistentCounter};
 use uuid::Uuid;
 use log::warn;
 use cyrup_sugars::prelude::MessageChunk;
-use super::types::*;
-use super::context::*;
-use super::errors::*;
+use super::types::{MacroAction, MacroRecordingState, MacroPlaybackState};
+use super::context::{MacroMetadata, MacroExecutionContext, ChatMacro, MacroExecutionConfig, send_message_to_conversation, LoopContext};
+use super::errors::{MacroSystemError, MacroPlaybackResult, ActionExecutionResult};
 
 /// Macro recording session
 #[derive(Debug)]
@@ -63,8 +63,6 @@ pub struct MacroSystem {
     recording_sessions: DashMap<Uuid, MacroRecordingSession>,
     /// Active playback sessions
     playback_sessions: DashMap<Uuid, MacroPlaybackSession>,
-    /// Macro execution statistics
-    execution_stats: SkipMap<Uuid, Arc<ExecutionStats>>,
     /// Global macro counter
     macro_counter: ConsistentCounter,
     /// Execution counter
@@ -109,7 +107,6 @@ impl MacroSystem {
             macros: SkipMap::new(),
             recording_sessions: DashMap::new(),
             playback_sessions: DashMap::new(),
-            execution_stats: SkipMap::new(),
             macro_counter: ConsistentCounter::new(0),
             execution_counter: ConsistentCounter::new(0),
         }

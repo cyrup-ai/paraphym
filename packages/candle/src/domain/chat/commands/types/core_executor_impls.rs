@@ -1,6 +1,6 @@
 //! Core command executor implementations
 //!
-//! Implements the DomainCommandExecutor trait for core commands:
+//! Implements the `DomainCommandExecutor` trait for core commands:
 //! help, clear, debug, stats, theme, and chat.
 
 use std::pin::Pin;
@@ -8,7 +8,7 @@ use tokio_stream::Stream;
 
 use super::{
     executor_trait::DomainCommandExecutor,
-    executor_defs::*,
+    executor_defs::{DomainHelpExecutor, DomainClearExecutor, DomainDebugExecutor, DomainStatsExecutor, DomainThemeExecutor, DomainChatExecutor},
     CommandExecutionContext, CommandExecutionResult, CommandInfo,
     ImmutableChatCommand, ValidationResult,
 };

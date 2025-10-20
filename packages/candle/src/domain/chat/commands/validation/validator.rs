@@ -1,6 +1,6 @@
 //! Main command validator with dispatch logic
 //!
-//! Provides the CommandValidator struct that coordinates validation
+//\! Provides the `CommandValidator` struct that coordinates validation
 //! across all command types and parameters.
 
 use super::errors::ValidationError;

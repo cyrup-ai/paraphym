@@ -9,7 +9,6 @@ use candle_nn::VarBuilder;
 use candle_transformers::models::llava::{LLaVA, config::LLaVAConfig as CandleLLaVAConfig};
 use tokenizers::Tokenizer;
 
-use crate::core::Engine;
 use crate::domain::model::traits::CandleModel;
 use super::config::{ImageProcessingConfig, GenerationConfig};
 use super::request::LLaVARequest;
@@ -27,14 +26,12 @@ pub(crate) struct LLaVAModelConfig {
 #[derive(Debug, Clone)]
 pub(crate) struct LLaVAModelCore {
     pub request_tx: Arc<Mutex<Option<mpsc::UnboundedSender<LLaVARequest>>>>,
-    pub engine: Engine,
 }
 
 impl LLaVAModelCore {
     pub fn new() -> Self {
         Self {
             request_tx: Arc::new(Mutex::new(None)),
-            engine: Engine::default(),
         }
     }
 

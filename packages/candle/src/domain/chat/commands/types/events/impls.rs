@@ -1,6 +1,6 @@
 //! Trait implementations for command execution events and executor
 //!
-//! Provides Debug, MessageChunk, and Default implementations.
+//! Provides Debug, `MessageChunk`, and Default implementations.
 
 use std::sync::atomic::Ordering;
 

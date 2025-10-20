@@ -99,7 +99,7 @@ pub(crate) async fn process_entanglement_discovery(
         existing
     } else {
         match CognitiveState::with_quantum_coherence(
-            embedding_vec.clone(),
+            &embedding_vec,
             vec![0.0; embedding_vec.len()], // Zero phases = amplitude-only state
         ) {
             Ok(state) => {
@@ -166,7 +166,7 @@ pub(crate) async fn process_entanglement_discovery(
 
         // Create quantum state for related memory
         let state_b = match CognitiveState::with_quantum_coherence(
-            related_embedding_vec.clone(),
+            &related_embedding_vec,
             vec![0.0; related_embedding_vec.len()],
         ) {
             Ok(state) => state,
@@ -254,14 +254,12 @@ pub(crate) async fn process_entanglement_discovery(
                 } else {
                     EntanglementType::Semantic
                 }
+            } else if entanglement_strength > 0.95 {
+                EntanglementType::BellPair
+            } else if entanglement_strength > 0.85 {
+                EntanglementType::Bell
             } else {
-                if entanglement_strength > 0.95 {
-                    EntanglementType::BellPair
-                } else if entanglement_strength > 0.85 {
-                    EntanglementType::Bell
-                } else {
-                    EntanglementType::Semantic
-                }
+                EntanglementType::Semantic
             };
 
             let related_id_uuid = match uuid::Uuid::parse_str(&related_memory.id) {
@@ -276,30 +274,29 @@ pub(crate) async fn process_entanglement_discovery(
                 }
             };
 
-            if let Some(temporal_dist) = temporal_distance_ms {
-                if let Ok(source_uuid) = uuid::Uuid::parse_str(&memory.id) {
-                    let causal_link = CausalLink::new(
-                        source_uuid,
-                        related_id_uuid,
-                        entanglement_strength,
-                        temporal_dist,
-                    );
+            if let Some(temporal_dist) = temporal_distance_ms
+                && let Ok(source_uuid) = uuid::Uuid::parse_str(&memory.id) {
+                let causal_link = CausalLink::new(
+                    source_uuid,
+                    related_id_uuid,
+                    entanglement_strength,
+                    temporal_dist,
+                );
 
-                    log::info!(
-                        "Causal link: {} -> {} (strength: {:.3}, temporal: {}ms, direction: {})",
-                        memory.id,
-                        related_memory.id,
-                        causal_link.strength,
-                        causal_link.temporal_distance,
-                        if temporal_dist > 0 {
-                            "forward"
-                        } else if temporal_dist < 0 {
-                            "backward"
-                        } else {
-                            "simultaneous"
-                        }
-                    );
-                }
+                log::info!(
+                    "Causal link: {} -> {} (strength: {:.3}, temporal: {}ms, direction: {})",
+                    memory.id,
+                    related_memory.id,
+                    causal_link.strength,
+                    causal_link.temporal_distance,
+                    if temporal_dist > 0 {
+                        "forward"
+                    } else if temporal_dist < 0 {
+                        "backward"
+                    } else {
+                        "simultaneous"
+                    }
+                );
             }
 
             let bond_created = state_a.add_quantum_entanglement_bond(

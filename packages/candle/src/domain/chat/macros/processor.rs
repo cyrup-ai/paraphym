@@ -1,4 +1,4 @@
-//! MacroProcessor implementation with advanced features
+//\! `MacroProcessor` implementation with advanced features
 
 use std::pin::Pin;
 use std::collections::HashMap;
@@ -11,10 +11,10 @@ use uuid::Uuid;
 use serde::{Deserialize, Serialize};
 use log::{error, warn};
 use tokio_stream::StreamExt;
-use super::types::*;
-use super::context::*;
-use super::parser::*;
-use super::errors::*;
+use super::types::MacroAction;
+use super::context::{ChatMacro, MacroExecutionContext, send_message_to_conversation, LoopContext};
+use super::parser::{tokenize_condition, CondParser};
+use super::errors::{MacroSystemError, ActionExecutionResult};
 use crate::domain::chat::commands::{CommandEvent, execute_candle_command};
 use crate::domain::chat::conversation::CandleStreamingConversation;
 
@@ -232,6 +232,7 @@ impl MacroProcessor {
     /// # Errors
     ///
     /// Returns error stream if macro not found or execution fails
+    #[must_use]
     pub fn execute_macro(
         &self,
         macro_id: &Uuid,
@@ -288,14 +289,17 @@ impl MacroProcessor {
             ).await;
 
             let completed_at = chrono::Utc::now();
-            let duration_ms = (completed_at - started_at).num_milliseconds() as u64;
+            let duration_ms = (completed_at - started_at).num_milliseconds().cast_unsigned();
 
             if success {
                 stats.successful_executions.fetch_add(1, Ordering::Relaxed);
             } else {
                 stats.failed_executions.fetch_add(1, Ordering::Relaxed);
             }
-            stats.total_execution_time_us.fetch_add((duration_ms * 1000) as usize, Ordering::Relaxed);
+            stats.total_execution_time_us.fetch_add(
+                usize::try_from(duration_ms * 1000).unwrap_or(usize::MAX),
+                Ordering::Relaxed
+            );
             stats.active_executions.fetch_sub(1, Ordering::Relaxed);
 
             let result = MacroExecutionResult {
@@ -348,13 +352,13 @@ impl MacroProcessor {
                         MacroAction::Conditional { .. } => performance.conditionals_evaluated += 1,
                         MacroAction::Loop { .. } => performance.loops_executed += 1,
                         MacroAction::Wait { duration, .. } => {
-                            performance.total_wait_ms += duration.as_millis() as u64;
+                            performance.total_wait_ms += u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
                         }
                     }
                 }
                 Ok(ActionExecutionResult::Wait(duration)) => {
                     tokio::time::sleep(duration).await;
-                    performance.total_wait_ms += duration.as_millis() as u64;
+                    performance.total_wait_ms += u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
                 }
                 Ok(ActionExecutionResult::SkipToAction(index)) => {
                     context.current_action = index;
@@ -485,136 +489,158 @@ pub(crate) fn execute_action_sync<'a>(
     context: &'a mut MacroExecutionContext,
 ) -> Pin<Box<dyn Future<Output = Result<ActionExecutionResult, MacroSystemError>> + Send + 'a>> {
     Box::pin(async move {
-    match action {
-        MacroAction::SendMessage {
-            content,
-            message_type,
-            ..
-        } => {
-            let resolved_content = resolve_variables_sync(content, &context.variables);
-
-            // Send message to conversation if available
-            if let Some(ref conversation) = context.conversation {
-                match send_message_to_conversation(
-                    conversation,
-                    resolved_content.clone(),
-                    message_type,
-                ).await {
-                    Ok(()) => Ok(ActionExecutionResult::Success),
-                    Err(e) => Ok(ActionExecutionResult::Error(format!(
-                        "Message send failed: {e}"
-                    ))),
-                }
-            } else {
-                // No conversation available - log warning and continue
-                warn!(
-                    "No conversation available for SendMessage action. Message: {resolved_content}"
-                );
-                Ok(ActionExecutionResult::Success)
+        match action {
+            MacroAction::SendMessage { content, message_type, .. } => {
+                execute_send_message(content, message_type, context).await
+            }
+            MacroAction::ExecuteCommand { command, .. } => {
+                execute_command_action(command).await
+            }
+            MacroAction::Wait { duration, .. } => {
+                Ok(ActionExecutionResult::Wait(*duration))
+            }
+            MacroAction::SetVariable { name, value, .. } => {
+                execute_set_variable(name, value, context)
+            }
+            MacroAction::Conditional { condition, then_actions, else_actions, .. } => {
+                execute_conditional(condition, then_actions, else_actions.as_ref(), context).await
+            }
+            MacroAction::Loop { iterations, actions, .. } => {
+                execute_loop(*iterations, actions, context).await
             }
         }
-        MacroAction::ExecuteCommand { command, .. } => {
-            // Execute command using existing infrastructure
-            let mut event_stream = execute_candle_command(command.clone());
+    })
+}
 
-            // Collect events asynchronously
-            let mut command_output = String::new();
-            let mut result = ActionExecutionResult::Success;
+/// Execute send message action
+async fn execute_send_message(
+    msg_content: &str,
+    message_type: &str,
+    exec_context: &MacroExecutionContext,
+) -> Result<ActionExecutionResult, MacroSystemError> {
+    let resolved_content = resolve_variables_sync(msg_content, &exec_context.variables);
 
-            while let Some(event) = event_stream.next().await {
-                match event {
-                    CommandEvent::Output { content, .. } => {
-                        // Collect output for potential logging/debugging
-                        command_output.push_str(&content);
-                    }
-                    CommandEvent::Completed { .. } => {
-                        // Command succeeded
-                        result = ActionExecutionResult::Success;
-                    }
-                    CommandEvent::Failed { error, .. } => {
-                        // Command failed - capture error
-                        result = ActionExecutionResult::Error(format!(
-                            "Command execution failed: {error}"
-                        ));
-                        break; // Exit early on failure
-                    }
-                    CommandEvent::Cancelled { reason, .. } => {
-                        // Command was cancelled
-                        result = ActionExecutionResult::Error(format!(
-                            "Command cancelled: {reason}"
-                        ));
-                        break;
-                    }
-                    _ => {} // Ignore other events (Started, Progress, Warning, ResourceAlert)
-                }
-            }
-
-            // Log output if command succeeded and produced output
-            if !command_output.is_empty()
-                && matches!(result, ActionExecutionResult::Success)
-            {
-                log::debug!("Command output: {command_output}");
-            }
-
-            Ok(result)
+    if let Some(ref conversation) = exec_context.conversation {
+        match send_message_to_conversation(conversation, resolved_content.clone(), message_type).await {
+            Ok(()) => Ok(ActionExecutionResult::Success),
+            Err(e) => Ok(ActionExecutionResult::Error(format!("Message send failed: {e}"))),
         }
-        MacroAction::Wait { duration, .. } => Ok(ActionExecutionResult::Wait(*duration)),
-        MacroAction::SetVariable { name, value, .. } => {
-            let resolved_value = resolve_variables_sync(value, &context.variables);
-            context.variables.insert(name.clone(), resolved_value);
-            Ok(ActionExecutionResult::Success)
+    } else {
+        warn!("No conversation available for SendMessage action. Message: {resolved_content}");
+        Ok(ActionExecutionResult::Success)
+    }
+}
+
+/// Execute command action
+async fn execute_command_action(
+    command_str: &str,
+) -> Result<ActionExecutionResult, MacroSystemError> {
+    use crate::domain::chat::commands::parse_candle_command;
+
+    // Parse command string into ImmutableChatCommand
+    let command = match parse_candle_command(command_str).await {
+        Ok(cmd) => cmd,
+        Err(e) => {
+            return Ok(ActionExecutionResult::Error(format!("Command parse failed: {e}")));
         }
-        MacroAction::Conditional {
-            condition,
-            then_actions,
-            else_actions,
-            ..
-        } => {
-            let condition_result = evaluate_condition_sync(condition, &context.variables);
+    };
 
-            let actions_to_execute = if condition_result {
-                then_actions
-            } else if let Some(else_actions) = else_actions {
-                else_actions
-            } else {
-                return Ok(ActionExecutionResult::Success);
-            };
+    let mut event_stream = execute_candle_command(command);
+    let mut command_output = String::new();
+    let mut result = ActionExecutionResult::Success;
 
-            // Execute conditional actions synchronously
-            for action in actions_to_execute {
-                execute_action_sync(action, context).await?;
+    while let Some(event) = event_stream.next().await {
+        match event {
+            CommandEvent::Output { content, .. } => {
+                command_output.push_str(&content);
             }
-
-            Ok(ActionExecutionResult::Success)
-        }
-        MacroAction::Loop {
-            iterations,
-            actions,
-            ..
-        } => {
-            let loop_context = LoopContext {
-                iteration: 0,
-                max_iterations: *iterations,
-                start_action: context.current_action,
-                end_action: context.current_action + actions.len() - 1,
-            };
-
-            context.loop_stack.push(loop_context);
-
-            for _ in 0..*iterations {
-                for action in actions {
-                    if let Err(e) = execute_action_sync(action, context).await {
-                        context.loop_stack.pop();
-                        return Err(e);
-                    }
-                }
+            CommandEvent::Completed { .. } => {
+                result = ActionExecutionResult::Success;
             }
-
-            context.loop_stack.pop();
-            Ok(ActionExecutionResult::Success)
+            CommandEvent::Failed { error, .. } => {
+                result = ActionExecutionResult::Error(format!("Command execution failed: {error}"));
+                break;
+            }
+            CommandEvent::Cancelled { reason, .. } => {
+                result = ActionExecutionResult::Error(format!("Command cancelled: {reason}"));
+                break;
+            }
+            _ => {}
         }
     }
-    })
+
+    if !command_output.is_empty() && matches!(result, ActionExecutionResult::Success) {
+        log::debug!("Command output: {command_output}");
+    }
+
+    Ok(result)
+}
+
+/// Execute set variable action
+fn execute_set_variable(
+    name: &str,
+    value: &str,
+    context: &mut MacroExecutionContext,
+) -> Result<ActionExecutionResult, MacroSystemError> {
+    let resolved_value = resolve_variables_sync(value, &context.variables);
+    context.variables.insert(name.to_string(), resolved_value);
+    Ok(ActionExecutionResult::Success)
+}
+
+/// Execute conditional action
+async fn execute_conditional<'a>(
+    condition: &str,
+    then_actions: &'a [MacroAction],
+    else_actions: Option<&'a Vec<MacroAction>>,
+    context: &'a mut MacroExecutionContext,
+) -> Result<ActionExecutionResult, MacroSystemError> {
+    let condition_result = evaluate_condition_sync(condition, &context.variables);
+
+    let actions_to_execute = if condition_result {
+        then_actions
+    } else if let Some(else_actions) = else_actions {
+        else_actions.as_slice()
+    } else {
+        return Ok(ActionExecutionResult::Success);
+    };
+
+    for action in actions_to_execute {
+        execute_action_sync(action, context).await?;
+    }
+
+    Ok(ActionExecutionResult::Success)
+}
+
+/// Execute loop action
+async fn execute_loop<'a>(
+    iterations: usize,
+    actions: &'a [MacroAction],
+    context: &'a mut MacroExecutionContext,
+) -> Result<ActionExecutionResult, MacroSystemError> {
+    // Convert usize to u32 with proper bounds checking
+    let iterations_u32 = u32::try_from(iterations)
+        .map_err(|_| MacroSystemError::ExecutionError("Loop iterations exceed u32::MAX".to_string()))?;
+
+    let loop_context = LoopContext {
+        iteration: 0,
+        max_iterations: iterations_u32,
+        start_action: context.current_action,
+        end_action: context.current_action + actions.len() - 1,
+    };
+
+    context.loop_stack.push(loop_context);
+
+    for _ in 0..iterations {
+        for action in actions {
+            if let Err(e) = execute_action_sync(action, context).await {
+                context.loop_stack.pop();
+                return Err(e);
+            }
+        }
+    }
+
+    context.loop_stack.pop();
+    Ok(ActionExecutionResult::Success)
 }
 
 /// Synchronous variable resolution

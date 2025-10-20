@@ -1,6 +1,6 @@
 //! Processor module for Candle context provider system
 //!
-//! This module contains the CandleStreamingContextProcessor which handles
+//\! This module contains the ``CandleStreamingContextProcessor`` which handles
 //! file loading, format detection, and document creation with streaming operations.
 
 use std::collections::HashMap;
@@ -16,7 +16,7 @@ use mime_guess;
 
 use crate::domain::context::CandleDocument as Document;
 use cyrup_sugars::prelude::MessageChunk;
-use super::types::*;
+use super::types::{CandleContextEvent, CandleImmutableFileContext, CandleContextError, CandleValidationError};
 
 /// Streaming context processor with atomic state tracking for Candle
 pub struct CandleStreamingContextProcessor {
@@ -43,7 +43,7 @@ pub struct CandleStreamingContextProcessor {
 
 impl std::fmt::Debug for CandleStreamingContextProcessor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CandleStreamingContextProcessor")
+        f.debug_struct("`CandleStreamingContextProcessor`")
             .field("processor_id", &self.processor_id)
             .field(
                 "context_requests",

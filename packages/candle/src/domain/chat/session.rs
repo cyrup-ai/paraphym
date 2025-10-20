@@ -1,6 +1,7 @@
 //! Chat session orchestration executor
 
 use std::collections::HashMap;
+use std::fmt::Write;
 use std::pin::Pin;
 use std::sync::Arc;
 use futures::future::BoxFuture;
@@ -36,24 +37,49 @@ use crate::builders::agent_role::AgentBuilderState;
 use crate::capability::registry::TextToTextModel;
 use crate::capability::traits::TextToTextCapable;
 use crate::memory::core::manager::coordinator::MemoryCoordinator;
-use crate::domain::memory::primitives::node::MemoryNode;
-use crate::domain::memory::primitives::types::MemoryTypeEnum;
+use crate::memory::core::manager::surreal::MemoryManager;  // Trait must be in scope
+use crate::memory::primitives::node::MemoryNode as CoreMemoryNode;
+use crate::memory::primitives::types::{MemoryContent, MemoryTypeEnum as CoreMemoryTypeEnum};
+use crate::domain::memory::primitives::node::MemoryNode as DomainMemoryNode;
+use crate::domain::memory::primitives::types::MemoryTypeEnum as DomainMemoryTypeEnum;
 use crate::memory::MemoryMetadata;
 
 use sweet_mcp_type::ToolInfo;
 use cyrup_sugars::collections::ZeroOneOrMany;
 
-/// Simple document structure for session context
-#[derive(Debug, Clone)]
-pub struct SessionDocument {
-    pub content: String,
-    pub source: String,
-    pub tags: Vec<String>,
+// Type aliases for complex callback types
+type OnChunkHandler = Arc<dyn Fn(CandleMessageChunk) -> BoxFuture<'static, CandleMessageChunk> + Send + Sync>;
+type OnToolResultHandler = Arc<dyn Fn(&[String]) -> BoxFuture<'static, ()> + Send + Sync>;
+type OnConversationTurnHandler = Arc<dyn Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> BoxFuture<'static, Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>> + Send + Sync>;
+
+/// Configuration bundle for chat session execution
+pub struct ChatSessionConfig<S> {
+    pub model_config: CandleModelConfig,
+    pub chat_config: CandleChatConfig,
+    pub provider: TextToTextModel,
+    pub memory: Arc<MemoryCoordinator>,
+    pub tools: Arc<[ToolInfo]>,
+    pub metadata: HashMap<String, String, S>,
+}
+
+/// Context sources bundle for chat session
+pub struct ChatSessionContexts {
+    pub context_file: Option<CandleContext<CandleFile>>,
+    pub context_files: Option<CandleContext<CandleFiles>>,
+    pub context_directory: Option<CandleContext<CandleDirectory>>,
+    pub context_github: Option<CandleContext<CandleGithub>>,
+}
+
+/// Callback handlers bundle for chat session
+pub struct ChatSessionHandlers {
+    pub on_chunk_handler: Option<OnChunkHandler>,
+    pub on_tool_result_handler: Option<OnToolResultHandler>,
+    pub on_conversation_turn_handler: Option<OnConversationTurnHandler>,
 }
 
 // Helper functions for memory operations
 
-fn format_memory_context(memories: &[MemoryNode], max_chars: usize) -> String {
+fn format_memory_context(memories: &[DomainMemoryNode], max_chars: usize) -> String {
     let mut result = String::from("## Relevant Context\n\n");
     let mut current_len = result.len();
 
@@ -62,7 +88,7 @@ fn format_memory_context(memories: &[MemoryNode], max_chars: usize) -> String {
         let source = memory.metadata.custom.get("source")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown");
-        let entry = format!("- [{}]: {}\n", source, content);
+        let entry = format!("- [{source}]: {content}\n");
 
         if current_len + entry.len() > max_chars {
             break;
@@ -75,166 +101,148 @@ fn format_memory_context(memories: &[MemoryNode], max_chars: usize) -> String {
     result
 }
 
-pub async fn execute_chat_session<F, Fut>(
-    // Configuration
-    model_config: CandleModelConfig,
-    chat_config: CandleChatConfig,
-
-    // Core components
-    provider: TextToTextModel,
+/// Load documents from a context stream into memory using `MemoryManager` API
+async fn load_context_stream(
+    stream: Pin<Box<dyn Stream<Item = crate::domain::context::CandleDocument> + Send>>,
     memory: Arc<MemoryCoordinator>,
-    tools: Arc<[ToolInfo]>,
     metadata: HashMap<String, String>,
+    context_tag: &str,
+) {
+    tokio::pin!(stream);
+    while let Some(doc) = stream.next().await {
+        // Create CoreMemoryNode following MemoryManager pattern
+        let content = MemoryContent::new(&doc.data);
+        let mut node = CoreMemoryNode::new(CoreMemoryTypeEnum::Semantic, content);
 
-    // Context sources (raw, not pre-processed)
+        // Set metadata fields directly on node.metadata (public fields)
+        node.metadata.user_id = metadata.get("user_id").cloned();
+        node.metadata.agent_id = metadata.get("agent_id").cloned();
+        node.metadata.context = "session_context".to_string();
+        node.metadata.category = "context".to_string();
+        node.metadata.source = doc.additional_props.get("path")
+            .and_then(|v| v.as_str())
+            .map(std::string::ToString::to_string);
+        node.metadata.importance = 0.5;
+        node.metadata.tags.push(context_tag.to_string());
+
+        // Use LOW-LEVEL MemoryManager trait method (returns PendingMemory Future)
+        let pending = memory.create_memory(node);
+        if let Err(e) = pending.await {
+            log::warn!("Failed to load context document from {context_tag}: {e:?}");
+        }
+    }
+}
+
+/// Load all context sources in parallel
+async fn load_all_contexts<S>(
+    memory: Arc<MemoryCoordinator>,
+    metadata: &HashMap<String, String, S>,
     context_file: Option<CandleContext<CandleFile>>,
     context_files: Option<CandleContext<CandleFiles>>,
     context_directory: Option<CandleContext<CandleDirectory>>,
     context_github: Option<CandleContext<CandleGithub>>,
+) -> Vec<tokio::task::JoinHandle<()>>
+where
+    S: std::hash::BuildHasher,
+{
+    let mut load_tasks = Vec::new();
 
-    // Conversation history
+    // Extract metadata values once before spawning tasks
+    let user_id = metadata.get("user_id").cloned();
+    let agent_id = metadata.get("agent_id").cloned();
+
+    if let Some(ctx) = context_file {
+        let mem = memory.clone();
+        let user_id = user_id.clone();
+        let agent_id = agent_id.clone();
+        load_tasks.push(tokio::spawn(async move {
+            let mut meta = HashMap::new();
+            if let Some(uid) = user_id {
+                meta.insert("user_id".to_string(), uid);
+            }
+            if let Some(aid) = agent_id {
+                meta.insert("agent_id".to_string(), aid);
+            }
+            load_context_stream(ctx.load(), mem, meta, "context_file").await;
+        }));
+    }
+
+    if let Some(ctx) = context_files {
+        let mem = memory.clone();
+        let user_id = user_id.clone();
+        let agent_id = agent_id.clone();
+        load_tasks.push(tokio::spawn(async move {
+            let mut meta = HashMap::new();
+            if let Some(uid) = user_id {
+                meta.insert("user_id".to_string(), uid);
+            }
+            if let Some(aid) = agent_id {
+                meta.insert("agent_id".to_string(), aid);
+            }
+            load_context_stream(ctx.load(), mem, meta, "context_files").await;
+        }));
+    }
+
+    if let Some(ctx) = context_directory {
+        let mem = memory.clone();
+        let user_id = user_id.clone();
+        let agent_id = agent_id.clone();
+        load_tasks.push(tokio::spawn(async move {
+            let mut meta = HashMap::new();
+            if let Some(uid) = user_id {
+                meta.insert("user_id".to_string(), uid);
+            }
+            if let Some(aid) = agent_id {
+                meta.insert("agent_id".to_string(), aid);
+            }
+            load_context_stream(ctx.load(), mem, meta, "context_directory").await;
+        }));
+    }
+
+    if let Some(ctx) = context_github {
+        let mem = memory.clone();
+        let user_id = user_id.clone();
+        let agent_id = agent_id.clone();
+        load_tasks.push(tokio::spawn(async move {
+            let mut meta = HashMap::new();
+            if let Some(uid) = user_id {
+                meta.insert("user_id".to_string(), uid);
+            }
+            if let Some(aid) = agent_id {
+                meta.insert("agent_id".to_string(), aid);
+            }
+            load_context_stream(ctx.load(), mem, meta, "context_github").await;
+        }));
+    }
+
+    load_tasks
+}
+
+pub async fn execute_chat_session<F, Fut, S>(
+    config: ChatSessionConfig<S>,
+    contexts: ChatSessionContexts,
     conversation_history: ZeroOneOrMany<(CandleMessageRole, String)>,
-
-    // Handler
     handler: F,
-
-    // Optional callbacks
-    on_chunk_handler: Option<Arc<dyn Fn(CandleMessageChunk) -> BoxFuture<'static, CandleMessageChunk> + Send + Sync>>,
-    on_tool_result_handler: Option<Arc<dyn Fn(&[String]) -> BoxFuture<'static, ()> + Send + Sync>>,
-    on_conversation_turn_handler: Option<Arc<dyn Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> BoxFuture<'static, Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>> + Send + Sync>>,
+    handlers: ChatSessionHandlers,
 ) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>
 where
     F: FnOnce(&CandleAgentConversation) -> Fut + Send + 'static,
     Fut: std::future::Future<Output = CandleChatLoop> + Send + 'static,
+    S: std::hash::BuildHasher + Send,
 {
     Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
-        // Load context documents from all sources using .load() Stream API
+        // Destructure config and contexts for easier access
+        let ChatSessionConfig { model_config, chat_config, provider, memory, tools, metadata } = config;
+        let ChatSessionContexts { context_file, context_files, context_directory, context_github } = contexts;
+        let ChatSessionHandlers { on_chunk_handler, on_tool_result_handler, on_conversation_turn_handler } = handlers;
 
-        // Load from context_file
-        if let Some(ctx) = context_file {
-            let stream = ctx.load();
-            tokio::pin!(stream);
-            while let Some(doc) = stream.next().await {
-                let doc_meta = MemoryMetadata {
-                    user_id: metadata.get("user_id").cloned(),
-                    agent_id: metadata.get("agent_id").cloned(),
-                    context: "session_context".to_string(),
-                    importance: 0.5,
-                    keywords: vec![],
-                    tags: vec![],
-                    category: "context".to_string(),
-                    source: doc.additional_props.get("path")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string()),
-                    created_at: chrono::Utc::now(),
-                    last_accessed_at: None,
-                    embedding: None,
-                    custom: serde_json::Value::Object(serde_json::Map::new()),
-                };
+        // Load context documents from all sources in parallel using tokio::spawn
+        let load_tasks = load_all_contexts(memory.clone(), &metadata, context_file, context_files, context_directory, context_github).await;
 
-                if let Err(e) = memory.add_memory(
-                    doc.data,
-                    MemoryTypeEnum::Semantic,
-                    Some(doc_meta)
-                ).await {
-                    log::warn!("Failed to load context document: {:?}", e);
-                }
-            }
-        }
-
-        // Load from context_files
-        if let Some(ctx) = context_files {
-            let stream = ctx.load();
-            tokio::pin!(stream);
-            while let Some(doc) = stream.next().await {
-                let doc_meta = MemoryMetadata {
-                    user_id: metadata.get("user_id").cloned(),
-                    agent_id: metadata.get("agent_id").cloned(),
-                    context: "session_context".to_string(),
-                    importance: 0.5,
-                    keywords: vec![],
-                    tags: vec![],
-                    category: "context".to_string(),
-                    source: doc.additional_props.get("path")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string()),
-                    created_at: chrono::Utc::now(),
-                    last_accessed_at: None,
-                    embedding: None,
-                    custom: serde_json::Value::Object(serde_json::Map::new()),
-                };
-
-                if let Err(e) = memory.add_memory(
-                    doc.data,
-                    MemoryTypeEnum::Semantic,
-                    Some(doc_meta)
-                ).await {
-                    log::warn!("Failed to load context document: {:?}", e);
-                }
-            }
-        }
-
-        // Load from context_directory
-        if let Some(ctx) = context_directory {
-            let stream = ctx.load();
-            tokio::pin!(stream);
-            while let Some(doc) = stream.next().await {
-                let doc_meta = MemoryMetadata {
-                    user_id: metadata.get("user_id").cloned(),
-                    agent_id: metadata.get("agent_id").cloned(),
-                    context: "session_context".to_string(),
-                    importance: 0.5,
-                    keywords: vec![],
-                    tags: vec![],
-                    category: "context".to_string(),
-                    source: doc.additional_props.get("path")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string()),
-                    created_at: chrono::Utc::now(),
-                    last_accessed_at: None,
-                    embedding: None,
-                    custom: serde_json::Value::Object(serde_json::Map::new()),
-                };
-
-                if let Err(e) = memory.add_memory(
-                    doc.data,
-                    MemoryTypeEnum::Semantic,
-                    Some(doc_meta)
-                ).await {
-                    log::warn!("Failed to load context document: {:?}", e);
-                }
-            }
-        }
-
-        // Load from context_github
-        if let Some(ctx) = context_github {
-            let stream = ctx.load();
-            tokio::pin!(stream);
-            while let Some(doc) = stream.next().await {
-                let doc_meta = MemoryMetadata {
-                    user_id: metadata.get("user_id").cloned(),
-                    agent_id: metadata.get("agent_id").cloned(),
-                    context: "session_context".to_string(),
-                    importance: 0.5,
-                    keywords: vec![],
-                    tags: vec![],
-                    category: "context".to_string(),
-                    source: doc.additional_props.get("path")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string()),
-                    created_at: chrono::Utc::now(),
-                    last_accessed_at: None,
-                    embedding: None,
-                    custom: serde_json::Value::Object(serde_json::Map::new()),
-                };
-
-                if let Err(e) = memory.add_memory(
-                    doc.data,
-                    MemoryTypeEnum::Semantic,
-                    Some(doc_meta)
-                ).await {
-                    log::warn!("Failed to load context document: {:?}", e);
-                }
+        // Wait for all context loading tasks to complete
+        for task in load_tasks {
+            if let Err(e) = task.await {
+                log::warn!("Context loading task panicked: {e:?}");
             }
         }
 
@@ -314,8 +322,7 @@ where
                         Ok(()) => Some(router),
                         Err(e) => {
                             let error_chunk = CandleMessageChunk::Error(format!(
-                                "Tool initialization failed: {}",
-                                e
+                                "Tool initialization failed: {e}"
                             ));
                             let _ = sender.send(error_chunk);
                             return;
@@ -333,7 +340,7 @@ where
                         }
                     }
                     Err(e) => {
-                        log::warn!("Memory search failed: {:?}", e);
+                        log::warn!("Memory search failed: {e:?}");
                         String::new()
                     }
                 };
@@ -346,25 +353,26 @@ where
                     system_prompt.push_str("\n\n");
                     system_prompt.push_str(custom);
                 }
-                system_prompt.push_str(&format!(
+                let _ = write!(
+                    system_prompt,
                     "\n\nPersonality: {} (creativity: {:.1}, formality: {:.1}, empathy: {:.1})",
                     chat_config.personality.personality_type,
                     chat_config.personality.creativity,
                     chat_config.personality.formality,
                     chat_config.personality.empathy
-                ));
+                );
 
                 let full_prompt = if memory_context.is_empty() {
-                    format!("{}\n\nUser: {}", system_prompt, user_message)
+                    format!("{system_prompt}\n\nUser: {user_message}")
                 } else {
-                    format!("{}\n\n{}\n\nUser: {}", system_prompt, memory_context, user_message)
+                    format!("{system_prompt}\n\n{memory_context}\n\nUser: {user_message}")
                 };
 
                 // Call provider
                 let prompt = CandlePrompt::new(full_prompt);
                 let mut params = CandleCompletionParams {
-                    temperature: model_config.temperature as f64,
-                    max_tokens: model_config.max_tokens.and_then(|t| std::num::NonZeroU64::new(t as u64)),
+                    temperature: f64::from(model_config.temperature),
+                    max_tokens: model_config.max_tokens.and_then(|t| std::num::NonZeroU64::new(u64::from(t))),
                     ..Default::default()
                 };
 
@@ -406,15 +414,15 @@ where
                             let elapsed = start_time.elapsed();
                             let elapsed_secs = elapsed.as_secs_f64();
                             let tokens_per_sec = if elapsed_secs > 0.0 {
-                                Some(token_count as f64 / elapsed_secs)
+                                Some(f64::from(token_count) / elapsed_secs)
                             } else {
                                 None
                             };
 
                             CandleMessageChunk::Complete {
                                 text: text.clone(),
-                                finish_reason: finish_reason.map(|f| format!("{:?}", f)),
-                                usage: usage.map(|u| format!("{:?}", u)),
+                                finish_reason: finish_reason.map(|f| format!("{f:?}")),
+                                usage: usage.map(|u| format!("{u:?}")),
                                 token_count: Some(token_count),
                                 elapsed_secs: Some(elapsed_secs),
                                 tokens_per_sec,
@@ -441,23 +449,21 @@ where
                                             Ok(response) => {
                                                 // Call tool result handler if configured
                                                 if let Some(ref handler) = on_tool_result_handler {
-                                                    let results = vec![format!("{:?}", response)];
+                                                    let results = vec![format!("{response:?}")];
                                                     handler(&results).await;
                                                 }
 
                                                 CandleMessageChunk::Text(format!(
-                                                    "Tool '{}' executed: {:?}",
-                                                    name, response
+                                                    "Tool '{name}' executed: {response:?}"
                                                 ))
                                             }
                                             Err(e) => CandleMessageChunk::Error(format!(
-                                                "Tool '{}' failed: {}",
-                                                name, e
+                                                "Tool '{name}' failed: {e}"
                                             )),
                                         }
                                     }
                                     Err(e) => {
-                                        CandleMessageChunk::Error(format!("Invalid JSON: {}", e))
+                                        CandleMessageChunk::Error(format!("Invalid JSON: {e}"))
                                     }
                                 }
                             } else {
@@ -510,10 +516,10 @@ where
                     tokio::spawn(async move {
                         if let Err(e) = memory_clone.add_memory(
                             user_msg,
-                            MemoryTypeEnum::Episodic,
+                            DomainMemoryTypeEnum::Episodic,
                             Some(user_meta)
                         ).await {
-                            log::error!("Failed to store user memory: {:?}", e);
+                            log::error!("Failed to store user memory: {e:?}");
                         }
                     });
 
@@ -522,10 +528,10 @@ where
                     tokio::spawn(async move {
                         if let Err(e) = memory_clone.add_memory(
                             assistant_msg,
-                            MemoryTypeEnum::Episodic,
+                            DomainMemoryTypeEnum::Episodic,
                             Some(assistant_meta)
                         ).await {
-                            log::error!("Failed to store assistant memory: {:?}", e);
+                            log::error!("Failed to store assistant memory: {e:?}");
                         }
                     });
                 }
@@ -545,8 +551,8 @@ where
                         name: String::from("agent"),
                         text_to_text_model: provider.clone(),
                         text_embedding_model: None,  // No longer available here
-                        temperature: model_config.temperature as f64,
-                        max_tokens: model_config.max_tokens.unwrap_or(4096) as u64,
+                        temperature: f64::from(model_config.temperature),
+                        max_tokens: u64::from(model_config.max_tokens.unwrap_or(4096)),
                         memory_read_timeout: model_config.timeout_ms,
                         system_prompt: model_config.system_prompt.clone().unwrap_or_default(),
                         tools: tools.to_vec().into(),
@@ -562,9 +568,7 @@ where
                     });
 
                     // Create agent with full state
-                    let agent = CandleAgentRoleAgent {
-                        state: builder_state,
-                    };
+                    let agent = CandleAgentRoleAgent::new(builder_state);
 
                     // Call handler and await the future to get the stream
                     let handler_stream = handler(&conversation, &agent).await;

@@ -129,8 +129,8 @@ impl ChatTemplate {
             category: self.metadata.category,
             size: self.content.len(),
             variable_count: self.variables.len(),
-            created_at: self.metadata.created_at as i64,
-            modified_at: self.metadata.modified_at as i64,
+            created_at: self.metadata.created_at.cast_signed(),
+            modified_at: self.metadata.modified_at.cast_signed(),
             version: self.metadata.version.clone(),
         }
     }

@@ -19,6 +19,7 @@ pub static SCRIPT_INJECTION_REGEX: LazyLock<Option<Regex>> =
     LazyLock::new(|| Regex::new(r"<script[^>]*>").ok());
 
 /// Get all security regex patterns as a vector
+#[must_use]
 pub fn get_security_patterns() -> Vec<Regex> {
     [
         &*COMMAND_INJECTION_REGEX,

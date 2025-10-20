@@ -1,6 +1,6 @@
 //! Action executor implementations
 //!
-//! Implements the DomainCommandExecutor trait for action commands:
+//\! Implements the `DomainCommandExecutor` trait for action commands:
 //! tool, copy, retry, undo, history, and custom.
 
 use std::pin::Pin;
@@ -8,7 +8,7 @@ use tokio_stream::Stream;
 
 use super::{
     executor_trait::DomainCommandExecutor,
-    executor_defs::*,
+    executor_defs::{DomainToolExecutor, DomainCopyExecutor, DomainRetryExecutor, DomainUndoExecutor, DomainHistoryExecutor, DomainCustomExecutor},
     CommandExecutionContext, CommandExecutionResult, CommandInfo,
     ImmutableChatCommand, ValidationResult,
 };

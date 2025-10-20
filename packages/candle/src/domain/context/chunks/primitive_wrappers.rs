@@ -1,14 +1,14 @@
-//! Primitive type wrappers for MessageChunk compliance
+//\! Primitive type wrappers for `MessageChunk` compliance
 //!
 //! This module provides wrapper types for primitive and external types
-//! that cannot directly implement MessageChunk due to orphan rules.
+//\! that cannot directly implement `MessageChunk` due to orphan rules.
 //! Includes wrappers for:
 //! - Unit type ()
 //! - Uuid
 //! - bool
 //! - Duration
-//! - DateTime<Utc>
-//! - ZeroOneOrMany<T>
+//\! - DateTime<Utc>
+//\! - ZeroOneOrMany<T>
 
 use cyrup_sugars::{ZeroOneOrMany, prelude::MessageChunk};
 use serde::{Deserialize, Serialize};
@@ -28,7 +28,7 @@ impl MessageChunk for CandleUnit {
 }
 
 impl From<()> for CandleUnit {
-    fn from(_: ()) -> Self {
+    fn from((): ()) -> Self {
         CandleUnit(())
     }
 }

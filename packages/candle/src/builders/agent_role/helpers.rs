@@ -3,10 +3,14 @@
 use super::*;
 
 pub struct CandleAgentRoleAgent {
-    pub(super) state: Arc<AgentBuilderState>,
+    state: Arc<AgentBuilderState>,
 }
 
 impl CandleAgentRoleAgent {
+    pub(crate) fn new(state: Arc<AgentBuilderState>) -> Self {
+        Self { state }
+    }
+
     /// Chat method for use in on_conversation_turn closure - enables recursion
     pub fn chat(&self, chat_loop: CandleChatLoop) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>> {
         match chat_loop {
@@ -222,39 +226,7 @@ impl CandleAgentRoleAgent {
     }
 }
 
-/// Agent role builder trait - elegant zero-allocation builder pattern (PUBLIC API)
 
-pub(crate) fn format_memory_context(
-    memories: &[crate::domain::memory::primitives::node::MemoryNode],
-    max_tokens: usize,
-) -> String {
-    use std::fmt::Write;
-
-    let mut context = String::from("# Relevant Context from Memory:\n\n");
-    let mut token_count = 0usize;
-
-    for memory in memories {
-        // Approximate token count: chars / 4
-        let content_text = memory.content().to_string();
-        let memory_tokens = content_text.chars().count() / 4;
-
-        if token_count + memory_tokens > max_tokens {
-            break; // Exceed budget, stop adding
-        }
-
-        // Format with relevance indicator
-        let relevance = memory.importance();
-        let _ = writeln!(
-            &mut context,
-            "[Relevance: {:.2}] {}\n",
-            relevance, content_text
-        );
-
-        token_count += memory_tokens;
-    }
-
-    context
-}
 
 
 pub trait ConversationHistoryArgs {

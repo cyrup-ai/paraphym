@@ -7,7 +7,7 @@ use crate::domain::util::unix_timestamp_nanos;
 
 /// Stream subscriber with atomic statistics
 #[derive(Debug)]
-pub(crate) struct StreamSubscriber {
+pub struct StreamSubscriber {
     /// Subscriber ID
     pub id: String,
     /// Session ID filter (None = all sessions)

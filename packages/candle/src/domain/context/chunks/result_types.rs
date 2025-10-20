@@ -1,8 +1,8 @@
 //! Result chunk types for operations
 //!
-//! This module provides result types that implement MessageChunk
+//\! This module provides result types that implement `MessageChunk`
 //! for various operations including:
-//! - General CandleResult wrapper
+//\! - General `CandleResult` wrapper
 //! - Parallel operation results
 //! - Context refresh results
 //! - Memory operation results

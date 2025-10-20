@@ -1,6 +1,6 @@
 //! Workflow executor implementations
 //!
-//! Implements the DomainCommandExecutor trait for workflow commands:
+//\! Implements the `DomainCommandExecutor` trait for workflow commands:
 //! template, macro, branch, session, and search.
 
 use std::pin::Pin;
@@ -8,7 +8,7 @@ use tokio_stream::Stream;
 
 use super::{
     executor_trait::DomainCommandExecutor,
-    executor_defs::*,
+    executor_defs::{DomainTemplateExecutor, DomainMacroExecutor, DomainBranchExecutor, DomainSessionExecutor, DomainSearchExecutor},
     CommandExecutionContext, CommandExecutionResult, CommandInfo,
     ImmutableChatCommand, ValidationResult,
 };

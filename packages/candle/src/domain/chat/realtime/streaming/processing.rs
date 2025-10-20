@@ -92,8 +92,9 @@ pub(crate) fn start_processing_stream(
 
                 // Report processing rate periodically
                 if last_rate_check.elapsed() >= Duration::from_secs(10) {
-                    let rate =
-                        messages_processed as f64 / last_rate_check.elapsed().as_secs_f64();
+                    let elapsed_secs = last_rate_check.elapsed().as_secs_f64();
+                    // Use f64 for rate calculation - precision loss is acceptable for metrics
+                    let rate = f64::from(u32::try_from(messages_processed).unwrap_or(u32::MAX)) / elapsed_secs;
 
                     let event = ProcessingEvent::RateReport {
                         messages_per_second: rate,

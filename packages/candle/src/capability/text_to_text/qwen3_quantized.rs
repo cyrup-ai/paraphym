@@ -276,13 +276,13 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3QuantizedModel 
                         Sampling::ArgMax
                     } else {
                         match (top_k, top_p) {
-                            (None, None) => Sampling::All { temperature: temperature as f64 },
-                            (Some(k), None) => Sampling::TopK { k, temperature: temperature as f64 },
-                            (None, Some(p)) => Sampling::TopP { p, temperature: temperature as f64 },
+                            (None, None) => Sampling::All { temperature },
+                            (Some(k), None) => Sampling::TopK { k, temperature },
+                            (None, Some(p)) => Sampling::TopP { p, temperature },
                             (Some(k), Some(p)) => Sampling::TopKThenTopP {
                                 k,
                                 p,
-                                temperature: temperature as f64,
+                                temperature,
                             },
                         }
                     };
@@ -344,7 +344,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3QuantizedModel 
 
                 // Apply temperature scaling
                 let logits = if temperature != 1.0 {
-                    match logits / temperature as f64 {
+                    match logits / temperature {
                         Ok(l) => l,
                         Err(e) => {
                             let _ = tx.send(CandleStringChunk(format!(
@@ -447,7 +447,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3QuantizedModel 
 
                     // Apply temperature scaling
                     let logits = if temperature != 1.0 {
-                        match logits / temperature as f64 {
+                        match logits / temperature {
                             Ok(l) => l,
                             Err(e) => {
                                 let _ = tx.send(CandleStringChunk(format!(
@@ -502,11 +502,10 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3QuantizedModel 
                 }
 
                 // Flush any remaining tokens
-                if let Ok(Some(t)) = tos.decode_rest() {
-                    if !t.is_empty() {
+                if let Ok(Some(t)) = tos.decode_rest()
+                    && !t.is_empty() {
                         let _ = tx.send(CandleStringChunk(t));
                     }
-                }
             })
         }))
     }

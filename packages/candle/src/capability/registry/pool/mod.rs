@@ -25,7 +25,8 @@
 //! 3. **IMAGE_EMBEDDING_POOL**: [`ImageEmbeddingCapable`](crate::capability::traits::ImageEmbeddingCapable) models
 //!    - ClipVision
 //!    - Operations: `embed_image()`
-//!//! 4. **VISION_POOL**: [`VisionCapable`](crate::capability::traits::VisionCapable) models
+//!
+//! 4. **VISION_POOL**: [`VisionCapable`](crate::capability::traits::VisionCapable) models
 //!    - LLaVA
 //!    - Operations: `process_vision()`
 //!
@@ -82,7 +83,8 @@
 //! 2. Send request via tokio mpsc channel
 //! 3. Worker processes request (exclusive model ownership)
 //! 4. Update metrics: `pending_requests--`, `last_used = now()`
-//!//! ### Idle Eviction (maintenance thread)
+//!
+//! ### Idle Eviction (maintenance thread)
 //!
 //! Every 60 seconds, the maintenance thread:
 //!
@@ -184,7 +186,8 @@
 //! - Large models (7-14GB each)
 //! - Already have internal state management
 //! - Lower priority for Phase 1
-//!//! ## Future Enhancements (Phase 2+)
+//!
+//! ## Future Enhancements (Phase 2+)
 //!
 //! - **Dynamic timeout adjustment** based on queue depth
 //! - **Worker health monitoring** with automatic restart

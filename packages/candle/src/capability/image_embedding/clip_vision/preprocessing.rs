@@ -70,22 +70,3 @@ pub async fn preprocess_image(
         .map_err(|e| format!("Failed to add batch dimension: {}", e))
 }
 
-/// Synchronous version for spawn_blocking contexts
-///
-/// Same as preprocess_image() but uses to_tensor_sync() instead of async to_tensor().
-/// Used by LoadedClipVisionModel which wraps operations in spawn_blocking.
-pub fn preprocess_image_sync(
-    image_builder: impl crate::builders::image::ImageBuilder,
-    config: &PreprocessingConfig,
-    device: &Device,
-) -> Result<Tensor, String> {
-    let image_tensor = image_builder
-        .resize(config.image_size, config.image_size, ResizeFilter::Triangle)
-        .normalize_unsigned()
-        .normalize_with(config.image_mean, config.image_std)
-        .to_tensor_sync(device)?;
-    
-    image_tensor
-        .unsqueeze(0)
-        .map_err(|e| format!("Failed to add batch dimension: {}", e))
-}

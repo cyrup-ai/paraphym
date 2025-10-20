@@ -10,8 +10,8 @@
 //! - `types`: Core enums and type definitions
 //! - `parser`: Conditional expression parsing
 //! - `context`: Execution context and metadata
-//! - `system`: MacroSystem implementation (recording/playback)
-//! - `processor`: MacroProcessor implementation (advanced features)
+//! - `system`: `MacroSystem` implementation (recording/playback)
+//! - `processor`: `MacroProcessor` implementation (advanced features)
 //! - `errors`: Result and error types
 
 pub mod types;

@@ -1,6 +1,5 @@
 //! Search and retrieval operations for memories
 
-use std::sync::Arc;
 use std::time::SystemTime;
 
 use futures_util::StreamExt;

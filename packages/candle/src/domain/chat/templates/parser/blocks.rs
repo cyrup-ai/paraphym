@@ -291,8 +291,8 @@ impl TemplateParser {
                     if tag_content.starts_with("if ") || tag_content.starts_with("for ") {
                         depth += 1;
                         // Add to body
-                        for j in i..tag_end + 2 {
-                            body.push(chars[j]);
+                        for ch in chars.iter().take(tag_end + 2).skip(i) {
+                            body.push(*ch);
                         }
                         i = tag_end + 2;
                         continue;
@@ -300,7 +300,7 @@ impl TemplateParser {
 
                     // Check if this is an end tag
                     for end_tag in end_tags {
-                        if (tag_content == *end_tag || tag_content.starts_with(&format!("{} ", end_tag)))
+                        if (tag_content == *end_tag || tag_content.starts_with(&format!("{end_tag} ")))
                             && depth == 0
                         {
                             // Found the matching end tag
@@ -312,16 +312,16 @@ impl TemplateParser {
                     if (tag_content == "endif" || tag_content == "endfor") && depth > 0 {
                         depth -= 1;
                         // Add to body
-                        for j in i..tag_end + 2 {
-                            body.push(chars[j]);
+                        for ch in chars.iter().take(tag_end + 2).skip(i) {
+                            body.push(*ch);
                         }
                         i = tag_end + 2;
                         continue;
                     }
 
                     // Other tag, add to body
-                    for j in i..tag_end + 2 {
-                        body.push(chars[j]);
+                    for ch in chars.iter().take(tag_end + 2).skip(i) {
+                        body.push(*ch);
                     }
                     i = tag_end + 2;
                     continue;
@@ -333,7 +333,7 @@ impl TemplateParser {
         }
 
         Err(TemplateError::ParseError {
-            message: format!("Unclosed block, expected one of: {:?}", end_tags),
+            message: format!("Unclosed block, expected one of: {end_tags:?}"),
         })
     }
 }

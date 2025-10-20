@@ -1,6 +1,6 @@
 //! Generic wrapper chunk types for common operations
 //!
-//! This module provides generic wrapper types that implement MessageChunk
+//\! This module provides generic wrapper types that implement `MessageChunk`
 //! for common data types including:
 //! - Unit operations (success/error)
 //! - String values

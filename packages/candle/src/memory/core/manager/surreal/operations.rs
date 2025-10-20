@@ -21,8 +21,6 @@ use super::manager::SurrealDBMemoryManager;
 use super::trait_def::MemoryManager;
 use super::types::{MemoryNodeCreateContent, RelationshipCreateContent};
 
-type Result<T> = std::result::Result<T, Error>;
-
 impl MemoryManager for SurrealDBMemoryManager {
     fn create_memory(&self, memory: MemoryNode) -> PendingMemory {
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -34,14 +32,13 @@ impl MemoryManager for SurrealDBMemoryManager {
                 let mut memory_with_embedding = memory.clone();
 
                 // Auto-generate embedding if model is configured and embedding is missing
-                if let Some(ref model) = embedding_model {
-                    if memory.metadata.embedding.is_none() {
-                        log::info!("Auto-generating embedding for memory: {}", memory.id);
-                        let embedding = model
-                            .embed(&memory.content.text, Some("document".to_string()))
-                            .await?;
-                        memory_with_embedding.metadata.embedding = Some(embedding);
-                    }
+                if let Some(ref model) = embedding_model
+                    && memory.metadata.embedding.is_none() {
+                    log::info!("Auto-generating embedding for memory: {}", memory.id);
+                    let embedding = model
+                        .embed(&memory.content.text, Some("document".to_string()))
+                        .await?;
+                    memory_with_embedding.metadata.embedding = Some(embedding);
                 }
 
                 let content = MemoryNodeCreateContent::from(&memory_with_embedding);

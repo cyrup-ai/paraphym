@@ -7,9 +7,9 @@
 //!
 //! - **media**: Media-related chunks (documents, images, audio, transcription, speech)
 //! - **completion**: Completion chunks for AI streaming responses
-//! - **generic_wrappers**: Generic wrapper types for common operations
-//! - **result_types**: Result types for operations (CandleResult, ParallelResult, etc.)
-//! - **primitive_wrappers**: Wrappers for primitive types to satisfy orphan rules
+//! - **`generic_wrappers`**: Generic wrapper types for common operations
+//! - **`result_types`**: Result types for operations (`CandleResult`, `ParallelResult`, etc.)
+//! - **`primitive_wrappers`**: Wrappers for primitive types to satisfy orphan rules
 
 // Module declarations
 pub mod completion;

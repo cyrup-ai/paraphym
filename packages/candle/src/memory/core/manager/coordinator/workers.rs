@@ -44,6 +44,6 @@ impl MemoryCoordinator {
     /// Returns `Error::Internal` if unable to enqueue due to channel closure
     pub fn enqueue_cognitive_task(&self, task: CognitiveTask) -> Result<()> {
         self.cognitive_queue.enqueue(task)
-            .map_err(|e| crate::memory::utils::Error::Internal(e))
+            .map_err(crate::memory::utils::Error::Internal)
     }
 }

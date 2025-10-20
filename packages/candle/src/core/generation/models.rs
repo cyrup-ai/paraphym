@@ -49,10 +49,10 @@ impl<T> SendPtr<T> {
 /// integration with the text generation system.
 pub trait CandleModel: Send + Sync {
     /// Perform a forward pass through the model (async)
-    /// 
+    ///
     /// Implementations should wrap CPU/GPU compute in spawn_blocking
     /// to avoid blocking the async runtime.
-    fn forward(&mut self, input: &Tensor, position: usize) -> Pin<Box<dyn Future<Output = CandleResult<Tensor>> + Send + '_>>;
+    fn forward<'a>(&'a mut self, input: &'a Tensor, position: usize) -> Pin<Box<dyn Future<Output = CandleResult<Tensor>> + Send + '_>>;
 
     /// Get the model's device
     fn device(&self) -> &Device;
@@ -202,7 +202,7 @@ impl CandleLlamaModel {
 }
 
 impl CandleModel for CandleLlamaModel {
-    fn forward(&mut self, input: &Tensor, position: usize) -> Pin<Box<dyn Future<Output = CandleResult<Tensor>> + Send + '_>> {
+    fn forward<'a>(&'a mut self, input: &'a Tensor, position: usize) -> Pin<Box<dyn Future<Output = CandleResult<Tensor>> + Send + '_>> {
         Box::pin(async move {
             let input_clone = input.clone();
             let model_ptr = unsafe { SendPtr::new(self as *mut Self) };
@@ -321,7 +321,7 @@ impl CandleQuantizedLlamaModel {
 }
 
 impl CandleModel for CandleQuantizedLlamaModel {
-    fn forward(&mut self, input: &Tensor, position: usize) -> Pin<Box<dyn Future<Output = CandleResult<Tensor>> + Send + '_>> {
+    fn forward<'a>(&'a mut self, input: &'a Tensor, position: usize) -> Pin<Box<dyn Future<Output = CandleResult<Tensor>> + Send + '_>> {
         Box::pin(async move {
             let input_clone = input.clone();
             let model_ptr = unsafe { SendPtr::new(self as *mut Self) };
@@ -489,7 +489,7 @@ impl CandleQuantizedMixFormerModel {
 }
 
 impl CandleModel for CandleQuantizedMixFormerModel {
-    fn forward(&mut self, input: &Tensor, position: usize) -> Pin<Box<dyn Future<Output = CandleResult<Tensor>> + Send + '_>> {
+    fn forward<'a>(&'a mut self, input: &'a Tensor, position: usize) -> Pin<Box<dyn Future<Output = CandleResult<Tensor>> + Send + '_>> {
         Box::pin(async move {
             let input_clone = input.clone();
             let model_ptr = unsafe { SendPtr::new(self as *mut Self) };
@@ -631,7 +631,7 @@ impl CandleQuantizedPhiModel {
 }
 
 impl CandleModel for CandleQuantizedPhiModel {
-    fn forward(&mut self, input: &Tensor, index_pos: usize) -> Pin<Box<dyn Future<Output = CandleResult<Tensor>> + Send + '_>> {
+    fn forward<'a>(&'a mut self, input: &'a Tensor, index_pos: usize) -> Pin<Box<dyn Future<Output = CandleResult<Tensor>> + Send + '_>> {
         Box::pin(async move {
             let input_clone = input.clone();
             let model_ptr = unsafe { SendPtr::new(self as *mut Self) };

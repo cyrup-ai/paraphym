@@ -42,12 +42,3 @@ pub use options::{
     OutputFormat,
     ImmutableCustomFormatRule,
 };
-
-// Re-export deprecated aliases for backward compatibility
-pub use compat::{
-    MessageContent,
-    FormatOptions,
-    ColorScheme,
-    CustomFormatRule,
-    MessageFormatter,
-};

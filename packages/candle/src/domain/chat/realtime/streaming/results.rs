@@ -6,7 +6,7 @@ use super::types::MessagePriority;
 
 /// Streaming operation results
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) enum StreamingResult {
+pub enum StreamingResult {
     /// Message successfully queued
     MessageQueued {
         message_id: String,
@@ -56,7 +56,7 @@ impl MessageChunk for StreamingResult {
 
 /// Unsubscribe operation results
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) enum UnsubscribeResult {
+pub enum UnsubscribeResult {
     /// Successfully unsubscribed
     Success {
         subscriber_id: String,
@@ -92,7 +92,7 @@ impl MessageChunk for UnsubscribeResult {
 
 /// Processing events for monitoring
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) enum ProcessingEvent {
+pub enum ProcessingEvent {
     /// Message processed and distributed
     MessageProcessed {
         message_id: String,

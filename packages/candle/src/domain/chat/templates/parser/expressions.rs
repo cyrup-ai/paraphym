@@ -102,8 +102,8 @@ impl TemplateParser {
         }
 
         // Handle array access (e.g., items[0])
-        if content.contains('[') && content.contains(']') {
-            if let Some(bracket_pos) = content.find('[') {
+        if content.contains('[') && content.contains(']')
+            && let Some(bracket_pos) = content.find('[') {
                 let array_name = content[..bracket_pos].trim();
                 if let Some(close_bracket) = content.rfind(']') {
                     let index_str = content[bracket_pos + 1..close_bracket].trim();
@@ -117,7 +117,6 @@ impl TemplateParser {
                     });
                 }
             }
-        }
 
         // Simple variable
         if content.chars().all(|c| c.is_alphanumeric() || c == '_') {

@@ -7,7 +7,7 @@ use super::errors::ValidationError;
 use regex::Regex;
 use std::collections::HashMap;
 
-/// Validation configuration for CommandValidator
+/// Validation configuration for `CommandValidator`
 #[derive(Debug, Clone)]
 pub struct ValidationConfig {
     pub max_command_length: usize,
@@ -36,6 +36,9 @@ impl Default for ValidationConfig {
 
 impl ValidationConfig {
     /// Validate string parameter with length and security checks
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the string is empty (when `allow_empty` is false) or exceeds the maximum length.
     pub fn validate_string_parameter(
         &self,
         name: &str,
@@ -62,14 +65,17 @@ impl ValidationConfig {
     }
 
     /// Validate integer parameter within optional range
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the value is outside the specified min/max range.
     pub fn validate_integer_parameter(
         name: &str,
         value: i64,
         min: Option<i64>,
         max: Option<i64>,
     ) -> Result<(), ValidationError> {
-        if let Some(min_val) = min {
-            if value < min_val {
+        if let Some(min_val) = min
+            && value < min_val {
                 return Err(ValidationError::ParameterOutOfRange {
                     parameter: name.to_string(),
                     value: value.to_string(),
@@ -77,10 +83,9 @@ impl ValidationConfig {
                     max: max.map(|m| m.to_string()),
                 });
             }
-        }
 
-        if let Some(max_val) = max {
-            if value > max_val {
+        if let Some(max_val) = max
+            && value > max_val {
                 return Err(ValidationError::ParameterOutOfRange {
                     parameter: name.to_string(),
                     value: value.to_string(),
@@ -88,12 +93,14 @@ impl ValidationConfig {
                     max: Some(max_val.to_string()),
                 });
             }
-        }
 
         Ok(())
     }
 
     /// Validate enum parameter against allowed values
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the value is not in the allowed values list.
     pub fn validate_enum_parameter(
         name: &str,
         value: &str,
@@ -111,6 +118,9 @@ impl ValidationConfig {
     }
 
     /// Validate path parameter
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the path contains traversal attempts (..), has invalid file extension, or fails string validation.
     pub fn validate_path_parameter(&self, name: &str, path: &str) -> Result<(), ValidationError> {
         // Basic string validation
         self.validate_string_parameter(name, path, false)?;
@@ -143,6 +153,9 @@ impl ValidationConfig {
     }
 
     /// Validate configuration key
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the key is not alphanumeric with dots, underscores, and hyphens.
     pub fn validate_config_key(&self, key: &str) -> Result<(), ValidationError> {
         self.validate_string_parameter("key", key, false)?;
 
@@ -164,12 +177,18 @@ impl ValidationConfig {
     }
 
     /// Validate configuration value
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the value fails string validation.
     pub fn validate_config_value(&self, value: &str) -> Result<(), ValidationError> {
         self.validate_string_parameter("value", value, true)?;
         Ok(())
     }
 
     /// Validate name parameter (for templates, macros, etc.)
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the name is not alphanumeric with underscores and hyphens.
     pub fn validate_name_parameter(
         &self,
         param_name: &str,
@@ -195,6 +214,9 @@ impl ValidationConfig {
     }
 
     /// Validate content parameter
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the content exceeds maximum length or contains script injection attempts.
     pub fn validate_content_parameter(
         &self,
         name: &str,
@@ -227,6 +249,9 @@ impl ValidationConfig {
     }
 
     /// Validate template/macro variables
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if there are too many variables or if any variable key/value fails validation.
     pub fn validate_variables(
         &self,
         variables: &HashMap<String, String>,
@@ -247,6 +272,9 @@ impl ValidationConfig {
     }
 
     /// Validate tool arguments
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if there are too many arguments or if any argument key/value fails validation.
     pub fn validate_tool_args(
         &self,
         args: &HashMap<String, String>,
@@ -267,6 +295,9 @@ impl ValidationConfig {
     }
 
     /// Validate theme properties
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if there are too many properties or if any property key/value fails validation.
     pub fn validate_theme_properties(
         &self,
         properties: &HashMap<String, String>,

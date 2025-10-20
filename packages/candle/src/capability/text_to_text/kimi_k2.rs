@@ -652,7 +652,7 @@ struct SharedKimiModel {
 }
 
 impl crate::core::generation::models::CandleModel for SharedKimiModel {
-    fn forward(&mut self, input: &candle_core::Tensor, index_pos: usize) -> Pin<Box<dyn Future<Output = Result<candle_core::Tensor, crate::domain::model::error::CandleModelError>> + Send + '_>> {
+    fn forward<'a>(&'a mut self, input: &'a candle_core::Tensor, index_pos: usize) -> Pin<Box<dyn Future<Output = Result<candle_core::Tensor, crate::domain::model::error::CandleModelError>> + Send + '_>> {
         Box::pin(async move {
             // Lock the mutex to get mutable access to the model
             let mut model = self.model.lock().await;

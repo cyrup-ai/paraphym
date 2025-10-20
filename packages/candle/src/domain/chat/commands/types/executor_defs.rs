@@ -1,7 +1,7 @@
 //! Executor struct definitions for all domain commands
 //!
 //! Each executor is a lightweight struct containing only command metadata.
-//! Actual execution logic is implemented via the DomainCommandExecutor trait.
+//! Actual execution logic is implemented via the `DomainCommandExecutor` trait.
 
 use super::CommandInfo;
 

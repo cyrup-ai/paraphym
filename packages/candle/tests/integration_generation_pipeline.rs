@@ -7,7 +7,8 @@
 //! according to the architecture defined in CANDLE_GENERATION_PIPELINE.md
 
 use cyrup_candle::core::engine::{Engine, EngineConfig};
-use cyrup_candle::domain::context::chunk::{CandleCompletionChunk, CandleStringChunk};
+use cyrup_candle::domain::completion::CandleCompletionChunk;
+use cyrup_candle::domain::context::chunks::CandleStringChunk;
 use cyrup_candle::StreamExt;
 
 /// Test 1: Provider Type Verification
@@ -152,31 +153,34 @@ async fn test_text_generator_with_mock_model() {
         device: Device,
     }
 
-    #[async_trait::async_trait]
     impl CandleModel for MockModel {
-        async fn forward(
-            &mut self,
-            input: &Tensor,
+        fn forward<'a>(
+            &'a mut self,
+            input: &'a Tensor,
             _position: usize,
-        ) -> cyrup_candle::core::generation::types::CandleResult<Tensor> {
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = cyrup_candle::core::generation::types::CandleResult<Tensor>> + Send + '_>> {
             // Return mock logits favoring token 0
             let dims = input.dims();
             let batch_size = dims[0];
             let seq_len = dims[1];
+            let vocab_size = self.vocab_size;
+            let device = self.device.clone();
 
-            let mut logits = vec![0.1f32; batch_size * seq_len * self.vocab_size];
+            Box::pin(async move {
+                let mut logits = vec![0.1f32; batch_size * seq_len * vocab_size];
 
-            // Make token 0 more likely
-            for i in 0..(batch_size * seq_len) {
-                logits[i * self.vocab_size] = 10.0;
-            }
+                // Make token 0 more likely
+                for i in 0..(batch_size * seq_len) {
+                    logits[i * vocab_size] = 10.0;
+                }
 
-            Tensor::from_slice(
-                &logits,
-                (batch_size, seq_len, self.vocab_size),
-                &self.device,
-            )
-            .map_err(|e| e.into())
+                Tensor::from_slice(
+                    &logits,
+                    (batch_size, seq_len, vocab_size),
+                    &device,
+                )
+                .map_err(|e| e.into())
+            })
         }
 
         fn device(&self) -> &Device {

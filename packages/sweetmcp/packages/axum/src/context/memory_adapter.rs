@@ -39,8 +39,7 @@ impl MemoryContextAdapter {
             .map_err(|e| anyhow::anyhow!("Failed to select namespace/database: {}", e))?;
         
         // Create SurrealDBMemoryManager with embeddings (assumes MEMFIX_1/2 completed)
-        let manager = SurrealDBMemoryManager::with_embeddings(db).await
-            .map_err(|e| anyhow::anyhow!("Failed to create manager with embeddings: {}", e))?;
+        let manager = SurrealDBMemoryManager::new(db);
         
         // Initialize schema and indexes
         manager.initialize().await

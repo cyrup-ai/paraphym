@@ -7,7 +7,7 @@ use std::hash::{Hash, Hasher};
 pub fn content_hash(content: &str) -> i64 {
     let mut hasher = DefaultHasher::new();
     content.hash(&mut hasher);
-    hasher.finish() as i64  // Cast to i64 for SurrealDB compatibility
+    hasher.finish().cast_signed()  // Cast to i64 for SurrealDB compatibility
 }
 
 /// Zero-allocation binary format for memory records

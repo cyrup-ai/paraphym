@@ -1,6 +1,6 @@
 //! Context implementation module for Candle context provider system
 //!
-//! This module contains CandleContext<T> and all type-specific implementations
+//! This module contains `CandleContext<T>` and all type-specific implementations
 //! for File, Files, Directory, and GitHub context operations.
 
 use std::collections::HashMap;
@@ -9,7 +9,6 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::time::SystemTime;
 use tokio_stream::Stream;
-use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use gitgix::{
     CloneOpts, FetchOpts, GitError as GitGixError, MergeOpts,
@@ -17,7 +16,7 @@ use gitgix::{
 };
 
 use crate::domain::context::CandleDocument as Document;
-use super::types::*;
+use super::types::{CandleImmutableFileContext, CandleImmutableFilesContext, CandleImmutableDirectoryContext, CandleImmutableGithubContext, CandleContextEvent, CandleFile, CandleFiles, CandleContextError, CandleDirectory, CandleGithub};
 use super::processor::CandleStreamingContextProcessor;
 
 /// Context wrapper with zero Arc usage
@@ -80,7 +79,7 @@ impl<T> CandleContext<T> {
 
 // CandleContext<CandleFile> implementation
 impl CandleContext<CandleFile> {
-    /// Load single file - EXACT syntax: `CandleContext`<CandleFile>`::of("/path/to/file.txt`")
+    /// Load single file - EXACT syntax: `CandleContext<CandleFile>::of("/path/to/file.txt")`
     #[inline]
     pub async fn of(path: impl AsRef<Path>) -> Self {
         use sha2::{Digest, Sha256};
@@ -150,7 +149,7 @@ impl CandleContext<CandleFile> {
 
 // CandleContext<CandleFiles> implementation
 impl CandleContext<CandleFiles> {
-    /// Glob pattern for files - EXACT syntax: `CandleContext`<CandleFiles>`::glob`("**/*.{rs,md}")
+    /// Glob pattern for files - EXACT syntax: `CandleContext<CandleFiles>::glob("**/*.{rs,md}")`
     #[inline]
     pub fn glob(pattern: impl AsRef<str>) -> Self {
         let pattern_str = pattern.as_ref().to_string();
@@ -217,7 +216,7 @@ impl CandleContext<CandleFiles> {
 
 // CandleContext<CandleDirectory> implementation
 impl CandleContext<CandleDirectory> {
-    /// Load all files from directory - EXACT syntax: `CandleContext`<CandleDirectory>`::of("/path/to/dir`")
+    /// Load all files from directory - EXACT syntax: `CandleContext<CandleDirectory>::of("/path/to/dir")`
     #[inline]
     pub fn of(path: impl AsRef<Path>) -> Self {
         let path_str = path.as_ref().to_string_lossy().to_string();
@@ -343,7 +342,7 @@ impl CandleContext<CandleDirectory> {
 
 // CandleContext<CandleGithub> implementation
 impl CandleContext<CandleGithub> {
-    /// Glob pattern for GitHub files - EXACT syntax: `CandleContext`<CandleGithub>`::glob("/repo`/**/*.{rs,md}")
+    /// Glob pattern for GitHub files - EXACT syntax: `CandleContext<CandleGithub>::glob("/repo/**/*.{rs,md}")`
     #[inline]
     pub fn glob(pattern: impl AsRef<str>) -> Self {
         let pattern_str = pattern.as_ref().to_string();

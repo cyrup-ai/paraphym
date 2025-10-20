@@ -5,7 +5,6 @@
 
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
 use surrealdb::engine::any::Any;
 use surrealdb::Surreal;
 
@@ -20,13 +19,6 @@ use std::path::Path;
 
 use super::types::ExportData;
 use super::Result;
-
-/// Data structure for holding export results
-#[derive(Debug, Serialize, Deserialize)]
-struct ExportPayload {
-    memories: Vec<MemoryNodeSchema>,
-    relationships: Vec<serde_json::Value>,
-}
 
 /// SurrealDB-backed memory manager implementation
 #[derive(Debug)]

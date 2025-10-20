@@ -1,6 +1,6 @@
 //! Command-specific validation implementations
 //!
-//! Provides validation logic for each command type in the ImmutableChatCommand enum.
+//\! Provides validation logic for each command type in the `ImmutableChatCommand` enum.
 //! Each validator focuses on the specific requirements of its command.
 
 use super::errors::ValidationError;
@@ -9,6 +9,9 @@ use std::collections::HashMap;
 
 impl ValidationConfig {
     /// Validate Help command - checks optional command parameter
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the command parameter fails string validation.
     #[inline]
     pub fn validate_help_command(&self, command: Option<&String>) -> Result<(), ValidationError> {
         if let Some(cmd) = command {
@@ -18,6 +21,9 @@ impl ValidationConfig {
     }
 
     /// Validate Clear command - checks `keep_last` range
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if `keep_last` is not within the range 1-1000.
     #[inline]
     pub fn validate_clear_command(keep_last: Option<&usize>) -> Result<(), ValidationError> {
         if let Some(n) = keep_last {
@@ -32,6 +38,10 @@ impl ValidationConfig {
     }
 
     /// Validate Export command - checks format enum and output path
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the format is not one of the supported types (json, markdown, pdf, html)
+    /// or if the output path is invalid.
     #[inline]
     pub fn validate_export_command(
         &self,
@@ -46,6 +56,9 @@ impl ValidationConfig {
     }
 
     /// Validate Config command - checks key/value format
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the config key or value fails validation.
     #[inline]
     pub fn validate_config_command(
         &self,
@@ -62,6 +75,9 @@ impl ValidationConfig {
     }
 
     /// Validate Search command - checks query and limit
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the query is invalid or if the limit is not within range 1-100.
     #[inline]
     pub fn validate_search_command(
         &self,
@@ -81,6 +97,9 @@ impl ValidationConfig {
     }
 
     /// Validate Template command - checks name, content, and variables
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the name, content, or variables fail validation.
     #[inline]
     pub fn validate_template_command(
         &self,
@@ -99,6 +118,9 @@ impl ValidationConfig {
     }
 
     /// Validate Macro command - checks name and commands list
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the name or any command in the list fails validation.
     #[inline]
     pub fn validate_macro_command(
         &self,
@@ -115,6 +137,9 @@ impl ValidationConfig {
     }
 
     /// Validate Branch command - checks name and source
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the name or source parameter fails validation.
     #[inline]
     pub fn validate_branch_command(
         &self,
@@ -131,6 +156,9 @@ impl ValidationConfig {
     }
 
     /// Validate Session command - checks optional name
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the name parameter fails validation.
     #[inline]
     pub fn validate_session_command(&self, name: Option<&str>) -> Result<(), ValidationError> {
         if let Some(n) = name {
@@ -140,6 +168,9 @@ impl ValidationConfig {
     }
 
     /// Validate Tool command - checks name and args
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the name or args fail validation.
     #[inline]
     pub fn validate_tool_command(
         &self,
@@ -154,6 +185,9 @@ impl ValidationConfig {
     }
 
     /// Validate Stats command - checks optional period
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the period is not one of: day, week, month, year.
     #[inline]
     pub fn validate_stats_command(period: Option<&str>) -> Result<(), ValidationError> {
         if let Some(p) = period {
@@ -163,6 +197,9 @@ impl ValidationConfig {
     }
 
     /// Validate Theme command - checks name and properties
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the name or properties fail validation.
     #[inline]
     pub fn validate_theme_command(
         &self,
@@ -177,6 +214,9 @@ impl ValidationConfig {
     }
 
     /// Validate Debug command - checks optional level
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the level is not one of: trace, debug, info, warn, error.
     #[inline]
     pub fn validate_debug_command(level: Option<&str>) -> Result<(), ValidationError> {
         if let Some(l) = level {
@@ -186,6 +226,9 @@ impl ValidationConfig {
     }
 
     /// Validate History command - checks optional filter
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the filter parameter fails validation.
     #[inline]
     pub fn validate_history_command(&self, filter: Option<&str>) -> Result<(), ValidationError> {
         if let Some(f) = filter {
@@ -195,6 +238,9 @@ impl ValidationConfig {
     }
 
     /// Validate Save command - checks name and location
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the name or location parameter fails validation.
     #[inline]
     pub fn validate_save_command(
         &self,
@@ -211,6 +257,9 @@ impl ValidationConfig {
     }
 
     /// Validate Load command - checks name and location
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the name or location parameter fails validation.
     #[inline]
     pub fn validate_load_command(
         &self,
@@ -225,6 +274,9 @@ impl ValidationConfig {
     }
 
     /// Validate Import command - checks source path
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the source path is invalid.
     #[inline]
     pub fn validate_import_command(&self, source: &str) -> Result<(), ValidationError> {
         self.validate_path_parameter("source", source)?;
@@ -232,6 +284,9 @@ impl ValidationConfig {
     }
 
     /// Validate Settings command - checks key and value
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the key or value fails validation.
     #[inline]
     pub fn validate_settings_command(
         &self,
@@ -248,6 +303,9 @@ impl ValidationConfig {
     }
 
     /// Validate Custom command - checks name and args
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the name or args fail validation.
     #[inline]
     pub fn validate_custom_command(
         &self,
@@ -259,7 +317,10 @@ impl ValidationConfig {
         Ok(())
     }
 
-    /// Validate Copy command - checks message_id and content
+    /// Validate Copy command - checks `message_id` and content
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the `message_id` or content parameter fails validation.
     #[inline]
     pub fn validate_copy_command(
         &self,
@@ -276,6 +337,9 @@ impl ValidationConfig {
     }
 
     /// Validate Retry command - checks command and attempts
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the command parameter is invalid or if attempts is not within range 1-10.
     #[inline]
     pub fn validate_retry_command(
         &self,
@@ -297,6 +361,9 @@ impl ValidationConfig {
     }
 
     /// Validate Undo command - checks count
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if count is not within range 1-100.
     #[inline]
     pub fn validate_undo_command(count: Option<usize>) -> Result<(), ValidationError> {
         if let Some(n) = count {
@@ -311,6 +378,9 @@ impl ValidationConfig {
     }
 
     /// Validate Chat command - checks message, context, and priority
+    ///
+    /// # Errors
+    /// Returns `ValidationError` if the message, context, or priority (must be 0-10) fails validation.
     #[inline]
     pub fn validate_chat_command(
         &self,

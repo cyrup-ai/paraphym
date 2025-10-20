@@ -1,28 +1,25 @@
 //! Download coordination to prevent concurrent downloads of same file
 //!
-//! Uses global DashMap to coordinate downloads across all workers.
+//! Uses global `DashMap` to coordinate downloads across all workers.
 //! Pattern follows existing usage in pool.rs and macros.rs.
 
 use dashmap::DashMap;
-use lazy_static::lazy_static;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use tokio::sync::Mutex;
 
-lazy_static! {
-    /// Global registry of download locks keyed by "repo/filename"
-    ///
-    /// Ensures only one download happens at a time per file across all workers.
-    /// When multiple workers spawn simultaneously, first acquires lock and downloads,
-    /// others block until download completes then use cached file.
-    ///
-    /// # Pattern
-    /// Follows same DashMap pattern as:
-    /// - pool.rs: `workers: DashMap<String, Vec<W>>`
-    /// - macros.rs: `recording_sessions: DashMap<Uuid, MacroRecordingSession>`
-    static ref DOWNLOAD_LOCKS: DashMap<String, Arc<Mutex<()>>> = DashMap::new();
-}
+/// Global registry of download locks keyed by "repo/filename"
+///
+/// Ensures only one download happens at a time per file across all workers.
+/// When multiple workers spawn simultaneously, first acquires lock and downloads,
+/// others block until download completes then use cached file.
+///
+/// # Pattern
+/// Follows same `DashMap` pattern as:
+/// - pool.rs: `workers: DashMap<String, Vec<W>>`
+/// - macros.rs: `recording_sessions: DashMap<Uuid, MacroRecordingSession>`
+static DOWNLOAD_LOCKS: LazyLock<DashMap<String, Arc<Mutex<()>>>> = LazyLock::new(DashMap::new);
 
-/// Acquire download lock for specific HuggingFace file
+/// Acquire download lock for specific `HuggingFace` file
 ///
 /// # Arguments
 /// * `repo` - Repository identifier (e.g., "unsloth/Qwen3-1.7B-GGUF")
@@ -39,7 +36,7 @@ lazy_static! {
 /// // _guard drops here, releasing lock
 /// ```
 pub async fn acquire_download_lock(repo: &str, filename: &str) -> Arc<Mutex<()>> {
-    let key = format!("{}/{}", repo, filename);
+    let key = format!("{repo}/{filename}");
     
     DOWNLOAD_LOCKS
         .entry(key)

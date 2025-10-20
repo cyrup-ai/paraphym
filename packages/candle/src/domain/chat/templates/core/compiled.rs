@@ -101,11 +101,11 @@ impl CompiledTemplate {
         let condition_value = Self::render_ast(condition, context)?;
 
         // Check if condition is true (non-empty, not "false", not "0")
-        let is_true = !condition_value.is_empty()
+        let condition_met = !condition_value.is_empty()
             && condition_value != "false"
             && condition_value != "0";
 
-        if is_true {
+        if condition_met {
             Self::render_ast(if_true, context)
         } else if let Some(else_branch) = if_false {
             Self::render_ast(else_branch, context)
