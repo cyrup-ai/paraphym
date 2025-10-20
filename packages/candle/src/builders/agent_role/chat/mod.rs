@@ -3,11 +3,9 @@
 //! This module coordinates the chat functionality across several focused submodules:
 //! - memory_ops: Memory initialization, context loading, and storage
 //! - chat_orchestration: Main chat loop with tools and memory
-//! - simple_chat: Lightweight chat without full orchestration
 
 mod memory_ops;
 mod chat_orchestration;
-mod simple_chat;
 
 use super::*;
 
@@ -149,6 +147,15 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
     }
 
     fn chat_with_message(self, message: impl Into<String>) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>> {
-        simple_chat::execute_simple_chat(self, message.into())
+        let msg = message.into();
+        match chat_orchestration::execute_chat(self, move |_| {
+            let msg = msg.clone();
+            async move { CandleChatLoop::UserPrompt(msg) }
+        }) {
+            Ok(stream) => stream,
+            Err(_) => Box::pin(crate::async_stream::spawn_stream(|sender| async move {
+                let _ = sender.send(CandleMessageChunk::Error("Chat failed".to_string()));
+            })),
+        }
     }
 }

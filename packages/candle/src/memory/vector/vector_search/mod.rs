@@ -15,7 +15,7 @@ mod core;
 mod hybrid;
 
 // Re-export public API (maintains backward compatibility)
-pub use types::{SearchResult, KeywordSearchFn};
+pub use types::{SearchResult, KeywordSearchFn, RequestInfoCallback};
 pub use options::SearchOptions;
 pub use core::VectorSearch;
 pub use hybrid::HybridSearch;
