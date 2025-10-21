@@ -295,4 +295,97 @@ impl SurrealDBMemoryManager {
 
         Ok(!results.is_empty())
     }
+
+    /// Load all entanglement edges from database into memory
+    ///
+    /// This method queries both `entangled` and `caused` RELATION tables to build
+    /// a complete in-memory graph of all entanglement relationships. This enables
+    /// the "prebuilt graph" pattern where the graph is loaded once at startup and
+    /// then used for all memory retrieval operations without additional queries.
+    ///
+    /// # Returns
+    /// * `Ok(Vec<EntanglementLink>)` - Complete graph of all entanglement edges
+    /// * `Err(Error)` - Database query failed
+    pub async fn load_all_entanglement_edges(
+        &self,
+    ) -> Result<Vec<crate::memory::cognitive::quantum::EntanglementLink>> {
+        use crate::memory::cognitive::quantum::EntanglementLink;
+
+        let mut all_links = Vec::new();
+
+        // Query all entangled edges (Semantic, Temporal, Emergent, etc.)
+        let entangled_query = "SELECT in AS source, out AS target, strength FROM entangled";
+
+        let mut response = self
+            .db
+            .query(entangled_query)
+            .await
+            .map_err(|e| Error::Database(format!("Failed to load entangled edges: {:?}", e)))?;
+
+        #[derive(serde::Deserialize)]
+        struct EntangledEdge {
+            source: serde_json::Value,
+            target: serde_json::Value,
+            strength: f32,
+        }
+
+        let entangled_results: Vec<EntangledEdge> = response
+            .take(0)
+            .map_err(|e| Error::Database(format!("Failed to parse entangled edges: {:?}", e)))?;
+
+        let entangled_count = entangled_results.len();
+
+        for edge in entangled_results {
+            let source_id = edge.source.as_str().unwrap_or_default().to_string();
+            let target_id = edge.target.as_str().unwrap_or_default().to_string();
+
+            all_links.push(EntanglementLink::new(
+                source_id,
+                target_id,
+                edge.strength as f64,
+            ));
+        }
+
+        // Query all causal edges
+        let causal_query = "SELECT in AS source, out AS target, strength FROM caused";
+
+        let mut response = self
+            .db
+            .query(causal_query)
+            .await
+            .map_err(|e| Error::Database(format!("Failed to load causal edges: {:?}", e)))?;
+
+        #[derive(serde::Deserialize)]
+        struct CausalEdge {
+            source: serde_json::Value,
+            target: serde_json::Value,
+            strength: f32,
+        }
+
+        let causal_results: Vec<CausalEdge> = response
+            .take(0)
+            .map_err(|e| Error::Database(format!("Failed to parse causal edges: {:?}", e)))?;
+
+        let causal_count = causal_results.len();
+
+        for edge in causal_results {
+            let source_id = edge.source.as_str().unwrap_or_default().to_string();
+            let target_id = edge.target.as_str().unwrap_or_default().to_string();
+
+            all_links.push(EntanglementLink::new(
+                source_id,
+                target_id,
+                edge.strength as f64,
+            ));
+        }
+
+        log::info!(
+            "Loaded {} entanglement edges ({} entangled + {} causal)",
+            all_links.len(),
+            entangled_count,
+            causal_count
+        );
+
+        Ok(all_links)
+    }
 }

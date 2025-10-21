@@ -3,6 +3,7 @@
 // New hierarchical module structure
 pub mod cognitive_queue;
 pub mod cognitive_worker;
+pub mod decay_worker;
 pub mod manager;
 pub mod ops;
 pub mod primitives;
@@ -47,3 +48,5 @@ pub use systems::*;
 // Cognitive queue exports
 pub use cognitive_queue::{CognitiveProcessingQueue, CognitiveTask, CognitiveTaskType};
 pub use cognitive_worker::CognitiveWorker;
+// Decay worker exports
+pub use decay_worker::{DecayWorker, DecayWorkerConfig};

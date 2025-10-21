@@ -57,7 +57,6 @@ impl MemoryCoordinator {
 
         let cognitive_queue = Arc::new(CognitiveProcessingQueue::new());
         let quantum_router = Arc::new(QuantumRouter::default());
-        let quantum_state = Arc::new(RwLock::new(QuantumState::new()));
 
         // Spawn cognitive workers as async tasks (now Send-compatible)
         let num_workers = 2;
@@ -81,6 +80,29 @@ impl MemoryCoordinator {
 
         log::info!("Started {} cognitive worker tasks", num_workers);
 
+        // Load entanglement graph from database into memory (prebuilt graph pattern)
+        // This enables entanglement boost during search without query overhead
+        let entanglement_links = surreal_manager
+            .load_all_entanglement_edges()
+            .await
+            .map_err(|e| {
+                log::warn!("Failed to load entanglement graph: {:?}", e);
+                e
+            })
+            .unwrap_or_default();
+
+        log::info!(
+            "Loaded {} entanglement edges into quantum graph",
+            entanglement_links.len()
+        );
+
+        // Populate quantum state with the prebuilt graph
+        let quantum_state_instance = QuantumState {
+            coherence_level: 1.0,
+            entanglement_links,
+            measurement_count: 0,
+        };
+
         Ok(Self {
             surreal_manager,
             repository: Arc::new(RwLock::new(MemoryRepository::new())),
@@ -88,7 +110,7 @@ impl MemoryCoordinator {
             cognitive_queue,
             committee_evaluator,
             quantum_router,
-            quantum_state,
+            quantum_state: Arc::new(RwLock::new(quantum_state_instance)),
             cognitive_state: Arc::new(RwLock::new(CognitiveState::new())),
             cognitive_workers: Arc::new(tokio::sync::RwLock::new(Vec::new())),
             lazy_eval_strategy: LazyEvalStrategy::default(),
