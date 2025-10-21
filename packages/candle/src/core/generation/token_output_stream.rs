@@ -40,15 +40,14 @@ impl TokenOutputStream {
         };
         self.tokens.push(token);
         let text = self.decode(&self.tokens[self.prev_index..])?;
-        if text.len() > prev_text.len() {
-            if let Some(last_char) = text.chars().last() {
-                if last_char.is_alphanumeric() {
-                    let text = text.split_at(prev_text.len());
-                    self.prev_index = self.current_index;
-                    self.current_index = self.tokens.len();
-                    return Ok(Some(text.1.to_string()));
-                }
-            }
+        if text.len() > prev_text.len()
+            && let Some(last_char) = text.chars().last()
+            && last_char.is_alphanumeric()
+        {
+            let text = text.split_at(prev_text.len());
+            self.prev_index = self.current_index;
+            self.current_index = self.tokens.len();
+            return Ok(Some(text.1.to_string()));
         }
         Ok(None)
     }

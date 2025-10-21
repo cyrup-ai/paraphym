@@ -32,13 +32,6 @@ use tokio_stream::{Stream, StreamExt};
 static CANDLE_COMMAND_EXECUTOR: std::sync::LazyLock<Arc<RwLock<Option<CommandExecutor>>>> =
     std::sync::LazyLock::new(|| Arc::new(RwLock::new(None)));
 
-/// Initialize global Candle command executor
-pub async fn initialize_candle_command_executor(context: &CommandExecutionContext) {
-    let executor = CommandExecutor::with_context(context);
-    let mut writer = CANDLE_COMMAND_EXECUTOR.write().await;
-    *writer = Some(executor);
-}
-
 /// Get global Candle command executor
 pub async fn get_candle_command_executor() -> Option<CommandExecutor> {
     let guard = CANDLE_COMMAND_EXECUTOR.read().await;

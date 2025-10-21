@@ -187,8 +187,9 @@ impl CandleConversationTagger {
             }
         }
     }
-    
-    /// Add a new auto-tag rule (mutable because auto_tag_rules is Vec)
+
+
+    /// Add a new auto-tag rule (mutable because `auto_tag_rules` is Vec)
     pub fn add_auto_tag_rule(&mut self, pattern: Regex, tag_ids: Vec<String>) {
         self.auto_tag_rules.push((pattern, tag_ids));
     }
@@ -327,7 +328,7 @@ impl CandleConversationTagger {
                 .iter()
                 .map(|e| e.value().len())
                 .sum();
-            total_tag_assignments as f32 / tagged_messages as f32
+            total_tag_assignments as f64 / tagged_messages as f64
         } else {
             0.0
         };

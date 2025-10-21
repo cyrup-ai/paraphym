@@ -41,10 +41,6 @@ pub struct CommandExecutor {
     successful_executions: AtomicU64,
     /// Failed executions count
     failed_executions: AtomicU64,
-    /// Default session ID for command execution (planned feature)
-    _default_session_id: String,
-    /// Environment variables for command execution (planned feature)
-    _environment: std::collections::HashMap<String, String>,
     /// Optional memory access for commands that need conversation history
     memory: Option<Arc<MemoryCoordinator>>,
 }
@@ -58,8 +54,6 @@ impl Clone for CommandExecutor {
             total_executions: AtomicU64::new(self.total_executions.load(Ordering::Relaxed)),
             successful_executions: AtomicU64::new(self.successful_executions.load(Ordering::Relaxed)),
             failed_executions: AtomicU64::new(self.failed_executions.load(Ordering::Relaxed)),
-            _default_session_id: self._default_session_id.clone(),
-            _environment: self._environment.clone(),
             memory: self.memory.clone(),
         }
     }
@@ -82,8 +76,6 @@ impl CommandExecutor {
             total_executions: AtomicU64::new(0),
             successful_executions: AtomicU64::new(0),
             failed_executions: AtomicU64::new(0),
-            _default_session_id: String::new(),
-            _environment: std::collections::HashMap::new(),
             memory: None,
         }
     }
@@ -98,29 +90,7 @@ impl CommandExecutor {
             total_executions: AtomicU64::new(0),
             successful_executions: AtomicU64::new(0),
             failed_executions: AtomicU64::new(0),
-            _default_session_id: String::new(),
-            _environment: std::collections::HashMap::new(),
             memory: Some(memory),
-        }
-    }
-
-    /// Create a new command executor with context
-    pub fn with_context(context: &CommandExecutionContext) -> Self {
-        Self {
-            parser: CommandParser::new(),
-            execution_counter: AtomicU64::new(1),
-            active_executions: AtomicUsize::new(0),
-            total_executions: AtomicU64::new(0),
-            successful_executions: AtomicU64::new(0),
-            failed_executions: AtomicU64::new(0),
-            _default_session_id: format!("session_{}", context.execution_id),
-            _environment: {
-                let mut env = std::collections::HashMap::new();
-                env.insert("EXECUTION_ENV".to_string(), context.command_name.clone());
-                env.insert("EXECUTION_ID".to_string(), context.execution_id.to_string());
-                env
-            },
-            memory: None,
         }
     }
 
@@ -448,7 +418,7 @@ impl CommandExecutor {
                         Err(e) => {
                             let _ = sender.send(CommandEvent::Failed {
                                 execution_id,
-                                error: format!("Failed to retrieve messages: {}", e),
+                                error: format!("Failed to retrieve messages: {e}"),
                                 error_code: 4001,
                                 duration_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
                                 resource_usage: ResourceUsage::default(),
@@ -485,7 +455,7 @@ impl CommandExecutor {
                 let _ = sender.send(CommandEvent::Progress {
                     execution_id,
                     progress: 50.0,
-                    message: format!("Preparing {} export...", format),
+                    message: format!("Preparing {format} export..."),
                     timestamp: std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or_default()
@@ -500,7 +470,7 @@ impl CommandExecutor {
                     _ => {
                         let _ = sender.send(CommandEvent::Failed {
                             execution_id,
-                            error: format!("Unsupported export format: {}", format),
+                            error: format!("Unsupported export format: {format}"),
                             error_code: 4002,
                             duration_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
                             resource_usage: ResourceUsage::default(),
@@ -536,7 +506,7 @@ impl CommandExecutor {
                     Err(e) => {
                         let _ = sender.send(CommandEvent::Failed {
                             execution_id,
-                            error: format!("Export failed: {}", e),
+                            error: format!("Export failed: {e}"),
                             error_code: 4003,
                             duration_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
                             resource_usage: ResourceUsage::default(),
@@ -564,7 +534,7 @@ impl CommandExecutor {
                 if let Err(e) = tokio::fs::write(&output_path, &export_data.content).await {
                     let _ = sender.send(CommandEvent::Failed {
                         execution_id,
-                        error: format!("Failed to write file: {}", e),
+                        error: format!("Failed to write file: {e}"),
                         error_code: 4004,
                         duration_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
                         resource_usage: ResourceUsage::default(),
@@ -634,7 +604,7 @@ async fn retrieve_conversation_messages(
     
     // Use public get_memories() API - returns Vec<DomainMemoryNode>
     let memories = memory.get_memories(filter).await
-        .map_err(|e| format!("Failed to retrieve memories: {}", e))?;
+        .map_err(|e| format!("Failed to retrieve memories: {e}"))?;
     
     // Convert domain memory nodes to CandleMessage format
     let mut messages: Vec<CandleMessage> = memories
@@ -814,11 +784,6 @@ impl CommandExecutor {
                 ));
             });
         }))
-    }
-
-    /// Get command name for metrics (zero-allocation) - planned feature
-    fn _get_command_name(command: &ImmutableChatCommand) -> &'static str {
-        command.command_name()
     }
 
     /// Get parser reference

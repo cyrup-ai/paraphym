@@ -41,5 +41,5 @@ pub struct CandleTaggingStatistics {
     /// Tags by depth in hierarchy
     pub tags_by_depth: HashMap<usize, usize>,
     /// Average tags per message
-    pub avg_tags_per_message: f32,
+    pub avg_tags_per_message: f64,
 }

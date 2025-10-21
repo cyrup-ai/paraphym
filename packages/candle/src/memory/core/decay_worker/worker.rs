@@ -135,24 +135,27 @@ impl DecayWorker {
         Ok(())
     }
 
-    /// Apply temporal decay to entanglement edge strengths
-    async fn decay_entanglement_edges(&self, memory_id: &str) -> Result<()> {
+    /// Generic method to apply temporal decay to edge strengths (entangled or caused)
+    async fn decay_edges_generic(&self, memory_id: &str, table_name: &str, error_context: &str) -> Result<()> {
         use surrealdb::RecordId;
         use std::collections::HashMap;
 
-        // Query all entanglement edges for this memory
-        let query = "SELECT id, in, out, strength, created_at FROM entangled WHERE in = $memory_id OR out = $memory_id";
-        let memory_id = memory_id.to_string();
+        // Query all edges for this memory
+        let query = format!(
+            "SELECT id, in, out, strength, created_at FROM {} WHERE in = $memory_id OR out = $memory_id",
+            table_name
+        );
+        let memory_id_owned = memory_id.to_string();
 
         let db = &self.coordinator.surreal_manager.db;
         let mut response = db
-            .query(query)
-            .bind(("memory_id", memory_id))
+            .query(&query)
+            .bind(("memory_id", memory_id_owned))
             .await
             .map_err(|e| crate::memory::utils::Error::Database(format!("{:?}", e)))?;
 
         #[derive(serde::Deserialize)]
-        struct EntanglementEdge {
+        struct EdgeData {
             id: RecordId,
             #[serde(rename = "in")]
             source: serde_json::Value,
@@ -162,16 +165,23 @@ impl DecayWorker {
             created_at: u64,
         }
 
-        let edges: Vec<EntanglementEdge> = response.take(0).unwrap_or_default();
+        let edges: Vec<EdgeData> = response.take(0).unwrap_or_default();
+
+        if edges.is_empty() {
+            return Ok(());
+        }
 
         // Track edge updates for cache synchronization
         let mut edge_updates: HashMap<(String, String), f64> = HashMap::new();
 
-        // Apply exponential decay to each edge
+        // Apply exponential decay to each edge and build batch update query
         let now = Utc::now();
         let decay_rate = self.coordinator.get_decay_rate();
 
-        for edge in edges {
+        let mut update_statements = Vec::new();
+        let mut new_strengths = Vec::new();
+
+        for (idx, edge) in edges.iter().enumerate() {
             let created_time = chrono::DateTime::<Utc>::from_timestamp_millis(edge.created_at as i64)
                 .unwrap_or_else(|| Utc::now());
 
@@ -182,20 +192,29 @@ impl DecayWorker {
             let decay_factor = (-decay_rate * days_old).exp();
             let new_strength = (edge.strength as f64 * decay_factor).max(0.01) as f32;
 
-            // Track update for cache synchronization
+            // Build UPDATE statement for this edge
+            update_statements.push(format!("UPDATE {} SET strength = $strength_{};", edge.id, idx));
+            new_strengths.push(new_strength);
+        }
+
+        // Execute batch UPDATE query - GUARANTEE success
+        let batch_query = update_statements.join("\n");
+        let mut query_builder = db.query(&batch_query);
+
+        for (idx, &strength) in new_strengths.iter().enumerate() {
+            query_builder = query_builder.bind((format!("strength_{}", idx), strength));
+        }
+
+        query_builder
+            .await
+            .map_err(|e| crate::memory::utils::Error::Database(format!(
+                "Failed to batch update {} edges: {:?}", error_context, e
+            )))?;
+
+        // Batch UPDATE succeeded - now safe to track for cache synchronization
+        for (edge, &new_strength) in edges.iter().zip(new_strengths.iter()) {
             if let (Some(src), Some(tgt)) = (edge.source.as_str(), edge.target.as_str()) {
                 edge_updates.insert((src.to_string(), tgt.to_string()), new_strength as f64);
-            }
-
-            // Update edge in database
-            let update_query = format!("UPDATE {} SET strength = $strength", edge.id);
-
-            if let Err(e) = db
-                .query(&update_query)
-                .bind(("strength", new_strength))
-                .await
-            {
-                log::warn!("Failed to update entanglement edge {:?}: {:?}", edge.id, e);
             }
         }
 
@@ -203,8 +222,18 @@ impl DecayWorker {
         if !edge_updates.is_empty() {
             let mut state = self.coordinator.quantum_state.write().await;
             for link in state.entanglement_links.iter_mut() {
-                if let Some(&new_strength) = edge_updates.get(&(link.node_a.clone(), link.node_b.clone()))
-                    .or_else(|| edge_updates.get(&(link.node_b.clone(), link.node_a.clone()))) {
+                // Check both directions without cloning
+                let key_forward = (link.node_a.as_ref(), link.node_b.as_ref());
+                let key_reverse = (link.node_b.as_ref(), link.node_a.as_ref());
+
+                // Look up using &str tuple, edge_updates stores String keys
+                let found_strength = edge_updates.iter()
+                    .find(|((a, b), _)| {
+                        (a.as_str(), b.as_str()) == key_forward || (a.as_str(), b.as_str()) == key_reverse
+                    })
+                    .map(|(_, &strength)| strength);
+
+                if let Some(new_strength) = found_strength {
                     link.entanglement_strength = new_strength;
                 }
             }
@@ -213,81 +242,13 @@ impl DecayWorker {
         Ok(())
     }
 
+    /// Apply temporal decay to entanglement edge strengths
+    async fn decay_entanglement_edges(&self, memory_id: &str) -> Result<()> {
+        self.decay_edges_generic(memory_id, "entangled", "entanglement").await
+    }
+
     /// Apply temporal decay to causal edge strengths
     async fn decay_causal_edges(&self, memory_id: &str) -> Result<()> {
-        use surrealdb::RecordId;
-        use std::collections::HashMap;
-
-        // Query all causal edges for this memory
-        let query = "SELECT id, in, out, strength, created_at FROM caused WHERE in = $memory_id OR out = $memory_id";
-        let memory_id = memory_id.to_string();
-
-        let db = &self.coordinator.surreal_manager.db;
-        let mut response = db
-            .query(query)
-            .bind(("memory_id", memory_id))
-            .await
-            .map_err(|e| crate::memory::utils::Error::Database(format!("{:?}", e)))?;
-
-        #[derive(serde::Deserialize)]
-        struct CausalEdge {
-            id: RecordId,
-            #[serde(rename = "in")]
-            source: serde_json::Value,
-            #[serde(rename = "out")]
-            target: serde_json::Value,
-            strength: f32,
-            created_at: u64,
-        }
-
-        let edges: Vec<CausalEdge> = response.take(0).unwrap_or_default();
-
-        // Track edge updates for cache synchronization
-        let mut edge_updates: HashMap<(String, String), f64> = HashMap::new();
-
-        // Apply exponential decay to each edge
-        let now = Utc::now();
-        let decay_rate = self.coordinator.get_decay_rate();
-
-        for edge in edges {
-            let created_time = chrono::DateTime::<Utc>::from_timestamp_millis(edge.created_at as i64)
-                .unwrap_or_else(|| Utc::now());
-
-            let age = now.signed_duration_since(created_time);
-            let days_old = age.num_seconds() as f64 / 86400.0;
-
-            // Calculate decayed strength: strength * e^(-decay_rate * days)
-            let decay_factor = (-decay_rate * days_old).exp();
-            let new_strength = (edge.strength as f64 * decay_factor).max(0.01) as f32;
-
-            // Track update for cache synchronization
-            if let (Some(src), Some(tgt)) = (edge.source.as_str(), edge.target.as_str()) {
-                edge_updates.insert((src.to_string(), tgt.to_string()), new_strength as f64);
-            }
-
-            // Update edge in database
-            let update_query = format!("UPDATE {} SET strength = $strength", edge.id);
-
-            if let Err(e) = db
-                .query(&update_query)
-                .bind(("strength", new_strength))
-                .await
-            {
-                log::warn!("Failed to update causal edge {:?}: {:?}", edge.id, e);
-            }
-        }
-
-        // Synchronize in-memory quantum state cache
-        if !edge_updates.is_empty() {
-            let mut state = self.coordinator.quantum_state.write().await;
-            for link in state.entanglement_links.iter_mut() {
-                if let Some(&new_strength) = edge_updates.get(&(link.node_a.clone(), link.node_b.clone()))
-                    .or_else(|| edge_updates.get(&(link.node_b.clone(), link.node_a.clone()))) {
-                    link.entanglement_strength = new_strength;
-                }
-            }
-        }
-
-        Ok(())
+        self.decay_edges_generic(memory_id, "caused", "causal").await
     }
 }

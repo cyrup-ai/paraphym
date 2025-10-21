@@ -63,10 +63,88 @@ impl MemoryCoordinator {
                 // Content/keyword search
                 self.surreal_manager.search_by_content(query)
             }
-            _ => {
-                // Default: Vector search (Quantum, Causal, Emergent, Hybrid)
+            crate::memory::cognitive::quantum::types::RoutingStrategy::Quantum => {
+                // Pure vector similarity search
                 let query_embedding = self.generate_embedding(query).await?;
-                self.surreal_manager.search_by_vector(query_embedding, top_k * 2) // Request 2x for filtering
+                self.surreal_manager.search_by_vector(query_embedding, top_k * 2)
+            }
+            crate::memory::cognitive::quantum::types::RoutingStrategy::Emergent => {
+                // Emergent pattern search: vector seeds + entanglement graph expansion
+                let query_embedding = self.generate_embedding(query).await?;
+                self.surreal_manager.search_with_entanglement(
+                    query_embedding,
+                    top_k * 2,
+                    3  // 3-hop graph expansion for pattern discovery
+                )
+            }
+            crate::memory::cognitive::quantum::types::RoutingStrategy::Causal => {
+                // Causal/temporal search: vector seeds + causal chain traversal via ->caused edges
+                let query_embedding = self.generate_embedding(query).await?;
+                self.surreal_manager.search_with_causal_expansion(
+                    query_embedding,
+                    top_k * 2,
+                    2  // 2-hop causal chain expansion
+                )
+            }
+            crate::memory::cognitive::quantum::types::RoutingStrategy::Hybrid(ref strategies) => {
+                // Hybrid search: execute multiple strategies and merge results
+                let query_embedding = self.generate_embedding(query).await?;
+
+                let mut all_results = Vec::new();
+                let mut seen_ids = std::collections::HashSet::new();
+
+                // Execute each sub-strategy
+                for strategy in strategies {
+                    let strategy_stream = match strategy {
+                        crate::memory::cognitive::quantum::types::RoutingStrategy::Attention => {
+                            self.surreal_manager.search_by_content(query)
+                        }
+                        crate::memory::cognitive::quantum::types::RoutingStrategy::Quantum => {
+                            self.surreal_manager.search_by_vector(query_embedding.clone(), top_k)
+                        }
+                        crate::memory::cognitive::quantum::types::RoutingStrategy::Emergent => {
+                            self.surreal_manager.search_with_entanglement(query_embedding.clone(), top_k, 3)
+                        }
+                        crate::memory::cognitive::quantum::types::RoutingStrategy::Causal => {
+                            self.surreal_manager.search_with_causal_expansion(query_embedding.clone(), top_k, 2)
+                        }
+                        crate::memory::cognitive::quantum::types::RoutingStrategy::Hybrid(_) => {
+                            // Nested Hybrid not supported - use deep entanglement search
+                            log::warn!("Nested Hybrid strategy encountered, using entanglement search");
+                            self.surreal_manager.search_with_entanglement(query_embedding.clone(), top_k, 4)
+                        }
+                    };
+
+                    // Collect results from this strategy
+                    let strategy_results: Vec<_> = strategy_stream.collect().await;
+
+                    for memory_result in strategy_results {
+                        if let Ok(memory_node) = memory_result {
+                            // Deduplicate by ID
+                            if seen_ids.insert(memory_node.id.clone()) {
+                                all_results.push(Ok(memory_node));
+                            }
+                        }
+                    }
+                }
+
+                log::info!(
+                    "Hybrid search executed {} strategies, collected {} unique results",
+                    strategies.len(),
+                    all_results.len()
+                );
+
+                // Return as stream
+                let (tx, rx) = tokio::sync::mpsc::channel(100);
+                tokio::spawn(async move {
+                    for result in all_results {
+                        if tx.send(result).await.is_err() {
+                            break;
+                        }
+                    }
+                });
+
+                super::super::surreal::futures::MemoryStream::new(rx)
             }
         };
 
@@ -230,10 +308,38 @@ impl MemoryCoordinator {
 
         // Update cognitive state with query pattern for adaptive routing
         {
-            let _cognitive_state_guard = self.cognitive_state.write().await;
-            // Track query for future routing adaptations
-            // (Actual tracking implementation depends on CognitiveState API)
-            log::debug!("Cognitive state updated for query: {}", query);
+            let cognitive_state_guard = self.cognitive_state.write().await;
+
+            // Track query in working memory for short-term pattern recognition
+            cognitive_state_guard.add_working_memory(
+                query.to_string(),
+                routing_decision.confidence as f32,
+                std::time::Duration::from_secs(300) // 5 minute TTL
+            );
+
+            // Update attention weights based on routing strategy effectiveness
+            // Higher confidence increases primary attention, redistributing from secondary/background
+            let (primary, secondary, background, meta) = cognitive_state_guard.attention_weights();
+            let confidence = routing_decision.confidence as f32;
+
+            // Boost primary attention proportional to confidence, reduce secondary/background
+            // Example: confidence=0.9 -> primary gets +18% from secondary/background pool
+            let boost = (confidence - 0.5).max(0.0) * 0.2;  // 0-10% boost
+            let reduction_factor = 1.0 - boost;
+
+            cognitive_state_guard.update_attention(
+                (primary + boost).min(1.0),
+                secondary * reduction_factor,
+                background * reduction_factor,
+                meta  // Meta attention unchanged
+            );
+
+            log::debug!(
+                "Cognitive state updated: query='{}', strategy={:?}, confidence={:.2}",
+                query,
+                routing_decision.strategy,
+                routing_decision.confidence
+            );
         }
 
         Ok(boosted_memories)

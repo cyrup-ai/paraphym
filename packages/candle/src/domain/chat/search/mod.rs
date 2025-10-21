@@ -191,13 +191,13 @@ impl ChatSearcher {
         }
 
         // Apply tag filter
-        if let Some(tag_filter) = &query.tag_filter {
-            if !tag_filter.is_empty() {
-                filtered.retain(|result| {
-                    // Message must have at least one of the filter tags
-                    result.tags.iter().any(|tag| tag_filter.contains(tag))
-                });
-            }
+        if let Some(tag_filter) = &query.tag_filter
+            && !tag_filter.is_empty()
+        {
+            filtered.retain(|result| {
+                // Message must have at least one of the filter tags
+                result.tags.iter().any(|tag| tag_filter.contains(tag))
+            });
         }
 
         filtered

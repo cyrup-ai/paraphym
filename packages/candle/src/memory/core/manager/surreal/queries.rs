@@ -117,6 +117,110 @@ impl SurrealDBMemoryManager {
         MemoryStream::new(rx)
     }
 
+    /// Causal search combining vector similarity with temporal causal chain expansion
+    ///
+    /// This method performs a two-phase search:
+    /// 1. MTREE-based vector similarity search to find initial "seed" memories
+    /// 2. Multi-hop causal graph traversal via ->caused edges to expand results
+    ///
+    /// # Arguments
+    /// * `query_vector` - The embedding vector to search for
+    /// * `limit` - Maximum number of results to return
+    /// * `expansion_depth` - Number of causal hops (0 = pure vector search, 1-5 = causal expansion)
+    ///
+    /// # Returns
+    /// A stream of memories ordered by relevance (vector score + causal proximity)
+    pub fn search_with_causal_expansion(
+        &self,
+        query_vector: Vec<f32>,
+        limit: usize,
+        expansion_depth: usize,
+    ) -> MemoryStream {
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
+        let db = self.db.clone();
+
+        tokio::spawn(async move {
+            let vector_json = serde_json::to_string(&query_vector).unwrap_or_default();
+            let safe_depth = expansion_depth.min(5);
+
+            let initial_limit = (limit as f32 * 0.3).ceil() as usize;
+
+            let sql = if safe_depth > 0 {
+                let mut depth_queries = Vec::new();
+                for depth in 1..=safe_depth {
+                    // Build forward causal chain: ->caused->memory->caused...
+                    let mut chain = String::from("->caused");
+                    for _ in 1..depth {
+                        chain.push_str("->memory->caused");
+                    }
+
+                    depth_queries.push(format!(
+                        "SELECT DISTINCT out AS id FROM (SELECT VALUE id FROM $seeds){} WHERE strength >= 0.5",
+                        chain
+                    ));
+                }
+
+                let union_queries = depth_queries.join(" UNION ");
+
+                format!("
+                    -- CTE for vector similarity seeds
+                    LET $seeds = (
+                        SELECT id,
+                               vector::similarity::cosine(metadata.embedding, {vector_json}) AS vector_score
+                        FROM memory
+                        WHERE metadata.embedding != NULL
+                        ORDER BY vector_score DESC
+                        LIMIT {initial_limit}
+                    );
+
+                    -- Causal query: seeds + multi-hop causal chain expansion
+                    SELECT DISTINCT m.* FROM memory m
+                    WHERE m.id IN (SELECT VALUE id FROM $seeds)  -- Include seed memories
+                    OR m.id IN (
+                        -- Multi-hop causal expansion using UNION pattern (depths 1..{safe_depth})
+                        SELECT DISTINCT VALUE id FROM ({union_queries})
+                    )
+                    LIMIT {limit};
+                ", vector_json = vector_json, initial_limit = initial_limit, limit = limit, safe_depth = safe_depth, union_queries = union_queries)
+            } else {
+                format!("
+                    SELECT *,
+                           vector::similarity::cosine(metadata.embedding, {vector_json}) AS vector_score
+                    FROM memory
+                    WHERE metadata.embedding != NULL
+                    ORDER BY vector_score DESC
+                    LIMIT {limit}
+                ", vector_json = vector_json, limit = limit)
+            };
+
+            match db.query(&sql).await {
+                Ok(mut response) => {
+                    let results: Vec<MemoryNodeSchema> = response.take(0).unwrap_or_default();
+
+                    log::info!(
+                        "Causal search (depth {}): {} total results (limit {})",
+                        safe_depth,
+                        results.len(),
+                        limit
+                    );
+
+                    for schema in results {
+                        let memory = SurrealDBMemoryManager::from_schema(schema);
+                        if tx.send(Ok(memory)).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!("Causal search failed (depth {}): {:?}", safe_depth, e);
+                    let _ = tx.send(Err(Error::Database(format!("{:?}", e)))).await;
+                }
+            }
+        });
+
+        MemoryStream::new(rx)
+    }
+
     /// Search memories by text with auto-embedding generation
     pub async fn search_by_text(&self, text: &str, limit: usize) -> Result<MemoryStream> {
         if let Some(ref embedding_model) = self.embedding_model {

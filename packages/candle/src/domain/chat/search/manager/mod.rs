@@ -109,8 +109,9 @@ impl CandleEnhancedHistoryManager {
         // Delegate to ChatSearcher which has full implementation
         searcher.search_stream(query_clone)
     }
-    
+
     /// Search messages by tag
+    #[must_use]
     pub fn search_by_tag(&self, tag: &str) -> Vec<CandleSearchChatMessage> {
         // Find tag ID by name
         let tag_id: Option<String> = self.tagger.tags
@@ -128,8 +129,9 @@ impl CandleEnhancedHistoryManager {
             Vec::new()
         }
     }
-    
+
     /// Get tags for a specific message
+    #[must_use]
     pub fn get_message_tags(&self, message_id: &str) -> Vec<String> {
         let tag_ids = self.tagger.get_tags(message_id);
         tag_ids
@@ -141,13 +143,15 @@ impl CandleEnhancedHistoryManager {
             })
             .collect()
     }
-    
+
     /// Get all tags with usage counts
+    #[must_use]
     pub fn get_all_tags(&self) -> Vec<(String, usize)> {
         self.tagger.get_all_tags()
     }
-    
+
     /// Get tag statistics
+    #[must_use]
     pub fn tag_statistics(&self) -> super::tagger::CandleTaggingStatistics {
         self.tagger.tag_statistics()
     }
