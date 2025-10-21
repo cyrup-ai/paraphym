@@ -28,10 +28,7 @@ use crate::domain::agent::role::CandleAgentConversation;
 use crate::domain::agent::{
     role::convert_serde_to_sweet_json,
 };
-use crate::builders::agent_role::CandleAgentRoleAgent;
-use crate::domain::completion::{CandleCompletionParams, CandleCompletionChunk};
-use crate::domain::prompt::CandlePrompt;
-use crate::domain::tool::router::{SweetMcpRouter, PluginConfig};
+use crate::domain::agent::core::AGENT_STATS;
 
 use crate::builders::agent_role::AgentBuilderState;
 use crate::capability::registry::TextToTextModel;
@@ -355,6 +352,15 @@ async fn stream_and_process_chunks(
                 tokens_per_sec,
             } => {
                 assistant_response.push_str(text);
+
+                // Record completion statistics
+                if let Some(token_count) = token_count {
+                    let duration_us = (elapsed_secs.unwrap_or(0.0) * 1_000_000.0) as u64;
+                    AGENT_STATS.record_completion(token_count as u64, duration_us);
+                } else if let Some(usage) = usage {
+                    let duration_us = (elapsed_secs.unwrap_or(0.0) * 1_000_000.0) as u64;
+                    AGENT_STATS.record_completion(usage.total_tokens as u64, duration_us);
+                }
 
                 CandleMessageChunk::Complete {
                     text: text.clone(),

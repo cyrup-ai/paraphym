@@ -22,6 +22,14 @@ pub trait CandleAgentRoleBuilder: Sized + Send {
     #[must_use]
     fn max_tokens(self, max: u64) -> impl CandleAgentRoleBuilder;
 
+    /// Set stop sequences - EXACT syntax: .stop_sequences(vec!["\n\n".to_string(), "###".to_string()])
+    #[must_use]
+    fn stop_sequences(self, sequences: Vec<String>) -> impl CandleAgentRoleBuilder;
+
+    /// Add single stop sequence - EXACT syntax: .add_stop_sequence("\n\n")
+    #[must_use]
+    fn add_stop_sequence(self, sequence: impl Into<String>) -> impl CandleAgentRoleBuilder;
+
     /// Set memory read timeout in milliseconds - EXACT syntax: .memory_read_timeout(5000)
     #[must_use]
     fn memory_read_timeout(self, timeout_ms: u64) -> impl CandleAgentRoleBuilder;
@@ -138,6 +146,14 @@ pub trait CandleAgentBuilder: Sized + Send + Sync {
     /// Set max tokens - EXACT syntax: .max_tokens(8000)
     #[must_use]
     fn max_tokens(self, max: u64) -> Self;
+
+    /// Set stop sequences - EXACT syntax: .stop_sequences(vec!["\n\n".to_string(), "###".to_string()])
+    #[must_use]
+    fn stop_sequences(self, sequences: Vec<String>) -> Self;
+
+    /// Add single stop sequence - EXACT syntax: .add_stop_sequence("\n\n")
+    #[must_use]
+    fn add_stop_sequence(self, sequence: impl Into<String>) -> Self;
 
     /// Set memory read timeout in milliseconds - EXACT syntax: .memory_read_timeout(5000)
     #[must_use]

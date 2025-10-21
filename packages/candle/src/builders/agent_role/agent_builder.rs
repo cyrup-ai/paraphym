@@ -40,6 +40,7 @@ pub struct CandleAgentBuilderImpl {
     pub(super) on_tool_result_handler: Option<OnToolResultHandler>,
     pub(super) on_conversation_turn_handler: Option<OnConversationTurnHandler>,
     pub(super) conversation_history: ZeroOneOrMany<(CandleMessageRole, String)>,
+    pub(super) stop_sequences: Vec<String>,
 }
 
 impl std::fmt::Debug for CandleAgentBuilderImpl {
@@ -91,7 +92,19 @@ impl CandleAgentRoleBuilder for CandleAgentBuilderImpl {
         self
     }
 
-    fn memory_read_timeout(mut self, timeout_ms: u64) -> impl CandleAgentRoleBuilder {
+    /// Set stop sequences - EXACT syntax: .stop_sequences(vec!["\n\n".to_string(), "###".to_string()])
+    fn stop_sequences(mut self, sequences: Vec<String>) -> impl CandleAgentRoleBuilder {
+        self.stop_sequences = sequences;
+        self
+    }
+
+    /// Add single stop sequence - EXACT syntax: .add_stop_sequence("\n\n")
+    fn add_stop_sequence(mut self, sequence: impl Into<String>) -> impl CandleAgentRoleBuilder {
+        self.stop_sequences.push(sequence.into());
+        self
+    }
+
+    fn memory_read_timeout(mut self, timeout_ms: u64) -> Self {
         self.memory_read_timeout = timeout_ms;
         self
     }
@@ -260,8 +273,7 @@ impl CandleAgentBuilderImpl {
             frequency_penalty: Some(0.0),
             presence_penalty: Some(0.0),
             
-            // Stop sequences (empty for now, could be extended)
-            stop_sequences: Vec::new(),
+            stop_sequences: self.stop_sequences.clone(),
             
             // System prompt from builder
             system_prompt: if self.system_prompt.is_empty() {

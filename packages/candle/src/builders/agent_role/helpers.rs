@@ -1,6 +1,7 @@
 //! Helper types and utility functions
 
 use super::*;
+use crate::domain::agent::core::AGENT_STATS;
 
 pub struct CandleAgentRoleAgent {
     state: Arc<AgentBuilderState>,
@@ -124,6 +125,15 @@ impl CandleAgentRoleAgent {
                         tokens_per_sec,
                     } => {
                         assistant_response.push_str(text);
+
+                        // Record completion statistics
+                        if let Some(token_count) = token_count {
+                            let duration_us = (elapsed_secs.unwrap_or(0.0) * 1_000_000.0) as u64;
+                            AGENT_STATS.record_completion(token_count as u64, duration_us);
+                        } else if let Some(usage) = usage {
+                            let duration_us = (elapsed_secs.unwrap_or(0.0) * 1_000_000.0) as u64;
+                            AGENT_STATS.record_completion(usage.total_tokens as u64, duration_us);
+                        }
 
                         CandleMessageChunk::Complete {
                             text: text.clone(),

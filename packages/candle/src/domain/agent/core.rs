@@ -1,6 +1,6 @@
 //! Core agent data structures with automatic memory tool injection
 
-use std::sync::{Arc, atomic::AtomicUsize};
+use std::sync::{Arc, atomic::{AtomicU64, AtomicUsize, Ordering}};
 
 use serde_json::Value;
 use sweet_mcp_type::ToolInfo;
@@ -17,12 +17,101 @@ use crate::memory::core::SurrealDBMemoryManager;
 // Tool data now comes from SweetMCP ToolInfo directly
 use cyrup_sugars::ZeroOneOrMany;
 
+/// High-performance lock-free counter for monitoring operations
+#[derive(Debug, Default)]
+pub struct RelaxedCounter {
+    value: AtomicU64,
+}
+
+impl RelaxedCounter {
+    #[inline]
+    pub const fn new(initial: u64) -> Self {
+        Self {
+            value: AtomicU64::new(initial),
+        }
+    }
+
+    #[inline]
+    pub fn get(&self) -> u64 {
+        self.value.load(Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub fn inc(&self) -> u64 {
+        self.value.fetch_add(1, Ordering::Relaxed)
+    }
+}
+
+/// Comprehensive agent performance statistics with lock-free atomics
+#[derive(Debug)]
+pub struct AgentStatistics {
+    /// Total agents created (atomic counter)
+    pub agents_created: RelaxedCounter,
+    /// Currently active agents (atomic counter)
+    pub agents_active: AtomicUsize,
+    /// Total completions processed (atomic counter)
+    pub completions_total: RelaxedCounter,
+    /// Total tokens processed across all completions (atomic counter)
+    pub tokens_total: RelaxedCounter,
+    /// Average completion time in microseconds (atomic)
+    pub avg_completion_time_us: AtomicU64,
+}
+
+impl AgentStatistics {
+    /// Create new statistics with zero allocation
+    #[inline]
+    pub const fn new() -> Self {
+        Self {
+            agents_created: RelaxedCounter::new(0),
+            agents_active: AtomicUsize::new(0),
+            completions_total: RelaxedCounter::new(0),
+            tokens_total: RelaxedCounter::new(0),
+            avg_completion_time_us: AtomicU64::new(0),
+        }
+    }
+
+    /// Record agent creation with atomic increment
+    #[inline]
+    pub fn record_agent_created(&self) {
+        self.agents_created.inc();
+        self.agents_active.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record agent destruction with atomic decrement
+    #[inline]
+    pub fn record_agent_destroyed(&self) {
+        self.agents_active.fetch_sub(1, Ordering::Relaxed);
+    }
+
+    /// Record completion with token counting and duration averaging
+    #[inline]
+    pub fn record_completion(&self, token_count: u64, duration_us: u64) {
+        self.completions_total.inc();
+        self.tokens_total.value.fetch_add(token_count, Ordering::Relaxed);
+
+        // Update average duration using atomic operations
+        let current_avg = self.avg_completion_time_us.load(Ordering::Relaxed);
+        let total_completions = self.completions_total.get();
+
+        if total_completions > 0 {
+            let new_avg = ((current_avg * (total_completions - 1)) + duration_us) / total_completions;
+            self.avg_completion_time_us.store(new_avg, Ordering::Relaxed);
+        }
+    }
+}
+
+impl Default for AgentStatistics {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Maximum number of tools per agent (const generic default)
 pub const MAX_AGENT_TOOLS: usize = 32;
 
 /// Agent statistics for performance monitoring
-#[allow(dead_code)] // TODO: Implement in agent monitoring system
-static AGENT_STATS: AtomicUsize = AtomicUsize::new(0);
+pub static AGENT_STATS: AgentStatistics = AgentStatistics::new();
 
 /// Result type for agent operations
 pub type AgentResult<T> = Result<T, AgentError>;
@@ -191,6 +280,9 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
                 error: None,
             };
 
+            // Record agent creation in statistics
+            AGENT_STATS.record_agent_created();
+
             // Send the successfully created agent
             let _ = tx.send(crate::domain::context::chunks::CandleResult { result: Ok(agent) });
         }))
@@ -299,6 +391,9 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
                 error: None,
             };
 
+            // Record agent creation in statistics
+            AGENT_STATS.record_agent_created();
+
             // Send the successfully created agent
             let _ = tx.send(crate::domain::context::chunks::CandleResult { result: Ok(agent) });
         }))
@@ -339,6 +434,9 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
                 additional_params: None,
                 error: None,
             };
+
+            // Record agent creation in statistics
+            AGENT_STATS.record_agent_created();
 
             let _ =
                 tx.send(crate::domain::context::chunks::CandleResult { result: Ok(agent) });
@@ -500,5 +598,32 @@ impl<M: Model> Agent<M> {
         if self.error.is_none() {
             self.system_prompt.clear(); // Clear error message from system_prompt
         }
+    }
+}
+
+impl<M: Model> Drop for Agent<M> {
+    fn drop(&mut self) {
+        AGENT_STATS.record_agent_destroyed();
+    }
+}
+
+/// Statistics snapshot for external access
+#[derive(Debug, Clone)]
+pub struct AgentStatsSnapshot {
+    pub agents_created: u64,
+    pub agents_active: usize,
+    pub completions_total: u64,
+    pub tokens_total: u64,
+    pub avg_completion_time_us: u64,
+}
+
+/// Get current agent statistics snapshot
+pub fn get_agent_stats() -> AgentStatsSnapshot {
+    AgentStatsSnapshot {
+        agents_created: AGENT_STATS.agents_created.get(),
+        agents_active: AGENT_STATS.agents_active.load(Ordering::Relaxed),
+        completions_total: AGENT_STATS.completions_total.get(),
+        tokens_total: AGENT_STATS.tokens_total.get(),
+        avg_completion_time_us: AGENT_STATS.avg_completion_time_us.load(Ordering::Relaxed),
     }
 }

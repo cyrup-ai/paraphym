@@ -70,6 +70,7 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
             on_tool_result_handler: self.on_tool_result_handler,
             on_conversation_turn_handler: self.on_conversation_turn_handler,
             conversation_history: self.conversation_history,
+            stop_sequences: self.stop_sequences,
         }
     }
 
@@ -88,6 +89,18 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
     /// Set max tokens - EXACT syntax: .max_tokens(8000)
     fn max_tokens(mut self, max: u64) -> impl CandleAgentRoleBuilder {
         self.max_tokens = Some(max);
+        self
+    }
+
+    /// Set stop sequences - EXACT syntax: .stop_sequences(vec!["\n\n".to_string(), "###".to_string()])
+    fn stop_sequences(mut self, sequences: Vec<String>) -> impl CandleAgentRoleBuilder {
+        self.stop_sequences = sequences;
+        self
+    }
+
+    /// Add single stop sequence - EXACT syntax: .add_stop_sequence("\n\n")
+    fn add_stop_sequence(mut self, sequence: impl Into<String>) -> impl CandleAgentRoleBuilder {
+        self.stop_sequences.push(sequence.into());
         self
     }
 
@@ -276,6 +289,7 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
             on_tool_result_handler: self.on_tool_result_handler,
             on_conversation_turn_handler: self.on_conversation_turn_handler,
             conversation_history: self.conversation_history,
+            stop_sequences: self.stop_sequences,
         }
     }
 }
