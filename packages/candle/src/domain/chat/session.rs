@@ -339,17 +339,10 @@ async fn stream_and_process_chunks(
 ) -> String {
     tokio::pin!(completion_stream);
     let mut assistant_response = String::new();
-    let mut start_time: Option<std::time::Instant> = None;
-    let mut token_count = 0u32;
 
     while let Some(completion_chunk) = completion_stream.next().await {
         let message_chunk = match completion_chunk {
             CandleCompletionChunk::Text(ref text) => {
-                // Start timing on first token (excludes model loading time)
-                if start_time.is_none() {
-                    start_time = Some(std::time::Instant::now());
-                }
-                token_count += 1;
                 assistant_response.push_str(text);
                 CandleMessageChunk::Text(text.clone())
             }
@@ -357,24 +350,18 @@ async fn stream_and_process_chunks(
                 ref text,
                 finish_reason,
                 usage,
+                token_count,
+                elapsed_secs,
+                tokens_per_sec,
             } => {
                 assistant_response.push_str(text);
-                // Calculate performance metrics (only if tokens were generated)
-                let elapsed_secs = start_time
-                    .map(|t| t.elapsed().as_secs_f64())
-                    .unwrap_or(0.0);
-                let tokens_per_sec = if elapsed_secs > 0.0 && token_count > 0 {
-                    Some(f64::from(token_count) / elapsed_secs)
-                } else {
-                    None
-                };
 
                 CandleMessageChunk::Complete {
                     text: text.clone(),
                     finish_reason: finish_reason.map(|f| format!("{f:?}")),
                     usage: usage.map(|u| format!("{u:?}")),
-                    token_count: Some(token_count),
-                    elapsed_secs: Some(elapsed_secs),
+                    token_count,
+                    elapsed_secs,
                     tokens_per_sec,
                 }
             }

@@ -205,11 +205,19 @@ impl DecayWorker {
             query_builder = query_builder.bind((format!("strength_{}", idx), strength));
         }
 
-        query_builder
+        let mut response = query_builder
             .await
             .map_err(|e| crate::memory::utils::Error::Database(format!(
                 "Failed to batch update {} edges: {:?}", error_context, e
             )))?;
+
+        // Verify each UPDATE statement succeeded - CRITICAL for cache sync correctness
+        for idx in 0..edges.len() {
+            response.take::<Vec<serde_json::Value>>(idx)
+                .map_err(|e| crate::memory::utils::Error::Database(format!(
+                    "UPDATE statement {} failed for {} edge: {:?}", idx, error_context, e
+                )))?;
+        }
 
         // Batch UPDATE succeeded - now safe to track for cache synchronization
         for (edge, &new_strength) in edges.iter().zip(new_strengths.iter()) {
@@ -222,18 +230,9 @@ impl DecayWorker {
         if !edge_updates.is_empty() {
             let mut state = self.coordinator.quantum_state.write().await;
             for link in state.entanglement_links.iter_mut() {
-                // Check both directions without cloning
-                let key_forward = (link.node_a.as_ref(), link.node_b.as_ref());
-                let key_reverse = (link.node_b.as_ref(), link.node_a.as_ref());
-
-                // Look up using &str tuple, edge_updates stores String keys
-                let found_strength = edge_updates.iter()
-                    .find(|((a, b), _)| {
-                        (a.as_str(), b.as_str()) == key_forward || (a.as_str(), b.as_str()) == key_reverse
-                    })
-                    .map(|(_, &strength)| strength);
-
-                if let Some(new_strength) = found_strength {
+                // HashMap O(1) lookup - string clones are cheap (refcount increment)
+                if let Some(&new_strength) = edge_updates.get(&(link.node_a.to_string(), link.node_b.to_string()))
+                    .or_else(|| edge_updates.get(&(link.node_b.to_string(), link.node_a.to_string()))) {
                     link.entanglement_strength = new_strength;
                 }
             }

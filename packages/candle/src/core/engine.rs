@@ -316,13 +316,58 @@ impl Engine {
         // Execute provider's generation function
         let completion_stream = generation_fn();
 
-        // Pass through with metrics tracking only
+        // Pass through with metrics tracking and timing augmentation
         async_stream::spawn_stream(move |tx| async move {
             use tokio_stream::StreamExt;
+            let mut token_count = 0u32;
+            let mut start_time: Option<std::time::Instant> = None;
             let mut has_error = false;
             let mut stream = Box::pin(completion_stream);
 
             while let Some(chunk) = stream.next().await {
+                // Track timing for text chunks
+                if matches!(chunk, CandleCompletionChunk::Text(_)) {
+                    if start_time.is_none() {
+                        start_time = Some(std::time::Instant::now());
+                    }
+                    token_count += 1;
+                }
+
+                // Augment Complete chunks with timing if not already present
+                let chunk = if let CandleCompletionChunk::Complete {
+                    text,
+                    finish_reason,
+                    usage,
+                    token_count: existing_count,
+                    elapsed_secs: existing_elapsed,
+                    tokens_per_sec: existing_tps
+                } = chunk {
+                    let elapsed_secs = existing_elapsed.or_else(|| start_time.map(|t| t.elapsed().as_secs_f64()));
+                    let final_token_count = existing_count.or_else(|| if token_count > 0 { Some(token_count) } else { None });
+                    let tokens_per_sec = existing_tps.or_else(|| {
+                        if let (Some(elapsed), Some(count)) = (elapsed_secs, final_token_count) {
+                            if elapsed > 0.0 && count > 0 {
+                                Some(count as f64 / elapsed)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    });
+
+                    CandleCompletionChunk::Complete {
+                        text,
+                        finish_reason,
+                        usage,
+                        token_count: final_token_count,
+                        elapsed_secs,
+                        tokens_per_sec,
+                    }
+                } else {
+                    chunk
+                };
+
                 // Check for error chunks
                 if matches!(chunk, CandleCompletionChunk::Error(_)) {
                     has_error = true;
@@ -360,6 +405,7 @@ impl Engine {
         async_stream::spawn_stream(move |tx| async move {
             use tokio_stream::StreamExt;
             let mut token_count = 0u32;
+            let mut start_time: Option<std::time::Instant> = None;
             let mut has_error = false;
             let mut stream = Box::pin(text_stream);
 
@@ -372,6 +418,10 @@ impl Engine {
                         CandleCompletionChunk::Error(text.clone())
                     }
                     CandleStringChunk(text) => {
+                        // Start timer on FIRST token (excludes model loading)
+                        if start_time.is_none() {
+                            start_time = Some(std::time::Instant::now());
+                        }
                         token_count += 1;
                         CandleCompletionChunk::Text(text.clone())
                     }
@@ -384,7 +434,19 @@ impl Engine {
                 }
             }
 
-            // Send completion marker with usage
+            // Calculate timing metrics
+            let elapsed_secs = start_time.map(|t| t.elapsed().as_secs_f64());
+            let tokens_per_sec = if let (Some(elapsed), count) = (elapsed_secs, token_count) {
+                if elapsed > 0.0 && count > 0 {
+                    Some(count as f64 / elapsed)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            // Send completion marker with usage and timing
             let final_chunk = CandleCompletionChunk::Complete {
                 text: String::new(),
                 finish_reason: if has_error {
@@ -397,6 +459,9 @@ impl Engine {
                     output_tokens: token_count,
                     total_tokens: token_count,
                 }),
+                token_count: if token_count > 0 { Some(token_count) } else { None },
+                elapsed_secs,
+                tokens_per_sec,
             };
             let _ = tx.send(final_chunk);
 

@@ -13,9 +13,9 @@ use tokio_stream::Stream;
 use super::parsing::CommandParser;
 use super::types::actions::SearchScope;
 use super::types::commands::{CommandExecutionResult, ImmutableChatCommand, OutputType};
-use super::types::events::{CommandEvent, CommandExecutionContext};
+use super::types::events::CommandEvent;
 use super::types::metadata::ResourceUsage;
-use crate::domain::chat::export::{ChatExporter, ExportConfig, ExportFormat};
+use crate::domain::chat::export::{ChatExporter, ExportConfig, ExportData, ExportFormat};
 use crate::domain::chat::message::{CandleMessage, CandleMessageRole};
 use crate::domain::util::unix_timestamp_micros;
 use crate::memory::core::manager::coordinator::MemoryCoordinator;
@@ -402,157 +402,62 @@ impl CommandExecutor {
                 });
 
                 // STEP 1: Retrieve messages from memory (25% progress)
-                let _ = sender.send(CommandEvent::Progress {
-                    execution_id,
-                    progress: 25.0,
-                    message: "Retrieving conversation messages...".to_string(),
-                    timestamp: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs(),
-                });
+                send_export_progress(&sender, execution_id, 25.0, "Retrieving conversation messages...".to_string());
 
                 let messages = if let Some(mem) = memory {
                     match retrieve_conversation_messages(&mem).await {
                         Ok(msgs) => msgs,
                         Err(e) => {
-                            let _ = sender.send(CommandEvent::Failed {
-                                execution_id,
-                                error: format!("Failed to retrieve messages: {e}"),
-                                error_code: 4001,
-                                duration_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
-                                resource_usage: ResourceUsage::default(),
-                                timestamp_us: current_timestamp_us(),
-                            });
+                            send_export_failure(&sender, execution_id, format!("Failed to retrieve messages: {e}"), 4001, &start_time);
                             return;
                         }
                     }
                 } else {
-                    let _ = sender.send(CommandEvent::Failed {
-                        execution_id,
-                        error: "Memory not available for export".to_string(),
-                        error_code: 4000,
-                        duration_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
-                        resource_usage: ResourceUsage::default(),
-                        timestamp_us: current_timestamp_us(),
-                    });
+                    send_export_failure(&sender, execution_id, "Memory not available for export".to_string(), 4000, &start_time);
                     return;
                 };
 
                 if messages.is_empty() {
-                    let _ = sender.send(CommandEvent::Failed {
-                        execution_id,
-                        error: "No messages to export".to_string(),
-                        error_code: 4001,
-                        duration_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
-                        resource_usage: ResourceUsage::default(),
-                        timestamp_us: current_timestamp_us(),
-                    });
+                    send_export_failure(&sender, execution_id, "No messages to export".to_string(), 4001, &start_time);
                     return;
                 }
 
                 // STEP 2: Parse format and create exporter (50% progress)
-                let _ = sender.send(CommandEvent::Progress {
-                    execution_id,
-                    progress: 50.0,
-                    message: format!("Preparing {format} export..."),
-                    timestamp: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs(),
-                });
+                send_export_progress(&sender, execution_id, 50.0, format!("Preparing {format} export..."));
 
-                let export_format = match format.to_lowercase().as_str() {
-                    "json" => ExportFormat::Json,
-                    "markdown" | "md" => ExportFormat::Markdown,
-                    "text" | "txt" => ExportFormat::Text,
-                    "csv" => ExportFormat::Csv,
-                    _ => {
-                        let _ = sender.send(CommandEvent::Failed {
-                            execution_id,
-                            error: format!("Unsupported export format: {format}"),
-                            error_code: 4002,
-                            duration_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
-                            resource_usage: ResourceUsage::default(),
-                            timestamp_us: current_timestamp_us(),
-                        });
+                let export_format = match parse_export_format(&format) {
+                    Ok(fmt) => fmt,
+                    Err(e) => {
+                        send_export_failure(&sender, execution_id, e, 4002, &start_time);
                         return;
                     }
                 };
 
-                let config = ExportConfig {
-                    format: export_format,
-                    include_metadata,
-                    include_timestamps: true,
-                    max_messages: 0,  // 0 = all messages
-                    filename_prefix: output.clone().unwrap_or_else(|| "chat_export".to_string()),
-                };
-
-                let mut exporter = ChatExporter::with_config(config);
+                let config = create_export_config(export_format, include_metadata, output.clone());
 
                 // STEP 3: Export messages (75% progress)
-                let _ = sender.send(CommandEvent::Progress {
-                    execution_id,
-                    progress: 75.0,
-                    message: "Exporting messages...".to_string(),
-                    timestamp: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs(),
-                });
+                send_export_progress(&sender, execution_id, 75.0, "Exporting messages...".to_string());
 
-                let export_data = match exporter.export_messages(&messages) {
+                let export_data = match perform_message_export(&messages, config) {
                     Ok(data) => data,
                     Err(e) => {
-                        let _ = sender.send(CommandEvent::Failed {
-                            execution_id,
-                            error: format!("Export failed: {e}"),
-                            error_code: 4003,
-                            duration_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
-                            resource_usage: ResourceUsage::default(),
-                            timestamp_us: current_timestamp_us(),
-                        });
+                        send_export_failure(&sender, execution_id, e, 4003, &start_time);
                         return;
                     }
                 };
 
                 // STEP 4: Write to file (90% progress)
-                let _ = sender.send(CommandEvent::Progress {
-                    execution_id,
-                    progress: 90.0,
-                    message: "Writing to file...".to_string(),
-                    timestamp: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs(),
-                });
+                send_export_progress(&sender, execution_id, 90.0, "Writing to file...".to_string());
 
-                let output_path = output.unwrap_or_else(|| {
-                    format!("chat_export.{}", export_data.file_extension)
-                });
+                let output_path = determine_output_path(output, &export_data.file_extension);
 
                 if let Err(e) = tokio::fs::write(&output_path, &export_data.content).await {
-                    let _ = sender.send(CommandEvent::Failed {
-                        execution_id,
-                        error: format!("Failed to write file: {e}"),
-                        error_code: 4004,
-                        duration_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
-                        resource_usage: ResourceUsage::default(),
-                        timestamp_us: current_timestamp_us(),
-                    });
+                    send_export_failure(&sender, execution_id, format!("Failed to write file: {e}"), 4004, &start_time);
                     return;
                 }
 
                 // STEP 5: Complete (100%)
-                let _ = sender.send(CommandEvent::Progress {
-                    execution_id,
-                    progress: 100.0,
-                    message: "Export complete!".to_string(),
-                    timestamp: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs(),
-                });
+                send_export_progress(&sender, execution_id, 100.0, "Export complete!".to_string());
 
                 let success_message = format!(
                     "Successfully exported {} messages to '{}' ({} format, {} bytes)",
@@ -640,6 +545,86 @@ async fn retrieve_conversation_messages(
     messages.sort_by_key(|m| m.timestamp.unwrap_or(0));
     
     Ok(messages)
+}
+
+/// Send progress event for export operation
+fn send_export_progress(
+    sender: &tokio::sync::mpsc::UnboundedSender<CommandEvent>,
+    execution_id: u64,
+    progress: f64,
+    message: String,
+) {
+    let _ = sender.send(CommandEvent::Progress {
+        execution_id,
+        progress,
+        message,
+        timestamp: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+    });
+}
+
+/// Send failure event for export operation
+fn send_export_failure(
+    sender: &tokio::sync::mpsc::UnboundedSender<CommandEvent>,
+    execution_id: u64,
+    error: String,
+    error_code: u32,
+    start_time: &Instant,
+) {
+    #[allow(clippy::cast_possible_truncation)]
+    let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
+
+    let _ = sender.send(CommandEvent::Failed {
+        execution_id,
+        error,
+        error_code,
+        duration_us,
+        resource_usage: ResourceUsage::default(),
+        timestamp_us: current_timestamp_us(),
+    });
+}
+
+/// Parse export format string to ExportFormat enum
+fn parse_export_format(format: &str) -> Result<ExportFormat, String> {
+    match format.to_lowercase().as_str() {
+        "json" => Ok(ExportFormat::Json),
+        "markdown" | "md" => Ok(ExportFormat::Markdown),
+        "text" | "txt" => Ok(ExportFormat::Text),
+        "csv" => Ok(ExportFormat::Csv),
+        _ => Err(format!("Unsupported export format: {format}")),
+    }
+}
+
+/// Create export configuration
+fn create_export_config(
+    format: ExportFormat,
+    include_metadata: bool,
+    output: Option<String>,
+) -> ExportConfig {
+    ExportConfig {
+        format,
+        include_metadata,
+        include_timestamps: true,
+        max_messages: 0,
+        filename_prefix: output.unwrap_or_else(|| "chat_export".to_string()),
+    }
+}
+
+/// Perform export operation
+fn perform_message_export(
+    messages: &[CandleMessage],
+    config: ExportConfig,
+) -> Result<ExportData, String> {
+    let mut exporter = ChatExporter::with_config(config);
+    exporter.export_messages(messages)
+        .map_err(|e| format!("Export failed: {e}"))
+}
+
+/// Determine output file path
+fn determine_output_path(output: Option<String>, file_extension: &str) -> String {
+    output.unwrap_or_else(|| format!("chat_export.{file_extension}"))
 }
 
 impl CommandExecutor {

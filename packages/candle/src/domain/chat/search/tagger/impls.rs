@@ -328,7 +328,9 @@ impl CandleConversationTagger {
                 .iter()
                 .map(|e| e.value().len())
                 .sum();
-            total_tag_assignments as f64 / tagged_messages as f64
+            #[allow(clippy::cast_precision_loss)]
+            let avg = total_tag_assignments as f64 / tagged_messages as f64;
+            avg
         } else {
             0.0
         };

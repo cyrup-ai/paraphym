@@ -129,7 +129,7 @@ pub fn sampling_create_message_pending(request: CreateMessageRequest) -> AsyncSa
                 CandleCompletionChunk::Text(text) => {
                     response_text.push_str(&text);
                 }
-                CandleCompletionChunk::Complete { text, finish_reason, usage } => {
+                CandleCompletionChunk::Complete { text, finish_reason, usage, .. } => {
                     response_text.push_str(&text);
                     if let Some(reason) = finish_reason {
                         stop_reason = format!("{:?}", reason);
@@ -258,7 +258,7 @@ pub fn sampling_create_message_stream(request: CreateMessageRequest) -> Sampling
                         break; // Receiver closed
                     }
                 }
-                CandleCompletionChunk::Complete { text, finish_reason, usage } => {
+                CandleCompletionChunk::Complete { text, finish_reason, usage, .. } => {
                     accumulated_text.push_str(&text);
                     // Send final result
                     let final_result = CreateMessageResult {

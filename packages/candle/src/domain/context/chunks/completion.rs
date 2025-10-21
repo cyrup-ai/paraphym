@@ -55,6 +55,9 @@ pub enum CandleCompletionChunk {
         text: String,
         finish_reason: Option<FinishReason>,
         usage: Option<CandleUsage>,
+        token_count: Option<u32>,
+        elapsed_secs: Option<f64>,
+        tokens_per_sec: Option<f64>,
     },
 
     /// Error occurred during streaming
