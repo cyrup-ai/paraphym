@@ -649,8 +649,13 @@ async fn retrieve_conversation_messages(
             CandleMessage {
                 role,
                 content: mem.content().to_string(),
-                id: Some(mem.node_id().to_string()),
-                timestamp: Some(mem.created_at().timestamp() as u64),
+                id: Some(mem.id().to_string()),
+                timestamp: Some(
+                    mem.creation_time()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs()
+                ),
             }
         })
         .collect();

@@ -9,6 +9,7 @@ use crate::memory::filter::MemoryFilter;
 use crate::memory::primitives::{MemoryNode, MemoryRelationship, MemoryTypeEnum};
 
 /// In-memory repository for fast memory access and indexing
+#[derive(Debug)]
 pub struct MemoryRepository {
     /// Primary memory storage by ID
     memories: HashMap<String, Arc<MemoryNode>>,

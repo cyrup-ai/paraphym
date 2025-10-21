@@ -22,7 +22,7 @@ use super::types::LazyEvalStrategy;
 /// Note: cognitive_queue, committee_evaluator, quantum_router, and quantum_state
 /// are wired in but not used until COGMEM_4 worker implementation
 #[allow(dead_code)]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MemoryCoordinator {
     pub(super) surreal_manager: Arc<SurrealDBMemoryManager>,
     pub(super) repository: Arc<RwLock<MemoryRepository>>,

@@ -39,6 +39,7 @@ impl CognitiveTask {
 }
 
 /// Accumulates tasks for efficient batch processing
+#[derive(Debug)]
 pub struct BatchAccumulator {
     tasks: Vec<CognitiveTask>,
     max_batch_size: usize,
@@ -86,6 +87,7 @@ impl BatchAccumulator {
 }
 
 /// Async queue for cognitive processing
+#[derive(Debug)]
 pub struct CognitiveProcessingQueue {
     sender: UnboundedSender<CognitiveTask>,
     receiver: Arc<tokio::sync::Mutex<UnboundedReceiver<CognitiveTask>>>,
