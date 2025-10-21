@@ -1,58 +1,76 @@
 # MEMORY_DECAY_WORKER: Background Temporal Decay Worker
 
-## Context
+## OBJECTIVE
 
-The current temporal decay system in `temporal.rs` uses **lazy evaluation** - decay is only calculated when memories are retrieved via `search_memories()` or `get_memory()`. This is too expensive for high-frequency read operations and doesn't proactively manage memory importance over time.
+Move temporal decay from **lazy evaluation** (calculated on every memory read) to **proactive background processing** via a dedicated worker, eliminating expensive read-path overhead.
 
-### Current Architecture (Verified by Code Reading)
+**Current Problem:** Decay is applied in [`search.rs:63-68`](../packages/candle/src/memory/core/manager/coordinator/search.rs) and [`operations.rs:183-184`](../packages/candle/src/memory/core/manager/coordinator/operations.rs) making EVERY memory retrieval slower.
 
-**Existing Decay Logic** (`temporal.rs:13-59`):
+**Solution:** Background worker that continuously processes memories in batches, applying decay and persisting changes to the database.
+
+---
+
+## EXISTING CODE TO REUSE
+
+### 1. Conversion Methods (COMPLETE - DO NOT RECREATE)
+
+**File:** [`packages/candle/src/memory/core/manager/coordinator/conversions.rs`](../packages/candle/src/memory/core/manager/coordinator/conversions.rs)
+
+Already implements **BOTH** conversion methods needed:
+
 ```rust
+// Core → Domain (for processing)
+pub(super) fn convert_memory_to_domain_node(
+    &self,
+    memory_node: &crate::memory::core::primitives::node::MemoryNode,
+) -> Result<crate::domain::memory::primitives::node::MemoryNode>
+
+// Domain → Core (for persistence)
+pub(super) fn convert_domain_to_memory_node(
+    &self,
+    domain_node: &crate::domain::memory::primitives::node::MemoryNode,
+) -> crate::memory::core::primitives::node::MemoryNode
+```
+
+**Status:** ✅ Lines 1-257 - Ready to use
+
+### 2. Temporal Decay Logic (COMPLETE - DO NOT RECREATE)
+
+**File:** [`packages/candle/src/memory/core/manager/coordinator/temporal.rs`](../packages/candle/src/memory/core/manager/coordinator/temporal.rs)
+
+Already implements decay calculation and application:
+
+```rust
+// Lines 13-59
 pub(super) async fn apply_temporal_decay(
     &self,
     memory: &mut crate::domain::memory::primitives::node::MemoryNode,
 ) -> Result<()> {
-    // Calculate age from created_at to now
-    let age = now.signed_duration_since(created_time);
-    let days_old = age.num_seconds() as f64 / 86400.0;
-
-    // Apply exponential decay: e^(-decay_rate * days)
-    let decay = (-self.decay_rate * days_old).exp();
-
-    // Update importance (min threshold 0.01)
-    let new_importance = (current_importance * decay as f32).max(0.01);
-    memory.set_importance(new_importance)?;
-
-    // Update quantum coherence level
-    quantum_state.coherence_level = (quantum_state.coherence_level * decay).max(0.01);
+    // Calculates age from created_at
+    // Applies exponential decay: e^(-decay_rate * days)
+    // Updates memory importance via set_importance()
+    // Updates quantum coherence in quantum_state
 }
 ```
 
-**Current Call Sites**:
-1. `search.rs:63-68` - Applied to all search results before filtering
-2. `operations.rs:183-184` - Applied during `get_memory()` before returning
+**Status:** ✅ Ready to use
 
-**Problem**: Both call sites are in the read path, making every memory retrieval more expensive.
+### 3. Worker Spawning Pattern (REFERENCE FOR NEW CODE)
 
-### Existing Worker Infrastructure (Verified by Code Reading)
+**File:** [`packages/candle/src/memory/core/manager/coordinator/lifecycle.rs`](../packages/candle/src/memory/core/manager/coordinator/lifecycle.rs)
 
-The codebase ALREADY has a worker pattern we can leverage:
+Existing pattern for spawning cognitive workers (lines 62-79):
 
-**CognitiveWorker Pattern** (`cognitive_worker/worker_core.rs:46-73`):
-```rust
-pub async fn run(&self) {
-    loop {
-        match self.queue.dequeue().await {
-            Ok(task) => self.process_task(task).await,
-            Err(e) => break, // Channel disconnected - exit worker
-        }
-    }
-}
-```
-
-**Spawning** (`coordinator/lifecycle.rs:65-80`):
 ```rust
 for worker_id in 0..num_workers {
+    let queue = cognitive_queue.clone();
+    let manager = surreal_manager.clone();
+    let evaluator = committee_evaluator.clone();
+
+    let worker = crate::memory::core::cognitive_worker::CognitiveWorker::new(
+        queue, manager, evaluator,
+    );
+
     tokio::spawn(async move {
         log::info!("Cognitive worker {} started", worker_id);
         worker.run().await;
@@ -61,118 +79,131 @@ for worker_id in 0..num_workers {
 }
 ```
 
-## Objective
+**Pattern to follow:** Spawn inline in constructor, Arc clone dependencies, fire-and-forget (no JoinHandle storage).
 
-Create a **background decay worker** that:
-1. Runs continuously while the application is running (NOT a cron job)
-2. Proactively applies temporal decay to memories based on age thresholds
-3. Processes memories in batches to avoid overwhelming the system
-4. Persists importance changes to SurrealDB
-5. Uses reasonable thresholds to minimize redundant processing
+### 4. MemoryCoordinator Structure
 
-## Architecture Design
+**File:** [`packages/candle/src/memory/core/manager/coordinator/lifecycle.rs`](../packages/candle/src/memory/core/manager/coordinator/lifecycle.rs)
 
-### DecayWorker Structure
+Current structure (lines 26-42):
 
 ```rust
-/// Background worker for proactive temporal decay
-pub struct DecayWorker {
-    /// Memory manager for database access
-    memory_manager: Arc<SurrealDBMemoryManager>,
-    /// Coordinator for decay logic
-    coordinator: Arc<MemoryCoordinator>,
-    /// Worker configuration
-    config: DecayWorkerConfig,
-    /// Pagination cursor (tracks position in memory list)
-    cursor: Arc<AtomicUsize>,
+pub struct MemoryCoordinator {
+    pub(super) surreal_manager: Arc<SurrealDBMemoryManager>,
+    pub(super) repository: Arc<RwLock<MemoryRepository>>,
+    pub(super) embedding_model: TextEmbeddingModel,
+    pub(super) cognitive_queue: Arc<CognitiveProcessingQueue>,
+    pub(super) committee_evaluator: Arc<ModelCommitteeEvaluator>,
+    pub(super) quantum_router: Arc<QuantumRouter>,
+    pub(super) quantum_state: Arc<RwLock<QuantumState>>,
+    pub(super) cognitive_state: Arc<RwLock<CognitiveState>>,
+    pub(super) cognitive_workers: Arc<tokio::sync::RwLock<Vec<tokio::task::JoinHandle<()>>>>,
+    pub(super) lazy_eval_strategy: LazyEvalStrategy,
+    pub(super) evaluation_cache: Cache<String, f64>,
+    pub(super) decay_rate: f64,  // ← ALREADY EXISTS
 }
 ```
 
-### Configuration
+**Key finding:** `decay_rate` field ALREADY EXISTS (line 42) - no need to add it!
+
+### 5. Database Operations
+
+**File:** [`packages/candle/src/memory/core/manager/surreal/trait_def.rs`](../packages/candle/src/memory/core/manager/surreal/trait_def.rs)
+
+Available methods (lines 23-43):
 
 ```rust
-pub struct DecayWorkerConfig {
-    /// How long to sleep between decay cycles (default: 60 minutes)
-    pub cycle_interval_secs: u64,
-    /// How many memories to process per batch (default: 500)
-    pub batch_size: usize,
-    /// Minimum age before applying decay (default: 24 hours)
-    /// Prevents thrashing on very fresh memories
-    pub min_age_hours: u64,
-    /// Maximum age to process in one cycle (default: 30 days)
-    /// Older memories already have minimal importance
-    pub max_age_days: u64,
-}
+fn list_all_memories(&self, limit: usize, offset: usize) -> MemoryStream;
+fn update_memory(&self, memory: MemoryNode) -> PendingMemory;
 ```
 
-### Worker Loop Strategy
+**Status:** ✅ Ready to use for pagination and persistence
 
-**Continuous Rotation Pattern**:
-1. Wake every N minutes (configurable)
-2. Fetch next batch of memories using pagination cursor
-3. Filter memories by age criteria
-4. Apply decay to qualifying memories
-5. Persist importance updates to database
-6. Advance cursor, wrap around when reaching end
-7. Sleep and repeat
+---
 
-**Why Rotation Instead of Staleness Tracking**:
-- No need for new "last_decayed_at" field
-- Eventually processes all memories
-- Simple cursor-based state (atomic usize)
-- Natural rate limiting via batch_size
+## NEW CODE TO CREATE
 
-## Implementation Plan
+### Directory Structure
 
-### Phase 1: Create DecayWorker Module
+```
+packages/candle/src/memory/core/
+└── decay_worker/
+    ├── mod.rs        ← Module exports
+    ├── config.rs     ← DecayWorkerConfig struct
+    └── worker.rs     ← DecayWorker implementation
+```
 
-**File**: `packages/candle/src/memory/core/decay_worker/mod.rs`
+### File 1: `decay_worker/mod.rs`
+
+**Path:** `packages/candle/src/memory/core/decay_worker/mod.rs`
 
 ```rust
 //! Background worker for proactive temporal decay
+//!
+//! Processes memories in batches, applying exponential decay to importance scores
+//! and persisting changes to SurrealDB. Eliminates expensive on-read decay calculations.
 
 mod config;
-mod worker_impl;
+mod worker;
 
 pub use config::DecayWorkerConfig;
-pub use worker_impl::DecayWorker;
+pub use worker::DecayWorker;
 ```
 
-**File**: `packages/candle/src/memory/core/decay_worker/config.rs`
+### File 2: `decay_worker/config.rs`
+
+**Path:** `packages/candle/src/memory/core/decay_worker/config.rs`
 
 ```rust
 //! Decay worker configuration
 
 use serde::{Deserialize, Serialize};
 
+/// Configuration for background decay worker
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DecayWorkerConfig {
     /// Sleep interval between decay cycles (seconds)
     pub cycle_interval_secs: u64,
-    /// Batch size for processing
+    
+    /// Number of memories to process per batch
     pub batch_size: usize,
-    /// Minimum memory age before decay (hours)
+    
+    /// Minimum memory age before applying decay (hours)
+    /// Prevents thrashing on fresh memories
     pub min_age_hours: u64,
+    
     /// Maximum memory age to process (days)
+    /// Memories older than this already have minimal importance
     pub max_age_days: u64,
 }
 
 impl Default for DecayWorkerConfig {
     fn default() -> Self {
         Self {
-            cycle_interval_secs: 3600,  // 1 hour
-            batch_size: 500,
-            min_age_hours: 24,           // 1 day
-            max_age_days: 365,           // 1 year
+            cycle_interval_secs: 3600,  // 1 hour between cycles
+            batch_size: 500,             // Process 500 memories per wake
+            min_age_hours: 24,           // Skip memories < 1 day old
+            max_age_days: 365,           // Skip memories > 1 year old
         }
     }
 }
 ```
 
-**File**: `packages/candle/src/memory/core/decay_worker/worker_impl.rs`
+### File 3: `decay_worker/worker.rs`
+
+**Path:** `packages/candle/src/memory/core/decay_worker/worker.rs`
 
 ```rust
 //! Decay worker implementation
+//!
+//! Implements continuous rotation pattern:
+//! 1. Wake every N minutes
+//! 2. Fetch batch of memories via pagination
+//! 3. Filter by age criteria
+//! 4. Apply decay using existing temporal.rs logic
+//! 5. Persist importance changes to SurrealDB
+//! 6. Advance cursor, wrap at end
+//! 7. Sleep and repeat
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -184,14 +215,23 @@ use crate::memory::core::manager::coordinator::MemoryCoordinator;
 use crate::memory::core::manager::surreal::{SurrealDBMemoryManager, MemoryManager};
 use super::config::DecayWorkerConfig;
 
+/// Background worker for proactive temporal decay
 pub struct DecayWorker {
+    /// SurrealDB manager for database access
     memory_manager: Arc<SurrealDBMemoryManager>,
+    
+    /// Memory coordinator for decay logic and conversions
     coordinator: Arc<MemoryCoordinator>,
+    
+    /// Worker configuration
     config: DecayWorkerConfig,
+    
+    /// Pagination cursor (tracks current offset in memory list)
     cursor: Arc<AtomicUsize>,
 }
 
 impl DecayWorker {
+    /// Create new decay worker
     pub fn new(
         memory_manager: Arc<SurrealDBMemoryManager>,
         coordinator: Arc<MemoryCoordinator>,
@@ -205,12 +245,14 @@ impl DecayWorker {
         }
     }
 
-    /// Main worker loop
+    /// Main worker loop - runs indefinitely
     pub async fn run(self) {
         log::info!(
-            "Decay worker started: cycle_interval={}s, batch_size={}",
+            "Decay worker started: cycle={}s, batch={}, min_age={}h, max_age={}d",
             self.config.cycle_interval_secs,
-            self.config.batch_size
+            self.config.batch_size,
+            self.config.min_age_hours,
+            self.config.max_age_days
         );
 
         loop {
@@ -229,7 +271,7 @@ impl DecayWorker {
         let offset = self.cursor.load(Ordering::Relaxed);
 
         log::debug!(
-            "Decay worker: processing batch at offset={}, batch_size={}",
+            "Decay batch starting: offset={}, batch_size={}",
             offset,
             self.config.batch_size
         );
@@ -243,8 +285,8 @@ impl DecayWorker {
         let memories: Vec<_> = memory_stream.collect().await;
 
         if memories.is_empty() {
-            // Reached end of memories, wrap cursor to beginning
-            log::debug!("Decay worker: reached end, resetting cursor to 0");
+            // Reached end, wrap cursor to beginning
+            log::debug!("Decay worker: end of memory list, resetting cursor to 0");
             self.cursor.store(0, Ordering::Relaxed);
             return Ok(());
         }
@@ -259,7 +301,7 @@ impl DecayWorker {
         for memory_result in memories {
             match memory_result {
                 Ok(core_memory) => {
-                    // Convert to domain MemoryNode
+                    // Convert core → domain for decay processing
                     let mut domain_memory = match self.coordinator
                         .convert_memory_to_domain_node(&core_memory)
                     {
@@ -282,37 +324,30 @@ impl DecayWorker {
 
                     processed_count += 1;
 
-                    // Store original importance for comparison
+                    // Store original importance
                     let original_importance = domain_memory.importance();
 
-                    // Apply temporal decay (from existing logic)
+                    // Apply temporal decay (reuses existing logic from temporal.rs)
                     if let Err(e) = self.coordinator.apply_temporal_decay(&mut domain_memory).await {
                         log::warn!("Failed to apply decay to {}: {}", domain_memory.id(), e);
                         continue;
                     }
 
-                    // Only persist if importance changed significantly
+                    // Check if importance changed significantly
                     let new_importance = domain_memory.importance();
                     let importance_delta = (original_importance - new_importance).abs();
 
                     if importance_delta > 0.001 {
-                        // Convert back to core MemoryNode for persistence
-                        let updated_core = match self.coordinator
-                            .convert_domain_to_core_node(&domain_memory)
-                        {
-                            Ok(m) => m,
-                            Err(e) => {
-                                log::warn!("Failed to convert domain memory {}: {}", domain_memory.id(), e);
-                                continue;
-                            }
-                        };
+                        // Convert domain → core for persistence
+                        let updated_core = self.coordinator
+                            .convert_domain_to_memory_node(&domain_memory);
 
-                        // Persist to database
+                        // Persist to SurrealDB
                         match self.memory_manager.update_memory(updated_core).await {
                             Ok(_) => {
                                 updated_count += 1;
                                 log::trace!(
-                                    "Decayed memory {}: {:.4} -> {:.4}",
+                                    "Decayed memory {}: {:.4} → {:.4}",
                                     domain_memory.id(),
                                     original_importance,
                                     new_importance
@@ -334,7 +369,7 @@ impl DecayWorker {
         self.cursor.fetch_add(self.config.batch_size, Ordering::Relaxed);
 
         log::info!(
-            "Decay worker: processed={}, updated={} memories at offset={}",
+            "Decay batch complete: processed={}, updated={}, offset={}",
             processed_count,
             updated_count,
             offset
@@ -345,279 +380,270 @@ impl DecayWorker {
 }
 ```
 
-### Phase 2: Add Conversion Methods to MemoryCoordinator
+---
 
-**File**: `packages/candle/src/memory/core/manager/coordinator/conversions.rs` (NEW)
+## MODIFICATIONS TO EXISTING FILES
 
-```rust
-//! Memory node conversion utilities
+### Modification 1: Add decay_worker Module Declaration
 
-use crate::domain::memory::primitives::node::MemoryNode as DomainMemoryNode;
-use crate::memory::core::primitives::node::MemoryNode as CoreMemoryNode;
-use crate::memory::utils::Result;
+**File:** `packages/candle/src/memory/core/mod.rs`
 
-use super::lifecycle::MemoryCoordinator;
+**Location:** After line 7 (`pub mod cognitive_worker;`)
 
-impl MemoryCoordinator {
-    /// Convert core MemoryNode to domain MemoryNode
-    pub(super) fn convert_memory_to_domain_node(
-        &self,
-        core_node: &CoreMemoryNode,
-    ) -> Result<DomainMemoryNode> {
-        // Implementation already exists - extract from search.rs:54
-        // This is just making it reusable
-        todo!("Extract existing conversion logic")
-    }
-
-    /// Convert domain MemoryNode back to core MemoryNode
-    pub(super) fn convert_domain_to_core_node(
-        &self,
-        domain_node: &DomainMemoryNode,
-    ) -> Result<CoreMemoryNode> {
-        // Reverse conversion for persistence
-        todo!("Implement reverse conversion")
-    }
-}
-```
-
-### Phase 3: Spawn DecayWorker in MemoryCoordinator
-
-**File**: `packages/candle/src/memory/core/manager/coordinator/lifecycle.rs`
-
-**Add field to MemoryCoordinator struct** (after line 41):
-```rust
-pub(super) decay_worker_config: DecayWorkerConfig,
-```
-
-**Add to constructor** (after line 99):
-```rust
-decay_worker_config: DecayWorkerConfig::default(),
-```
-
-**Add method to spawn decay worker** (after shutdown_workers, line 142):
-```rust
-/// Spawn background decay worker
-///
-/// Returns a JoinHandle that can be used to gracefully shutdown the worker
-pub fn spawn_decay_worker(&self) -> tokio::task::JoinHandle<()> {
-    use crate::memory::core::decay_worker::DecayWorker;
-
-    let worker = DecayWorker::new(
-        self.surreal_manager.clone(),
-        Arc::new(self.clone()), // MemoryCoordinator needs to be Arc-wrapped
-        self.decay_worker_config.clone(),
-    );
-
-    tokio::spawn(async move {
-        log::info!("Decay worker spawned");
-        worker.run().await;
-        log::info!("Decay worker stopped");
-    })
-}
-
-/// Configure decay worker settings
-pub fn set_decay_worker_config(&mut self, config: DecayWorkerConfig) {
-    self.decay_worker_config = config;
-    log::info!(
-        "Decay worker config updated: cycle={}s, batch={}",
-        config.cycle_interval_secs,
-        config.batch_size
-    );
-}
-```
-
-### Phase 4: Update Module Declarations
-
-**File**: `packages/candle/src/memory/core/mod.rs`
-
-Add module declaration:
+**Add:**
 ```rust
 pub mod decay_worker;
 ```
 
-**File**: `packages/candle/src/memory/core/manager/coordinator/mod.rs`
+**Result:** Line 8 should be `pub mod decay_worker;`
 
-Add module:
+### Modification 2: Add DecayWorkerConfig Field
+
+**File:** `packages/candle/src/memory/core/manager/coordinator/lifecycle.rs`
+
+**Location:** After line 42 (`pub(super) decay_rate: f64,`)
+
+**Add:**
 ```rust
-mod conversions;
+    // DECAY WORKER CONFIG:
+    pub(super) decay_worker_config: crate::memory::core::decay_worker::DecayWorkerConfig,
 ```
 
-### Phase 5: Remove Lazy Decay from Read Path (OPTIONAL - Breaking Change)
+**Result:** New field at line 43-44
 
-**DECISION POINT**: Should we remove decay from `search_memories()` and `get_memory()`?
+### Modification 3: Initialize DecayWorkerConfig in Constructor
 
-**Option A - Keep Both**:
-- Pros: Graceful migration, more accurate decay
-- Cons: Still has read-path overhead
+**File:** `packages/candle/src/memory/core/manager/coordinator/lifecycle.rs`
 
-**Option B - Remove from Read Path**:
-- Pros: Zero read-path overhead
-- Cons: Importance values slightly stale between worker cycles
+**Location:** In `MemoryCoordinator::new()`, after line 99 (`decay_rate: 0.1,`)
 
-**Recommendation**: Start with Option A, migrate to Option B after worker is proven stable.
-
-## Testing Strategy
-
-### Unit Tests
-
+**Add:**
 ```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_decay_worker_processes_batch() {
-        // Setup mock memory manager with test data
-        // Verify batch processing
-        // Check importance updates
-    }
-
-    #[tokio::test]
-    async fn test_decay_worker_wraps_cursor() {
-        // Verify cursor resets at end
-    }
-
-    #[test]
-    fn test_age_filtering() {
-        // Verify min_age and max_age thresholds
-    }
-}
+            decay_worker_config: crate::memory::core::decay_worker::DecayWorkerConfig::default(),
 ```
 
-### Integration Tests
+**Result:** New field initialization at line 100
 
-1. **Spawn worker with test config** (short cycle interval)
-2. **Insert memories with different created_at timestamps**
-3. **Verify importance decreases over multiple cycles**
-4. **Check database persistence**
-5. **Measure performance impact**
+### Modification 4: Spawn Decay Worker in Constructor
 
-## Performance Considerations
+**File:** `packages/candle/src/memory/core/manager/coordinator/lifecycle.rs`
 
-### Batch Size Tuning
+**Location:** After line 80 (`log::info!("Started {} cognitive worker tasks", num_workers);`)
 
-- **Small batches (100-200)**: Lower memory usage, more DB round-trips
-- **Large batches (500-1000)**: Better throughput, higher memory usage
-- **Recommendation**: Start with 500, tune based on metrics
-
-### Cycle Interval Tuning
-
-- **Frequent (15-30 min)**: More accurate decay, higher CPU usage
-- **Infrequent (2-4 hours)**: Lower overhead, staleness acceptable
-- **Recommendation**: Start with 60 minutes
-
-### Database Load
-
-- **Pagination query**: `O(batch_size)` per cycle
-- **Update queries**: `O(qualifying_memories)` per cycle
-- **Expected**: <100 updates per batch for typical workloads
-- **Mitigation**: Use min_age threshold to skip fresh memories
-
-### Memory Usage
-
-- **Per batch**: ~1-5 MB (500 memories × embedding vectors)
-- **Worker overhead**: <10 MB (cursor + config)
-- **Total impact**: Negligible for production systems
-
-## Monitoring and Observability
-
-### Metrics to Track
-
+**Add:**
 ```rust
-pub struct DecayWorkerMetrics {
-    pub cycles_completed: u64,
-    pub memories_processed: u64,
-    pub memories_updated: u64,
-    pub avg_batch_duration_ms: f64,
-    pub errors_encountered: u64,
-}
+
+        // Spawn decay worker
+        let decay_config = crate::memory::core::decay_worker::DecayWorkerConfig::default();
+        let decay_worker = crate::memory::core::decay_worker::DecayWorker::new(
+            surreal_manager.clone(),
+            // Note: We'll create a self-referential Arc after construction
+            // For now, we'll spawn this AFTER MemoryCoordinator is created
+        );
+        
+        log::info!("Decay worker will be spawned after coordinator initialization");
 ```
 
-### Logging Strategy
+**WAIT - ARCHITECTURE ISSUE:** We need `Arc<MemoryCoordinator>` to pass to DecayWorker, but we're still IN the constructor. 
 
-- **INFO**: Cycle completion with counts
-- **DEBUG**: Batch offsets and cursor position
-- **TRACE**: Individual memory decay calculations
-- **WARN**: Conversion or persistence failures
-- **ERROR**: Batch processing failures
+**SOLUTION:** Add a separate `spawn_decay_worker()` method that's called AFTER construction:
 
-## Migration Path
+**Instead, add this method AFTER the `shutdown_workers()` method (after line 142):**
 
-### Phase 1: Deploy with Dual System
-1. Deploy decay worker
-2. Keep lazy decay in read path
-3. Monitor worker performance
-4. Verify importance convergence
+```rust
 
-### Phase 2: Gradual Cutover
-1. Add feature flag for lazy decay
-2. Disable lazy decay for low-priority reads
-3. Monitor for correctness issues
-4. Expand to all reads
+    /// Spawn background decay worker
+    ///
+    /// Must be called after coordinator is wrapped in Arc.
+    /// Returns immediately - worker runs in background indefinitely.
+    pub fn spawn_decay_worker(self: &Arc<Self>) {
+        let config = self.decay_worker_config.clone();
+        let worker = crate::memory::core::decay_worker::DecayWorker::new(
+            self.surreal_manager.clone(),
+            self.clone(), // Arc<MemoryCoordinator>
+            config,
+        );
 
-### Phase 3: Full Migration
-1. Remove lazy decay code from read path
-2. Update temporal.rs documentation
-3. Deprecate on-demand decay methods
-4. Celebrate zero-cost reads! 🎉
+        tokio::spawn(async move {
+            log::info!("Decay worker spawned");
+            worker.run().await;
+        });
+    }
 
-## Configuration Example
+    /// Configure decay worker settings
+    ///
+    /// Must be called before spawn_decay_worker().
+    pub fn set_decay_worker_config(&mut self, config: crate::memory::core::decay_worker::DecayWorkerConfig) {
+        self.decay_worker_config = config;
+        log::info!(
+            "Decay worker config updated: cycle={}s, batch={}",
+            config.cycle_interval_secs,
+            config.batch_size
+        );
+    }
+```
+
+---
+
+## IMPLEMENTATION SEQUENCE
+
+### Step 1: Create decay_worker Module
+
+1. Create directory: `packages/candle/src/memory/core/decay_worker/`
+2. Create `mod.rs` with module exports
+3. Create `config.rs` with DecayWorkerConfig struct
+4. Create `worker.rs` with DecayWorker implementation
+
+### Step 2: Update Module Declarations
+
+1. Edit `packages/candle/src/memory/core/mod.rs`
+2. Add `pub mod decay_worker;` after line 7
+
+### Step 3: Modify MemoryCoordinator
+
+1. Edit `packages/candle/src/memory/core/manager/coordinator/lifecycle.rs`
+2. Add `decay_worker_config` field to struct (after line 42)
+3. Initialize field in constructor (after line 99)
+4. Add `spawn_decay_worker()` method (after line 142)
+5. Add `set_decay_worker_config()` method (after spawn method)
+
+### Step 4: Usage Example
 
 ```rust
 // In application initialization
-let decay_config = DecayWorkerConfig {
-    cycle_interval_secs: 3600,   // 1 hour
-    batch_size: 500,
-    min_age_hours: 24,           // Only process memories older than 1 day
-    max_age_days: 365,           // Skip memories older than 1 year
-};
+let coordinator = Arc::new(MemoryCoordinator::new(surreal_manager, embedding_model).await?);
 
-coordinator.set_decay_worker_config(decay_config);
-let decay_handle = coordinator.spawn_decay_worker();
+// Optional: Configure before spawning
+// coordinator.set_decay_worker_config(DecayWorkerConfig { ... });
 
-// Graceful shutdown
-decay_handle.abort();
+// Spawn decay worker
+coordinator.spawn_decay_worker();
+
+// Worker now runs in background indefinitely
 ```
 
-## Success Criteria
+---
 
-1. ✅ Decay worker runs continuously without crashes
-2. ✅ Memory importance values decrease over time according to decay_rate
-3. ✅ Database updates persist correctly
-4. ✅ No significant performance regression on read operations
-5. ✅ Worker can be configured and restarted without data loss
-6. ✅ Cursor-based pagination prevents duplicate processing
-7. ✅ Age thresholds effectively filter unnecessary work
+## KEY ARCHITECTURE PATTERNS
 
-## Future Enhancements
+### Pattern 1: Conversion Pipeline
 
-### Adaptive Scheduling
-- Adjust cycle_interval based on memory creation rate
-- Process active memories more frequently
+```rust
+// Core → Domain (for processing)
+let mut domain_mem = coordinator.convert_memory_to_domain_node(&core_mem)?;
 
-### Priority-Based Decay
-- Apply decay more aggressively to low-importance memories
-- Preserve high-importance memories longer
+// Apply decay (modifies in-place)
+coordinator.apply_temporal_decay(&mut domain_mem).await?;
 
-### Quantum Coherence Integration
-- Update QuantumSignature entropy in worker
-- Call apply_decoherence() for quantum memories
+// Domain → Core (for persistence)
+let updated_core = coordinator.convert_domain_to_memory_node(&domain_mem);
 
-### Distributed Workers
-- Shard memory space across multiple workers
-- Use consistent hashing for memory assignment
+// Persist
+manager.update_memory(updated_core).await?;
+```
 
-## References
+### Pattern 2: Pagination with Cursor
 
-**Code Files Read**:
-- `packages/candle/src/memory/core/manager/coordinator/lifecycle.rs` (Lines 1-144)
-- `packages/candle/src/memory/core/manager/coordinator/temporal.rs` (Lines 1-89)
-- `packages/candle/src/memory/core/manager/coordinator/search.rs` (Lines 1-100)
-- `packages/candle/src/memory/core/manager/coordinator/operations.rs` (Lines 140-210)
-- `packages/candle/src/memory/core/cognitive_worker/worker_core.rs` (Lines 1-119)
-- `packages/candle/src/memory/core/cognitive_queue.rs` (Lines 1-233)
-- `packages/candle/src/memory/core/primitives/node.rs` (Lines 1-100)
-- `packages/candle/src/memory/core/primitives/metadata.rs` (Lines 1-251)
-- `packages/candle/src/memory/core/manager/surreal/trait_def.rs` (Lines 1-269)
+```rust
+let cursor = Arc::new(AtomicUsize::new(0));
 
-All architectural decisions are based on CERTAINTY from reading actual production code, not conjecture.
+loop {
+    let offset = cursor.load(Ordering::Relaxed);
+    let batch = manager.list_all_memories(batch_size, offset);
+    
+    if batch.is_empty() {
+        cursor.store(0, Ordering::Relaxed); // Wrap to start
+    } else {
+        cursor.fetch_add(batch_size, Ordering::Relaxed); // Advance
+    }
+}
+```
+
+### Pattern 3: Age Filtering
+
+```rust
+let now = Utc::now();
+let min_age = chrono::Duration::hours(24);
+let max_age = chrono::Duration::days(365);
+
+let age = now.signed_duration_since(memory.created_at);
+
+if age < min_age || age > max_age {
+    continue; // Skip this memory
+}
+```
+
+---
+
+## DEFINITION OF DONE
+
+1. ✅ `decay_worker` module exists with 3 files (mod.rs, config.rs, worker.rs)
+2. ✅ Module declared in `core/mod.rs`
+3. ✅ `decay_worker_config` field added to MemoryCoordinator
+4. ✅ Field initialized in constructor with Default
+5. ✅ `spawn_decay_worker()` method added to MemoryCoordinator
+6. ✅ `set_decay_worker_config()` method added to MemoryCoordinator
+7. ✅ Worker can be spawned: `coordinator.spawn_decay_worker()`
+8. ✅ Worker logs "Decay worker spawned" on start
+9. ✅ Worker processes batches every N seconds (configurable)
+10. ✅ Worker applies decay using existing `apply_temporal_decay()`
+11. ✅ Worker persists changes via `update_memory()`
+12. ✅ Worker wraps cursor at end of memory list
+13. ✅ Code compiles without errors
+
+---
+
+## REFERENCES
+
+### Existing Code Files (Verified by Reading)
+
+- [conversions.rs](../packages/candle/src/memory/core/manager/coordinator/conversions.rs) - Lines 1-257
+- [lifecycle.rs](../packages/candle/src/memory/core/manager/coordinator/lifecycle.rs) - Lines 1-144  
+- [temporal.rs](../packages/candle/src/memory/core/manager/coordinator/temporal.rs) - Lines 1-89
+- [search.rs](../packages/candle/src/memory/core/manager/coordinator/search.rs) - Lines 1-100
+- [operations.rs](../packages/candle/src/memory/core/manager/coordinator/operations.rs) - Lines 140-210
+- [trait_def.rs](../packages/candle/src/memory/core/manager/surreal/trait_def.rs) - Lines 1-269
+- [worker_core.rs](../packages/candle/src/memory/core/cognitive_worker/worker_core.rs) - Lines 1-119
+
+### Module Structure (Verified by lsd --tree)
+
+```
+packages/candle/src/memory/core/
+├── cognitive_queue.rs
+├── cognitive_worker/
+│   ├── committee_evaluation.rs
+│   ├── entanglement_discovery.rs
+│   ├── mod.rs
+│   ├── temporal_maintenance.rs
+│   └── worker_core.rs
+├── manager/
+│   ├── coordinator/
+│   │   ├── conversions.rs      ← REUSE THIS
+│   │   ├── lifecycle.rs         ← MODIFY THIS
+│   │   ├── mod.rs
+│   │   ├── operations.rs
+│   │   ├── relationships.rs
+│   │   ├── search.rs
+│   │   ├── temporal.rs          ← REUSE THIS
+│   │   ├── trait_impl.rs
+│   │   ├── types.rs
+│   │   └── workers.rs
+│   ├── mod.rs
+│   └── surreal/
+│       ├── futures.rs
+│       ├── manager.rs
+│       ├── mod.rs
+│       ├── operations.rs
+│       ├── queries.rs
+│       ├── trait_def.rs         ← REFERENCE THIS
+│       └── types.rs
+├── mod.rs                       ← MODIFY THIS
+└── primitives/
+    ├── metadata.rs
+    ├── mod.rs
+    ├── node.rs
+    ├── relationship.rs
+    └── types.rs
+```
+
+All architectural decisions based on reading actual source code, not speculation.
