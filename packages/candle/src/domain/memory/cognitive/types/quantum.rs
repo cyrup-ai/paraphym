@@ -166,17 +166,18 @@ impl QuantumSignature {
         let collapse_probability = amplitudes.iter().map(|x| x * x).sum::<f32>();
 
         // Calculate initial entropy: H = -Σ p_i log(p_i)
-        let quantum_entropy = f64::from(-amplitudes
+        // Use f64 accumulation to preserve precision for AtomicF64 storage
+        let quantum_entropy = -amplitudes
             .iter()
-            .map(|a| {
-                let p = a * a;
+            .map(|&a| {
+                let p = f64::from(a * a);
                 if p > 0.0 {
                     p * p.ln()
                 } else {
                     0.0
                 }
             })
-            .sum::<f32>());
+            .sum::<f64>();
 
         let superposition_contexts = Vec::new();
         let creation_time = SystemTime::now();
@@ -195,7 +196,6 @@ impl QuantumSignature {
 
     /// Create quantum signature with full data
     #[inline]
-    #[allow(dead_code)] // TODO: Used for deserialization from storage
     #[must_use]
     pub fn new_with_data(
         coherence_fingerprint: AlignedCoherenceFingerprint,
@@ -219,7 +219,6 @@ impl QuantumSignature {
 
     /// Apply decoherence based on elapsed time
     #[inline]
-    #[allow(dead_code)] // TODO: Implement quantum decoherence calculation
     pub fn apply_decoherence(&self) {
         let elapsed = self.creation_time.elapsed().unwrap_or(std::time::Duration::ZERO);
         let decoherence_factor = (-self.decoherence_rate * elapsed.as_secs_f64()).exp();
@@ -231,7 +230,6 @@ impl QuantumSignature {
 
     /// Get collapse probability
     #[inline]
-    #[allow(dead_code)] // TODO: Implement collapse probability getter
     #[must_use]
     pub fn collapse_probability(&self) -> f32 {
         self.collapse_probability.load(Ordering::Relaxed)
@@ -239,7 +237,6 @@ impl QuantumSignature {
 
     /// Set collapse probability
     #[inline]
-    #[allow(dead_code)] // TODO: Implement collapse probability setter
     pub fn set_collapse_probability(&self, probability: f32) {
         self.collapse_probability
             .store(probability.clamp(0.0, 1.0), Ordering::Relaxed);
@@ -247,7 +244,6 @@ impl QuantumSignature {
 
     /// Get quantum entropy
     #[inline]
-    #[allow(dead_code)] // TODO: Implement quantum entropy getter
     #[must_use]
     pub fn quantum_entropy(&self) -> f64 {
         self.quantum_entropy.load(Ordering::Relaxed)

@@ -4,9 +4,9 @@
 //! and zero-allocation patterns for production-ready performance.
 
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
 
-use mime_guess::from_ext;
 use std::pin::Pin;
 use tokio_stream::Stream;
 
@@ -15,7 +15,10 @@ use super::types::actions::SearchScope;
 use super::types::commands::{CommandExecutionResult, ImmutableChatCommand, OutputType};
 use super::types::events::{CommandEvent, CommandExecutionContext};
 use super::types::metadata::ResourceUsage;
+use crate::domain::chat::export::{ChatExporter, ExportConfig, ExportFormat};
+use crate::domain::chat::message::{CandleMessage, CandleMessageRole};
 use crate::domain::util::unix_timestamp_micros;
+use crate::memory::core::manager::coordinator::MemoryCoordinator;
 
 /// Get current timestamp in microseconds since Unix epoch, with fallback for clock errors
 fn current_timestamp_us() -> u64 {
@@ -24,6 +27,7 @@ fn current_timestamp_us() -> u64 {
 
 /// Command execution engine with streaming processing (zero-allocation, lock-free)
 #[derive(Debug)]
+#[allow(clippy::missing_fields_in_debug)]
 pub struct CommandExecutor {
     /// Command parser
     parser: CommandParser,
@@ -41,12 +45,24 @@ pub struct CommandExecutor {
     _default_session_id: String,
     /// Environment variables for command execution (planned feature)
     _environment: std::collections::HashMap<String, String>,
+    /// Optional memory access for commands that need conversation history
+    #[debug(skip)]
+    memory: Option<Arc<MemoryCoordinator>>,
 }
 
 impl Clone for CommandExecutor {
     fn clone(&self) -> Self {
-        // Create a new executor with fresh atomic counters
-        Self::new()
+        Self {
+            parser: self.parser.clone(),
+            execution_counter: AtomicU64::new(self.execution_counter.load(Ordering::Relaxed)),
+            active_executions: AtomicUsize::new(0),
+            total_executions: AtomicU64::new(self.total_executions.load(Ordering::Relaxed)),
+            successful_executions: AtomicU64::new(self.successful_executions.load(Ordering::Relaxed)),
+            failed_executions: AtomicU64::new(self.failed_executions.load(Ordering::Relaxed)),
+            _default_session_id: self._default_session_id.clone(),
+            _environment: self._environment.clone(),
+            memory: self.memory.clone(),
+        }
     }
 }
 
@@ -69,6 +85,23 @@ impl CommandExecutor {
             failed_executions: AtomicU64::new(0),
             _default_session_id: String::new(),
             _environment: std::collections::HashMap::new(),
+            memory: None,
+        }
+    }
+
+    /// Create a new command executor with memory access
+    #[must_use]
+    pub fn with_memory(memory: Arc<MemoryCoordinator>) -> Self {
+        Self {
+            parser: CommandParser::new(),
+            execution_counter: AtomicU64::new(1),
+            active_executions: AtomicUsize::new(0),
+            total_executions: AtomicU64::new(0),
+            successful_executions: AtomicU64::new(0),
+            failed_executions: AtomicU64::new(0),
+            _default_session_id: String::new(),
+            _environment: std::collections::HashMap::new(),
+            memory: Some(memory),
         }
     }
 
@@ -88,6 +121,7 @@ impl CommandExecutor {
                 env.insert("EXECUTION_ID".to_string(), context.execution_id.to_string());
                 env
             },
+            memory: None,
         }
     }
 
@@ -156,38 +190,22 @@ impl CommandExecutor {
                     output,
                     include_metadata,
                 } => {
-                    // Emit progress events for export operation (25%, 50%, 75%, 100%)
-                    let progress_steps = [25, 50, 75, 100];
-                    for progress in progress_steps {
-                        #[allow(clippy::cast_precision_loss)]
-                        let progress_f32 = progress as f32;
-                        let _ = sender.send(CommandEvent::Progress {
-                            execution_id,
-                            progress: progress_f32,
-                            message: format!("Exporting... {progress}%"),
-                            timestamp: current_timestamp_us(),
-                        });
-
-                        // Simulate realistic export processing time
-                        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-                    }
-
-                    // Build final export message
-                    let output_str = output.as_deref().unwrap_or("default.export");
-                    let metadata_str = if include_metadata {
-                        " with metadata"
-                    } else {
-                        ""
-                    };
-                    let message =
-                        format!("Chat exported to '{output_str}' in {format} format{metadata_str}");
-
-                    let _ = sender.send(CommandEvent::Output {
+                    // Import StreamExt in local scope
+                    use tokio_stream::StreamExt;
+                    
+                    // Delegate to the real export implementation
+                    let export_stream = self_clone.execute_export_streaming(
                         execution_id,
-                        content: message,
-                        output_type: OutputType::Text,
-                        timestamp_us: current_timestamp_us(),
-                    });
+                        format,
+                        output,
+                        include_metadata,
+                    );
+                    
+                    // Pin and forward all events from the export stream
+                    tokio::pin!(export_stream);
+                    while let Some(event) = export_stream.next().await {
+                        let _ = sender.send(event);
+                    }
                 }
                 ImmutableChatCommand::Config {
                     key: _,
@@ -398,67 +416,270 @@ impl CommandExecutor {
         include_metadata: bool,
     ) -> Pin<Box<dyn Stream<Item = CommandEvent> + Send>> {
         let start_time = Instant::now();
+        let memory = self.memory.clone();
 
         Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
             tokio::spawn(async move {
-                let output_str = output.unwrap_or_else(|| "chat_export".to_string());
-
                 // Emit started event
                 let _ = sender.send(CommandEvent::Started {
                     command: ImmutableChatCommand::Export {
                         format: format.clone(),
-                        output: Some(output_str.clone()),
-                        include_metadata
+                        output: output.clone(),
+                        include_metadata,
                     },
                     execution_id,
                     #[allow(clippy::cast_possible_truncation)]
-                    timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX))
-                        as u64
+                    timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
                 });
 
-                // Simulate export progress
-                for progress in [25, 50, 75, 100] {
-                    #[allow(clippy::cast_precision_loss)]
-                    let progress_f32 = progress as f32;
-                    let _ = sender.send(CommandEvent::Progress {
+                // STEP 1: Retrieve messages from memory (25% progress)
+                let _ = sender.send(CommandEvent::Progress {
+                    execution_id,
+                    progress: 25.0,
+                    message: "Retrieving conversation messages...".to_string(),
+                    timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs(),
+                });
+
+                let messages = if let Some(mem) = memory {
+                    match retrieve_conversation_messages(&mem).await {
+                        Ok(msgs) => msgs,
+                        Err(e) => {
+                            let _ = sender.send(CommandEvent::Failed {
+                                execution_id,
+                                error: format!("Failed to retrieve messages: {}", e),
+                                error_code: 4001,
+                                duration_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
+                                resource_usage: ResourceUsage::default(),
+                                timestamp_us: current_timestamp_us(),
+                            });
+                            return;
+                        }
+                    }
+                } else {
+                    let _ = sender.send(CommandEvent::Failed {
                         execution_id,
-                        progress: progress_f32,
-                        message: format!("Exporting... {progress}%"),
-                        timestamp: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
-                            .as_secs()
+                        error: "Memory not available for export".to_string(),
+                        error_code: 4000,
+                        duration_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
+                        resource_usage: ResourceUsage::default(),
+                        timestamp_us: current_timestamp_us(),
                     });
+                    return;
+                };
+
+                if messages.is_empty() {
+                    let _ = sender.send(CommandEvent::Failed {
+                        execution_id,
+                        error: "No messages to export".to_string(),
+                        error_code: 4001,
+                        duration_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
+                        resource_usage: ResourceUsage::default(),
+                        timestamp_us: current_timestamp_us(),
+                    });
+                    return;
                 }
 
-                let metadata_str = if include_metadata {
-                    " with metadata"
-                } else {
-                    ""
-                };
-                let message =
-                    format!("Chat exported to '{output_str}' in {format} format{metadata_str}");
+                // STEP 2: Parse format and create exporter (50% progress)
+                let _ = sender.send(CommandEvent::Progress {
+                    execution_id,
+                    progress: 50.0,
+                    message: format!("Preparing {} export...", format),
+                    timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs(),
+                });
 
-                // Emit output and completion
-                let _ = sender.send(CommandEvent::output(execution_id, message, OutputType::Text));
+                let export_format = match format.to_lowercase().as_str() {
+                    "json" => ExportFormat::Json,
+                    "markdown" | "md" => ExportFormat::Markdown,
+                    "text" | "txt" => ExportFormat::Text,
+                    "csv" => ExportFormat::Csv,
+                    _ => {
+                        let _ = sender.send(CommandEvent::Failed {
+                            execution_id,
+                            error: format!("Unsupported export format: {}", format),
+                            error_code: 4002,
+                            duration_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
+                            resource_usage: ResourceUsage::default(),
+                            timestamp_us: current_timestamp_us(),
+                        });
+                        return;
+                    }
+                };
+
+                let config = ExportConfig {
+                    format: export_format,
+                    include_metadata,
+                    include_timestamps: true,
+                    max_messages: 0,  // 0 = all messages
+                    filename_prefix: output.clone().unwrap_or_else(|| "chat_export".to_string()),
+                };
+
+                let mut exporter = ChatExporter::with_config(config);
+
+                // STEP 3: Export messages (75% progress)
+                let _ = sender.send(CommandEvent::Progress {
+                    execution_id,
+                    progress: 75.0,
+                    message: "Exporting messages...".to_string(),
+                    timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs(),
+                });
+
+                let export_data = match exporter.export_messages(&messages) {
+                    Ok(data) => data,
+                    Err(e) => {
+                        let _ = sender.send(CommandEvent::Failed {
+                            execution_id,
+                            error: format!("Export failed: {}", e),
+                            error_code: 4003,
+                            duration_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
+                            resource_usage: ResourceUsage::default(),
+                            timestamp_us: current_timestamp_us(),
+                        });
+                        return;
+                    }
+                };
+
+                // STEP 4: Write to file (90% progress)
+                let _ = sender.send(CommandEvent::Progress {
+                    execution_id,
+                    progress: 90.0,
+                    message: "Writing to file...".to_string(),
+                    timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs(),
+                });
+
+                let output_path = output.unwrap_or_else(|| {
+                    format!("chat_export.{}", export_data.file_extension)
+                });
+
+                if let Err(e) = tokio::fs::write(&output_path, &export_data.content).await {
+                    let _ = sender.send(CommandEvent::Failed {
+                        execution_id,
+                        error: format!("Failed to write file: {}", e),
+                        error_code: 4004,
+                        duration_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
+                        resource_usage: ResourceUsage::default(),
+                        timestamp_us: current_timestamp_us(),
+                    });
+                    return;
+                }
+
+                // STEP 5: Complete (100%)
+                let _ = sender.send(CommandEvent::Progress {
+                    execution_id,
+                    progress: 100.0,
+                    message: "Export complete!".to_string(),
+                    timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs(),
+                });
+
+                let success_message = format!(
+                    "Successfully exported {} messages to '{}' ({} format, {} bytes)",
+                    export_data.metadata.message_count,
+                    output_path,
+                    format,
+                    export_data.metadata.size_bytes
+                );
+
+                let _ = sender.send(CommandEvent::output(
+                    execution_id,
+                    success_message,
+                    OutputType::Text,
+                ));
 
                 let result = CommandExecutionResult::File {
-                    path: output_str,
-                    size_bytes: 1024, // Placeholder size
-                    mime_type: from_ext(&format).first_or_text_plain().to_string(),
+                    path: output_path,
+                    #[allow(clippy::cast_possible_truncation)]
+                    size_bytes: export_data.metadata.size_bytes as u64,
+                    mime_type: export_data.content_type,
                 };
+
                 #[allow(clippy::cast_possible_truncation)]
                 let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
                 let _ = sender.send(CommandEvent::completed(
                     execution_id,
                     result,
                     duration_us,
-                    ResourceUsage::default()
+                    ResourceUsage::default(),
                 ));
             });
         }))
     }
+}
 
+/// Retrieve conversation messages from memory coordinator
+async fn retrieve_conversation_messages(
+    memory: &MemoryCoordinator,
+) -> Result<Vec<CandleMessage>, String> {
+    use tokio_stream::StreamExt;
+    
+    // Query all memories using the stream API
+    // Note: Using large limit (10000) to get full conversation
+    let mut stream = memory.surreal_manager.list_all_memories(10000, 0);
+    
+    let mut messages = Vec::new();
+    
+    while let Some(result) = stream.next().await {
+        let mem = match result {
+            Ok(m) => m,
+            Err(e) => {
+                log::warn!("Failed to retrieve memory: {}", e);
+                continue;
+            }
+        };
+        
+        // Convert to domain memory node to access metadata
+        let domain_mem = match memory.convert_memory_to_domain_node(&mem) {
+            Ok(dm) => dm,
+            Err(e) => {
+                log::warn!("Failed to convert memory node: {}", e);
+                continue;
+            }
+        };
+        
+        // Check if this memory has conversation tags
+        let has_user_tag = domain_mem.metadata.tags.iter().any(|t| t.as_ref() == "user_message");
+        let has_assistant_tag = domain_mem.metadata.tags.iter().any(|t| t.as_ref() == "assistant_response");
+        
+        if !has_user_tag && !has_assistant_tag {
+            continue; // Skip non-conversation memories
+        }
+        
+        let role = if has_user_tag {
+            CandleMessageRole::User
+        } else {
+            CandleMessageRole::Assistant
+        };
+
+        let message = CandleMessage {
+            role,
+            content: domain_mem.content().to_string(),
+            id: Some(domain_mem.node_id().to_string()),
+            timestamp: Some(domain_mem.created_at().timestamp() as u64),
+        };
+
+        messages.push(message);
+    }
+
+    // Sort by timestamp to maintain conversation order
+    messages.sort_by_key(|m| m.timestamp.unwrap_or(0));
+
+    Ok(messages)
+}
+
+impl CommandExecutor {
     /// Execute config command (streaming-only, zero-allocation)  
     pub fn execute_config_streaming(
         &self,

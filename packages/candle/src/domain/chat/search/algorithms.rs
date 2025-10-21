@@ -48,13 +48,23 @@ impl ChatSearchIndex {
             if let Some(doc_ids) = candidate_docs {
                 for doc_id in doc_ids {
                     if let Some(message) = self_clone.document_store().get(&doc_id) {
+                        // Get tags from tagger
+                        let tags = if let Some(ref tagger) = self_clone.tagger {
+                            let tag_ids = tagger.get_tags(&doc_id);
+                            tag_ids.iter()
+                                .filter_map(|tid| tagger.tags.get(tid).map(|e| e.value().name.clone()))
+                                .collect()
+                        } else {
+                            Vec::new()
+                        };
+                        
                         let result = SearchResult {
                             message: message.value().clone(),
                             relevance_score: self_clone
                                 .calculate_relevance_score(&terms_clone, &doc_id),
                             matching_terms: terms_clone.clone(),
                             highlighted_content: None,
-                            tags: Vec::new(),
+                            tags,
                             context: Vec::new(),
                             match_positions: Self::find_match_positions(
                                 &terms_clone,
@@ -108,13 +118,23 @@ impl ChatSearchIndex {
                         .cloned()
                         .collect();
 
+                    // Get tags from tagger
+                    let tags = if let Some(ref tagger) = self_clone.tagger {
+                        let tag_ids = tagger.get_tags(&doc_id);
+                        tag_ids.iter()
+                            .filter_map(|tid| tagger.tags.get(tid).map(|e| e.value().name.clone()))
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
+
                     let result = SearchResult {
                         message: message.value().clone(),
                         relevance_score: self_clone
                             .calculate_relevance_score(&matching_terms, &doc_id),
                         matching_terms,
                         highlighted_content: None,
-                        tags: Vec::new(),
+                        tags,
                         context: Vec::new(),
                         match_positions: Self::find_match_positions(
                             &terms_clone,
@@ -204,12 +224,22 @@ impl ChatSearchIndex {
             for entry in &self_clone.document_store {
                 let doc_id = entry.key().clone();
                 if !excluded_docs.contains(&doc_id) {
+                    // Get tags from tagger
+                    let tags = if let Some(ref tagger) = self_clone.tagger {
+                        let tag_ids = tagger.get_tags(&doc_id);
+                        tag_ids.iter()
+                            .filter_map(|tid| tagger.tags.get(tid).map(|e| e.value().name.clone()))
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
+                    
                     let result = SearchResult {
                         message: entry.value().clone(),
                         relevance_score: 1.0, // All non-matching documents have equal relevance
                         matching_terms: Vec::new(),
                         highlighted_content: None,
-                        tags: Vec::new(),
+                        tags,
                         context: Vec::new(),
                         match_positions: Vec::new(),
                         metadata: Some(SearchResultMetadata {
@@ -249,14 +279,25 @@ impl ChatSearchIndex {
             for entry in &self_clone.document_store {
                 let message = entry.value();
                 let content = &message.message.content;
+                let doc_id = entry.key();
 
                 if content.to_lowercase().contains(&phrase.to_lowercase()) {
+                    // Get tags from tagger
+                    let tags = if let Some(ref tagger) = self_clone.tagger {
+                        let tag_ids = tagger.get_tags(doc_id);
+                        tag_ids.iter()
+                            .filter_map(|tid| tagger.tags.get(tid).map(|e| e.value().name.clone()))
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
+                    
                     let result = SearchResult {
                         message: message.clone(),
                         relevance_score: 1.0, // Exact phrase matches have high relevance
                         matching_terms: terms_clone.clone(),
                         highlighted_content: None,
-                        tags: Vec::new(),
+                        tags,
                         context: Vec::new(),
                         match_positions: Self::find_phrase_positions(&phrase, content),
                         metadata: Some(SearchResultMetadata {
@@ -291,9 +332,20 @@ impl ChatSearchIndex {
                 let message = entry.value();
                 let content = &message.message.content;
                 let tokens = self_clone.tokenize_with_simd(content);
+                let doc_id = entry.key();
 
                 // Check if terms appear within the specified distance
                 if Self::check_proximity(&terms_clone, &tokens, distance) {
+                    // Get tags from tagger
+                    let tags = if let Some(ref tagger) = self_clone.tagger {
+                        let tag_ids = tagger.get_tags(doc_id);
+                        tag_ids.iter()
+                            .filter_map(|tid| tagger.tags.get(tid).map(|e| e.value().name.clone()))
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
+                    
                     let result = SearchResult {
                         message: message.clone(),
                         relevance_score: Self::calculate_proximity_score(
@@ -303,7 +355,7 @@ impl ChatSearchIndex {
                         ),
                         matching_terms: terms_clone.clone(),
                         highlighted_content: None,
-                        tags: Vec::new(),
+                        tags,
                         context: Vec::new(),
                         match_positions: Self::find_match_positions(&terms_clone, content),
                         metadata: Some(SearchResultMetadata {

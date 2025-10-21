@@ -166,7 +166,15 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
 
                 async_stream::spawn_stream(move |tx| async move {
                     // Load file paths asynchronously
-                    let gguf_repo = model_clone.info().quantization_url.unwrap();
+                    let gguf_repo = match model_clone.info().quantization_url {
+                        Some(url) => url,
+                        None => {
+                            let _ = tx.send(CandleStringChunk(
+                                "ERROR: Model info missing quantization_url".to_string()
+                            ));
+                            return;
+                        }
+                    };
                     log::info!("Requesting GGUF from repo: '{}', file: 'phi-4-reasoning-Q4_K_M.gguf'", gguf_repo);
                     let gguf_path = match model_clone.huggingface_file(
                         gguf_repo,
@@ -371,9 +379,15 @@ impl LoadedPhi4ReasoningModel {
         log::info!("🔄 LoadedPhi4ReasoningModel::load() - Loading model into memory ONCE");
         
         // Get file paths
+        let quantization_url = base.info().quantization_url
+            .ok_or_else(|| {
+                Box::from("Model info missing quantization_url")
+                    as Box<dyn std::error::Error + Send + Sync>
+            })?;
+        
         let gguf_file_path = base
             .huggingface_file(
-                base.info().quantization_url.unwrap(),
+                quantization_url,
                 "phi-4-reasoning-Q4_K_M.gguf",
             ).await
             .map_err(|e| {

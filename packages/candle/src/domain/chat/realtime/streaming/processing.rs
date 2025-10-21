@@ -62,13 +62,26 @@ pub(crate) fn start_processing_stream(
                     let mut total_bytes = 0u64;
 
                     // Distribute to matching subscribers
+                    let mut disconnected = Vec::new();
+
                     for entry in subscribers.iter() {
                         let subscriber = entry.value();
                         if subscriber.should_receive(&message) {
-                            subscriber.record_delivery(&message);
-                            delivered_count += 1;
-                            total_bytes += u64::from(message.size_bytes);
+                            // Actually send the message to subscriber's channel
+                            if subscriber.send_message(message.clone()) {
+                                subscriber.record_delivery(&message);
+                                delivered_count += 1;
+                                total_bytes += u64::from(message.size_bytes);
+                            } else {
+                                // Channel closed - subscriber disconnected
+                                disconnected.push(entry.key().clone());
+                            }
                         }
+                    }
+
+                    // Remove disconnected subscribers
+                    for id in disconnected {
+                        subscribers.remove(&id);
                     }
 
                     messages_processed += 1;

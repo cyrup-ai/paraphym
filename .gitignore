@@ -18,6 +18,8 @@
 ./crates-lsp/*
 **/CLAUDE.md
 ./CLAUDE.md
+TURD.md
+*.code-workspace
 
 # ==============================
 # Rust Specific

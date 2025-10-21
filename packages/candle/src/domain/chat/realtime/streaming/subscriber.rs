@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use tokio::sync::mpsc;
 use super::types::{LiveUpdateMessage, MessagePriority};
 use crate::domain::util::unix_timestamp_nanos;
 
@@ -24,12 +25,14 @@ pub struct StreamSubscriber {
     pub subscribed_at: u64,
     /// Last message timestamp
     pub last_message_at: Arc<AtomicU64>,
+    /// Message sender for delivering filtered messages to this subscriber
+    pub(crate) message_tx: mpsc::UnboundedSender<LiveUpdateMessage>,
 }
 
 impl StreamSubscriber {
     /// Create new stream subscriber
     #[inline]
-    pub fn new(id: String) -> Self {
+    pub fn new(id: String, message_tx: mpsc::UnboundedSender<LiveUpdateMessage>) -> Self {
         let now_nanos = unix_timestamp_nanos();
 
         Self {
@@ -41,6 +44,7 @@ impl StreamSubscriber {
             bytes_received: Arc::new(AtomicU64::new(0)),
             subscribed_at: now_nanos,
             last_message_at: Arc::new(AtomicU64::new(now_nanos)),
+            message_tx,
         }
     }
 
@@ -97,5 +101,12 @@ impl StreamSubscriber {
             .fetch_add(u64::from(message.size_bytes), Ordering::AcqRel);
         self.last_message_at
             .store(unix_timestamp_nanos(), Ordering::Release);
+    }
+
+    /// Send message to subscriber's channel
+    /// Returns true if sent successfully, false if channel closed
+    #[inline]
+    pub fn send_message(&self, message: LiveUpdateMessage) -> bool {
+        self.message_tx.send(message).is_ok()
     }
 }

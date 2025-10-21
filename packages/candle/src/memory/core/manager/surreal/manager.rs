@@ -153,6 +153,21 @@ impl SurrealDBMemoryManager {
                 Error::Database(format!("Failed to define entanglement edges: {:?}", e))
             })?;
 
+        // Define causal relation edges (separate from general entanglement)
+        self.db
+            .query(
+                "
+                DEFINE TABLE IF NOT EXISTS caused SCHEMAFULL TYPE RELATION FROM memory TO memory;
+                DEFINE FIELD IF NOT EXISTS strength ON caused TYPE float;
+                DEFINE FIELD IF NOT EXISTS temporal_distance ON caused TYPE int;
+                DEFINE FIELD IF NOT EXISTS created_at ON caused TYPE int;
+                ",
+            )
+            .await
+            .map_err(|e| {
+                Error::Database(format!("Failed to define causal edges: {:?}", e))
+            })?;
+
         Ok(())
     }
 

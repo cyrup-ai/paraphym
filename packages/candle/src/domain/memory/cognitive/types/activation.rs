@@ -29,7 +29,6 @@ impl AlignedActivationPattern {
     }
 
     /// Update pattern with SIMD optimization hint
-    #[allow(dead_code)] // TODO: Implement in cognitive pattern system
     #[inline]
     pub fn update(&mut self, new_data: Vec<f32>) {
         if new_data.len() == self.dimension {
@@ -39,7 +38,6 @@ impl AlignedActivationPattern {
     }
 
     /// Apply activation function with SIMD optimization
-    #[allow(dead_code)] // TODO: Implement in cognitive pattern system
     #[inline]
     pub fn apply_activation(&mut self, activation_fn: impl Fn(f32) -> f32) {
         for value in &mut self.data {
@@ -49,7 +47,6 @@ impl AlignedActivationPattern {
     }
 
     /// Calculate pattern energy with SIMD hint
-    #[allow(dead_code)] // TODO: Implement in cognitive pattern system
     #[inline]
     #[must_use]
     pub fn energy(&self) -> f32 {

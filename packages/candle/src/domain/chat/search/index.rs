@@ -69,6 +69,8 @@ pub struct ChatSearchIndex {
     pub document_store: SkipMap<String, SearchChatMessage>,
     /// Term frequencies for TF-IDF calculation
     pub term_frequencies: SkipMap<String, TermFrequency>,
+    /// Conversation tagger (shared with history manager)
+    pub tagger: Option<Arc<super::tagger::CandleConversationTagger>>,
     /// Document count
     pub document_count: Arc<AtomicUsize>,
     /// Query counter
@@ -103,6 +105,7 @@ impl std::fmt::Debug for ChatSearchIndex {
                 "term_frequencies",
                 &format!("SkipMap with {} entries", self.term_frequencies.len()),
             )
+            .field("tagger", &self.tagger.as_ref().map(|_| "Some(Arc<CandleConversationTagger>)"))
             .field(
                 "document_count",
                 &self.document_count.load(Ordering::Relaxed),
@@ -132,6 +135,7 @@ impl ChatSearchIndex {
             inverted_index: SkipMap::new(),
             document_store: SkipMap::new(),
             term_frequencies: SkipMap::new(),
+            tagger: None,
             document_count: Arc::new(AtomicUsize::new(0)),
             query_counter: Arc::new(ConsistentCounter::new(0)),
             index_update_counter: Arc::new(ConsistentCounter::new(0)),

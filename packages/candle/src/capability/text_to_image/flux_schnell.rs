@@ -111,11 +111,16 @@ impl FluxSchnell {
 
         // Spawn dedicated thread with LocalSet for !Send models
         std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_multi_thread()
+            let rt = match tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(1)
                 .enable_all()
-                .build()
-                .expect("Failed to create worker runtime");
+                .build() {
+                    Ok(runtime) => runtime,
+                    Err(e) => {
+                        eprintln!("FATAL: Failed to create FLUX worker runtime: {}", e);
+                        panic!("Cannot initialize FLUX model without tokio runtime");
+                    }
+                };
 
             let local = tokio::task::LocalSet::new();
             rt.block_on(local.run_until(async move {

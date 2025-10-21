@@ -218,10 +218,9 @@ impl<T: Send + Clone + Hash + 'static> RequestQueue<T> {
         });
         
         // Handle batching if enabled
-        if self.config.enable_coalescing && batch_key.is_some() {
-            let batch_key = batch_key.unwrap();
-            
-            self.batch_accumulator
+        if self.config.enable_coalescing {
+            if let Some(batch_key) = batch_key {
+                self.batch_accumulator
                 .entry(batch_key.clone())
                 .and_modify(|acc| {
                     if acc.requests.len() < self.config.coalesce_max_batch {
@@ -235,6 +234,10 @@ impl<T: Send + Clone + Hash + 'static> RequestQueue<T> {
                     batch_size: self.config.coalesce_max_batch,
                     timeout: self.config.coalesce_window,
                 });
+            } else {
+                // No batch key - add to priority queue
+                self.priority_queue.write().await.push(priority_req.clone());
+            }
         } else {
             // Add to priority queue
             self.priority_queue.write().await.push(priority_req.clone());

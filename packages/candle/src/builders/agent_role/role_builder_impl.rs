@@ -236,10 +236,14 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
         use crate::domain::model::traits::CandleModel;
 
         // Get default text-to-text model if not set
-        let text_model = self.text_to_text_model.unwrap_or_else(|| {
-            registry::get::<TextToTextModel>("qwen-3")
-                .expect("qwen-3 model must be registered")
-        });
+        let text_model = match self.text_to_text_model {
+            Some(model) => model,
+            None => {
+                registry::get::<TextToTextModel>("qwen-3")
+                    .expect("FATAL: Default 'qwen-3' model must be registered at startup. \
+                             This is a critical initialization failure - ensure registry is properly initialized.")
+            }
+        };
 
         // Get max_tokens from model's ModelInfo
         let model_max_tokens = text_model

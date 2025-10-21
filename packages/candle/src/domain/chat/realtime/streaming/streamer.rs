@@ -7,6 +7,7 @@ use crossbeam_skiplist::SkipMap;
 use tokio::sync::{broadcast, mpsc};
 use std::pin::Pin;
 use tokio_stream::Stream;
+use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use super::types::LiveUpdateMessage;
 use super::subscriber::StreamSubscriber;
@@ -14,6 +15,7 @@ use super::results::{StreamingResult, UnsubscribeResult, ProcessingEvent};
 use super::stats::StreamingStatistics;
 use super::processing;
 use super::super::events::RealTimeEvent;
+use crate::domain::util::unix_timestamp_nanos;
 
 /// Live message streamer with lock-free queuing and atomic statistics
 pub struct LiveMessageStreamer {
@@ -37,8 +39,7 @@ pub struct LiveMessageStreamer {
     bytes_processed: Arc<AtomicU64>,
     /// Queue size limit for backpressure
     queue_size_limit: Arc<AtomicUsize>,
-    /// Backpressure threshold
-    #[allow(dead_code)] // TODO: Implement backpressure throttling logic
+    /// Backpressure threshold for warning triggers
     backpressure_threshold: Arc<AtomicUsize>,
     /// Processing rate in messages per second
     processing_rate: Arc<AtomicU64>,
@@ -200,14 +201,30 @@ impl LiveMessageStreamer {
     #[must_use]
     pub fn subscribe(&self, subscriber: StreamSubscriber) 
         -> Pin<Box<dyn Stream<Item = LiveUpdateMessage> + Send>> {
-        let subscriber_arc = Arc::new(subscriber);
+        // Create channel for this subscriber
+        let (message_tx, message_rx) = mpsc::unbounded_channel();
+        
+        // Create subscriber with channel (preserve filters from input)
+        let subscriber_with_channel = StreamSubscriber {
+            id: subscriber.id.clone(),
+            session_filter: subscriber.session_filter,
+            user_filter: subscriber.user_filter,
+            min_priority: subscriber.min_priority,
+            messages_received: Arc::new(AtomicU64::new(0)),
+            bytes_received: Arc::new(AtomicU64::new(0)),
+            subscribed_at: unix_timestamp_nanos(),
+            last_message_at: Arc::new(AtomicU64::new(unix_timestamp_nanos())),
+            message_tx,
+        };
+        
+        let subscriber_arc = Arc::new(subscriber_with_channel);
         let subscriber_id = subscriber_arc.id.clone();
         
         self.subscribers.insert(subscriber_id, subscriber_arc);
         self.subscriber_counter.inc();
         
-        // Return empty stream - messages will be delivered via processing task
-        Box::pin(crate::async_stream::spawn_stream(|_tx| async move {}))
+        // Return stream of messages for this subscriber
+        Box::pin(UnboundedReceiverStream::new(message_rx))
     }
 
     /// Unsubscribe from message stream

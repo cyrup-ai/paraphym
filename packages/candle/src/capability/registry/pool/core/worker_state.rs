@@ -146,7 +146,7 @@ impl CircuitBreaker {
             self.last_failure.store(
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
-                    .unwrap()
+                    .expect("System clock set before Unix epoch - this indicates a critical system issue")
                     .as_secs(),
                 Ordering::Release,
             );
@@ -160,7 +160,7 @@ impl CircuitBreaker {
                 // Open - check timeout
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
-                    .unwrap()
+                    .expect("System clock set before Unix epoch - this indicates a critical system issue")
                     .as_secs();
                 let last = self.last_failure.load(Ordering::Relaxed);
 
@@ -219,7 +219,7 @@ impl<Req, Resp> UnifiedWorkerHandle<Req, Resp> {
     pub fn update_activity(&self) {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("System clock set before Unix epoch - this indicates a critical system issue")
             .as_secs();
         self.last_activity.store(now, Ordering::Release);
     }

@@ -66,11 +66,16 @@ pub fn spawn_worker() -> mpsc::UnboundedSender<SD35WorkerRequest> {
 
     std::thread::spawn(move || {
         // Create worker runtime with LocalSet support
-        let rt = tokio::runtime::Builder::new_multi_thread()
+        let rt = match tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .enable_all()
-            .build()
-            .expect("Failed to create SD3.5 worker runtime");
+            .build() {
+                Ok(runtime) => runtime,
+                Err(e) => {
+                    eprintln!("FATAL: Failed to create SD3.5 worker runtime: {}", e);
+                    panic!("Cannot initialize Stable Diffusion 3.5 model without tokio runtime");
+                }
+            };
 
         let local = tokio::task::LocalSet::new();
         

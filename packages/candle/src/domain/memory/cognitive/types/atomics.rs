@@ -41,7 +41,6 @@ impl Default for AtomicF32 {
 
 /// Atomic f64 wrapper for concurrent operations
 #[derive(Debug)]
-#[allow(dead_code)] // TODO: Implement atomic f64 operations for quantum calculations
 pub struct AtomicF64 {
     inner: AtomicU64,
 }
@@ -50,7 +49,6 @@ impl AtomicF64 {
     /// Create new atomic f64
     #[inline]
     #[must_use]
-    #[allow(dead_code)] // TODO: Implement atomic f64 constructor
     pub fn new(value: f64) -> Self {
         Self {
             inner: AtomicU64::new(value.to_bits()),
@@ -59,14 +57,12 @@ impl AtomicF64 {
 
     /// Load value atomically
     #[inline]
-    #[allow(dead_code)] // TODO: Implement atomic f64 load
     pub fn load(&self, ordering: Ordering) -> f64 {
         f64::from_bits(self.inner.load(ordering))
     }
 
     /// Store value atomically
     #[inline]
-    #[allow(dead_code)] // TODO: Implement atomic f64 store
     pub fn store(&self, value: f64, ordering: Ordering) {
         self.inner.store(value.to_bits(), ordering);
     }

@@ -40,14 +40,17 @@ impl TokenOutputStream {
         };
         self.tokens.push(token);
         let text = self.decode(&self.tokens[self.prev_index..])?;
-        if text.len() > prev_text.len() && text.chars().last().unwrap().is_alphanumeric() {
-            let text = text.split_at(prev_text.len());
-            self.prev_index = self.current_index;
-            self.current_index = self.tokens.len();
-            Ok(Some(text.1.to_string()))
-        } else {
-            Ok(None)
+        if text.len() > prev_text.len() {
+            if let Some(last_char) = text.chars().last() {
+                if last_char.is_alphanumeric() {
+                    let text = text.split_at(prev_text.len());
+                    self.prev_index = self.current_index;
+                    self.current_index = self.tokens.len();
+                    return Ok(Some(text.1.to_string()));
+                }
+            }
         }
+        Ok(None)
     }
 
     pub fn decode_rest(&self) -> Result<Option<String>, candle_core::Error> {

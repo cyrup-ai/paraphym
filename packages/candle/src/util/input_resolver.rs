@@ -66,7 +66,11 @@ pub async fn resolve_input(input: &str) -> Result<String> {
             }
         }
 
-        Err(last_error.unwrap().into())
+        // All retry attempts exhausted - last_error must be Some at this point
+        match last_error {
+            Some(err) => Err(err.into()),
+            None => Err(anyhow::anyhow!("URL fetch failed after all retries with no error recorded")),
+        }
     } else {
         // Literal text - use as-is
         Ok(input.to_string())

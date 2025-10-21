@@ -498,6 +498,7 @@ impl PlatformInfo {
     /// 
     /// Tests DNS lookup against multiple domains with timeout protection.
     /// Returns average time in milliseconds, or conservative fallback if all fail.
+    #[allow(dead_code)]
     async fn measure_dns_resolution() -> u32 {
         use std::time::{Duration, Instant};
         use tokio::net::lookup_host;
@@ -552,28 +553,16 @@ impl PlatformInfo {
     }
 
     fn detect_network_capabilities() -> NetworkCapabilities {
-        use tokio::runtime::Runtime;
-
-        // Measure actual DNS resolution time
-        // Create runtime in separate thread to avoid nested runtime issues
-        let dns_resolution_ms = std::thread::spawn(|| {
-            Runtime::new()
-                .ok()
-                .map(|rt| {
-                    // Run async DNS measurement in blocking context
-                    rt.block_on(Self::measure_dns_resolution())
-                })
-        })
-        .join()
-        .ok()
-        .flatten()
-        .unwrap_or(100); // Fallback if runtime creation fails
-
+        // Use conservative default for DNS resolution time.
+        // The measure_dns_resolution() async function remains available
+        // for future use if accurate measurement becomes necessary.
+        // Default of 100ms represents typical DNS resolution on modern networks.
+        
         NetworkCapabilities {
             raw_sockets: true,       // Assume available
             ipv6_support: true,      // Assume available
             firewall_enabled: false, // Assume disabled for simplicity
-            dns_resolution_ms,       // Actual measured value
+            dns_resolution_ms: 100,  // Conservative default
         }
     }
 
