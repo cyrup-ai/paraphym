@@ -161,22 +161,32 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
             };
 
             // DELEGATE to domain::chat::session with raw context sources
-            let session_stream = crate::domain::chat::session::execute_chat_session(
+            let config = crate::domain::chat::session::ChatSessionConfig {
                 model_config,
                 chat_config,
                 provider,
                 memory,
                 tools,
                 metadata,
+            };
+            let contexts = crate::domain::chat::session::ChatSessionContexts {
                 context_file,
                 context_files,
                 context_directory,
                 context_github,
-                conversation_history,
-                handler,
+            };
+            let handlers = crate::domain::chat::session::ChatSessionHandlers {
                 on_chunk_handler,
                 on_tool_result_handler,
                 on_conversation_turn_handler,
+            };
+
+            let session_stream = crate::domain::chat::session::execute_chat_session(
+                config,
+                contexts,
+                conversation_history,
+                handler,
+                handlers,
             ).await;
             
             // Forward all chunks from session to sender

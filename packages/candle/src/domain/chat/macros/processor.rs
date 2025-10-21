@@ -15,7 +15,7 @@ use super::types::MacroAction;
 use super::context::{ChatMacro, MacroExecutionContext, send_message_to_conversation, LoopContext};
 use super::parser::{tokenize_condition, CondParser};
 use super::errors::{MacroSystemError, ActionExecutionResult};
-use crate::domain::chat::commands::{CommandEvent, execute_candle_command};
+use crate::domain::chat::commands::{CommandEvent, execute_candle_command, ImmutableChatCommand};
 use crate::domain::chat::conversation::CandleStreamingConversation;
 
 /// Macro processor for executing and managing chat macros
@@ -500,7 +500,7 @@ pub(crate) fn execute_action_sync<'a>(
                 Ok(ActionExecutionResult::Wait(*duration))
             }
             MacroAction::SetVariable { name, value, .. } => {
-                execute_set_variable(name, value, context)
+                Ok(execute_set_variable(name, value, context))
             }
             MacroAction::Conditional { condition, then_actions, else_actions, .. } => {
                 execute_conditional(condition, then_actions, else_actions.as_ref(), context).await
@@ -533,19 +533,9 @@ async fn execute_send_message(
 
 /// Execute command action
 async fn execute_command_action(
-    command_str: &str,
+    command: &ImmutableChatCommand,
 ) -> Result<ActionExecutionResult, MacroSystemError> {
-    use crate::domain::chat::commands::parse_candle_command;
-
-    // Parse command string into ImmutableChatCommand
-    let command = match parse_candle_command(command_str).await {
-        Ok(cmd) => cmd,
-        Err(e) => {
-            return Ok(ActionExecutionResult::Error(format!("Command parse failed: {e}")));
-        }
-    };
-
-    let mut event_stream = execute_candle_command(command);
+    let mut event_stream = execute_candle_command(command.clone());
     let mut command_output = String::new();
     let mut result = ActionExecutionResult::Success;
 
@@ -581,10 +571,10 @@ fn execute_set_variable(
     name: &str,
     value: &str,
     context: &mut MacroExecutionContext,
-) -> Result<ActionExecutionResult, MacroSystemError> {
+) -> ActionExecutionResult {
     let resolved_value = resolve_variables_sync(value, &context.variables);
     context.variables.insert(name.to_string(), resolved_value);
-    Ok(ActionExecutionResult::Success)
+    ActionExecutionResult::Success
 }
 
 /// Execute conditional action
@@ -613,17 +603,13 @@ async fn execute_conditional<'a>(
 
 /// Execute loop action
 async fn execute_loop<'a>(
-    iterations: usize,
+    iterations: u32,
     actions: &'a [MacroAction],
     context: &'a mut MacroExecutionContext,
 ) -> Result<ActionExecutionResult, MacroSystemError> {
-    // Convert usize to u32 with proper bounds checking
-    let iterations_u32 = u32::try_from(iterations)
-        .map_err(|_| MacroSystemError::ExecutionError("Loop iterations exceed u32::MAX".to_string()))?;
-
     let loop_context = LoopContext {
         iteration: 0,
-        max_iterations: iterations_u32,
+        max_iterations: iterations,
         start_action: context.current_action,
         end_action: context.current_action + actions.len() - 1,
     };
