@@ -202,12 +202,10 @@ async fn search_and_format_memory(
     }
 }
 
-/// Build prompt with personality and memory context
-fn build_prompt_with_context(
+/// Build system prompt with personality traits and custom instructions
+fn build_system_prompt(
     model_config: &CandleModelConfig,
     chat_config: &CandleChatConfig,
-    memory_context: &str,
-    user_message: &str,
 ) -> String {
     let mut system_prompt = model_config.system_prompt.clone().unwrap_or_default();
 
@@ -224,6 +222,18 @@ fn build_prompt_with_context(
         chat_config.personality.formality,
         chat_config.personality.empathy
     );
+
+    system_prompt
+}
+
+/// Build prompt with personality and memory context
+fn build_prompt_with_context(
+    model_config: &CandleModelConfig,
+    chat_config: &CandleChatConfig,
+    memory_context: &str,
+    user_message: &str,
+) -> String {
+    let system_prompt = build_system_prompt(model_config, chat_config);
 
     if memory_context.is_empty() {
         format!("{system_prompt}\n\nUser: {user_message}")
@@ -397,29 +407,52 @@ async fn stream_and_process_chunks(
 
 /// Store conversation turn in memory
 fn store_conversation_in_memory<S: std::hash::BuildHasher>(
+    system_prompt: &str,
     user_message: &str,
     assistant_response: &str,
     memory: &Arc<MemoryCoordinator>,
     metadata: &HashMap<String, String, S>,
 ) {
-    let user_meta = MemoryMetadata {
+    // Base metadata template
+    let base_meta = MemoryMetadata {
         user_id: metadata.get("user_id").cloned(),
         agent_id: metadata.get("agent_id").cloned(),
         context: "chat".to_string(),
         importance: 0.8,
         keywords: vec![],
-        tags: vec!["user_message".to_string()],
         category: "conversation".to_string(),
         source: Some("chat".to_string()),
         created_at: chrono::Utc::now(),
         last_accessed_at: None,
         embedding: None,
         custom: serde_json::Value::Object(serde_json::Map::new()),
+        tags: vec![], // Set per message type below
     };
 
-    let assistant_meta = MemoryMetadata {
-        tags: vec!["assistant_response".to_string()],
-        ..user_meta.clone()
+    // Store SYSTEM message
+    if !system_prompt.is_empty() {
+        let system_meta = MemoryMetadata {
+            tags: vec!["message_type.system".to_string()],
+            ..base_meta.clone()
+        };
+
+        let memory_clone = memory.clone();
+        let system_msg = system_prompt.to_string();
+        tokio::spawn(async move {
+            if let Err(e) = memory_clone.add_memory(
+                system_msg,
+                DomainMemoryTypeEnum::Semantic,
+                Some(system_meta)
+            ).await {
+                log::error!("Failed to store system memory: {e:?}");
+            }
+        });
+    }
+
+    // Store USER message
+    let user_meta = MemoryMetadata {
+        tags: vec!["message_type.user".to_string()],
+        ..base_meta.clone()
     };
 
     let memory_clone = memory.clone();
@@ -433,6 +466,12 @@ fn store_conversation_in_memory<S: std::hash::BuildHasher>(
             log::error!("Failed to store user memory: {e:?}");
         }
     });
+
+    // Store ASSISTANT message
+    let assistant_meta = MemoryMetadata {
+        tags: vec!["message_type.assistant".to_string()],
+        ..base_meta.clone()
+    };
 
     let memory_clone = memory.clone();
     let assistant_msg = assistant_response.to_string();
@@ -600,9 +639,16 @@ async fn handle_user_prompt<S: std::hash::BuildHasher>(
         on_tool_result_handler,
     ).await;
 
-    // Store conversation in memory
+    // Store conversation in memory including system prompt
     if !assistant_response.is_empty() {
-        store_conversation_in_memory(&user_message, &assistant_response, memory, metadata);
+        let system_prompt = build_system_prompt(model_config, chat_config);
+        store_conversation_in_memory(
+            &system_prompt,
+            &user_message,
+            &assistant_response,
+            memory,
+            metadata
+        );
     }
 
     // Invoke conversation turn handler if configured

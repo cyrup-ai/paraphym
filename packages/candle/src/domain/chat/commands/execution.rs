@@ -627,8 +627,9 @@ async fn retrieve_conversation_messages(
     // Use public MemoryFilter API to query by tags
     let filter = MemoryFilter::new()
         .with_tags(vec![
-            "user_message".to_string(),
-            "assistant_response".to_string(),
+            "message_type.user".to_string(),
+            "message_type.assistant".to_string(),
+            "message_type.system".to_string(),
         ]);
     
     // Use public get_memories() API - returns Vec<DomainMemoryNode>
@@ -640,9 +641,14 @@ async fn retrieve_conversation_messages(
         .iter()
         .map(|mem| {
             // Determine role from tags
-            let role = if mem.metadata.tags.iter().any(|t| t.as_ref() == "user_message") {
+            let role = if mem.metadata.tags.iter().any(|t| t.as_ref() == "message_type.user") {
                 CandleMessageRole::User
+            } else if mem.metadata.tags.iter().any(|t| t.as_ref() == "message_type.system") {
+                CandleMessageRole::System
+            } else if mem.metadata.tags.iter().any(|t| t.as_ref() == "message_type.assistant") {
+                CandleMessageRole::Assistant
             } else {
+                // Fallback for unrecognized tags - treat as Assistant
                 CandleMessageRole::Assistant
             };
             

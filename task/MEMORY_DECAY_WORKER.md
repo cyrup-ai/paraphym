@@ -424,32 +424,13 @@ pub mod decay_worker;
 
 **Result:** New field initialization at line 100
 
-### Modification 4: Spawn Decay Worker in Constructor
+### Modification 4: Add spawn_decay_worker() Method
 
 **File:** `packages/candle/src/memory/core/manager/coordinator/lifecycle.rs`
 
-**Location:** After line 80 (`log::info!("Started {} cognitive worker tasks", num_workers);`)
+**Location:** After the `shutdown_workers()` method (after line 142)
 
 **Add:**
-```rust
-
-        // Spawn decay worker
-        let decay_config = crate::memory::core::decay_worker::DecayWorkerConfig::default();
-        let decay_worker = crate::memory::core::decay_worker::DecayWorker::new(
-            surreal_manager.clone(),
-            // Note: We'll create a self-referential Arc after construction
-            // For now, we'll spawn this AFTER MemoryCoordinator is created
-        );
-        
-        log::info!("Decay worker will be spawned after coordinator initialization");
-```
-
-**WAIT - ARCHITECTURE ISSUE:** We need `Arc<MemoryCoordinator>` to pass to DecayWorker, but we're still IN the constructor. 
-
-**SOLUTION:** Add a separate `spawn_decay_worker()` method that's called AFTER construction:
-
-**Instead, add this method AFTER the `shutdown_workers()` method (after line 142):**
-
 ```rust
 
     /// Spawn background decay worker
@@ -485,6 +466,107 @@ pub mod decay_worker;
 
 ---
 
+## ⚠️ CRITICAL: RUNTIME INTEGRATION & ACTIVATION
+
+**THIS IS NOT OPTIONAL - THE WORKER MUST BE SPAWNED OR THE FEATURE IS USELESS**
+
+### Integration Point (MANDATORY)
+
+**File:** [`packages/candle/src/builders/agent_role/chat/memory_ops.rs`](../packages/candle/src/builders/agent_role/chat/memory_ops.rs)
+
+**Function:** `initialize_memory_coordinator()` (lines 8-52)
+
+**CURRENT CODE** (line 45-50):
+```rust
+// Create MemoryCoordinator
+let coordinator = match MemoryCoordinator::new(surreal_arc, emb_model.clone()).await {
+    Ok(coord) => coord,
+    Err(e) => return Err(format!("Failed to create memory coordinator: {:?}", e)),
+};
+
+Ok(Arc::new(coordinator))
+```
+
+**REQUIRED MODIFICATION** (MUST BE IMPLEMENTED):
+
+Replace lines 45-50 with:
+
+```rust
+// Create MemoryCoordinator
+let coordinator = match MemoryCoordinator::new(surreal_arc, emb_model.clone()).await {
+    Ok(coord) => coord,
+    Err(e) => return Err(format!("Failed to create memory coordinator: {:?}", e)),
+};
+
+// Wrap in Arc BEFORE spawning worker
+let coordinator_arc = Arc::new(coordinator);
+
+// CRITICAL: Spawn decay worker - this is what makes the feature actually work!
+coordinator_arc.spawn_decay_worker();
+log::info!("Memory decay worker activated - background processing enabled");
+
+Ok(coordinator_arc)
+```
+
+### Verification Requirements
+
+**Add startup logging to confirm worker is running:**
+
+The worker MUST log these messages on successful startup:
+1. `"Decay worker spawned"` - from lifecycle.rs spawn method
+2. `"Decay worker started: cycle={}s, batch={}, min_age={}h, max_age={}d"` - from worker.rs run() method
+
+**Check logs contain BOTH messages after application start.**
+
+### Monitoring Requirements
+
+**Add these log checks to verify worker is active:**
+
+1. **Every cycle** (default: 1 hour), worker MUST log:
+   ```
+   INFO: "Decay batch complete: processed={}, updated={}, offset={}"
+   ```
+
+2. **On errors**, worker MUST log:
+   ```
+   ERROR: "Decay worker batch processing failed: {}"
+   ```
+
+3. **When wrapping cursor**, worker MUST log:
+   ```
+   DEBUG: "Decay worker: end of memory list, resetting cursor to 0"
+   ```
+
+### Health Check Implementation
+
+**Add to application startup sequence:**
+
+```rust
+// After spawning worker, verify it's running
+tokio::time::sleep(Duration::from_millis(100)).await; // Let worker start
+
+// Log search for verification (check logs contain "Decay worker spawned")
+// If not found within 1 second of startup → FAIL FAST
+```
+
+### Fail-Fast Requirements
+
+**The application MUST fail at startup if:**
+1. `spawn_decay_worker()` is NOT called after coordinator creation
+2. Worker fails to start (no "Decay worker spawned" log within 1 second)
+3. Worker crashes during first batch processing
+
+**Add startup assertion:**
+```rust
+// In memory_ops.rs after spawn_decay_worker():
+debug_assert!(
+    Arc::strong_count(&coordinator_arc) >= 2,
+    "Decay worker should hold an Arc clone - if count is 1, worker wasn't spawned!"
+);
+```
+
+---
+
 ## IMPLEMENTATION SEQUENCE
 
 ### Step 1: Create decay_worker Module
@@ -507,20 +589,20 @@ pub mod decay_worker;
 4. Add `spawn_decay_worker()` method (after line 142)
 5. Add `set_decay_worker_config()` method (after spawn method)
 
-### Step 4: Usage Example
+### Step 4: **CRITICAL** - Integrate into Runtime
 
-```rust
-// In application initialization
-let coordinator = Arc::new(MemoryCoordinator::new(surreal_manager, embedding_model).await?);
+1. Edit `packages/candle/src/builders/agent_role/chat/memory_ops.rs`
+2. Modify `initialize_memory_coordinator()` function (lines 45-50)
+3. Add `coordinator_arc.spawn_decay_worker()` call
+4. Add startup logging confirmation
 
-// Optional: Configure before spawning
-// coordinator.set_decay_worker_config(DecayWorkerConfig { ... });
+### Step 5: Verify Integration
 
-// Spawn decay worker
-coordinator.spawn_decay_worker();
-
-// Worker now runs in background indefinitely
-```
+1. Run application
+2. Check logs for "Decay worker spawned" message
+3. Check logs for "Decay worker started: cycle=..." message
+4. Wait for first cycle (default: 1 hour) OR set short interval for testing
+5. Verify "Decay batch complete:" messages appear in logs
 
 ---
 
@@ -577,19 +659,31 @@ if age < min_age || age > max_age {
 
 ## DEFINITION OF DONE
 
+### Code Implementation
+
 1. ✅ `decay_worker` module exists with 3 files (mod.rs, config.rs, worker.rs)
 2. ✅ Module declared in `core/mod.rs`
 3. ✅ `decay_worker_config` field added to MemoryCoordinator
 4. ✅ Field initialized in constructor with Default
 5. ✅ `spawn_decay_worker()` method added to MemoryCoordinator
 6. ✅ `set_decay_worker_config()` method added to MemoryCoordinator
-7. ✅ Worker can be spawned: `coordinator.spawn_decay_worker()`
-8. ✅ Worker logs "Decay worker spawned" on start
-9. ✅ Worker processes batches every N seconds (configurable)
-10. ✅ Worker applies decay using existing `apply_temporal_decay()`
-11. ✅ Worker persists changes via `update_memory()`
-12. ✅ Worker wraps cursor at end of memory list
-13. ✅ Code compiles without errors
+7. ✅ Code compiles without errors
+
+### Runtime Integration (CRITICAL)
+
+8. ✅ **`spawn_decay_worker()` called in `memory_ops.rs`** after coordinator creation
+9. ✅ **Startup log shows "Decay worker spawned"**
+10. ✅ **Startup log shows "Decay worker started: cycle=..."**
+11. ✅ **Worker processes batches** (logs show "Decay batch complete:" after first cycle)
+12. ✅ **Worker handles errors gracefully** (errors logged, worker continues)
+13. ✅ **Worker wraps cursor at end** (logs show cursor reset to 0)
+
+### Verification
+
+14. ✅ Application starts successfully with worker enabled
+15. ✅ No "Decay worker NOT spawned" panic/error
+16. ✅ Memory importance values decrease over time (check database)
+17. ✅ Lazy decay can be removed from read path (search.rs, operations.rs) without breaking functionality
 
 ---
 
@@ -604,6 +698,7 @@ if age < min_age || age > max_age {
 - [operations.rs](../packages/candle/src/memory/core/manager/coordinator/operations.rs) - Lines 140-210
 - [trait_def.rs](../packages/candle/src/memory/core/manager/surreal/trait_def.rs) - Lines 1-269
 - [worker_core.rs](../packages/candle/src/memory/core/cognitive_worker/worker_core.rs) - Lines 1-119
+- [memory_ops.rs](../packages/candle/src/builders/agent_role/chat/memory_ops.rs) - Lines 1-52 ← **INTEGRATION POINT**
 
 ### Module Structure (Verified by lsd --tree)
 
