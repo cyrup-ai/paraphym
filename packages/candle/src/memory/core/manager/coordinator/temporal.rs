@@ -10,7 +10,7 @@ impl MemoryCoordinator {
     /// This method calculates exponential decay based on memory age and updates:
     /// - Memory importance score (reduced over time)
     /// - Quantum coherence level (simulating decoherence)
-    pub(super) async fn apply_temporal_decay(
+    pub(in crate::memory::core) async fn apply_temporal_decay(
         &self,
         memory: &mut crate::domain::memory::primitives::node::MemoryNode,
     ) -> Result<()> {

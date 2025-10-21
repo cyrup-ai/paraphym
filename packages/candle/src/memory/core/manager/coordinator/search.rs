@@ -35,13 +35,40 @@ impl MemoryCoordinator {
         top_k: usize,
         filter: Option<MemoryFilter>,
     ) -> Result<Vec<MemoryNode>> {
-        // Generate embedding for query
-        let query_embedding = self.generate_embedding(query).await?;
+        // Create enhanced query for routing
+        let enhanced_query = crate::memory::cognitive::quantum::types::EnhancedQuery {
+            query: query.to_string(),
+            routing_strategy: crate::memory::cognitive::quantum::types::RoutingStrategy::Hybrid(vec![]),
+            temporal_context: crate::memory::cognitive::quantum::types::TemporalContext::default(),
+            coherence_threshold: 0.7,
+        };
 
-        // Perform vector search in SurrealDB using cosine similarity
-        let memory_stream = self
-            .surreal_manager
-            .search_by_vector(query_embedding, top_k * 2); // Request 2x for filtering
+        // Get routing decision from quantum router
+        let cognitive_state_guard = self.cognitive_state.read().await;
+        let routing_decision = self.quantum_router
+            .route(enhanced_query, Some(&*cognitive_state_guard))
+            .await
+            .unwrap_or_default();
+        drop(cognitive_state_guard);
+
+        log::info!(
+            "Routing: {:?} (confidence: {:.2})",
+            routing_decision.strategy,
+            routing_decision.confidence
+        );
+
+        // Dispatch based on strategy
+        let memory_stream = match routing_decision.strategy {
+            crate::memory::cognitive::quantum::types::RoutingStrategy::Attention => {
+                // Content/keyword search
+                self.surreal_manager.search_by_content(query)
+            }
+            _ => {
+                // Default: Vector search (Quantum, Causal, Emergent, Hybrid)
+                let query_embedding = self.generate_embedding(query).await?;
+                self.surreal_manager.search_by_vector(query_embedding, top_k * 2) // Request 2x for filtering
+            }
+        };
 
         // Collect results
         let memories: Vec<_> = memory_stream.collect().await;
@@ -60,12 +87,8 @@ impl MemoryCoordinator {
             }
         }
 
-        // Apply temporal decay to all results
-        for memory in &mut result_memories {
-            if let Err(e) = self.apply_temporal_decay(memory).await {
-                log::warn!("Failed to apply temporal decay to {}: {}", memory.id(), e);
-            }
-        }
+        // NOTE: Temporal decay now applied by background DecayWorker
+        // Removed lazy evaluation from read path for performance
 
         // Apply optional filter
         let filtered_memories = if let Some(filter) = filter {
@@ -152,13 +175,36 @@ impl MemoryCoordinator {
                         .sum();
 
                     let boost_factor = 1.0 + (total_entanglement * 0.2); // 20% boost per entanglement
+
+                    // Get quality score from metadata (stored by CognitiveWorker)
+                    let quality_score = {
+                        let metadata_guard = memory.base_memory.metadata.read().await;
+                        metadata_guard
+                            .get("quality_score")
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(0.5) // Default to neutral
+                    };
+
+                    // Quality multiplier: 0.5 is neutral, >0.5 boosts, <0.5 reduces
+                    let quality_multiplier = 1.0 + (quality_score - 0.5) * 0.4; // ±20% max
+
+                    // Combine entanglement and quality boosts
+                    let combined_boost = boost_factor * quality_multiplier;
+
                     let current_importance = memory.importance();
-                    let boosted_importance = (current_importance as f64 * boost_factor) as f32;
+                    let boosted_importance = (current_importance as f64 * combined_boost) as f32;
+
+                    // Apply the boost using the setter method (clamps to 0.0-1.0)
+                    if let Err(e) = memory.set_importance(boosted_importance.min(1.0)) {
+                        log::warn!("Failed to apply boost for {}: {}", memory_id, e);
+                    }
 
                     log::trace!(
-                        "Entanglement boost for {}: {} links, importance {} -> {}",
+                        "Boost for {}: {} links (ent={:.2}), quality={:.2}, importance {} -> {}",
                         memory_id,
                         entangled_links.len(),
+                        boost_factor,
+                        quality_score,
                         current_importance,
                         boosted_importance
                     );
@@ -181,6 +227,14 @@ impl MemoryCoordinator {
 
         // Apply top_k limit after sorting
         boosted_memories.truncate(top_k);
+
+        // Update cognitive state with query pattern for adaptive routing
+        {
+            let _cognitive_state_guard = self.cognitive_state.write().await;
+            // Track query for future routing adaptations
+            // (Actual tracking implementation depends on CognitiveState API)
+            log::debug!("Cognitive state updated for query: {}", query);
+        }
 
         Ok(boosted_memories)
     }

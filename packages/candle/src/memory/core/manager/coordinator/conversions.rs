@@ -8,7 +8,7 @@ use super::lifecycle::MemoryCoordinator;
 
 impl MemoryCoordinator {
     /// Convert domain MemoryNode to memory MemoryNode for storage compatibility
-    pub(super) fn convert_domain_to_memory_node(
+    pub(in crate::memory::core) fn convert_domain_to_memory_node(
         &self,
         domain_node: &crate::domain::memory::primitives::node::MemoryNode,
     ) -> crate::memory::core::primitives::node::MemoryNode {
@@ -149,7 +149,7 @@ impl MemoryCoordinator {
     }
 
     /// Convert memory MemoryNode to domain MemoryNode for API compatibility
-    pub(super) fn convert_memory_to_domain_node(
+    pub(in crate::memory::core) fn convert_memory_to_domain_node(
         &self,
         memory_node: &crate::memory::core::primitives::node::MemoryNode,
     ) -> Result<crate::domain::memory::primitives::node::MemoryNode> {

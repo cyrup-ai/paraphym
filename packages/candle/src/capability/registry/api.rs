@@ -61,15 +61,89 @@ impl FromRegistry for TextEmbeddingModel {
 
 impl FromRegistry for ImageEmbeddingModel {
     fn from_registry(registry_key: &str) -> Option<Self> {
-        let registry = IMAGE_EMBEDDING_UNIFIED.read();
-        registry.get(registry_key).cloned()
+        // First, try normal lookup
+        {
+            let registry = IMAGE_EMBEDDING_UNIFIED.read();
+            if let Some(model) = registry.get(registry_key).cloned() {
+                return Some(model);
+            }
+        }
+
+        // Lazy registration for CLIP Vision models
+        match registry_key {
+            "openai/clip-vit-base-patch32" => {
+                use crate::capability::image_embedding::{ClipVisionModel, ClipVisionEmbeddingModel};
+                use std::sync::Arc;
+
+                // Synchronous initialization (ClipVisionModel::new is sync!)
+                let clip_model = ClipVisionModel::new(512).ok()?;
+                let embedding_model = ClipVisionEmbeddingModel::from_model(clip_model, 512);
+                let registry_model = ImageEmbeddingModel::ClipVision(Arc::new(embedding_model));
+
+                // Register for future lookups
+                let mut registry = IMAGE_EMBEDDING_UNIFIED.write();
+                registry.insert(registry_key.to_string(), registry_model.clone());
+
+                Some(registry_model)
+            }
+            "openai/clip-vit-large-patch14-336" => {
+                use crate::capability::image_embedding::{ClipVisionModel, ClipVisionEmbeddingModel};
+                use std::sync::Arc;
+
+                let clip_model = ClipVisionModel::new(768).ok()?;
+                let embedding_model = ClipVisionEmbeddingModel::from_model(clip_model, 768);
+                let registry_model = ImageEmbeddingModel::ClipVision(Arc::new(embedding_model));
+
+                let mut registry = IMAGE_EMBEDDING_UNIFIED.write();
+                registry.insert(registry_key.to_string(), registry_model.clone());
+
+                Some(registry_model)
+            }
+            _ => None
+        }
     }
 }
 
 impl FromRegistry for TextToImageModel {
     fn from_registry(registry_key: &str) -> Option<Self> {
-        let registry = TEXT_TO_IMAGE_UNIFIED.read();
-        registry.get(registry_key).cloned()
+        // First, try normal lookup
+        {
+            let registry = TEXT_TO_IMAGE_UNIFIED.read();
+            if let Some(model) = registry.get(registry_key).cloned() {
+                return Some(model);
+            }
+        }
+
+        // Lazy registration for text-to-image models
+        match registry_key {
+            "black-forest-labs/FLUX.1-schnell" => {
+                use crate::capability::text_to_image::FluxSchnell;
+                use std::sync::Arc;
+
+                // FluxSchnell::new() is sync and lightweight (no downloads yet)
+                let model = FluxSchnell::new();
+                let registry_model = TextToImageModel::FluxSchnell(Arc::new(model));
+
+                // Register for future lookups
+                let mut registry = TEXT_TO_IMAGE_UNIFIED.write();
+                registry.insert(registry_key.to_string(), registry_model.clone());
+
+                Some(registry_model)
+            }
+            "stabilityai/stable-diffusion-3.5-large-turbo" => {
+                use crate::capability::text_to_image::StableDiffusion35Turbo;
+                use std::sync::Arc;
+
+                let model = StableDiffusion35Turbo::new();
+                let registry_model = TextToImageModel::StableDiffusion35Turbo(Arc::new(model));
+
+                let mut registry = TEXT_TO_IMAGE_UNIFIED.write();
+                registry.insert(registry_key.to_string(), registry_model.clone());
+
+                Some(registry_model)
+            }
+            _ => None
+        }
     }
 }
 

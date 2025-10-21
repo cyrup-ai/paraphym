@@ -3,6 +3,14 @@
 //! Fast text-to-image generation using FLUX's 4-step diffusion model with dual text encoding
 //! (T5-XXL + CLIP-L) for efficient inference.
 
+mod flux_t5_config;
+mod flux_t5_tokenizer;
+mod flux_clip_tokenizer;
+
+use flux_t5_config::FluxT5Config;
+use flux_t5_tokenizer::FluxT5Tokenizer;
+use flux_clip_tokenizer::FluxClipTokenizer;
+
 use crate::domain::image_generation::{
     ImageGenerationChunk, ImageGenerationConfig, ImageGenerationModel,
 };
@@ -172,40 +180,48 @@ impl FluxSchnell {
 
     /// Load all models once
     async fn load_models(device: &Device) -> Result<FluxModels, String> {
-        use hf_hub::api::sync::Api;
-
-        let api = Api::new().map_err(|e| format!("Failed to initialize HF API: {}", e))?;
         let dtype = device.bf16_default_to_f32();
 
-        // Download all model files
-        let flux_repo = api.model("black-forest-labs/FLUX.1-schnell".to_string());
-        let flux_path = flux_repo
-            .get("flux1-schnell.safetensors")
-            .map_err(|e| format!("Failed to download FLUX model: {}", e))?;
-        let vae_path = flux_repo
-            .get("ae.safetensors")
-            .map_err(|e| format!("Failed to download VAE: {}", e))?;
+        // Create temporary FluxSchnell instance for huggingface_file() access
+        let temp_flux = FluxSchnell::new();
 
-        let t5_repo = api.model("google/t5-v1_1-xxl".to_string());
-        let t5_model_path = t5_repo
-            .get("model.safetensors")
-            .map_err(|e| format!("Failed to download T5 model: {}", e))?;
-        let t5_config_path = t5_repo
-            .get("config.json")
-            .map_err(|e| format!("Failed to download T5 config: {}", e))?;
+        // Download FLUX model files (from main repo)
+        let flux_path = temp_flux.huggingface_file(
+            temp_flux.info().registry_key,
+            "flux1-schnell.safetensors"
+        ).await.map_err(|e| format!("Failed to download FLUX model: {}", e))?;
 
-        let t5_tok_repo = api.model("lmz/mt5-tokenizers".to_string());
-        let t5_tokenizer_path = t5_tok_repo
-            .get("t5-v1_1-xxl.tokenizer.json")
-            .map_err(|e| format!("Failed to download T5 tokenizer: {}", e))?;
+        let vae_path = temp_flux.huggingface_file(
+            temp_flux.info().registry_key,
+            "ae.safetensors"
+        ).await.map_err(|e| format!("Failed to download VAE: {}", e))?;
 
-        let clip_repo = api.model("openai/clip-vit-large-patch14".to_string());
-        let clip_model_path = clip_repo
-            .get("model.safetensors")
-            .map_err(|e| format!("Failed to download CLIP model: {}", e))?;
-        let clip_tokenizer_path = clip_repo
-            .get("tokenizer.json")
-            .map_err(|e| format!("Failed to download CLIP tokenizer: {}", e))?;
+        // Download T5 files (from separate repos via helper structs)
+        let t5_model_path = FluxT5Config.huggingface_file(
+            FluxT5Config.info().registry_key,
+            "model.safetensors"
+        ).await.map_err(|e| format!("Failed to download T5 model: {}", e))?;
+
+        let t5_config_path = FluxT5Config.huggingface_file(
+            FluxT5Config.info().registry_key,
+            "config.json"
+        ).await.map_err(|e| format!("Failed to download T5 config: {}", e))?;
+
+        let t5_tokenizer_path = FluxT5Tokenizer.huggingface_file(
+            FluxT5Tokenizer.info().registry_key,
+            "t5-v1_1-xxl.tokenizer.json"
+        ).await.map_err(|e| format!("Failed to download T5 tokenizer: {}", e))?;
+
+        // Download CLIP files
+        let clip_model_path = FluxClipTokenizer.huggingface_file(
+            FluxClipTokenizer.info().registry_key,
+            "model.safetensors"
+        ).await.map_err(|e| format!("Failed to download CLIP model: {}", e))?;
+
+        let clip_tokenizer_path = FluxClipTokenizer.huggingface_file(
+            FluxClipTokenizer.info().registry_key,
+            "tokenizer.json"
+        ).await.map_err(|e| format!("Failed to download CLIP tokenizer: {}", e))?;
 
         // Load encoders (async methods with spawn_blocking for tokenizers)
         let t5_encoder = T5WithTokenizer::load(

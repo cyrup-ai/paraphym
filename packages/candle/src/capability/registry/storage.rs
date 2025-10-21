@@ -77,15 +77,15 @@ pub(super) static TEXT_EMBEDDING_UNIFIED: LazyLock<RwLock<HashMap<String, TextEm
 
 /// Unified image embedding model registry
 ///
-/// Starts empty because ClipVision requires local model files, not HF downloads.
-/// Use runtime registration after downloading weights manually.
+/// Starts empty and uses lazy loading on first registry::get() access.
+/// Models are automatically created and registered when requested.
 pub(super) static IMAGE_EMBEDDING_UNIFIED: LazyLock<RwLock<HashMap<String, ImageEmbeddingModel>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 
 /// Unified text-to-image model registry
 ///
-/// Starts empty because Flux/SD require local model files, not HF downloads.
-/// Use runtime registration after downloading weights manually.
+/// Starts empty and uses lazy loading on first registry::get() access.
+/// Models are automatically created and registered when requested.
 pub(super) static TEXT_TO_IMAGE_UNIFIED: LazyLock<RwLock<HashMap<String, TextToImageModel>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 

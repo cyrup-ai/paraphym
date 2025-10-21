@@ -236,6 +236,13 @@ impl CognitiveState {
         &self.stats
     }
 
+    /// Get cognitive statistics Arc
+    #[inline]
+    #[must_use]
+    pub fn stats_arc(&self) -> Arc<CognitiveStats> {
+        Arc::clone(&self.stats)
+    }
+
     /// Get quantum signature for quantum-enhanced routing
     #[inline]
     #[must_use]
@@ -421,6 +428,9 @@ impl CognitiveState {
 
         // Update attention weights based on activation energy
         self.attention_weights.update_from_energy(normalized_energy);
+
+        // Record attention update metric
+        self.stats.record_attention_update();
 
         Ok(())
     }

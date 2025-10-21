@@ -336,12 +336,24 @@ impl SurrealDBMemoryManager {
         let entangled_count = entangled_results.len();
 
         for edge in entangled_results {
-            let source_id = edge.source.as_str().unwrap_or_default().to_string();
-            let target_id = edge.target.as_str().unwrap_or_default().to_string();
+            // Parse record IDs - skip invalid edges with warning
+            let Some(source_full) = edge.source.as_str() else {
+                log::warn!("Skipping entangled edge with invalid source ID: {:?}", edge.source);
+                continue;
+            };
+            let Some(target_full) = edge.target.as_str() else {
+                log::warn!("Skipping entangled edge with invalid target ID: {:?}", edge.target);
+                continue;
+            };
+
+            // Strip "memory:" prefix to match memory.id() format (just UUID)
+            // SurrealDB stores full record IDs like "memory:abc-123" but memory.id() returns just "abc-123"
+            let source_id = source_full.strip_prefix("memory:").unwrap_or(source_full);
+            let target_id = target_full.strip_prefix("memory:").unwrap_or(target_full);
 
             all_links.push(EntanglementLink::new(
-                source_id,
-                target_id,
+                source_id.to_string(),
+                target_id.to_string(),
                 edge.strength as f64,
             ));
         }
@@ -369,12 +381,24 @@ impl SurrealDBMemoryManager {
         let causal_count = causal_results.len();
 
         for edge in causal_results {
-            let source_id = edge.source.as_str().unwrap_or_default().to_string();
-            let target_id = edge.target.as_str().unwrap_or_default().to_string();
+            // Parse record IDs - skip invalid edges with warning
+            let Some(source_full) = edge.source.as_str() else {
+                log::warn!("Skipping causal edge with invalid source ID: {:?}", edge.source);
+                continue;
+            };
+            let Some(target_full) = edge.target.as_str() else {
+                log::warn!("Skipping causal edge with invalid target ID: {:?}", edge.target);
+                continue;
+            };
+
+            // Strip "memory:" prefix to match memory.id() format (just UUID)
+            // SurrealDB stores full record IDs like "memory:abc-123" but memory.id() returns just "abc-123"
+            let source_id = source_full.strip_prefix("memory:").unwrap_or(source_full);
+            let target_id = target_full.strip_prefix("memory:").unwrap_or(target_full);
 
             all_links.push(EntanglementLink::new(
-                source_id,
-                target_id,
+                source_id.to_string(),
+                target_id.to_string(),
                 edge.strength as f64,
             ));
         }

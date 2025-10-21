@@ -24,21 +24,21 @@ use super::types::LazyEvalStrategy;
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct MemoryCoordinator {
-    pub(super) surreal_manager: Arc<SurrealDBMemoryManager>,
+    pub(in crate::memory::core) surreal_manager: Arc<SurrealDBMemoryManager>,
     pub(super) repository: Arc<RwLock<MemoryRepository>>,
     pub(super) embedding_model: TextEmbeddingModel,
     // NEW COGNITIVE FIELDS:
     pub(super) cognitive_queue: Arc<CognitiveProcessingQueue>,
     pub(super) committee_evaluator: Arc<ModelCommitteeEvaluator>,
     pub(super) quantum_router: Arc<QuantumRouter>,
-    pub(super) quantum_state: Arc<RwLock<QuantumState>>,
+    pub(in crate::memory::core) quantum_state: Arc<RwLock<QuantumState>>,
     pub(super) cognitive_state: Arc<RwLock<CognitiveState>>,
     pub(super) cognitive_workers: Arc<tokio::sync::RwLock<Vec<tokio::task::JoinHandle<()>>>>,
     // LAZY EVALUATION FIELDS:
     pub(super) lazy_eval_strategy: LazyEvalStrategy,
     pub(super) evaluation_cache: Cache<String, f64>,
     // TEMPORAL DECAY:
-    pub(super) decay_rate: f64,
+    pub(in crate::memory::core) decay_rate: f64,
 }
 
 impl MemoryCoordinator {
@@ -82,19 +82,23 @@ impl MemoryCoordinator {
 
         // Load entanglement graph from database into memory (prebuilt graph pattern)
         // This enables entanglement boost during search without query overhead
-        let entanglement_links = surreal_manager
-            .load_all_entanglement_edges()
-            .await
-            .map_err(|e| {
-                log::warn!("Failed to load entanglement graph: {:?}", e);
-                e
-            })
-            .unwrap_or_default();
-
-        log::info!(
-            "Loaded {} entanglement edges into quantum graph",
-            entanglement_links.len()
-        );
+        let entanglement_links = match surreal_manager.load_all_entanglement_edges().await {
+            Ok(links) => {
+                log::info!(
+                    "Loaded {} entanglement edges into quantum graph ({} total)",
+                    links.len(),
+                    links.len()
+                );
+                links
+            }
+            Err(e) => {
+                log::error!(
+                    "Failed to load entanglement graph from database: {:?}. Starting with empty graph - entanglement boost will be disabled.",
+                    e
+                );
+                Vec::new()
+            }
+        };
 
         // Populate quantum state with the prebuilt graph
         let quantum_state_instance = QuantumState {
@@ -103,7 +107,7 @@ impl MemoryCoordinator {
             measurement_count: 0,
         };
 
-        Ok(Self {
+        let coordinator = Self {
             surreal_manager,
             repository: Arc::new(RwLock::new(MemoryRepository::new())),
             embedding_model,
@@ -119,7 +123,24 @@ impl MemoryCoordinator {
                 .time_to_live(Duration::from_secs(300))
                 .build(),
             decay_rate: 0.1,
-        })
+        };
+
+        // Spawn decay worker for background temporal decay processing
+        let coordinator_arc = Arc::new(coordinator);
+        let decay_config = crate::memory::core::decay_worker::DecayWorkerConfig::default();
+        let decay_worker = crate::memory::core::decay_worker::DecayWorker::new(
+            coordinator_arc.clone(),
+            decay_config,
+        );
+
+        tokio::spawn(async move {
+            log::info!("Decay worker started");
+            decay_worker.run().await;
+            log::info!("Decay worker stopped");
+        });
+
+        // Return Arc-wrapped coordinator to match spawn pattern
+        Ok(Arc::try_unwrap(coordinator_arc).unwrap_or_else(|arc| (*arc).clone()))
     }
 
     /// Configure lazy evaluation strategy
