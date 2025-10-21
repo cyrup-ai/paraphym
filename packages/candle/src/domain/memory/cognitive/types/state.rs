@@ -29,7 +29,6 @@ pub struct CognitiveState {
     /// Updated via `update_activation()` when processing stimuli.
     /// Energy calculations drive attention weight updates.
     /// Remains `#[allow(dead_code)]` until cognitive system fully activated.
-    #[allow(dead_code)] // TODO: Implement in cognitive state system
     activation_pattern: AlignedActivationPattern,
 
     /// Atomic attention weights for concurrent updates
@@ -393,7 +392,6 @@ impl CognitiveState {
     ///
     /// Returns `CognitiveError` if stimulus dimensions are invalid or attention update fails
     #[inline]
-    #[allow(dead_code)] // TODO: Implement activation pattern update from stimulus
     pub fn update_activation_from_stimulus(
         &mut self,
         stimulus: Vec<f32>,

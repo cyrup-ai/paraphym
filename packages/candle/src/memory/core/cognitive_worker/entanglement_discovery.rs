@@ -297,6 +297,32 @@ pub(crate) async fn process_entanglement_discovery(
                         "simultaneous"
                     }
                 );
+
+                // Store the causal link in database
+                if let Err(e) = manager
+                    .create_causal_edge(
+                        &memory.id,
+                        &related_memory.id,
+                        causal_link.strength,
+                        causal_link.temporal_distance,
+                    )
+                    .await
+                {
+                    log::error!(
+                        "Failed to create causal edge {} -> {}: {:?}",
+                        memory.id,
+                        related_memory.id,
+                        e
+                    );
+                } else {
+                    log::debug!(
+                        "Stored causal edge: {} ->caused-> {} (strength: {:.3}, temporal: {}ms)",
+                        memory.id,
+                        related_memory.id,
+                        causal_link.strength,
+                        causal_link.temporal_distance
+                    );
+                }
             }
 
             let bond_created = state_a.add_quantum_entanglement_bond(

@@ -54,7 +54,6 @@ impl AlignedActivationPattern {
     }
 
     /// Check if the activation pattern is empty
-    #[allow(dead_code)] // TODO: Implement in cognitive pattern system
     #[inline]
     #[must_use]
     pub fn is_empty(&self) -> bool {

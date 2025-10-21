@@ -7,6 +7,7 @@ use moka::sync::Cache;
 use tokio::sync::RwLock;
 
 use crate::capability::registry::TextEmbeddingModel;
+use crate::domain::memory::cognitive::types::CognitiveState;
 use crate::memory::cognitive::committee::ModelCommitteeEvaluator;
 use crate::memory::cognitive::quantum::{QuantumRouter, QuantumState};
 use crate::memory::core::cognitive_queue::CognitiveProcessingQueue;
@@ -31,6 +32,7 @@ pub struct MemoryCoordinator {
     pub(super) committee_evaluator: Arc<ModelCommitteeEvaluator>,
     pub(super) quantum_router: Arc<QuantumRouter>,
     pub(super) quantum_state: Arc<RwLock<QuantumState>>,
+    pub(super) cognitive_state: Arc<RwLock<CognitiveState>>,
     pub(super) cognitive_workers: Arc<tokio::sync::RwLock<Vec<tokio::task::JoinHandle<()>>>>,
     // LAZY EVALUATION FIELDS:
     pub(super) lazy_eval_strategy: LazyEvalStrategy,
@@ -87,6 +89,7 @@ impl MemoryCoordinator {
             committee_evaluator,
             quantum_router,
             quantum_state,
+            cognitive_state: Arc::new(RwLock::new(CognitiveState::new())),
             cognitive_workers: Arc::new(tokio::sync::RwLock::new(Vec::new())),
             lazy_eval_strategy: LazyEvalStrategy::default(),
             evaluation_cache: Cache::builder()

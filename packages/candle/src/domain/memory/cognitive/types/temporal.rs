@@ -96,7 +96,6 @@ pub struct CausalLink {
 impl CausalLink {
     /// Create new causal link
     #[inline]
-    #[allow(dead_code)] // TODO: Implement causal reasoning in cognitive state system
     #[must_use]
     pub fn new(source_id: Uuid, target_id: Uuid, strength: f32, temporal_distance: i64) -> Self {
         Self {

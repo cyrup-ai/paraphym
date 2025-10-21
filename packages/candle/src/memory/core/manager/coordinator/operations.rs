@@ -167,6 +167,19 @@ impl MemoryCoordinator {
         // Convert to domain node
         let mut domain_memory = self.convert_memory_to_domain_node(&memory_node)?;
 
+        // Generate stimulus from memory embedding and update cognitive state
+        if let Some(ref embedding) = domain_memory.embedding {
+            let stimulus = embedding.data.clone();
+            match self.cognitive_state.write().await.update_activation_from_stimulus(stimulus) {
+                Ok(()) => {
+                    log::trace!("Updated cognitive activation from memory retrieval: {}", memory_id);
+                }
+                Err(e) => {
+                    log::warn!("Failed to update cognitive activation from memory retrieval: {}", e);
+                }
+            }
+        }
+
         // Apply temporal decay before returning
         self.apply_temporal_decay(&mut domain_memory).await?;
 

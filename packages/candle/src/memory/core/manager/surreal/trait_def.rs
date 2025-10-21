@@ -76,6 +76,15 @@ pub trait MemoryManager: Send + Sync {
         strength: f32,
     ) -> PendingEntanglementEdge;
 
+    /// Create a causal edge between two memories
+    fn create_causal_edge(
+        &self,
+        source_id: &str,
+        target_id: &str,
+        strength: f32,
+        temporal_distance: i64,
+    ) -> PendingEntanglementEdge;
+
     /// Get all entangled memories for a given memory ID
     fn get_entangled_memories(&self, memory_id: &str) -> MemoryStream;
 
@@ -100,6 +109,28 @@ pub trait MemoryManager: Send + Sync {
         seed_memory_ids: Vec<String>,
         expansion_factor: usize,
         min_strength: f32,
+    ) -> MemoryStream;
+
+    // === Causal Reasoning Operations ===
+
+    /// Get memories that causally preceded this one (what caused this?)
+    fn get_causal_predecessors(&self, memory_id: &str) -> MemoryStream;
+
+    /// Get memories that this causally influenced (what did this cause?)
+    fn get_causal_successors(&self, memory_id: &str) -> MemoryStream;
+
+    /// Traverse causal chain forward from a memory
+    fn trace_causal_chain_forward(
+        &self,
+        start_memory_id: &str,
+        max_depth: usize,
+    ) -> MemoryStream;
+
+    /// Traverse causal chain backward to find root causes
+    fn trace_causal_chain_backward(
+        &self,
+        start_memory_id: &str,
+        max_depth: usize,
     ) -> MemoryStream;
 }
 
@@ -171,6 +202,16 @@ impl<T: MemoryManager + ?Sized> MemoryManager for std::sync::Arc<T> {
         (**self).create_entanglement_edge(source_id, target_id, entanglement_type, strength)
     }
 
+    fn create_causal_edge(
+        &self,
+        source_id: &str,
+        target_id: &str,
+        strength: f32,
+        temporal_distance: i64,
+    ) -> PendingEntanglementEdge {
+        (**self).create_causal_edge(source_id, target_id, strength, temporal_distance)
+    }
+
     fn get_entangled_memories(&self, memory_id: &str) -> MemoryStream {
         (**self).get_entangled_memories(memory_id)
     }
@@ -199,5 +240,29 @@ impl<T: MemoryManager + ?Sized> MemoryManager for std::sync::Arc<T> {
         min_strength: f32,
     ) -> MemoryStream {
         (**self).expand_via_entanglement(seed_memory_ids, expansion_factor, min_strength)
+    }
+
+    fn get_causal_predecessors(&self, memory_id: &str) -> MemoryStream {
+        (**self).get_causal_predecessors(memory_id)
+    }
+
+    fn get_causal_successors(&self, memory_id: &str) -> MemoryStream {
+        (**self).get_causal_successors(memory_id)
+    }
+
+    fn trace_causal_chain_forward(
+        &self,
+        start_memory_id: &str,
+        max_depth: usize,
+    ) -> MemoryStream {
+        (**self).trace_causal_chain_forward(start_memory_id, max_depth)
+    }
+
+    fn trace_causal_chain_backward(
+        &self,
+        start_memory_id: &str,
+        max_depth: usize,
+    ) -> MemoryStream {
+        (**self).trace_causal_chain_backward(start_memory_id, max_depth)
     }
 }

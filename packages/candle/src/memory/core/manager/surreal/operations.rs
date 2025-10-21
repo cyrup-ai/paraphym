@@ -569,6 +569,44 @@ impl MemoryManager for SurrealDBMemoryManager {
         PendingEntanglementEdge::new(rx)
     }
 
+    fn create_causal_edge(
+        &self,
+        source_id: &str,
+        target_id: &str,
+        strength: f32,
+        temporal_distance: i64,
+    ) -> PendingEntanglementEdge {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let db = self.db.clone();
+        let source_id = source_id.to_string();
+        let target_id = target_id.to_string();
+
+        tokio::spawn(async move {
+            let result = async {
+                let now = crate::memory::utils::current_timestamp_ms();
+
+                let query = format!(
+                    "RELATE {}->caused->{} SET strength = $strength, temporal_distance = $temporal_distance, created_at = $created_at",
+                    source_id, target_id
+                );
+
+                db.query(&query)
+                    .bind(("strength", strength))
+                    .bind(("temporal_distance", temporal_distance))
+                    .bind(("created_at", now))
+                    .await
+                    .map_err(|e| Error::Database(format!("{:?}", e)))?;
+
+                Ok(())
+            }
+            .await;
+
+            let _ = tx.send(result);
+        });
+
+        PendingEntanglementEdge::new(rx)
+    }
+
     fn get_entangled_memories(&self, memory_id: &str) -> MemoryStream {
         let (tx, rx) = tokio::sync::mpsc::channel(100);
         let db = self.db.clone();
@@ -706,6 +744,152 @@ impl MemoryManager for SurrealDBMemoryManager {
                 .bind(("min_strength", min_strength))
                 .await
             {
+                Ok(mut response) => {
+                    let results: Vec<MemoryNodeSchema> = response.take(0).unwrap_or_default();
+
+                    for schema in results {
+                        let memory = SurrealDBMemoryManager::from_schema(schema);
+                        if tx.send(Ok(memory)).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(Err(Error::Database(format!("{:?}", e)))).await;
+                }
+            }
+        });
+
+        MemoryStream::new(rx)
+    }
+
+    fn get_causal_predecessors(&self, memory_id: &str) -> MemoryStream {
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
+        let db = self.db.clone();
+        let memory_id = memory_id.to_string();
+
+        tokio::spawn(async move {
+            // Query: SELECT in.* FROM memory_id<-caused
+            // This gets all memories that caused this one
+            let query = format!("SELECT in.* FROM {}<-caused", memory_id);
+
+            match db.query(&query).await {
+                Ok(mut response) => {
+                    let results: Vec<MemoryNodeSchema> = response.take(0).unwrap_or_default();
+
+                    for schema in results {
+                        let memory = SurrealDBMemoryManager::from_schema(schema);
+                        if tx.send(Ok(memory)).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(Err(Error::Database(format!("{:?}", e)))).await;
+                }
+            }
+        });
+
+        MemoryStream::new(rx)
+    }
+
+    fn get_causal_successors(&self, memory_id: &str) -> MemoryStream {
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
+        let db = self.db.clone();
+        let memory_id = memory_id.to_string();
+
+        tokio::spawn(async move {
+            // Query: SELECT out.* FROM memory_id->caused
+            // This gets all memories that were caused by this one
+            let query = format!("SELECT out.* FROM {}->caused", memory_id);
+
+            match db.query(&query).await {
+                Ok(mut response) => {
+                    let results: Vec<MemoryNodeSchema> = response.take(0).unwrap_or_default();
+
+                    for schema in results {
+                        let memory = SurrealDBMemoryManager::from_schema(schema);
+                        if tx.send(Ok(memory)).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(Err(Error::Database(format!("{:?}", e)))).await;
+                }
+            }
+        });
+
+        MemoryStream::new(rx)
+    }
+
+    fn trace_causal_chain_forward(
+        &self,
+        start_memory_id: &str,
+        max_depth: usize,
+    ) -> MemoryStream {
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
+        let db = self.db.clone();
+        let start_id = start_memory_id.to_string();
+
+        tokio::spawn(async move {
+            let safe_depth = max_depth.min(10); // Safety limit
+
+            // Build chain: ->caused->memory->caused->memory...
+            let mut chain = String::from("->caused");
+            for _ in 1..safe_depth {
+                chain.push_str("->memory->caused");
+            }
+
+            let query = format!(
+                "SELECT DISTINCT out.* FROM {}{}",
+                start_id, chain
+            );
+
+            match db.query(&query).await {
+                Ok(mut response) => {
+                    let results: Vec<MemoryNodeSchema> = response.take(0).unwrap_or_default();
+
+                    for schema in results {
+                        let memory = SurrealDBMemoryManager::from_schema(schema);
+                        if tx.send(Ok(memory)).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(Err(Error::Database(format!("{:?}", e)))).await;
+                }
+            }
+        });
+
+        MemoryStream::new(rx)
+    }
+
+    fn trace_causal_chain_backward(
+        &self,
+        start_memory_id: &str,
+        max_depth: usize,
+    ) -> MemoryStream {
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
+        let db = self.db.clone();
+        let start_id = start_memory_id.to_string();
+
+        tokio::spawn(async move {
+            let safe_depth = max_depth.min(10); // Safety limit
+
+            // Build chain: <-caused<-memory<-caused<-memory...
+            let mut chain = String::from("<-caused");
+            for _ in 1..safe_depth {
+                chain.push_str("<-memory<-caused");
+            }
+
+            let query = format!(
+                "SELECT DISTINCT in.* FROM {}{}",
+                start_id, chain
+            );
+
+            match db.query(&query).await {
                 Ok(mut response) => {
                     let results: Vec<MemoryNodeSchema> = response.take(0).unwrap_or_default();
 

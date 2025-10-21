@@ -103,6 +103,43 @@ impl MemoryManager for MemoryCoordinator {
         self.surreal_manager
             .expand_via_entanglement(seed_memory_ids, expansion_factor, min_strength)
     }
+
+    fn create_causal_edge(
+        &self,
+        source_id: &str,
+        target_id: &str,
+        strength: f32,
+        temporal_distance: i64,
+    ) -> PendingEntanglementEdge {
+        self.surreal_manager
+            .create_causal_edge(source_id, target_id, strength, temporal_distance)
+    }
+
+    fn get_causal_predecessors(&self, memory_id: &str) -> MemoryStream {
+        self.surreal_manager.get_causal_predecessors(memory_id)
+    }
+
+    fn get_causal_successors(&self, memory_id: &str) -> MemoryStream {
+        self.surreal_manager.get_causal_successors(memory_id)
+    }
+
+    fn trace_causal_chain_forward(
+        &self,
+        start_memory_id: &str,
+        max_depth: usize,
+    ) -> MemoryStream {
+        self.surreal_manager
+            .trace_causal_chain_forward(start_memory_id, max_depth)
+    }
+
+    fn trace_causal_chain_backward(
+        &self,
+        start_memory_id: &str,
+        max_depth: usize,
+    ) -> MemoryStream {
+        self.surreal_manager
+            .trace_causal_chain_backward(start_memory_id, max_depth)
+    }
 }
 
 // Optional: Add Drop implementation for automatic cleanup
