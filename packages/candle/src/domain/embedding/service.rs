@@ -10,6 +10,7 @@ use tokio::sync::{mpsc, Mutex};
 use tokio_stream::Stream;
 
 use crate::domain::memory::serialization::content_hash;
+use async_stream;
 
 /// Error type for vector store operations
 #[derive(Debug, thiserror::Error)]
@@ -95,10 +96,13 @@ impl EmbeddingPool {
 }
 
 /// Production-ready in-memory embedding cache with zero-allocation operations
+///
+/// This cache validates embedding dimensions to prevent mixing incompatible embeddings
+/// from different models. All stored embeddings must match the cache's configured dimension.
+/// Dimension mismatches are treated as cache misses to ensure compatibility.
 pub struct InMemoryEmbeddingCache {
-    cache: tokio::sync::RwLock<HashMap<String, Vec<f32>>>,
+    cache: tokio::sync::RwLock<HashMap<String, (Vec<f32>, usize)>>,
     pool: EmbeddingPool,
-    #[allow(dead_code)] // TODO: Implement in embedding cache system
     dimension: usize,
 }
 impl InMemoryEmbeddingCache {
@@ -113,24 +117,44 @@ impl InMemoryEmbeddingCache {
         }
     }
 
-    /// Get cached embedding with zero-copy return
+    /// Get cached embedding with zero-copy return and dimension validation
     #[inline]
     pub async fn get_cached(&self, content: &str) -> Option<Vec<f32>> {
         let cache = self.cache.read().await;
-        cache.get(content).cloned()
+        cache.get(content).and_then(|(embedding, cached_dimension)| {
+            if *cached_dimension == self.dimension {
+                Some(embedding.clone())
+            } else {
+                None // Dimension mismatch, treat as cache miss
+            }
+        })
     }
 
-    /// Store embedding in cache
+    /// Store embedding in cache with dimension validation
     #[inline]
-    pub async fn store(&self, content: String, embedding: Vec<f32>) {
+    pub async fn store(&self, content: String, embedding: Vec<f32>) -> Result<(), VectorStoreError> {
+        // Validate embedding dimension matches cache dimension
+        if embedding.len() != self.dimension {
+            return Err(VectorStoreError::OperationFailed(format!(
+                "Embedding dimension mismatch: expected {}, got {}",
+                self.dimension,
+                embedding.len()
+            )));
+        }
+
         let mut cache = self.cache.write().await;
-        cache.insert(content, embedding);
+        cache.insert(content, (embedding, self.dimension));
+        Ok(())
     }
 
-    /// Generate deterministic embedding based on content hash
+    /// Generate deterministic embedding based on content hash with correct dimension
     #[inline]
     pub async fn generate_deterministic(&self, content: &str) -> Vec<f32> {
         let mut embedding = self.pool.acquire().await;
+        // Ensure embedding has correct dimension
+        if embedding.len() != self.dimension {
+            embedding = vec![0.0; self.dimension];
+        }
         // Fill with deterministic values based on content hash
         let hash = content_hash(content);
         for (i, val) in embedding.iter_mut().enumerate() {
@@ -141,10 +165,141 @@ impl InMemoryEmbeddingCache {
         embedding
     }
 
+    /// Validate embedding dimensions match expected dimension
+    #[inline]
+    #[must_use]
+    pub fn validate_dimensions(&self, embedding: &[f32]) -> bool {
+        embedding.len() == self.dimension
+    }
+
+    /// Clear cache entries with invalid dimensions
+    #[inline]
+    pub async fn clear_invalid_entries(&self) -> usize {
+        let mut cache = self.cache.write().await;
+        let initial_count = cache.len();
+        
+        cache.retain(|_, (_, cached_dimension)| *cached_dimension == self.dimension);
+        
+        initial_count - cache.len()
+    }
+
     /// Clear cache to free memory
     #[inline]
     pub async fn clear(&self) {
         let mut cache = self.cache.write().await;
         cache.clear();
+    }
+}
+
+/// Concrete implementation of EmbeddingService using a capability model and cache
+pub struct EmbeddingServiceImpl<M: crate::capability::traits::TextEmbeddingCapable> {
+    model: M,
+    cache: InMemoryEmbeddingCache,
+}
+
+impl<M: crate::capability::traits::TextEmbeddingCapable> EmbeddingServiceImpl<M> {
+    /// Create new embedding service with model and cache
+    #[must_use]
+    pub fn new(model: M) -> Self {
+        let dimension = model.embedding_dimension();
+        let cache = InMemoryEmbeddingCache::new(dimension);
+        
+        Self { model, cache }
+    }
+
+    /// Get the underlying model
+    #[must_use]
+    pub fn model(&self) -> &M {
+        &self.model
+    }
+
+    /// Get the cache
+    #[must_use]
+    pub fn cache(&self) -> &InMemoryEmbeddingCache {
+        &self.cache
+    }
+}
+
+impl<M: crate::capability::traits::TextEmbeddingCapable + Send + Sync> EmbeddingService for EmbeddingServiceImpl<M> {
+    fn get_embedding(&self, content: &str) -> Pin<Box<dyn Stream<Item = Option<Vec<f32>>> + Send>> {
+        let content = content.to_string();
+        let model = self.model.clone();
+        let cache = self.cache.clone();
+        
+        Box::pin(async_stream::stream! {
+            // Try cache first
+            if let Some(embedding) = cache.get_cached(&content).await {
+                yield Some(embedding);
+                return;
+            }
+            
+            // Generate embedding
+            match model.embed(&content, None).await {
+                Ok(embedding) => {
+                    // Store in cache (ignore errors for streaming)
+                    let _ = cache.store(content, embedding.clone()).await;
+                    yield Some(embedding);
+                }
+                Err(_) => {
+                    yield None;
+                }
+            }
+        })
+    }
+
+    fn get_or_compute_embedding(&self, content: &str) -> Pin<Box<dyn Stream<Item = Vec<f32>> + Send>> {
+        let content = content.to_string();
+        let model = self.model.clone();
+        let cache = self.cache.clone();
+        
+        Box::pin(async_stream::stream! {
+            // Try cache first
+            if let Some(embedding) = cache.get_cached(&content).await {
+                yield embedding;
+                return;
+            }
+            
+            // Generate embedding
+            match model.embed(&content, None).await {
+                Ok(embedding) => {
+                    // Store in cache (ignore errors for streaming)
+                    let _ = cache.store(content, embedding.clone()).await;
+                    yield embedding;
+                }
+                Err(e) => {
+                    // For get_or_compute, we yield a deterministic embedding on error
+                    // This ensures the stream always produces a value
+                    yield cache.generate_deterministic(&content).await;
+                }
+            }
+        })
+    }
+
+    fn precompute_batch(&self, content: &[&str]) -> Pin<Box<dyn Stream<Item = ()> + Send>> {
+        let content: Vec<String> = content.iter().map(|s| s.to_string()).collect();
+        let model = self.model.clone();
+        let cache = self.cache.clone();
+        
+        Box::pin(async_stream::stream! {
+            // Process in batches using model's batch capability
+            let content_refs: Vec<&str> = content.iter().map(|s| s.as_str()).collect();
+            if let Ok(embeddings) = model.batch_embed(&content_refs, None).await {
+                for (text, embedding) in content.iter().zip(embeddings.iter()) {
+                    let _ = cache.store(text.clone(), embedding.clone()).await;
+                    yield ();
+                }
+            }
+        })
+    }
+
+    fn embedding_dimension(&self) -> usize {
+        self.cache.dimension
+    }
+
+    fn clear_cache(&self) {
+        let cache = self.cache.clone();
+        tokio::spawn(async move {
+            cache.clear().await;
+        });
     }
 }
