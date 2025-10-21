@@ -46,7 +46,6 @@ pub struct CommandExecutor {
     /// Environment variables for command execution (planned feature)
     _environment: std::collections::HashMap<String, String>,
     /// Optional memory access for commands that need conversation history
-    #[debug(skip)]
     memory: Option<Arc<MemoryCoordinator>>,
 }
 
@@ -619,63 +618,46 @@ impl CommandExecutor {
     }
 }
 
-/// Retrieve conversation messages from memory coordinator
+/// Retrieve conversation messages from memory coordinator using public API
 async fn retrieve_conversation_messages(
     memory: &MemoryCoordinator,
 ) -> Result<Vec<CandleMessage>, String> {
-    use tokio_stream::StreamExt;
+    use crate::memory::core::ops::filter::MemoryFilter;
     
-    // Query all memories using the stream API
-    // Note: Using large limit (10000) to get full conversation
-    let mut stream = memory.surreal_manager.list_all_memories(10000, 0);
+    // Use public MemoryFilter API to query by tags
+    let filter = MemoryFilter::new()
+        .with_tags(vec![
+            "user_message".to_string(),
+            "assistant_response".to_string(),
+        ]);
     
-    let mut messages = Vec::new();
+    // Use public get_memories() API - returns Vec<DomainMemoryNode>
+    let memories = memory.get_memories(filter).await
+        .map_err(|e| format!("Failed to retrieve memories: {}", e))?;
     
-    while let Some(result) = stream.next().await {
-        let mem = match result {
-            Ok(m) => m,
-            Err(e) => {
-                log::warn!("Failed to retrieve memory: {}", e);
-                continue;
+    // Convert domain memory nodes to CandleMessage format
+    let mut messages: Vec<CandleMessage> = memories
+        .iter()
+        .map(|mem| {
+            // Determine role from tags
+            let role = if mem.metadata.tags.iter().any(|t| t.as_ref() == "user_message") {
+                CandleMessageRole::User
+            } else {
+                CandleMessageRole::Assistant
+            };
+            
+            CandleMessage {
+                role,
+                content: mem.content().to_string(),
+                id: Some(mem.node_id().to_string()),
+                timestamp: Some(mem.created_at().timestamp() as u64),
             }
-        };
-        
-        // Convert to domain memory node to access metadata
-        let domain_mem = match memory.convert_memory_to_domain_node(&mem) {
-            Ok(dm) => dm,
-            Err(e) => {
-                log::warn!("Failed to convert memory node: {}", e);
-                continue;
-            }
-        };
-        
-        // Check if this memory has conversation tags
-        let has_user_tag = domain_mem.metadata.tags.iter().any(|t| t.as_ref() == "user_message");
-        let has_assistant_tag = domain_mem.metadata.tags.iter().any(|t| t.as_ref() == "assistant_response");
-        
-        if !has_user_tag && !has_assistant_tag {
-            continue; // Skip non-conversation memories
-        }
-        
-        let role = if has_user_tag {
-            CandleMessageRole::User
-        } else {
-            CandleMessageRole::Assistant
-        };
-
-        let message = CandleMessage {
-            role,
-            content: domain_mem.content().to_string(),
-            id: Some(domain_mem.node_id().to_string()),
-            timestamp: Some(domain_mem.created_at().timestamp() as u64),
-        };
-
-        messages.push(message);
-    }
-
+        })
+        .collect();
+    
     // Sort by timestamp to maintain conversation order
     messages.sort_by_key(|m| m.timestamp.unwrap_or(0));
-
+    
     Ok(messages)
 }
 
