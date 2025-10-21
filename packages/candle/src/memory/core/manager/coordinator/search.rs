@@ -118,12 +118,10 @@ impl MemoryCoordinator {
                     // Collect results from this strategy
                     let strategy_results: Vec<_> = strategy_stream.collect().await;
 
-                    for memory_result in strategy_results {
-                        if let Ok(memory_node) = memory_result {
-                            // Deduplicate by ID
-                            if seen_ids.insert(memory_node.id.clone()) {
-                                all_results.push(Ok(memory_node));
-                            }
+                    for memory_node in strategy_results.into_iter().flatten() {
+                        // Deduplicate by ID
+                        if seen_ids.insert(memory_node.id.clone()) {
+                            all_results.push(Ok(memory_node));
                         }
                     }
                 }

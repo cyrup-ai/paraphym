@@ -117,7 +117,7 @@ impl LLaVAModel {
             Ok(s) => s,
             Err(e) => {
                 return Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-                    let _ = tx.send(CandleStringChunk(format!("Error: {}", e)));
+                    let _ = tx.send(CandleStringChunk::text(format!("Error: {}", e)));
                 }));
             }
         };
@@ -131,19 +131,19 @@ impl LLaVAModel {
             response_tx,
         }) {
             return Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-                let _ = tx.send(CandleStringChunk(format!("Error: {}", e)));
+                let _ = tx.send(CandleStringChunk::text(format!("Error: {}", e)));
             }));
         }
 
         match response_rx.recv().await {
             Some(Ok(text)) => Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-                let _ = tx.send(CandleStringChunk(text));
+                let _ = tx.send(CandleStringChunk::text(text));
             })),
             Some(Err(e)) => Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-                let _ = tx.send(CandleStringChunk(format!("Error: {}", e)));
+                let _ = tx.send(CandleStringChunk::text(format!("Error: {}", e)));
             })),
             None => Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-                let _ = tx.send(CandleStringChunk(
+                let _ = tx.send(CandleStringChunk::text(
                     "Error: Failed to receive response".to_string()
                 ));
             })),
@@ -160,7 +160,7 @@ impl LLaVAModel {
             Ok(s) => s,
             Err(e) => {
                 return Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-                    let _ = tx.send(CandleStringChunk(format!("Error: {}", e)));
+                    let _ = tx.send(CandleStringChunk::text(format!("Error: {}", e)));
                 }));
             }
         };
@@ -174,19 +174,19 @@ impl LLaVAModel {
             response_tx,
         }) {
             return Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-                let _ = tx.send(CandleStringChunk(format!("Error: {}", e)));
+                let _ = tx.send(CandleStringChunk::text(format!("Error: {}", e)));
             }));
         }
 
         match response_rx.recv().await {
             Some(Ok(text)) => Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-                let _ = tx.send(CandleStringChunk(text));
+                let _ = tx.send(CandleStringChunk::text(text));
             })),
             Some(Err(e)) => Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-                let _ = tx.send(CandleStringChunk(format!("Error: {}", e)));
+                let _ = tx.send(CandleStringChunk::text(format!("Error: {}", e)));
             })),
             None => Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-                let _ = tx.send(CandleStringChunk(
+                let _ = tx.send(CandleStringChunk::text(
                     "Error: Failed to receive response".to_string()
                 ));
             })),

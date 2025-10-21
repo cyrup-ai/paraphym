@@ -53,7 +53,7 @@ fn test_engine_metrics_tracking() {
     // Coordinate a mock generation
     let _stream = engine.coordinate_generation(move || {
         cyrup_candle::async_stream::spawn_stream(|sender| async move {
-            let _ = sender.send(CandleStringChunk("test".to_string()));
+            let _ = sender.send(CandleStringChunk::text("test".to_string()));
         })
     });
 
@@ -94,8 +94,8 @@ async fn test_stream_conversion() {
     // Create stream with test data
     let completion_stream = engine.coordinate_generation(move || {
         cyrup_candle::async_stream::spawn_stream(|sender| async move {
-            let _ = sender.send(CandleStringChunk("Hello".to_string()));
-            let _ = sender.send(CandleStringChunk(" World".to_string()));
+            let _ = sender.send(CandleStringChunk::text("Hello".to_string()));
+            let _ = sender.send(CandleStringChunk::text(" World".to_string()));
         })
     });
 
@@ -333,7 +333,7 @@ async fn test_error_handling() {
     if let Ok(engine) = Engine::new(config) {
         let error_stream = engine.coordinate_generation(move || {
             cyrup_candle::async_stream::spawn_stream(|sender| async move {
-                let _ = sender.send(CandleStringChunk("text".to_string()));
+                let _ = sender.send(CandleStringChunk::text("text".to_string()));
                 // Stream completes normally - errors would be CandleCompletionChunk::Error
             })
         });

@@ -22,7 +22,7 @@ pub mod result_types;
 pub use completion::{CandleCompletionChunk, ChatMessageChunk, FinishReason};
 pub use generic_wrappers::{
     CandleCollectionChunk, CandleJsonChunk, CandleStringChunk, CandleUnitChunk, EmbeddingChunk,
-    WorkflowDataChunk,
+    GenerationStats, WorkflowDataChunk,
 };
 pub use media::{
     AudioFormat, CandleDocumentChunk, CandleImageChunk, CandleImageFormat, SpeechChunk,

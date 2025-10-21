@@ -125,9 +125,9 @@ impl MemoryCoordinator {
             ));
 
         // Automatic image embedding if metadata contains image_path
-        if let Some(metadata) = &metadata {
-            if let Some(image_path_value) = metadata.custom.get("image_path") {
-                if let Some(image_path) = image_path_value.as_str() {
+        if let Some(metadata) = &metadata
+            && let Some(image_path_value) = metadata.custom.get("image_path")
+            && let Some(image_path) = image_path_value.as_str() {
                     use crate::capability::registry;
                     use crate::capability::traits::ImageEmbeddingCapable;
 
@@ -153,8 +153,6 @@ impl MemoryCoordinator {
                         log::debug!("Image embedding model not available in registry, skipping image processing for: {}", image_path);
                     }
                 }
-            }
-        }
 
         // Convert to core memory node for storage
         let memory_node = self.convert_domain_to_memory_node(&domain_memory);
@@ -216,8 +214,8 @@ impl MemoryCoordinator {
         }
 
         // Automatic image embedding processing on retrieval
-        if let Some(image_path_value) = domain_memory.metadata.custom.get("image_path") {
-            if let Some(image_path) = image_path_value.as_ref().as_str() {
+        if let Some(image_path_value) = domain_memory.metadata.custom.get("image_path")
+            && let Some(image_path) = image_path_value.as_ref().as_str() {
                 use crate::capability::registry;
                 use crate::capability::traits::ImageEmbeddingCapable;
 
@@ -243,7 +241,6 @@ impl MemoryCoordinator {
                     log::debug!("Image embedding model not available in registry, skipping image processing for: {}", image_path);
                 }
             }
-        }
 
         // NOTE: Temporal decay now applied by background DecayWorker
         // Removed lazy evaluation from read path for performance

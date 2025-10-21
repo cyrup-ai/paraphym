@@ -191,7 +191,7 @@ pub async fn collect_stream_to_string(
 ) -> String {
     let mut result = String::new();
     while let Some(chunk) = stream.next().await {
-        result.push_str(&chunk.0);
+        result.push_str(&chunk.text);
     }
     result
 }

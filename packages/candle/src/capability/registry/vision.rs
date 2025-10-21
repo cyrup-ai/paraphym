@@ -56,7 +56,7 @@ fn spawn_describe_image_llava(
                 )
             },
         ).await {
-            let _ = tx.send(CandleStringChunk(format!("Error: {}", e)));
+            let _ = tx.send(CandleStringChunk::text(format!("Error: {}", e)));
             return;
         }
 
@@ -100,7 +100,7 @@ fn spawn_describe_url_llava(
                 )
             },
         ).await {
-            let _ = tx.send(CandleStringChunk(format!("Error: {}", e)));
+            let _ = tx.send(CandleStringChunk::text(format!("Error: {}", e)));
             return;
         }
 

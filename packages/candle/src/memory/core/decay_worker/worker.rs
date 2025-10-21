@@ -183,7 +183,7 @@ impl DecayWorker {
 
         for (idx, edge) in edges.iter().enumerate() {
             let created_time = chrono::DateTime::<Utc>::from_timestamp_millis(edge.created_at as i64)
-                .unwrap_or_else(|| Utc::now());
+                .unwrap_or_else(Utc::now);
 
             let age = now.signed_duration_since(created_time);
             let days_old = age.num_seconds() as f64 / 86400.0;

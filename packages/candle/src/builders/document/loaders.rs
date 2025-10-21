@@ -33,7 +33,7 @@ where
                 DocumentBuilderData::File(ref path) => {
                     let mut file_stream = Self::load_file_content(path, &builder);
                     match file_stream.next().await {
-                        Some(content_result) => content_result.0,
+                        Some(content_result) => content_result.text,
                         None => {
                             error_handler("Failed to load file content".to_string());
                             return;
@@ -43,7 +43,7 @@ where
                 DocumentBuilderData::Url(ref url) => {
                     let mut url_stream = Self::load_url_content(url, &builder);
                     match url_stream.next().await {
-                        Some(content_result) => content_result.0,
+                        Some(content_result) => content_result.text,
                         None => {
                             error_handler("Failed to load URL content".to_string());
                             return;
@@ -58,7 +58,7 @@ where
                     let mut github_stream =
                         Self::load_github_content(repo, path, branch.as_deref(), &builder);
                     match github_stream.next().await {
-                        Some(content_result) => content_result.0,
+                        Some(content_result) => content_result.text,
                         None => {
                             error_handler("Failed to load GitHub content".to_string());
                             return;
@@ -205,7 +205,7 @@ where
             for attempt in 0..=builder.retry_attempts {
                 match fs::read_to_string(&path) {
                     Ok(content) => {
-                        let _ = sender.send(CandleStringChunk(content));
+                        let _ = sender.send(CandleStringChunk::text(content));
                         return;
                     }
                     Err(e) => {
@@ -294,7 +294,7 @@ where
                     return; // Skip sending - content too large
                 }
 
-                let _ = sender.send(CandleStringChunk(content));
+                let _ = sender.send(CandleStringChunk::text(content));
                 return;
             }
         }))

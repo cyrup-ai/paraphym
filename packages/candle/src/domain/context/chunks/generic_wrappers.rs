@@ -34,18 +34,70 @@ impl MessageChunk for CandleUnitChunk {
     }
 }
 
-/// Simple wrapper for String to implement `MessageChunk`
+/// Lightweight statistics for completed text generation
+///
+/// Communicated via final `CandleStringChunk` to report accurate
+/// generation performance measured at the `TextGenerator` layer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenerationStats {
+    /// Total tokens generated (output tokens only)
+    pub tokens_generated: u32,
+    /// Wall-clock time spent generating tokens in seconds
+    pub elapsed_secs: f64,
+    /// Throughput: tokens generated per second
+    pub tokens_per_sec: f64,
+}
+
+/// Streaming text chunk from `TextGenerator` to Engine layer
+///
+/// Non-final chunks carry generated text.
+/// Final chunk (`is_final=true`) carries generation statistics.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct CandleStringChunk(pub String);
+pub struct CandleStringChunk {
+    /// Generated text content (empty for final chunk)
+    pub text: String,
+    /// True if this is the last chunk in the stream
+    #[serde(default)]
+    pub is_final: bool,
+    /// Generation statistics (only present in final chunk)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stats: Option<GenerationStats>,
+}
+
+impl CandleStringChunk {
+    /// Create text chunk (non-final)
+    #[must_use]
+    pub fn text(text: String) -> Self {
+        Self {
+            text,
+            is_final: false,
+            stats: None,
+        }
+    }
+
+    /// Create final chunk with statistics
+    #[must_use]
+    pub fn final_with_stats(stats: GenerationStats) -> Self {
+        Self {
+            text: String::new(),
+            is_final: true,
+            stats: Some(stats),
+        }
+    }
+}
 
 impl MessageChunk for CandleStringChunk {
     fn bad_chunk(error: String) -> Self {
-        CandleStringChunk(format!("Error: {error}"))
+        CandleStringChunk {
+            text: format!("Error: {error}"),
+            is_final: false,
+            stats: None,
+        }
     }
 
     fn error(&self) -> Option<&str> {
-        if self.0.starts_with("Error: ") {
-            Some(&self.0)
+        if self.text.starts_with("Error: ") {
+            Some(&self.text)
         } else {
             None
         }

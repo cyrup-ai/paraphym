@@ -261,7 +261,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3QuantizedModel 
                 let tokens = match tokenizer.encode(prompt_text.as_str(), true) {
                     Ok(encoding) => encoding.get_ids().to_vec(),
                     Err(e) => {
-                        let _ = tx.send(CandleStringChunk(format!(
+                        let _ = tx.send(CandleStringChunk::text(format!(
                             "ERROR: Failed to encode prompt: {}",
                             e
                         )));
@@ -304,7 +304,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3QuantizedModel 
                     Ok(t) => match t.unsqueeze(0) {
                         Ok(t) => t,
                         Err(e) => {
-                            let _ = tx.send(CandleStringChunk(format!(
+                            let _ = tx.send(CandleStringChunk::text(format!(
                                 "ERROR: Failed to unsqueeze tensor: {}",
                                 e
                             )));
@@ -312,7 +312,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3QuantizedModel 
                         }
                     },
                     Err(e) => {
-                        let _ = tx.send(CandleStringChunk(format!(
+                        let _ = tx.send(CandleStringChunk::text(format!(
                             "ERROR: Failed to create input tensor: {}",
                             e
                         )));
@@ -323,7 +323,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3QuantizedModel 
                 let logits = match model.forward(&input, 0) {
                     Ok(l) => l,
                     Err(e) => {
-                        let _ = tx.send(CandleStringChunk(format!(
+                        let _ = tx.send(CandleStringChunk::text(format!(
                             "ERROR: Forward pass failed: {}",
                             e
                         )));
@@ -334,7 +334,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3QuantizedModel 
                 let logits = match logits.squeeze(0) {
                     Ok(l) => l,
                     Err(e) => {
-                        let _ = tx.send(CandleStringChunk(format!(
+                        let _ = tx.send(CandleStringChunk::text(format!(
                             "ERROR: Failed to squeeze logits: {}",
                             e
                         )));
@@ -347,7 +347,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3QuantizedModel 
                     match logits / temperature {
                         Ok(l) => l,
                         Err(e) => {
-                            let _ = tx.send(CandleStringChunk(format!(
+                            let _ = tx.send(CandleStringChunk::text(format!(
                                 "ERROR: Temperature scaling failed: {}",
                                 e
                             )));
@@ -368,7 +368,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3QuantizedModel 
                     ) {
                         Ok(l) => l,
                         Err(e) => {
-                            let _ = tx.send(CandleStringChunk(format!(
+                            let _ = tx.send(CandleStringChunk::text(format!(
                                 "ERROR: Repeat penalty failed: {}",
                                 e
                             )));
@@ -382,7 +382,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3QuantizedModel 
                 let mut next_token = match logits_processor.sample(&logits) {
                     Ok(t) => t,
                     Err(e) => {
-                        let _ = tx.send(CandleStringChunk(format!(
+                        let _ = tx.send(CandleStringChunk::text(format!(
                             "ERROR: Sampling failed: {}",
                             e
                         )));
@@ -394,7 +394,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3QuantizedModel 
 
                 // Send first token
                 if let Some(t) = tos.next_token(next_token).ok().flatten() {
-                    let _ = tx.send(CandleStringChunk(t));
+                    let _ = tx.send(CandleStringChunk::text(t));
                 }
 
                 // Continue generation
@@ -407,7 +407,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3QuantizedModel 
                         Ok(t) => match t.unsqueeze(0) {
                             Ok(t) => t,
                             Err(e) => {
-                                let _ = tx.send(CandleStringChunk(format!(
+                                let _ = tx.send(CandleStringChunk::text(format!(
                                     "ERROR: Failed to unsqueeze tensor: {}",
                                     e
                                 )));
@@ -415,7 +415,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3QuantizedModel 
                             }
                         },
                         Err(e) => {
-                            let _ = tx.send(CandleStringChunk(format!(
+                            let _ = tx.send(CandleStringChunk::text(format!(
                                 "ERROR: Failed to create input tensor: {}",
                                 e
                             )));
@@ -426,7 +426,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3QuantizedModel 
                     let logits = match model.forward(&input, tokens.len() + index as usize) {
                         Ok(l) => l,
                         Err(e) => {
-                            let _ = tx.send(CandleStringChunk(format!(
+                            let _ = tx.send(CandleStringChunk::text(format!(
                                 "ERROR: Forward pass failed: {}",
                                 e
                             )));
@@ -437,7 +437,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3QuantizedModel 
                     let logits = match logits.squeeze(0) {
                         Ok(l) => l,
                         Err(e) => {
-                            let _ = tx.send(CandleStringChunk(format!(
+                            let _ = tx.send(CandleStringChunk::text(format!(
                                 "ERROR: Failed to squeeze logits: {}",
                                 e
                             )));
@@ -450,7 +450,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3QuantizedModel 
                         match logits / temperature {
                             Ok(l) => l,
                             Err(e) => {
-                                let _ = tx.send(CandleStringChunk(format!(
+                                let _ = tx.send(CandleStringChunk::text(format!(
                                     "ERROR: Temperature scaling failed: {}",
                                     e
                                 )));
@@ -471,7 +471,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3QuantizedModel 
                         ) {
                             Ok(l) => l,
                             Err(e) => {
-                                let _ = tx.send(CandleStringChunk(format!(
+                                let _ = tx.send(CandleStringChunk::text(format!(
                                     "ERROR: Repeat penalty failed: {}",
                                     e
                                 )));
@@ -485,7 +485,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3QuantizedModel 
                     next_token = match logits_processor.sample(&logits) {
                         Ok(t) => t,
                         Err(e) => {
-                            let _ = tx.send(CandleStringChunk(format!(
+                            let _ = tx.send(CandleStringChunk::text(format!(
                                 "ERROR: Sampling failed: {}",
                                 e
                             )));
@@ -497,14 +497,14 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3QuantizedModel 
 
                     // Send token through stream using TokenOutputStream
                     if let Some(t) = tos.next_token(next_token).ok().flatten() {
-                        let _ = tx.send(CandleStringChunk(t));
+                        let _ = tx.send(CandleStringChunk::text(t));
                     }
                 }
 
                 // Flush any remaining tokens
                 if let Ok(Some(t)) = tos.decode_rest()
                     && !t.is_empty() {
-                        let _ = tx.send(CandleStringChunk(t));
+                        let _ = tx.send(CandleStringChunk::text(t));
                     }
             })
         }))

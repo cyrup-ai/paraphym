@@ -457,37 +457,7 @@ impl CommandExecutor {
                 }
 
                 // STEP 5: Complete (100%)
-                send_export_progress(&sender, execution_id, 100.0, "Export complete!".to_string());
-
-                let success_message = format!(
-                    "Successfully exported {} messages to '{}' ({} format, {} bytes)",
-                    export_data.metadata.message_count,
-                    output_path,
-                    format,
-                    export_data.metadata.size_bytes
-                );
-
-                let _ = sender.send(CommandEvent::output(
-                    execution_id,
-                    success_message,
-                    OutputType::Text,
-                ));
-
-                let result = CommandExecutionResult::File {
-                    path: output_path,
-                    #[allow(clippy::cast_possible_truncation)]
-                    size_bytes: export_data.metadata.size_bytes as u64,
-                    mime_type: export_data.content_type,
-                };
-
-                #[allow(clippy::cast_possible_truncation)]
-                let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
-                let _ = sender.send(CommandEvent::completed(
-                    execution_id,
-                    result,
-                    duration_us,
-                    ResourceUsage::default(),
-                ));
+                send_export_completion(&sender, execution_id, &export_data, &output_path, &format, &start_time);
             });
         }))
     }
@@ -554,9 +524,11 @@ fn send_export_progress(
     progress: f64,
     message: String,
 ) {
+    #[allow(clippy::cast_possible_truncation)]
+    let progress_f32 = progress as f32;
     let _ = sender.send(CommandEvent::Progress {
         execution_id,
-        progress,
+        progress: progress_f32,
         message,
         timestamp: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -586,7 +558,7 @@ fn send_export_failure(
     });
 }
 
-/// Parse export format string to ExportFormat enum
+/// Parse export format string to `ExportFormat` enum
 fn parse_export_format(format: &str) -> Result<ExportFormat, String> {
     match format.to_lowercase().as_str() {
         "json" => Ok(ExportFormat::Json),
@@ -625,6 +597,52 @@ fn perform_message_export(
 /// Determine output file path
 fn determine_output_path(output: Option<String>, file_extension: &str) -> String {
     output.unwrap_or_else(|| format!("chat_export.{file_extension}"))
+}
+
+/// Send completion events for export operation
+fn send_export_completion(
+    sender: &tokio::sync::mpsc::UnboundedSender<CommandEvent>,
+    execution_id: u64,
+    export_data: &ExportData,
+    output_path: &str,
+    format: &str,
+    start_time: &Instant,
+) {
+    // Send 100% progress
+    send_export_progress(sender, execution_id, 100.0, "Export complete!".to_string());
+
+    // Send success output message
+    let success_message = format!(
+        "Successfully exported {} messages to '{}' ({} format, {} bytes)",
+        export_data.metadata.message_count,
+        output_path,
+        format,
+        export_data.metadata.size_bytes
+    );
+
+    let _ = sender.send(CommandEvent::output(
+        execution_id,
+        success_message,
+        OutputType::Text,
+    ));
+
+    // Send completed event
+    let result = CommandExecutionResult::File {
+        path: output_path.to_string(),
+        #[allow(clippy::cast_possible_truncation)]
+        size_bytes: export_data.metadata.size_bytes as u64,
+        mime_type: export_data.content_type.clone(),
+    };
+
+    #[allow(clippy::cast_possible_truncation)]
+    let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
+    
+    let _ = sender.send(CommandEvent::completed(
+        execution_id,
+        result,
+        duration_us,
+        ResourceUsage::default(),
+    ));
 }
 
 impl CommandExecutor {

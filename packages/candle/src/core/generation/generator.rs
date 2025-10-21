@@ -8,7 +8,7 @@ use tokenizers::Tokenizer;
 use tokio_stream::Stream;
 use crate::async_stream;
 
-use crate::domain::context::chunks::CandleStringChunk;
+use crate::domain::context::chunks::{CandleStringChunk, GenerationStats};
 use cyrup_simd::logits::LogitsProcessor as LogitsProcessorTrait;
 use cyrup_simd::logits::constraints::GenerationConstraint;
 
@@ -80,6 +80,26 @@ impl TextGenerator {
         }
     }
 
+    /// Emit final chunk with generation statistics
+    ///
+    /// Safe to call from any error path. Idempotent.
+    /// Ignores send errors if receiver has dropped.
+    fn emit_final_stats(&mut self, tx: &tokio::sync::mpsc::UnboundedSender<CandleStringChunk>) {
+        // Stop timer (idempotent - does nothing if already stopped)
+        self.stats.stop_generation();
+
+        let stats = GenerationStats {
+            tokens_generated: self.stats.total_tokens as u32,
+            elapsed_secs: self.stats.total_duration.as_secs_f64(),
+            tokens_per_sec: self.stats.tokens_per_second(),
+        };
+
+        log::debug!("Generation complete: {} tokens in {:.2}s ({:.2} tokens/sec)",
+            stats.tokens_generated, stats.elapsed_secs, stats.tokens_per_sec);
+
+        let _ = tx.send(CandleStringChunk::final_with_stats(stats));
+    }
+
     /// Generate text using tokio stream with SIMD acceleration
     pub fn generate(
         mut self,
@@ -102,6 +122,7 @@ impl TextGenerator {
                 },
                 Err(e) => {
                     log::error!("Prompt encoding error: {}", e);
+                    self.emit_final_stats(&tx);
                     return;
                 }
             };
@@ -120,11 +141,13 @@ impl TextGenerator {
                     },
                     Err(e) => {
                         log::error!("Initial tensor unsqueeze error: {}", e);
+                        self.emit_final_stats(&tx);
                         return;
                     }
                 },
                 Err(e) => {
                     log::error!("Initial tensor creation error: {}", e);
+                    self.emit_final_stats(&tx);
                     return;
                 }
             };
@@ -140,12 +163,14 @@ impl TextGenerator {
                         },
                         Err(e) => {
                             log::error!("Initial logits squeeze error: {}", e);
+                            self.emit_final_stats(&tx);
                             return;
                         }
                     }
                 },
                 Err(e) => {
                     log::error!("Initial forward pass error: {}", e);
+                    self.emit_final_stats(&tx);
                     return;
                 }
             };
@@ -160,6 +185,7 @@ impl TextGenerator {
                 },
                 Err(e) => {
                     log::error!("Converting initial logits to vector error: {}", e);
+                    self.emit_final_stats(&tx);
                     return;
                 }
             };
@@ -171,6 +197,7 @@ impl TextGenerator {
                 },
                 Err(e) => {
                     log::error!("Initial SIMD sampling error: {}", e);
+                    self.emit_final_stats(&tx);
                     return;
                 }
             };
@@ -190,10 +217,11 @@ impl TextGenerator {
             match self.tokenizer.decode(&[next_token], false) {
                 Ok(token_str) => {
                     log::info!("✅ Sending first token: '{}'", token_str);
-                    let _ = tx.send(CandleStringChunk(token_str));
+                    let _ = tx.send(CandleStringChunk::text(token_str));
                 }
                 Err(e) => {
                     log::error!("Initial token decoding error: {}", e);
+                    self.emit_final_stats(&tx);
                     return;
                 }
             };
@@ -201,7 +229,7 @@ impl TextGenerator {
             // Check termination AFTER sending first token
             if self.should_stop(next_token, &special_tokens) {
                 log::info!("STOP: First token was EOS ({}), stopping generation", next_token);
-                self.stats.stop_generation();
+                self.emit_final_stats(&tx);
                 return; // Graceful EOS termination after at least one token sent
             }
 
@@ -271,7 +299,7 @@ impl TextGenerator {
                 // Decode and emit individual token - fast CPU operation
                 match self.tokenizer.decode(&[next_token], false) {
                     Ok(token_str) => {
-                        let _ = tx.send(CandleStringChunk(token_str)); // Individual token streaming
+                        let _ = tx.send(CandleStringChunk::text(token_str)); // Individual token streaming
                     }
                     Err(e) => {
                         log::error!("Token decoding in loop error: {}", e);
@@ -282,7 +310,7 @@ impl TextGenerator {
                 self.stats.add_tokens(1);
             }
 
-            self.stats.stop_generation();
+            self.emit_final_stats(&tx);
         })
     }
     /// SIMD-optimized token sampling with comprehensive acceleration (async)

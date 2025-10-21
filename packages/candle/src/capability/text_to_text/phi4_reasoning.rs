@@ -169,7 +169,7 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
                     let gguf_repo = match model_clone.info().quantization_url {
                         Some(url) => url,
                         None => {
-                            let _ = tx.send(CandleStringChunk(
+                            let _ = tx.send(CandleStringChunk::text(
                                 "ERROR: Model info missing quantization_url".to_string()
                             ));
                             return;
@@ -182,7 +182,7 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
                     ).await {
                         Ok(path) => path,
                         Err(e) => {
-                            let _ = tx.send(CandleStringChunk(format!(
+                            let _ = tx.send(CandleStringChunk::text(format!(
                                 "ERROR: Failed to get GGUF file: {}",
                                 e
                             )));
@@ -195,7 +195,7 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
                     let tokenizer_path = match model_clone.huggingface_file(tokenizer_repo, "tokenizer.json").await {
                         Ok(path) => path,
                         Err(e) => {
-                            let _ = tx.send(CandleStringChunk(format!(
+                            let _ = tx.send(CandleStringChunk::text(format!(
                                 "ERROR: Failed to get tokenizer file: {}",
                                 e
                             )));
@@ -215,14 +215,14 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
                     }).await {
                         Ok(Ok(t)) => t,
                         Ok(Err(e)) => {
-                            let _ = tx.send(CandleStringChunk(format!(
+                            let _ = tx.send(CandleStringChunk::text(format!(
                                 "ERROR: Failed to load tokenizer: {}",
                                 e
                             )));
                             return;
                         }
                         Err(e) => {
-                            let _ = tx.send(CandleStringChunk(format!(
+                            let _ = tx.send(CandleStringChunk::text(format!(
                                 "ERROR: Failed to spawn blocking task: {}",
                                 e
                             )));
@@ -235,7 +235,7 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
                         match CandleQuantizedPhiModel::from_gguf_path(&gguf_path, device.clone()).await {
                             Ok(model) => model,
                             Err(e) => {
-                                let _ = tx.send(CandleStringChunk(format!(
+                                let _ = tx.send(CandleStringChunk::text(format!(
                                     "ERROR: Failed to load quantized model: {}",
                                     e
                                 )));
