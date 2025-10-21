@@ -231,8 +231,8 @@ impl DecayWorker {
             let mut state = self.coordinator.quantum_state.write().await;
             for link in state.entanglement_links.iter_mut() {
                 // HashMap O(1) lookup - string clones are cheap (refcount increment)
-                if let Some(&new_strength) = edge_updates.get(&(link.node_a.to_string(), link.node_b.to_string()))
-                    .or_else(|| edge_updates.get(&(link.node_b.to_string(), link.node_a.to_string()))) {
+                if let Some(&new_strength) = edge_updates.get(&(link.node_a.clone(), link.node_b.clone()))
+                    .or_else(|| edge_updates.get(&(link.node_b.clone(), link.node_a.clone()))) {
                     link.entanglement_strength = new_strength;
                 }
             }

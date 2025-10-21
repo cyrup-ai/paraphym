@@ -22,14 +22,6 @@ pub trait CandleAgentRoleBuilder: Sized + Send {
     #[must_use]
     fn max_tokens(self, max: u64) -> impl CandleAgentRoleBuilder;
 
-    /// Set stop sequences - EXACT syntax: .stop_sequences(vec!["\n\n".to_string(), "###".to_string()])
-    #[must_use]
-    fn stop_sequences(self, sequences: Vec<String>) -> impl CandleAgentRoleBuilder;
-
-    /// Add single stop sequence - EXACT syntax: .add_stop_sequence("\n\n")
-    #[must_use]
-    fn add_stop_sequence(self, sequence: impl Into<String>) -> impl CandleAgentRoleBuilder;
-
     /// Set memory read timeout in milliseconds - EXACT syntax: .memory_read_timeout(5000)
     #[must_use]
     fn memory_read_timeout(self, timeout_ms: u64) -> impl CandleAgentRoleBuilder;
@@ -133,45 +125,45 @@ pub trait CandleMcpServerBuilder: Sized + Send {
 pub trait CandleAgentBuilder: Sized + Send + Sync {
     /// Set text-to-text model - EXACT syntax: .model(TextToTextModel)
     #[must_use]
-    fn model(self, model: TextToTextModel) -> Self;
+    fn model(self, model: TextToTextModel) -> impl CandleAgentBuilder;
 
     /// Set text embedding model - EXACT syntax: .embedding_model(TextEmbeddingModel)
     #[must_use]
-    fn embedding_model(self, model: TextEmbeddingModel) -> Self;
+    fn embedding_model(self, model: TextEmbeddingModel) -> impl CandleAgentBuilder;
 
     /// Set temperature - EXACT syntax: .temperature(1.0)
     #[must_use]
-    fn temperature(self, temp: f64) -> Self;
+    fn temperature(self, temp: f64) -> impl CandleAgentBuilder;
 
     /// Set max tokens - EXACT syntax: .max_tokens(8000)
     #[must_use]
-    fn max_tokens(self, max: u64) -> Self;
+    fn max_tokens(self, max: u64) -> impl CandleAgentBuilder;
 
     /// Set stop sequences - EXACT syntax: .stop_sequences(vec!["\n\n".to_string(), "###".to_string()])
     #[must_use]
-    fn stop_sequences(self, sequences: Vec<String>) -> Self;
+    fn stop_sequences(self, sequences: Vec<String>) -> impl CandleAgentBuilder;
 
     /// Add single stop sequence - EXACT syntax: .add_stop_sequence("\n\n")
     #[must_use]
-    fn add_stop_sequence(self, sequence: impl Into<String>) -> Self;
+    fn add_stop_sequence(self, sequence: impl Into<String>) -> impl CandleAgentBuilder;
 
     /// Set memory read timeout in milliseconds - EXACT syntax: .memory_read_timeout(5000)
     #[must_use]
-    fn memory_read_timeout(self, timeout_ms: u64) -> Self;
+    fn memory_read_timeout(self, timeout_ms: u64) -> impl CandleAgentBuilder;
 
     /// Set system prompt - EXACT syntax: .system_prompt("...")
     #[must_use]
-    fn system_prompt(self, prompt: impl Into<String>) -> Self;
+    fn system_prompt(self, prompt: impl Into<String>) -> impl CandleAgentBuilder;
 
     /// Set additional params - EXACT syntax: .additional_params([("key", "value")])
     #[must_use]
-    fn additional_params<P2>(self, params: P2) -> Self
+    fn additional_params<P2>(self, params: P2) -> impl CandleAgentBuilder
     where
         P2: IntoIterator<Item = (&'static str, &'static str)>;
 
     /// Set metadata - EXACT syntax: .metadata(meta)
     #[must_use]
-    fn metadata<Meta>(self, metadata: Meta) -> Self
+    fn metadata<Meta>(self, metadata: Meta) -> impl CandleAgentBuilder
     where
         Meta: IntoIterator<Item = (&'static str, &'static str)>;
 
@@ -183,11 +175,11 @@ pub trait CandleAgentBuilder: Sized + Send + Sync {
         context2: CandleContext<CandleFiles>,
         context3: CandleContext<CandleDirectory>,
         context4: CandleContext<CandleGithub>,
-    ) -> Self;
+    ) -> impl CandleAgentBuilder;
 
     /// Set tools - EXACT syntax: .tools(tool1, tool2, tool3)
     #[must_use]
-    fn tools<T>(self, tools: T) -> Self
+    fn tools<T>(self, tools: T) -> impl CandleAgentBuilder
     where
         T: Into<ZeroOneOrMany<ToolInfo>>;
 
@@ -199,25 +191,25 @@ pub trait CandleAgentBuilder: Sized + Send + Sync {
 
     /// Add MCP server config - internal method for MCP server builder
     #[must_use]
-    fn add_mcp_server_config(self, config: McpServerConfig) -> Self;
+    fn add_mcp_server_config(self, config: McpServerConfig) -> impl CandleAgentBuilder;
 
     /// Set chunk handler - EXACT syntax: .on_chunk(|chunk| async move { chunk })
     #[must_use]
-    fn on_chunk<F, Fut>(self, handler: F) -> Self
+    fn on_chunk<F, Fut>(self, handler: F) -> impl CandleAgentBuilder
     where
         F: Fn(CandleMessageChunk) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = CandleMessageChunk> + Send + 'static;
 
     /// Set tool result handler - EXACT syntax: .on_tool_result(|results| async move { ... })
     #[must_use]
-    fn on_tool_result<F, Fut>(self, handler: F) -> Self
+    fn on_tool_result<F, Fut>(self, handler: F) -> impl CandleAgentBuilder
     where
         F: Fn(&[String]) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = ()> + Send + 'static;
 
     /// Set conversation turn handler - EXACT syntax: .on_conversation_turn(|conversation, agent| async move { ... })
     #[must_use]
-    fn on_conversation_turn<F, Fut>(self, handler: F) -> Self
+    fn on_conversation_turn<F, Fut>(self, handler: F) -> impl CandleAgentBuilder
     where
         F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>> + Send + 'static;
@@ -225,7 +217,7 @@ pub trait CandleAgentBuilder: Sized + Send + Sync {
     /// Set conversation history - EXACT syntax from ARCHITECTURE.md
     /// Supports: .conversation_history(CandleMessageRole::User => "content", CandleMessageRole::System => "content", ...)
     #[must_use]
-    fn conversation_history(self, history: impl ConversationHistoryArgs) -> Self;
+    fn conversation_history(self, history: impl ConversationHistoryArgs) -> impl CandleAgentBuilder;
 
     /// Chat with closure - EXACT syntax: .chat(|conversation| ChatLoop)
     fn chat<F, Fut>(self, handler: F) -> Result<Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>, AgentError>

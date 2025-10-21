@@ -12,7 +12,7 @@ use surrealdb::Surreal;
 use surrealdb::engine::any::Any;
 use tokio::sync::{RwLock, oneshot};
 
-use crate::memory::vector::vector_store::VectorStore;
+use crate::memory::vector::vector_store::{VectorStore, IndexStats};
 
 /// Health status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -377,20 +377,31 @@ impl ComponentChecker for VectorStoreHealthChecker {
             };
 
             let index_status_test = async move {
-                // Get actual vector count from VectorStore
-                let vector_count = tokio::task::spawn_blocking(move || {
+                // Get actual index statistics from vector store
+                let stats = tokio::task::spawn_blocking(move || {
                     let vs = vs_idx.blocking_read();
-                    vs.count().unwrap_or(0)
+                    vs.get_index_stats()
                 })
                 .await
-                .unwrap_or(0) as u64;
+                .unwrap_or_else(|_| Ok(IndexStats {
+                    entry_count: 0,
+                    dimensions: None,
+                    quality_score: 0.0,
+                    memory_bytes: 0,
+                    fragmentation_ratio: 0.0,
+                }))
+                .unwrap_or_else(|_| IndexStats {
+                    entry_count: 0,
+                    dimensions: None,
+                    quality_score: 0.0,
+                    memory_bytes: 0,
+                    fragmentation_ratio: 0.0,
+                });
 
-                // Dimensions and index quality require trait extension or type-specific methods
-                // For now, use sensible defaults or get from config
-                let dimensions = embedding_dims as u32;
-                let index_quality = 100.0f32; // Assume healthy if count() succeeds
+                let dimensions = stats.dimensions.unwrap_or(embedding_dims as u32);
+                let index_quality = stats.quality_score;
 
-                (vector_count, dimensions, index_quality)
+                (stats.entry_count, dimensions, index_quality)
             };
 
             let search_performance_test = async move {
@@ -449,6 +460,24 @@ impl ComponentChecker for VectorStoreHealthChecker {
                 Ok(Ok(_)) => {
                     health.status = HealthStatus::Healthy;
                     health.message = Some("Vector store is operational".to_string());
+
+                    // Set health status based on quality thresholds
+                    if index_quality < 60.0 {
+                        health.status = HealthStatus::Unhealthy;
+                        health.message = Some(format!("Index quality critically low: {:.1}%", index_quality));
+                    } else if index_quality < 80.0 {
+                        health.status = HealthStatus::Degraded;
+                        health.message = Some(format!("Index quality degraded: {:.1}%", index_quality));
+                    }
+
+                    // Check for dimension mismatch
+                    if dimensions != embedding_dims as u32 {
+                        health.status = HealthStatus::Unhealthy;
+                        health.message = Some(format!(
+                            "Dimension mismatch: expected {}, got {}",
+                            embedding_dims, dimensions
+                        ));
+                    }
 
                     // Add comprehensive metrics
                     health.details.insert(

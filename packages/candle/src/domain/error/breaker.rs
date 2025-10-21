@@ -1,7 +1,7 @@
 //! Error-specific circuit breaker with statistics
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use atomic_counter::{AtomicCounter, RelaxedCounter};
 use super::circuit_breaker::{CircuitBreaker, CircuitBreakerState, CircuitBreakerError};
 use super::core::ZeroAllocError;
@@ -136,13 +136,17 @@ pub struct ErrorCircuitBreaker {
     /// Error counter for statistics
     counter: ErrorCounter,
     /// Failure threshold
-    #[allow(dead_code)] // TODO: Implement in circuit breaker system
     failure_threshold: usize,
     /// Recovery timeout
-    #[allow(dead_code)] // TODO: Implement in circuit breaker system
     recovery_timeout: Duration,
     /// Half-open requests
     half_open_requests: AtomicU64,
+    /// Current state (0=Closed, 1=Open, 2=HalfOpen)
+    state: AtomicU64,
+    /// Failure count
+    failure_count: AtomicU64,
+    /// Last failure time in milliseconds
+    last_failure_time: AtomicU64,
 }
 
 impl ErrorCircuitBreaker {
@@ -161,6 +165,61 @@ impl ErrorCircuitBreaker {
             failure_threshold,
             recovery_timeout,
             half_open_requests: AtomicU64::new(0),
+            state: AtomicU64::new(0),
+            failure_count: AtomicU64::new(0),
+            last_failure_time: AtomicU64::new(0),
+        }
+    }
+
+    /// Get recovery timeout in milliseconds
+    #[inline]
+    fn recovery_timeout_ms(&self) -> u64 {
+        duration_to_millis_u64(self.recovery_timeout)
+    }
+
+    /// Record a failure
+    #[inline]
+    pub fn record_failure(&self) {
+        let failures = self.failure_count.fetch_add(1, Ordering::Relaxed) + 1;
+        if failures >= self.failure_threshold as u64 {
+            self.state.store(1, Ordering::Relaxed); // Open
+            let now = duration_to_millis_u64(
+                SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap_or_default(),
+            );
+            self.last_failure_time.store(now, Ordering::Relaxed);
+        }
+    }
+
+    /// Record a success
+    #[inline]
+    pub fn record_success(&self) {
+        self.failure_count.store(0, Ordering::Relaxed);
+        self.state.store(0, Ordering::Relaxed); // Closed
+    }
+
+    /// Check if request should be allowed
+    #[inline]
+    pub fn should_allow_request(&self) -> bool {
+        match self.state.load(Ordering::Relaxed) {
+            0 => true, // Closed
+            1 => { // Open
+                let now = duration_to_millis_u64(
+                    SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap_or_default(),
+                );
+                let last_failure = self.last_failure_time.load(Ordering::Relaxed);
+                if now - last_failure > self.recovery_timeout_ms() {
+                    self.state.store(2, Ordering::Relaxed); // HalfOpen
+                    true
+                } else {
+                    false
+                }
+            }
+            2 => true, // HalfOpen
+            _ => true,
         }
     }
 
@@ -175,23 +234,28 @@ impl ErrorCircuitBreaker {
         F: FnOnce() -> Result<T, E>,
         E: Into<ZeroAllocError>,
     {
-        match self.breaker.call(operation) {
-            Ok(result) => Ok(result),
-            Err(CircuitBreakerError::Inner(e)) => {
-                let error = e.into();
-                self.counter.record(&error);
-                Err(Box::new(error))
-            }
-            Err(CircuitBreakerError::CircuitOpen) => {
-                let error = ZeroAllocError::new(
-                    ErrorCategory::System,
-                    ErrorSeverity::Error,
-                    ErrorRecoverability::RetriableWithBackoff,
-                    "Circuit breaker is open",
-                    500,
-                );
-                self.counter.record(&error);
-                Err(Box::new(error))
+        if !self.should_allow_request() {
+            let error = ZeroAllocError::new(
+                ErrorCategory::System,
+                ErrorSeverity::Error,
+                ErrorRecoverability::RetriableWithBackoff,
+                "Circuit breaker is open",
+                500,
+            );
+            self.counter.record(&error);
+            Err(Box::new(error))
+        } else {
+            match operation() {
+                Ok(result) => {
+                    self.record_success();
+                    Ok(result)
+                }
+                Err(e) => {
+                    let error = e.into();
+                    self.counter.record(&error);
+                    self.record_failure();
+                    Err(Box::new(error))
+                }
             }
         }
     }
@@ -199,13 +263,13 @@ impl ErrorCircuitBreaker {
     /// Check if circuit breaker is open
     #[inline]
     pub fn is_open(&self) -> bool {
-        matches!(self.breaker.get_state(), CircuitBreakerState::Open)
+        self.state.load(Ordering::Relaxed) == 1
     }
 
     /// Check if circuit breaker is half-open
     #[inline]
     pub fn is_half_open(&self) -> bool {
-        matches!(self.breaker.get_state(), CircuitBreakerState::HalfOpen)
+        self.state.load(Ordering::Relaxed) == 2
     }
 
     /// Get error statistics
@@ -218,6 +282,9 @@ impl ErrorCircuitBreaker {
     #[inline]
     pub fn reset(&self) {
         self.counter.reset();
+        self.state.store(0, Ordering::Relaxed);
+        self.failure_count.store(0, Ordering::Relaxed);
+        self.last_failure_time.store(0, Ordering::Relaxed);
         self.half_open_requests.store(0, Ordering::Relaxed);
     }
 }

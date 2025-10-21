@@ -12,6 +12,25 @@ pub type VectorMetadata = HashMap<String, Value>;
 /// Type alias for vector search results
 pub type VectorSearchResult = (String, Vec<f32>, f32, Option<VectorMetadata>);
 
+/// Index statistics for health monitoring
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct IndexStats {
+    /// Total number of entries
+    pub entry_count: u64,
+    
+    /// Vector dimensions (None if empty)
+    pub dimensions: Option<u32>,
+    
+    /// Quality score (0.0-100.0)
+    pub quality_score: f32,
+    
+    /// Total memory usage in bytes
+    pub memory_bytes: u64,
+    
+    /// Fragmentation ratio (0.0-1.0, 0.0 = no fragmentation)
+    pub fragmentation_ratio: f32,
+}
+
 /// Trait for vector store implementations - SYNCHRONOUS OPERATIONS ONLY
 ///
 /// This trait provides a thread-safe, synchronous interface for vector storage operations.
@@ -148,5 +167,41 @@ pub trait VectorStore: Send + Sync + std::fmt::Debug {
         Err(crate::memory::utils::error::Error::Other(
             "Metadata operations not supported by this vector store".to_string(),
         ))
+    }
+
+    /// Get index quality metrics
+    ///
+    /// # Returns
+    /// Result containing index quality score (0.0-100.0)
+    /// - 100.0 = perfect health
+    /// - 80-99 = good health
+    /// - 60-79 = degraded
+    /// - <60 = unhealthy
+    fn get_index_quality(&self) -> Result<f32> {
+        // Default implementation for stores without quality tracking
+        Ok(100.0)
+    }
+
+    /// Get vector dimensions
+    ///
+    /// # Returns
+    /// Result containing the dimension size, or None if store is empty
+    fn get_dimensions(&self) -> Result<Option<u32>> {
+        // Default implementation returns None
+        Ok(None)
+    }
+
+    /// Get index statistics
+    ///
+    /// # Returns
+    /// Result containing detailed index statistics
+    fn get_index_stats(&self) -> Result<IndexStats> {
+        Ok(IndexStats {
+            entry_count: self.count()? as u64,
+            dimensions: self.get_dimensions()?,
+            quality_score: self.get_index_quality()?,
+            memory_bytes: 0, // Override in implementations
+            fragmentation_ratio: 0.0,
+        })
     }
 }

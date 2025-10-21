@@ -92,18 +92,6 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
         self
     }
 
-    /// Set stop sequences - EXACT syntax: .stop_sequences(vec!["\n\n".to_string(), "###".to_string()])
-    fn stop_sequences(mut self, sequences: Vec<String>) -> impl CandleAgentRoleBuilder {
-        self.stop_sequences = sequences;
-        self
-    }
-
-    /// Add single stop sequence - EXACT syntax: .add_stop_sequence("\n\n")
-    fn add_stop_sequence(mut self, sequence: impl Into<String>) -> impl CandleAgentRoleBuilder {
-        self.stop_sequences.push(sequence.into());
-        self
-    }
-
     /// Set memory read timeout in milliseconds - EXACT syntax: .memory_read_timeout(5000)
     fn memory_read_timeout(mut self, timeout_ms: u64) -> impl CandleAgentRoleBuilder {
         self.memory_read_timeout = timeout_ms;
