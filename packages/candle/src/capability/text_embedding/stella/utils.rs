@@ -1,10 +1,13 @@
 //! Shared utilities for Stella embedding model
 
+use anyhow::{anyhow, Context, Result};
 use candle_core::{DType, Device};
 use candle_nn::VarBuilder;
 use candle_transformers::models::stella_en_v5::{Config, EmbedDim, ModelVariant};
 use std::path::PathBuf;
 use tokenizers::{PaddingDirection, PaddingParams, PaddingStrategy, Tokenizer, TruncationParams};
+
+use super::super::safetensors_validation::validate_safetensors_file;
 
 /// Detect best device and dtype
 ///
@@ -25,19 +28,19 @@ pub(crate) fn detect_device_and_dtype() -> (Device, DType) {
 /// Configure tokenizer with variant-specific padding and truncation
 ///
 /// # Padding
-/// - Large (1.5B): Left padding with |endoftext|> token
+/// - Large (1.5B): Left padding with <|endoftext|> token
 /// - Small (400M): Right padding with default token
 pub(crate) fn configure_stella_tokenizer(
     tokenizer: &mut Tokenizer,
     variant: ModelVariant,
     max_length: usize,
-) -> Result<(), String> {
+) -> Result<()> {
     // Variant-specific padding
     match variant {
         ModelVariant::Large => {
             let pad_id = tokenizer
                 .token_to_id("<|endoftext|>")
-                .ok_or("Tokenizer missing |endoftext|> token")?;
+                .ok_or_else(|| anyhow!("Tokenizer missing <|endoftext|> token"))?;
             tokenizer.with_padding(Some(PaddingParams {
                 strategy: PaddingStrategy::BatchLongest,
                 direction: PaddingDirection::Left,
@@ -65,7 +68,7 @@ pub(crate) fn configure_stella_tokenizer(
                 stride: 0,
                 direction: tokenizers::TruncationDirection::Right,
             }))
-            .map_err(|e| format!("Failed to set truncation: {}", e))?;
+            .map_err(|e| anyhow!("Failed to set truncation: {}", e))?;
     }
 
     Ok(())
@@ -81,22 +84,25 @@ pub(crate) fn create_stella_config(variant: ModelVariant, embed_dim: EmbedDim) -
 
 /// Load Stella model weights (base + projection head)
 ///
-/// # Safety
-/// Uses unsafe mmap - caller must ensure files are valid SafeTensors
+/// Validates SafeTensors files before unsafe mmap to prevent crashes.
 pub(crate) fn load_stella_weights(
     base_weights: PathBuf,
     projection_head: PathBuf,
     dtype: DType,
     device: &Device,
-) -> Result<(VarBuilder<'static>, VarBuilder<'static>), String> {
+) -> anyhow::Result<(VarBuilder<'static>, VarBuilder<'static>)> {
+    // Validate files before unsafe mmap
+    validate_safetensors_file(&base_weights)?;
+    validate_safetensors_file(&projection_head)?;
+
     let base_vb = unsafe {
         VarBuilder::from_mmaped_safetensors(&[base_weights], dtype, device)
-            .map_err(|e| format!("Failed to load base model weights: {}", e))?
+            .context("Failed to load base model weights")?
     };
 
     let embed_vb = unsafe {
         VarBuilder::from_mmaped_safetensors(&[projection_head], DType::F32, device)
-            .map_err(|e| format!("Failed to load projection head weights: {}", e))?
+            .context("Failed to load projection head weights")?
     };
 
     Ok((base_vb, embed_vb))

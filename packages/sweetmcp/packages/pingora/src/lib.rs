@@ -11,6 +11,10 @@ pub mod peer_discovery;
 pub mod rate_limit;
 pub mod shutdown;
 pub mod tls;
+pub mod edge;
+pub mod load;
+pub mod metric_picker;
+pub mod mcp_bridge;
 
 /// Get the directory where TLS certificates are stored
 pub fn get_cert_dir() -> std::path::PathBuf {

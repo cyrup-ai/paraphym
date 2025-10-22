@@ -120,29 +120,22 @@ impl CandleBertEmbeddingModel {
             .encode_batch(texts.to_vec(), true)
             .map_err(|e| MemoryError::ModelError(format!("Tokenization failed: {}", e)))?;
 
-        let token_ids = tokens
+        // Collect into 2D vectors
+        let ids_vecs: Vec<Vec<u32>> = tokens
             .iter()
-            .map(|tokens| {
-                let tokens = tokens.get_ids().to_vec();
-                Tensor::new(tokens.as_slice(), device)
-                    .map_err(|e| MemoryError::ModelError(format!("Tensor creation failed: {}", e)))
-            })
-            .collect::<Result<Vec<_>>>()?;
+            .map(|t| t.get_ids().to_vec())
+            .collect();
 
-        let attention_mask = tokens
+        let mask_vecs: Vec<Vec<u32>> = tokens
             .iter()
-            .map(|tokens| {
-                let tokens = tokens.get_attention_mask().to_vec();
-                Tensor::new(tokens.as_slice(), device)
-                    .map_err(|e| MemoryError::ModelError(format!("Tensor creation failed: {}", e)))
-            })
-            .collect::<Result<Vec<_>>>()?;
+            .map(|t| t.get_attention_mask().to_vec())
+            .collect();
 
-        // Stack tensors
-        let token_ids = Tensor::stack(&token_ids, 0)
-            .map_err(|e| MemoryError::ModelError(format!("Tensor stack failed: {}", e)))?;
-        let attention_mask = Tensor::stack(&attention_mask, 0)
-            .map_err(|e| MemoryError::ModelError(format!("Tensor stack failed: {}", e)))?;
+        // Create tensors directly from 2D data
+        let token_ids = Tensor::new(ids_vecs, device)
+            .map_err(|e| MemoryError::ModelError(format!("Failed to create batch input tensor: {}", e)))?;
+        let attention_mask = Tensor::new(mask_vecs, device)
+            .map_err(|e| MemoryError::ModelError(format!("Failed to create batch attention mask: {}", e)))?;
         let token_type_ids = token_ids
             .zeros_like()
             .map_err(|e| MemoryError::ModelError(format!("Tensor creation failed: {}", e)))?;

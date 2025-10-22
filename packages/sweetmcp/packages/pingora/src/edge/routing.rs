@@ -50,7 +50,7 @@ impl RoutingHandler {
                         pingora::protocols::l4::socket::SocketAddr::Inet(addr) => {
                             // Check if this backend uses TLS
                             let use_tls = service.upstream_urls
-                                .get(addr)
+                                .get(&addr)
                                 .map(|url| url.starts_with("https://"))
                                 .unwrap_or(addr.port() == 443);
                             
@@ -242,7 +242,7 @@ impl RoutingHandler {
                     // Check if this backend uses TLS
                     // upstream_urls only contains static backends, so fallback to port check for discovered
                     let use_tls = service.upstream_urls
-                        .get(addr)
+                        .get(&addr)
                         .map(|url| url.starts_with("https://"))
                         .unwrap_or(addr.port() == 443);
                     

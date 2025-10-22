@@ -113,7 +113,7 @@ impl ProxyHttp for EdgeService {
             
             // Get TLS config and create peer
             let (use_tls, sni) = match &backend.addr {
-                PingoraSocketAddr::Inet(addr) => self.get_tls_config(addr),
+                PingoraSocketAddr::Inet(addr) => self.get_tls_config(&addr),
                 _ => (false, String::new()),
             };
             

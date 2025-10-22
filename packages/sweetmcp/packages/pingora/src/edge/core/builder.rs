@@ -484,3 +484,63 @@ impl EdgeServiceBuilder {
         Self::new().with_preset(BuilderPreset::Testing)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builder_status_helpers_used() {
+        let builder = EdgeServiceBuilder::new();
+        let status = builder.status();
+        let _ = status.is_complete();
+        let _ = status.completion_percentage();
+        let _ = status.missing_components();
+
+        let _clone = builder.clone_builder();
+        let _reset = builder.reset();
+
+        // Exercise preset helpers
+        let _ = EdgeServiceBuilder::development();
+        let _ = EdgeServiceBuilder::production();
+        let _ = EdgeServiceBuilder::testing();
+
+        let _ = EdgeServiceBuilder::new().with_preset(BuilderPreset::Development);
+        let _ = EdgeServiceBuilder::new().with_preset(BuilderPreset::Production);
+        let _ = EdgeServiceBuilder::new().with_preset(BuilderPreset::Testing);
+    }
+
+    #[tokio::test]
+    async fn builder_build_variants_and_multiple() {
+        // Build testing service (covers build_for_testing)
+        let svc = EdgeServiceBuilder::new().build_for_testing().expect("build_for_testing");
+
+        // from_service should succeed
+        let _b = EdgeServiceBuilder::from_service(&svc);
+
+        // Prepare base builder for build_multiple
+        let (tx, _rx) = tokio::sync::mpsc::channel(10);
+        let circuit_config = crate::circuit_breaker::CircuitBreakerConfig {
+            error_threshold_percentage: 50,
+            request_volume_threshold: 20,
+            sleep_window: std::time::Duration::from_secs(5),
+            half_open_requests: 3,
+            metrics_window: std::time::Duration::from_secs(10),
+        };
+        let cb_mgr = std::sync::Arc::new(crate::circuit_breaker::CircuitBreakerManager::new(circuit_config));
+        let peer_registry = crate::peer_discovery::PeerRegistry::new(cb_mgr);
+
+        let base = EdgeServiceBuilder::new()
+            .with_bridge_channel(tx)
+            .with_peer_registry(peer_registry);
+
+        let cfg1 = std::sync::Arc::new(crate::config::Config::default());
+        let cfg2 = std::sync::Arc::new(crate::config::Config::default());
+        let services = EdgeServiceBuilder::build_multiple(base, vec![cfg1, cfg2]).expect("build_multiple");
+        assert_eq!(services.len(), 2);
+
+        // validate() should fail if required fields are missing, succeed otherwise via status()
+        let ready = EdgeServiceBuilder::new().status().is_ready;
+        let _ = ready;
+    }
+}

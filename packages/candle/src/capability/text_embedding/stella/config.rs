@@ -84,15 +84,6 @@ pub(crate) static STELLA_1_5B_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     est_memory_allocation_mb: 7200, // Per official docs: 1.54B params FP32 = 6.17GB + overhead
 };
 
-/// Get the correct ModelInfo based on registry_key
-pub(crate) fn get_model_info(registry_key: &str) -> &'static CandleModelInfo {
-    if registry_key.contains("1.5B") {
-        &STELLA_1_5B_MODEL_INFO
-    } else {
-        &STELLA_400M_MODEL_INFO // Default to 400M
-    }
-}
-
 /// Detect model variant from registry_key
 pub(crate) fn detect_variant(registry_key: &str) -> ModelVariant {
     if registry_key.contains("1.5B") {

@@ -2,6 +2,8 @@
 //!
 //! Providers that implement text embedding using EmbeddingModel trait.
 
+pub mod safetensors_validation;
+
 pub mod bert;
 pub mod gte_qwen;
 pub mod jina_bert;

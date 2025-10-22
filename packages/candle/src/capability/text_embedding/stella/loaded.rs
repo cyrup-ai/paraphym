@@ -5,6 +5,7 @@ use super::instruction::{format_single_with_instruction, format_with_instruction
 use super::utils::{
     configure_stella_tokenizer, create_stella_config, detect_device_and_dtype, load_stella_weights,
 };
+use anyhow::{anyhow, Context, Result as AnyResult};
 use crate::capability::traits::TextEmbeddingCapable;
 use crate::domain::model::CandleModelInfo;
 use crate::domain::model::traits::CandleModel;
@@ -71,13 +72,13 @@ impl LoadedStellaModel {
         let max_length = base_model
             .info()
             .max_input_tokens
-            .ok_or("max_input_tokens missing in ModelInfo")?
+            .ok_or_else(|| anyhow!("max_input_tokens missing in ModelInfo"))?
             .get() as usize;
 
         let dimension = base_model
             .info()
             .embedding_dimension
-            .ok_or("embedding_dimension missing in ModelInfo")? as usize;
+            .ok_or_else(|| anyhow!("embedding_dimension missing in ModelInfo"))? as usize;
 
         let variant = detect_variant(base_model.info().registry_key);
         let embed_dim = embed_dim(dimension as u32)?;
@@ -101,7 +102,7 @@ impl LoadedStellaModel {
 
         // Load tokenizer and configure padding/truncation
         let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
-            .map_err(|e| format!("Failed to load tokenizer: {}", e))?;
+            .context("Failed to load tokenizer")?;
         configure_stella_tokenizer(&mut tokenizer, variant, max_length)?;
 
         // Create config and load weights using shared utils
@@ -111,7 +112,7 @@ impl LoadedStellaModel {
 
         // Create Stella model with MRL projection
         let model = EmbeddingModel::new(&stella_config, base_vb, embed_vb)
-            .map_err(|e| format!("Failed to create Stella model: {}", e))?;
+            .context("Failed to create Stella model")?;
 
         Ok(Self {
             tokenizer: std::sync::Arc::new(tokenizer),
@@ -157,21 +158,21 @@ impl TextEmbeddingCapable for LoadedStellaModel {
 
         Box::pin(async move {
             // Wrap CPU-intensive operations in spawn_blocking to avoid blocking async runtime
-            let embedding_vec = tokio::task::spawn_blocking(move || {
+            let embedding_vec = tokio::task::spawn_blocking(move || -> AnyResult<Vec<f32>> {
                 // Format with instruction prefix
                 let formatted_text = format_single_with_instruction(&text, task.as_deref());
 
                 // Tokenize
                 let tokens = tokenizer
                     .encode(formatted_text, true)
-                    .map_err(|e| format!("Tokenization failed: {}", e))?;
+                    .context("Tokenization failed")?;
 
                 let input_ids = Tensor::new(tokens.get_ids(), &device)
-                    .map_err(|e| format!("Failed to create input tensor: {}", e))?;
+                    .context("Failed to create input tensor")?;
                 let attention_mask = Tensor::new(tokens.get_attention_mask(), &device)
-                    .map_err(|e| format!("Failed to create attention mask: {}", e))?
+                    .context("Failed to create attention mask")?
                     .to_dtype(DType::U8)
-                    .map_err(|e| format!("Failed to convert mask dtype: {}", e))?;
+                    .context("Failed to convert mask dtype")?;
 
                 // Forward pass - lock synchronous mutex in blocking context
                 let mut model_guard = model.lock().unwrap_or_else(|poisoned| {
@@ -183,33 +184,23 @@ impl TextEmbeddingCapable for LoadedStellaModel {
                     .forward_norm(
                         &input_ids
                             .unsqueeze(0)
-                            .map_err(|e| format!("Failed to unsqueeze input_ids: {}", e))?,
+                            .context("Failed to unsqueeze input_ids")?,
                         &attention_mask
                             .unsqueeze(0)
-                            .map_err(|e| format!("Failed to unsqueeze attention_mask: {}", e))?,
+                            .context("Failed to unsqueeze attention_mask")?,
                     )
-                    .map_err(|e| format!("Stella forward pass failed: {}", e))?;
+                    .context("Stella forward pass failed")?;
 
                 // Extract first embedding
-                let embedding_vec = embeddings
+                embeddings
                     .to_vec2::<f32>()
-                    .map_err(|e| format!("Failed to convert embeddings to vec: {}", e))?
+                    .context("Failed to convert embeddings to vec")?
                     .into_iter()
                     .next()
-                    .ok_or("No embeddings generated")?;
-
-                Ok::<Vec<f32>, String>(embedding_vec)
+                    .ok_or_else(|| anyhow::anyhow!("No embeddings generated"))
             })
             .await
-            .map_err(|e| {
-                Box::new(std::io::Error::other(format!(
-                    "Spawn blocking failed: {}",
-                    e
-                ))) as Box<dyn std::error::Error + Send + Sync>
-            })?
-            .map_err(|e| {
-                Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>
-            })?;
+            .context("Spawn blocking failed")??;
 
             Ok(embedding_vec)
         })
@@ -238,7 +229,7 @@ impl TextEmbeddingCapable for LoadedStellaModel {
 
         Box::pin(async move {
             // Wrap CPU-intensive operations in spawn_blocking to avoid blocking async runtime
-            let embeddings_vec = tokio::task::spawn_blocking(move || {
+            let embeddings_vec = tokio::task::spawn_blocking(move || -> AnyResult<Vec<Vec<f32>>> {
                 let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
 
                 // Format with instruction prefix
@@ -247,7 +238,7 @@ impl TextEmbeddingCapable for LoadedStellaModel {
                 // Tokenize batch
                 let encodings = tokenizer
                     .encode_batch(formatted_texts, true)
-                    .map_err(|e| format!("Batch tokenization failed: {}", e))?;
+                    .context("Batch tokenization failed")?;
 
                 // Create batch tensors
                 let ids_vecs: Vec<Vec<u32>> =
@@ -258,11 +249,11 @@ impl TextEmbeddingCapable for LoadedStellaModel {
                     .collect();
 
                 let input_ids = Tensor::new(ids_vecs, &device)
-                    .map_err(|e| format!("Failed to create batch input tensor: {}", e))?;
+                    .context("Failed to create batch input tensor")?;
                 let attention_mask = Tensor::new(mask_vecs, &device)
-                    .map_err(|e| format!("Failed to create batch attention mask: {}", e))?
+                    .context("Failed to create batch attention mask")?
                     .to_dtype(DType::U8)
-                    .map_err(|e| format!("Failed to convert mask dtype: {}", e))?;
+                    .context("Failed to convert mask dtype")?;
 
                 // Forward pass - lock synchronous mutex in blocking context
                 let mut model_guard = model.lock().unwrap_or_else(|poisoned| {
@@ -272,23 +263,15 @@ impl TextEmbeddingCapable for LoadedStellaModel {
                 });
                 let embeddings = model_guard
                     .forward_norm(&input_ids, &attention_mask)
-                    .map_err(|e| format!("Stella batch forward pass failed: {}", e))?;
+                    .context("Stella batch forward pass failed")?;
 
                 // Convert to Vec<Vec<f32>>
                 embeddings
                     .to_vec2::<f32>()
-                    .map_err(|e| format!("Failed to convert batch embeddings to vec: {}", e))
+                    .context("Failed to convert batch embeddings to vec")
             })
             .await
-            .map_err(|e| {
-                Box::new(std::io::Error::other(format!(
-                    "Spawn blocking failed: {}",
-                    e
-                ))) as Box<dyn std::error::Error + Send + Sync>
-            })?
-            .map_err(|e| {
-                Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>
-            })?;
+            .context("Spawn blocking failed")??;
 
             Ok(embeddings_vec)
         })
