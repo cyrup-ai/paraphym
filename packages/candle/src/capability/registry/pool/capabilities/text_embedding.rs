@@ -131,7 +131,13 @@ pub async fn text_embedding_worker<T: TextEmbeddingCapable>(
                 let result = model.embed(&req.text, req.task)
                     .await
                     .map_err(|e| PoolError::ModelError(e.to_string()));
-                let _ = req.response.send(result);
+                if let Err(e) = req.response.send(result) {
+                    log::warn!(
+                        "Worker {}: Failed to send response (client likely timed out): {:?}",
+                        worker_id,
+                        e
+                    );
+                }
 
                 // Transition: Processing → Ready
                 state.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
@@ -144,7 +150,13 @@ pub async fn text_embedding_worker<T: TextEmbeddingCapable>(
                 let result = model.batch_embed(&req.texts, req.task)
                     .await
                     .map_err(|e| PoolError::ModelError(e.to_string()));
-                let _ = req.response.send(result);
+                if let Err(e) = req.response.send(result) {
+                    log::warn!(
+                        "Worker {}: Failed to send response (client likely timed out): {:?}",
+                        worker_id,
+                        e
+                    );
+                }
 
                 // Transition: Processing → Ready
                 state.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
@@ -162,7 +174,13 @@ pub async fn text_embedding_worker<T: TextEmbeddingCapable>(
                     queue_depth: 0, // Note: tokio mpsc doesn't expose len()
                 };
 
-                let _ = health_tx.send(pong);
+                if let Err(e) = health_tx.send(pong) {
+                    log::error!(
+                        "Worker {}: Health channel broken: {:?}",
+                        worker_id,
+                        e
+                    );
+                }
             }
             Some(_) = shutdown_rx.recv() => {
                 log::info!("TextEmbedding worker {} shutting down", worker_id);
