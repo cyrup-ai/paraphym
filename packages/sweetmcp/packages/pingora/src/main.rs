@@ -180,13 +180,34 @@ fn run_server() -> Result<()> {
     );
     server.add_service(tls_service);
 
-    // Create HTTP proxy service
-    let edge_service = edge::EdgeServiceBuilder::new()
+    // Create and configure EdgeService via builder with preset selection
+    // Choose preset based on compile-time features (production/development/testing)
+    let preset = if cfg!(feature = "production") {
+        edge::core::builder::BuilderPreset::Production
+    } else if cfg!(feature = "testing") {
+        edge::core::builder::BuilderPreset::Testing
+    } else {
+        edge::core::builder::BuilderPreset::Development
+    };
+
+    let builder = edge::EdgeServiceBuilder::new()
         .with_config(cfg.clone())
         .with_bridge_channel(bridge_tx.clone())
         .with_peer_registry(peer_registry.clone())
         .with_custom_shutdown_coordinator(shutdown_coordinator)
-        .build()?;
+        .with_preset(preset);
+
+    // Log builder status and validate before building (integrated usage of BuilderStatus/validate)
+    let status = builder.status();
+    log::info!(
+        "EdgeServiceBuilder status: complete={} ({:.1}%), missing={:?}",
+        status.is_complete(),
+        status.completion_percentage(),
+        status.missing_components()
+    );
+    builder.validate().context("EdgeServiceBuilder validation failed")?;
+
+    let edge_service = builder.build()?;
 
     // Create backend update service
     let static_upstreams: Vec<pingora_load_balancing::Backend> = edge_service.picker().load()

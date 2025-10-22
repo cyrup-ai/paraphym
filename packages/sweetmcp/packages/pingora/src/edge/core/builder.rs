@@ -225,6 +225,7 @@ impl EdgeServiceBuilder {
     }
 
     /// Build with default components for testing
+    #[cfg(any(test, feature = "testing"))]
     pub fn build_for_testing(self) -> Result<EdgeService, EdgeServiceError> {
         info!("Building EdgeService for testing");
 
@@ -342,6 +343,7 @@ impl EdgeServiceBuilder {
     }
 
     /// Build multiple services with different configurations
+    #[cfg(any(test, feature = "testing"))]
     pub fn build_multiple(
         base_builder: Self,
         configs: Vec<Arc<Config>>,
@@ -470,16 +472,19 @@ pub enum BuilderPreset {
 /// Convenience functions for common builder patterns
 impl EdgeServiceBuilder {
     /// Quick builder for development
+    #[cfg(any(test, feature = "testing"))]
     pub fn development() -> Self {
         Self::new().with_preset(BuilderPreset::Development)
     }
 
     /// Quick builder for production
+    #[cfg(any(test, feature = "testing"))]
     pub fn production() -> Self {
         Self::new().with_preset(BuilderPreset::Production)
     }
 
     /// Quick builder for testing
+    #[cfg(any(test, feature = "testing"))]
     pub fn testing() -> Self {
         Self::new().with_preset(BuilderPreset::Testing)
     }

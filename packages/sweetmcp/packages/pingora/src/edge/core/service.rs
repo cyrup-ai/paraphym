@@ -51,6 +51,12 @@ impl AtomicMetrics {
     }
 }
 
+impl Default for AtomicMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Health check configuration matching Pingora patterns
 #[derive(Clone, Debug)]
 pub struct HealthCheckConfig {

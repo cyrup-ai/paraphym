@@ -102,7 +102,7 @@ impl LoadedStellaModel {
 
         // Load tokenizer and configure padding/truncation
         let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
-            .context("Failed to load tokenizer")?;
+            .map_err(|e| anyhow!("Failed to load tokenizer: {}", e))?;
         configure_stella_tokenizer(&mut tokenizer, variant, max_length)?;
 
         // Create config and load weights using shared utils
@@ -165,7 +165,7 @@ impl TextEmbeddingCapable for LoadedStellaModel {
                 // Tokenize
                 let tokens = tokenizer
                     .encode(formatted_text, true)
-                    .context("Tokenization failed")?;
+                    .map_err(|e| anyhow!("Tokenization failed: {}", e))?;
 
                 let input_ids = Tensor::new(tokens.get_ids(), &device)
                     .context("Failed to create input tensor")?;
@@ -238,7 +238,7 @@ impl TextEmbeddingCapable for LoadedStellaModel {
                 // Tokenize batch
                 let encodings = tokenizer
                     .encode_batch(formatted_texts, true)
-                    .context("Batch tokenization failed")?;
+                    .map_err(|e| anyhow!("Batch tokenization failed: {}", e))?;
 
                 // Create batch tensors
                 let ids_vecs: Vec<Vec<u32>> =
