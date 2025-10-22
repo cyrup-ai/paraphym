@@ -30,8 +30,8 @@ pub struct BatchEmbedRequest {
 #[derive(Clone)]
 pub struct TextEmbeddingWorkerHandle {
     pub core: WorkerHandle,
-    pub embed_tx: mpsc::UnboundedSender<EmbedRequest>,
-    pub batch_embed_tx: mpsc::UnboundedSender<BatchEmbedRequest>,
+    pub embed_tx: mpsc::Sender<EmbedRequest>,
+    pub batch_embed_tx: mpsc::Sender<BatchEmbedRequest>,
     pub shutdown_tx: mpsc::UnboundedSender<()>,
     pub registry_key: String, // Added to enable cleanup on drop
 }
@@ -65,8 +65,8 @@ pub struct TextEmbeddingWorkerChannels {
     pub embed_rx: mpsc::Receiver<EmbedRequest>,
     pub batch_embed_rx: mpsc::Receiver<BatchEmbedRequest>,
     pub shutdown_rx: mpsc::UnboundedReceiver<()>,
-    pub health_rx: mpsc::Receiver<HealthPing>,
-    pub health_tx: mpsc::Sender<HealthPong>,
+    pub health_rx: mpsc::UnboundedReceiver<HealthPing>,
+    pub health_tx: mpsc::UnboundedSender<HealthPong>,
 }
 
 /// Context for text embedding worker
@@ -225,9 +225,9 @@ impl Pool<TextEmbeddingWorkerHandle> {
         // Shutdown stays unbounded (only 1 message ever sent)
         let (shutdown_tx, shutdown_rx) = mpsc::unbounded_channel();
 
-        // Health channels bounded to 1 (only need latest ping/pong)
-        let (health_tx_main, health_rx_worker) = mpsc::channel(1);
-        let (health_tx_worker, health_rx_main) = mpsc::channel(1);
+        // Health channels stay unbounded (WorkerHandle in core requires unbounded)
+        let (health_tx_main, health_rx_worker) = mpsc::unbounded_channel();
+        let (health_tx_worker, health_rx_main) = mpsc::unbounded_channel();
 
         // Get worker ID before moving into task
         let worker_id = self.next_worker_id();
