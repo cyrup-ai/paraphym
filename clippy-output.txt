@@ -2,3 +2,95 @@
     Blocking waiting for file lock on build directory
    Compiling sweetmcp-pingora v0.3.1 (/Volumes/samsung_t9/cyrup/packages/sweetmcp/packages/pingora)
     Checking sweetmcp-daemon v0.2.0 (/Volumes/samsung_t9/cyrup/packages/sweetmcp/packages/daemon)
+error[E0599]: no method named `build_for_testing` found for struct `sweetmcp::edge::EdgeServiceBuilder` in the current scope
+  --> packages/sweetmcp/packages/pingora/tests/builder_api.rs:34:10
+   |
+32 |       let svc1 = EdgeServiceBuilder::new()
+   |  ________________-
+33 | |         .with_custom_rate_limiter(rl1)
+34 | |         .build_for_testing()?;
+   | |         -^^^^^^^^^^^^^^^^^ method not found in `sweetmcp::edge::EdgeServiceBuilder`
+   | |_________|
+   |
+
+error[E0599]: no method named `build_for_testing` found for struct `sweetmcp::edge::EdgeServiceBuilder` in the current scope
+  --> packages/sweetmcp/packages/pingora/tests/builder_api.rs:40:10
+   |
+38 |       let svc2 = EdgeServiceBuilder::new()
+   |  ________________-
+39 | |         .with_custom_rate_limiter(rl2)
+40 | |         .build_for_testing()?;
+   | |         -^^^^^^^^^^^^^^^^^ method not found in `sweetmcp::edge::EdgeServiceBuilder`
+   | |_________|
+   |
+
+error[E0599]: no function or associated item named `build_multiple` found for struct `sweetmcp::edge::EdgeServiceBuilder` in the current scope
+   --> packages/sweetmcp/packages/pingora/tests/builder_api.rs:74:40
+    |
+ 74 |     let services = EdgeServiceBuilder::build_multiple(base, vec![cfg1, cfg2])?;
+    |                                        ^^^^^^^^^^^^^^ function or associated item not found in `sweetmcp::edge::EdgeServiceBuilder`
+    |
+note: if you're trying to build a new `sweetmcp::edge::EdgeServiceBuilder` consider using one of the following associated functions:
+      sweetmcp::edge::EdgeServiceBuilder::new
+      sweetmcp::edge::EdgeServiceBuilder::from_service
+   --> /Volumes/samsung_t9/cyrup/packages/sweetmcp/packages/pingora/src/edge/core/builder.rs:42:5
+    |
+ 42 |     pub fn new() -> Self {
+    |     ^^^^^^^^^^^^^^^^^^^^
+...
+364 |     pub fn from_service(service: &EdgeService) -> Self {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+For more information about this error, try `rustc --explain E0599`.
+error: could not compile `sweetmcp-pingora` (test "builder_api") due to 3 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: fields `has_custom_rate_limiter` and `has_custom_shutdown_coordinator` are never read
+   --> packages/sweetmcp/packages/pingora/src/edge/core/builder.rs:417:9
+    |
+413 | pub struct BuilderStatus {
+    |            ------------- fields in this struct
+...
+417 |     pub has_custom_rate_limiter: bool,
+    |         ^^^^^^^^^^^^^^^^^^^^^^^
+418 |     pub has_custom_shutdown_coordinator: bool,
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `BuilderStatus` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+    = note: `-D dead-code` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(dead_code)]`
+
+error: associated items `reset`, `clone_builder`, and `from_service` are never used
+   --> packages/sweetmcp/packages/pingora/src/edge/core/builder.rs:324:12
+    |
+ 40 | impl EdgeServiceBuilder {
+    | ----------------------- associated items in this implementation
+...
+324 |     pub fn reset(mut self) -> Self {
+    |            ^^^^^
+...
+335 |     pub fn clone_builder(&self) -> Self {
+    |            ^^^^^^^^^^^^^
+...
+364 |     pub fn from_service(service: &EdgeService) -> Self {
+    |            ^^^^^^^^^^^^
+    |
+    = note: `-D dead-code` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(dead_code)]`
+
+error: fields `has_custom_rate_limiter`, `has_custom_shutdown_coordinator`, and `is_ready` are never read
+   --> packages/sweetmcp/packages/pingora/src/edge/core/builder.rs:417:9
+    |
+413 | pub struct BuilderStatus {
+    |            ------------- fields in this struct
+...
+417 |     pub has_custom_rate_limiter: bool,
+    |         ^^^^^^^^^^^^^^^^^^^^^^^
+418 |     pub has_custom_shutdown_coordinator: bool,
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+419 |     pub is_ready: bool,
+    |         ^^^^^^^^
+    |
+    = note: `BuilderStatus` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+error: could not compile `sweetmcp-pingora` (bin "sweetmcp_server" test) due to 1 previous error
+error: could not compile `sweetmcp-pingora` (bin "sweetmcp_server") due to 2 previous errors
