@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::domain::chat::formatting::error::{FormatError, FormatResult};
+use regex::Regex;
 
 bitflags::bitflags! {
     /// Formatting feature flags for zero-allocation feature checks
@@ -393,7 +394,10 @@ impl ImmutableCustomFormatRule {
                 detail: "Rule pattern cannot be empty".to_string(),
             });
         }
-        // TODO: Validate regex pattern syntax
+        // Validate regex pattern syntax
+        Regex::new(&self.pattern).map_err(|e| FormatError::ConfigurationError {
+            detail: format!("Invalid regex pattern '{}': {}", self.pattern, e),
+        })?;
         Ok(())
     }
 }

@@ -131,100 +131,92 @@ impl CompiledTemplate {
         match operator {
             "+" => {
                 // Try numeric addition first, fall back to string concatenation
-                if let (Ok(l), Ok(r)) = (left.parse::<f64>(), right.parse::<f64>()) {
-                    Ok((l + r).to_string())
-                } else {
-                    Ok(format!("{left}{right}"))
-                }
+                Self::op_add(&left, &right)
             }
-            "-" => {
-                let l = left
-                    .parse::<f64>()
-                    .map_err(|_| TemplateError::RenderError {
-                        message: format!("Cannot parse '{left}' as number for subtraction"),
-                    })?;
-                let r = right
-                    .parse::<f64>()
-                    .map_err(|_| TemplateError::RenderError {
-                        message: format!("Cannot parse '{right}' as number for subtraction"),
-                    })?;
-                Ok((l - r).to_string())
-            }
-            "*" => {
-                let l = left
-                    .parse::<f64>()
-                    .map_err(|_| TemplateError::RenderError {
-                        message: format!("Cannot parse '{left}' as number for multiplication"),
-                    })?;
-                let r = right
-                    .parse::<f64>()
-                    .map_err(|_| TemplateError::RenderError {
-                        message: format!("Cannot parse '{right}' as number for multiplication"),
-                    })?;
-                Ok((l * r).to_string())
-            }
-            "/" => {
-                let l = left
-                    .parse::<f64>()
-                    .map_err(|_| TemplateError::RenderError {
-                        message: format!("Cannot parse '{left}' as number for division"),
-                    })?;
-                let r = right
-                    .parse::<f64>()
-                    .map_err(|_| TemplateError::RenderError {
-                        message: format!("Cannot parse '{right}' as number for division"),
-                    })?;
-                if r == 0.0 {
-                    return Err(TemplateError::RenderError {
-                        message: "Division by zero".to_string(),
-                    });
-                }
-                Ok((l / r).to_string())
-            }
+            "-" => Self::op_numeric(&left, &right, "subtraction", |l, r| l - r),
+            "*" => Self::op_numeric(&left, &right, "multiplication", |l, r| l * r),
+            "/" => Self::op_divide(&left, &right),
             "==" => Ok((left == right).to_string()),
             "!=" => Ok((left != right).to_string()),
-            "<" => {
-                if let (Ok(l), Ok(r)) = (left.parse::<f64>(), right.parse::<f64>()) {
-                    Ok((l < r).to_string())
-                } else {
-                    Ok((left < right).to_string())
-                }
-            }
-            ">" => {
-                if let (Ok(l), Ok(r)) = (left.parse::<f64>(), right.parse::<f64>()) {
-                    Ok((l > r).to_string())
-                } else {
-                    Ok((left > right).to_string())
-                }
-            }
-            "<=" => {
-                if let (Ok(l), Ok(r)) = (left.parse::<f64>(), right.parse::<f64>()) {
-                    Ok((l <= r).to_string())
-                } else {
-                    Ok((left <= right).to_string())
-                }
-            }
-            ">=" => {
-                if let (Ok(l), Ok(r)) = (left.parse::<f64>(), right.parse::<f64>()) {
-                    Ok((l >= r).to_string())
-                } else {
-                    Ok((left >= right).to_string())
-                }
-            }
-            "&&" | "and" => {
-                let l_bool = !left.is_empty() && left != "false" && left != "0";
-                let r_bool = !right.is_empty() && right != "false" && right != "0";
-                Ok((l_bool && r_bool).to_string())
-            }
-            "||" | "or" => {
-                let l_bool = !left.is_empty() && left != "false" && left != "0";
-                let r_bool = !right.is_empty() && right != "false" && right != "0";
-                Ok((l_bool || r_bool).to_string())
-            }
+            "<" => Self::op_compare(&left, &right, "<"),
+            ">" => Self::op_compare(&left, &right, ">"),
+            "<=" => Self::op_compare(&left, &right, "<="),
+            ">=" => Self::op_compare(&left, &right, ">="),
+            "&&" | "and" => Ok((Self::truthy(&left) && Self::truthy(&right)).to_string()),
+            "||" | "or" => Ok((Self::truthy(&left) || Self::truthy(&right)).to_string()),
             _ => Err(TemplateError::RenderError {
                 message: format!("Unknown operator: {operator}"),
             }),
         }
+    }
+
+    fn parse_number_for(op: &str, value: &str) -> Result<f64, TemplateError> {
+        value.parse::<f64>().map_err(|_| TemplateError::RenderError {
+            message: format!("Cannot parse '{value}' as number for {op}"),
+        })
+    }
+
+    fn op_add(left: &str, right: &str) -> TemplateResult<String> {
+        if let (Ok(l), Ok(r)) = (left.parse::<f64>(), right.parse::<f64>()) {
+            Ok((l + r).to_string())
+        } else {
+            Ok(format!("{left}{right}"))
+        }
+    }
+
+    fn op_numeric(
+        left: &str,
+        right: &str,
+        op_name: &str,
+        f: impl Fn(f64, f64) -> f64,
+    ) -> TemplateResult<String> {
+        let l = Self::parse_number_for(op_name, left)?;
+        let r = Self::parse_number_for(op_name, right)?;
+        Ok(f(l, r).to_string())
+    }
+
+    fn op_divide(left: &str, right: &str) -> TemplateResult<String> {
+        let l = Self::parse_number_for("division", left)?;
+        let r = Self::parse_number_for("division", right)?;
+        if r == 0.0 {
+            return Err(TemplateError::RenderError {
+                message: "Division by zero".to_string(),
+            });
+        }
+        Ok((l / r).to_string())
+    }
+
+    fn try_parse_both(left: &str, right: &str) -> Option<(f64, f64)> {
+        match (left.parse::<f64>(), right.parse::<f64>()) {
+            (Ok(l), Ok(r)) => Some((l, r)),
+            _ => None,
+        }
+    }
+
+    fn op_compare(left: &str, right: &str, op: &str) -> TemplateResult<String> {
+        if let Some((l, r)) = Self::try_parse_both(left, right) {
+            let res = match op {
+                "<" => l < r,
+                ">" => l > r,
+                "<=" => l <= r,
+                ">=" => l >= r,
+                _ => unreachable!(),
+            };
+            return Ok(res.to_string());
+        }
+
+        let res = match op {
+            "<" => left < right,
+            ">" => left > right,
+            "<=" => left <= right,
+            ">=" => left >= right,
+            _ => unreachable!(),
+        };
+        Ok(res.to_string())
+    }
+
+    fn truthy(s: &str) -> bool {
+        !s.is_empty() && s != "false" && s != "0"
     }
 
     fn render_loop(
@@ -301,4 +293,79 @@ impl CompiledTemplate {
             TemplateValue::Null => Ok(String::new()),
         }
     }
+}
+
+/// Parse both operands as f64 for arithmetic operations
+fn parse_numeric_operands(
+    left: &str,
+    right: &str,
+    operation: &str,
+) -> TemplateResult<(f64, f64)> {
+    let l = left.parse::<f64>().map_err(|_| TemplateError::RenderError {
+        message: format!("Cannot parse '{left}' as number for {operation}"),
+    })?;
+    let r = right
+        .parse::<f64>()
+        .map_err(|_| TemplateError::RenderError {
+            message: format!("Cannot parse '{right}' as number for {operation}"),
+        })?;
+    Ok((l, r))
+}
+
+/// Evaluate arithmetic operations (-, *, /)
+fn eval_arithmetic_op(operator: &str, left: &str, right: &str) -> TemplateResult<String> {
+    let (l, r) = parse_numeric_operands(left, right, operator)?;
+
+    match operator {
+        "-" => Ok((l - r).to_string()),
+        "*" => Ok((l * r).to_string()),
+        "/" => {
+            if r == 0.0 {
+                return Err(TemplateError::RenderError {
+                    message: "Division by zero".to_string(),
+                });
+            }
+            Ok((l / r).to_string())
+        }
+        _ => Err(TemplateError::RenderError {
+            message: format!("Unknown arithmetic operator: {operator}"),
+        }),
+    }
+}
+
+/// Evaluate comparison operations (<, >, <=, >=)
+fn eval_comparison_op(operator: &str, left: &str, right: &str) -> TemplateResult<String> {
+    // Try numeric comparison first, fall back to string comparison
+    if let (Ok(l), Ok(r)) = (left.parse::<f64>(), right.parse::<f64>()) {
+        let result = match operator {
+            "<" => l < r,
+            ">" => l > r,
+            "<=" => l <= r,
+            ">=" => l >= r,
+            _ => {
+                return Err(TemplateError::RenderError {
+                    message: format!("Unknown comparison operator: {operator}"),
+                })
+            }
+        };
+        Ok(result.to_string())
+    } else {
+        let result = match operator {
+            "<" => left < right,
+            ">" => left > right,
+            "<=" => left <= right,
+            ">=" => left >= right,
+            _ => {
+                return Err(TemplateError::RenderError {
+                    message: format!("Unknown comparison operator: {operator}"),
+                })
+            }
+        };
+        Ok(result.to_string())
+    }
+}
+
+/// Convert string to boolean for logical operations
+fn string_to_bool(s: &str) -> bool {
+    !s.is_empty() && s != "false" && s != "0"
 }

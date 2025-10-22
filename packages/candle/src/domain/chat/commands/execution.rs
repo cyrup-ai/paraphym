@@ -408,132 +408,54 @@ impl CommandExecutor {
         Box::pin(crate::async_stream::spawn_stream(
             move |sender| async move {
                 tokio::spawn(async move {
-                    // Emit started event
-                    let _ = sender.send(CommandEvent::Started {
-                        command: ImmutableChatCommand::Export {
-                            format: format.clone(),
-                            output: output.clone(),
-                            include_metadata,
-                        },
+                    execute_export_workflow(
+                        sender,
                         execution_id,
-                        #[allow(clippy::cast_possible_truncation)]
-                        timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX))
-                            as u64,
-                    });
-
-                    // STEP 1: Retrieve messages from memory (25% progress)
-                    send_export_progress(
-                        &sender,
-                        execution_id,
-                        25.0,
-                        "Retrieving conversation messages...".to_string(),
-                    );
-
-                    let messages = if let Some(mem) = memory {
-                        match retrieve_conversation_messages(&mem).await {
-                            Ok(msgs) => msgs,
-                            Err(e) => {
-                                send_export_failure(
-                                    &sender,
-                                    execution_id,
-                                    format!("Failed to retrieve messages: {e}"),
-                                    4001,
-                                    &start_time,
-                                );
-                                return;
-                            }
-                        }
-                    } else {
-                        send_export_failure(
-                            &sender,
-                            execution_id,
-                            "Memory not available for export".to_string(),
-                            4000,
-                            &start_time,
-                        );
-                        return;
-                    };
-
-                    if messages.is_empty() {
-                        send_export_failure(
-                            &sender,
-                            execution_id,
-                            "No messages to export".to_string(),
-                            4001,
-                            &start_time,
-                        );
-                        return;
-                    }
-
-                    // STEP 2: Parse format and create exporter (50% progress)
-                    send_export_progress(
-                        &sender,
-                        execution_id,
-                        50.0,
-                        format!("Preparing {format} export..."),
-                    );
-
-                    let export_format = match parse_export_format(&format) {
-                        Ok(fmt) => fmt,
-                        Err(e) => {
-                            send_export_failure(&sender, execution_id, e, 4002, &start_time);
-                            return;
-                        }
-                    };
-
-                    let config =
-                        create_export_config(export_format, include_metadata, output.clone());
-
-                    // STEP 3: Export messages (75% progress)
-                    send_export_progress(
-                        &sender,
-                        execution_id,
-                        75.0,
-                        "Exporting messages...".to_string(),
-                    );
-
-                    let export_data = match perform_message_export(&messages, config) {
-                        Ok(data) => data,
-                        Err(e) => {
-                            send_export_failure(&sender, execution_id, e, 4003, &start_time);
-                            return;
-                        }
-                    };
-
-                    // STEP 4: Write to file (90% progress)
-                    send_export_progress(
-                        &sender,
-                        execution_id,
-                        90.0,
-                        "Writing to file...".to_string(),
-                    );
-
-                    let output_path = determine_output_path(output, &export_data.file_extension);
-
-                    if let Err(e) = tokio::fs::write(&output_path, &export_data.content).await {
-                        send_export_failure(
-                            &sender,
-                            execution_id,
-                            format!("Failed to write file: {e}"),
-                            4004,
-                            &start_time,
-                        );
-                        return;
-                    }
-
-                    // STEP 5: Complete (100%)
-                    send_export_completion(
-                        &sender,
-                        execution_id,
-                        &export_data,
-                        &output_path,
-                        &format,
-                        &start_time,
-                    );
+                        format,
+                        output,
+                        include_metadata,
+                        memory,
+                        start_time,
+                    )
+                    .await;
                 });
             },
         ))
     }
+}
+
+/// Execute the export workflow with all steps
+async fn execute_export_workflow(
+    sender: tokio::sync::mpsc::UnboundedSender<CommandEvent>,
+    execution_id: u64,
+    format: String,
+    output: Option<String>,
+    include_metadata: bool,
+    memory: Option<Arc<MemoryCoordinator>>,
+    start_time: Instant,
+) {
+    send_export_started(&sender, execution_id, &format, &output, include_metadata, &start_time);
+
+    let messages = match retrieve_and_validate_messages(&sender, execution_id, memory, &start_time).await {
+        Some(msgs) => msgs,
+        None => return,
+    };
+
+    let config = match prepare_export_config(&sender, execution_id, &format, include_metadata, output.clone(), &start_time) {
+        Some(cfg) => cfg,
+        None => return,
+    };
+
+    let export_data = match export_messages_to_data(&sender, execution_id, &messages, config, &start_time) {
+        Some(data) => data,
+        None => return,
+    };
+
+    if !write_export_file(&sender, execution_id, &export_data, output, &start_time).await {
+        return;
+    }
+
+    send_export_completion(&sender, execution_id, &export_data, &export_data.file_extension, &format, &start_time);
 }
 
 /// Retrieve conversation messages from memory coordinator using public API

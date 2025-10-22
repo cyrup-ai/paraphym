@@ -286,8 +286,15 @@ impl ChatSearchIndex {
 
     /// Update search statistics with performance tracking
     pub fn update_statistics(&self) {
-        // TODO: Implement statistics update with atomic operations
-        // This will be enhanced with atomic counters for query time averaging
+        let mut stats = self.statistics.blocking_write();
+        stats.total_messages = self.document_count.load(Ordering::Relaxed);
+        stats.total_terms = self.term_frequencies.len();
+        stats.total_queries = self.query_counter.get();
+        stats.index_size = self.inverted_index.len();
+        stats.last_index_update = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
     }
 
     /// Increment query counter for usage metrics
