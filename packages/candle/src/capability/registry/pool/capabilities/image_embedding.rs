@@ -6,7 +6,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::capability::registry::pool::core::memory_governor::AllocationGuard;
 use crate::capability::registry::pool::core::types::{
-    HealthPing, HealthPong, select_worker_power_of_two,
+    HealthPing, HealthPong, select_worker_power_of_two, PendingRequestsGuard,
 };
 use crate::capability::registry::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
 use crate::capability::traits::ImageEmbeddingCapable;
@@ -405,7 +405,8 @@ impl Pool<ImageEmbeddingWorkerHandle> {
         })?;
 
         // Send request
-        worker.core.pending_requests.fetch_add(1, Ordering::Release);
+        worker.core.pending_requests.fetch_add(1, Ordering::Relaxed);
+        let _guard = PendingRequestsGuard::new(&worker.core.pending_requests);
         worker.core.touch();
 
         let (response_tx, response_rx) = oneshot::channel();
@@ -430,8 +431,6 @@ impl Pool<ImageEmbeddingWorkerHandle> {
                 PoolError::Timeout("Request timed out".to_string())
             })?
             .map_err(|_| PoolError::RecvError("Response channel closed".to_string()))?;
-
-        worker.core.pending_requests.fetch_sub(1, Ordering::Release);
 
         // Record success or failure based on result
         match &result {
@@ -486,7 +485,8 @@ impl Pool<ImageEmbeddingWorkerHandle> {
         })?;
 
         // Send request
-        worker.core.pending_requests.fetch_add(1, Ordering::Release);
+        worker.core.pending_requests.fetch_add(1, Ordering::Relaxed);
+        let _guard = PendingRequestsGuard::new(&worker.core.pending_requests);
         worker.core.touch();
 
         let (response_tx, response_rx) = oneshot::channel();
@@ -511,8 +511,6 @@ impl Pool<ImageEmbeddingWorkerHandle> {
                 PoolError::Timeout("Request timed out".to_string())
             })?
             .map_err(|_| PoolError::RecvError("Response channel closed".to_string()))?;
-
-        worker.core.pending_requests.fetch_sub(1, Ordering::Release);
 
         // Record success or failure based on result
         match &result {
@@ -567,7 +565,8 @@ impl Pool<ImageEmbeddingWorkerHandle> {
         })?;
 
         // Send request
-        worker.core.pending_requests.fetch_add(1, Ordering::Release);
+        worker.core.pending_requests.fetch_add(1, Ordering::Relaxed);
+        let _guard = PendingRequestsGuard::new(&worker.core.pending_requests);
         worker.core.touch();
 
         let (response_tx, response_rx) = oneshot::channel();
@@ -592,8 +591,6 @@ impl Pool<ImageEmbeddingWorkerHandle> {
                 PoolError::Timeout("Request timed out".to_string())
             })?
             .map_err(|_| PoolError::RecvError("Response channel closed".to_string()))?;
-
-        worker.core.pending_requests.fetch_sub(1, Ordering::Release);
 
         // Record success or failure based on result
         match &result {
@@ -648,7 +645,8 @@ impl Pool<ImageEmbeddingWorkerHandle> {
         })?;
 
         // Send request
-        worker.core.pending_requests.fetch_add(1, Ordering::Release);
+        worker.core.pending_requests.fetch_add(1, Ordering::Relaxed);
+        let _guard = PendingRequestsGuard::new(&worker.core.pending_requests);
         worker.core.touch();
 
         let (response_tx, response_rx) = oneshot::channel();
@@ -673,8 +671,6 @@ impl Pool<ImageEmbeddingWorkerHandle> {
                 PoolError::Timeout("Request timed out".to_string())
             })?
             .map_err(|_| PoolError::RecvError("Response channel closed".to_string()))?;
-
-        worker.core.pending_requests.fetch_sub(1, Ordering::Release);
 
         // Record success or failure based on result
         match &result {

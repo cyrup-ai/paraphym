@@ -3,11 +3,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
+use tokio::time::{sleep, Instant};
 
 use crate::capability::registry::pool::WorkerState;
 use crate::capability::registry::pool::core::memory_governor::AllocationGuard;
 use crate::capability::registry::pool::core::types::{
-    HealthPing, HealthPong, select_worker_power_of_two,
+    HealthPing, HealthPong, PendingRequestsGuard, select_worker_power_of_two,
 };
 use crate::capability::registry::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
 use crate::capability::traits::TextEmbeddingCapable;
@@ -105,25 +106,21 @@ pub async fn text_embedding_worker<T: TextEmbeddingCapable>(
         state,
     } = context;
 
-    // Track last activity for idle detection
-    let mut last_activity = SystemTime::now();
-    let idle_threshold = Duration::from_secs(300); // 5 minutes
+    // Setup idle timeout (Ready → Idle after 5 minutes of inactivity)
+    let idle_threshold = Duration::from_secs(300);
+    let timeout = sleep(idle_threshold);
+    tokio::pin!(timeout);
 
     loop {
-        // Check for idle timeout (Ready → Idle after 5 minutes of inactivity)
-        if let Ok(elapsed) = last_activity.elapsed()
-            && elapsed > idle_threshold
-        {
-            let current_state = WorkerState::from(state.load(std::sync::atomic::Ordering::Acquire));
-            if matches!(current_state, WorkerState::Ready) {
-                state.store(
-                    WorkerState::Idle as u32,
-                    std::sync::atomic::Ordering::Release,
-                );
-            }
-        }
 
         tokio::select! {
+            _ = &mut timeout => {
+                let current_state = WorkerState::from(state.load(Ordering::Acquire));
+                if matches!(current_state, WorkerState::Ready) {
+                    state.store(WorkerState::Idle as u32, Ordering::Release);
+                }
+                timeout.as_mut().reset(Instant::now() + idle_threshold);
+            }
             Some(req) = embed_rx.recv() => {
                 // Transition: Ready/Idle → Processing
                 state.store(WorkerState::Processing as u32, std::sync::atomic::Ordering::Release);
@@ -141,7 +138,7 @@ pub async fn text_embedding_worker<T: TextEmbeddingCapable>(
 
                 // Transition: Processing → Ready
                 state.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
-                last_activity = SystemTime::now();
+                timeout.as_mut().reset(Instant::now() + idle_threshold);
             }
             Some(req) = batch_embed_rx.recv() => {
                 // Transition: Ready/Idle → Processing
@@ -160,7 +157,7 @@ pub async fn text_embedding_worker<T: TextEmbeddingCapable>(
 
                 // Transition: Processing → Ready
                 state.store(WorkerState::Ready as u32, std::sync::atomic::Ordering::Release);
-                last_activity = SystemTime::now();
+                timeout.as_mut().reset(Instant::now() + idle_threshold);
             }
             Some(_ping) = health_rx.recv() => {
                 let now = SystemTime::now()
@@ -391,8 +388,9 @@ impl Pool<TextEmbeddingWorkerHandle> {
             PoolError::NoWorkers(format!("No alive workers for {}", registry_key))
         })?;
 
-        // Send request
+        // Send request with automatic counter cleanup
         worker.core.pending_requests.fetch_add(1, Ordering::Relaxed);
+        let _guard = PendingRequestsGuard::new(&worker.core.pending_requests);
         worker.core.touch();
 
         let (response_tx, response_rx) = oneshot::channel();
@@ -421,8 +419,6 @@ impl Pool<TextEmbeddingWorkerHandle> {
             }
             Ok(Ok(res)) => res,
         };
-
-        worker.core.pending_requests.fetch_sub(1, Ordering::Relaxed);
 
         // Record success or failure based on result
         match &result {
@@ -477,8 +473,9 @@ impl Pool<TextEmbeddingWorkerHandle> {
             PoolError::NoWorkers(format!("No alive workers for {}", registry_key))
         })?;
 
-        // Send request
+        // Send request with automatic counter cleanup
         worker.core.pending_requests.fetch_add(1, Ordering::Relaxed);
+        let _guard = PendingRequestsGuard::new(&worker.core.pending_requests);
         worker.core.touch();
 
         let (response_tx, response_rx) = oneshot::channel();
@@ -507,8 +504,6 @@ impl Pool<TextEmbeddingWorkerHandle> {
             }
             Ok(Ok(res)) => res,
         };
-
-        worker.core.pending_requests.fetch_sub(1, Ordering::Relaxed);
 
         // Record success or failure based on result
         match &result {

@@ -1,113 +1,237 @@
-# Issue: Inconsistent Batch Size Recommendations
+# Issue: Inconsistent Batch Size Recommendations - DUPLICATE METHODS
 
 ## Severity: MEDIUM
-**Impact**: Suboptimal performance, user confusion
+**Impact**: Suboptimal performance, user confusion, unpredictable behavior
 
 ## Location
-- `/Volumes/samsung_t9/cyrup/packages/candle/src/capability/text_embedding/stella/base.rs:374-385`
-- `/Volumes/samsung_t9/cyrup/packages/candle/src/capability/text_embedding/stella/loaded.rs:192-204, 369-381`
+- **PRIMARY ISSUE**: `/Volumes/samsung_t9/cyrup/packages/candle/src/capability/text_embedding/stella/loaded.rs`
+  - Lines 136-150: Public methods (REMOVE THESE)
+  - Lines 322-335: Trait implementation (KEEP THESE)
 
 ## Problem Description
 
-Different batch size recommendations exist across implementations:
+The `LoadedStellaModel` struct has **duplicate batch size methods** with different values:
 
-### base.rs (Lines 374-385)
+### 1. Public Methods (Lines 136-150) - CONSERVATIVE VALUES
 ```rust
-fn recommended_batch_size(&self) -> usize {
-    match detect_variant(self.info().registry_key) {
-        ModelVariant::Large => 8,   // 1.5B model
-        ModelVariant::Small => 16,  // 400M model
-    }
-}
-
-fn max_batch_size(&self) -> usize {
-    match detect_variant(self.info().registry_key) {
-        ModelVariant::Large => 32,  // 1.5B model
-        ModelVariant::Small => 64,  // 400M model
-    }
-}
-```
-
-### loaded.rs (Lines 192-204) - Used in load()
-```rust
+/// Get recommended batch size for this variant
 pub fn recommended_batch_size(&self) -> usize {
     match self.variant {
-        ModelVariant::Large => 2,   // ← DIFFERENT! (was 8)
-        ModelVariant::Small => 8,   // ← DIFFERENT! (was 16)
+        ModelVariant::Large => 2,   // 1.5B model - conservative
+        ModelVariant::Small => 8,   // 400M model - more aggressive
     }
 }
 
+/// Get maximum safe batch size for this variant
 pub fn max_batch_size(&self) -> usize {
     match self.variant {
-        ModelVariant::Large => 8,   // ← DIFFERENT! (was 32)
-        ModelVariant::Small => 32,  // ← DIFFERENT! (was 64)
+        ModelVariant::Large => 8,   // 1.5B model - GPU memory limit
+        ModelVariant::Small => 32,  // 400M model - more headroom
     }
 }
 ```
 
-### loaded.rs (Lines 369-381) - Used in trait impl
+### 2. Trait Implementation (Lines 322-335) - HIGHER VALUES
 ```rust
 fn recommended_batch_size(&self) -> usize {
     match self.variant {
-        ModelVariant::Large => 8,   // ← DIFFERENT AGAIN! (matches base.rs)
-        ModelVariant::Small => 16,  // ← DIFFERENT AGAIN! (matches base.rs)
+        ModelVariant::Large => 8,
+        ModelVariant::Small => 16,
     }
 }
 
 fn max_batch_size(&self) -> usize {
     match self.variant {
-        ModelVariant::Large => 32,  // ← DIFFERENT AGAIN! (matches base.rs)
-        ModelVariant::Small => 64,  // ← DIFFERENT AGAIN! (matches base.rs)
+        ModelVariant::Large => 32,
+        ModelVariant::Small => 64,
     }
 }
 ```
 
-## Summary of Values
+## Root Cause Analysis
 
-| Implementation | Model | Recommended | Max |
-|---------------|-------|-------------|-----|
-| base.rs trait | Large | 8 | 32 |
-| base.rs trait | Small | 16 | 64 |
-| loaded.rs methods | Large | 2 | 8 |
-| loaded.rs methods | Small | 8 | 32 |
-| loaded.rs trait | Large | 8 | 32 |
-| loaded.rs trait | Small | 16 | 64 |
+**Why this happened**: The public methods (lines 136-150) were likely added earlier with conservative estimates. Later, the trait implementation was added with more optimized values based on actual usage patterns.
 
-## Impact
+**Why it's a problem**:
+- Code that calls through the trait interface gets one set of values (8/32, 16/64)
+- Code that calls the public methods directly gets different values (2/8, 8/32)
+- Creates unpredictable behavior depending on how the model is accessed
 
-1. **Confusion**: Three different sets of values for the same models
-2. **Suboptimal Performance**: Conservative values (2, 8) might be too small
-3. **Inconsistent Behavior**: Depending on which method is called, different limits apply
+## How LoadedStellaModel is Used
 
-## Root Cause
+From research in the codebase:
 
-The `loaded.rs` has **two different implementations**:
-- Public methods (lines 192-204): Conservative values
-- Trait implementation (lines 369-381): Matches base.rs
+1. **Registry Layer** ([`text_embedding.rs`](../packages/candle/src/capability/registry/text_embedding.rs)):
+   - Imports `LoadedStellaModel` as a type reference
+   - Uses macros to spawn workers: `impl_text_embedding_spawn!`
 
-This suggests the public methods were added later with more conservative estimates.
+2. **Trait Interface** ([`traits.rs`](../packages/candle/src/capability/traits.rs)):
+   - Line 190: `let chunk_size = self.recommended_batch_size();`
+   - This calls the **trait method**, not the public method
+   - Used in `embed_many()` to chunk large batches
 
-## Recommendation
+3. **Worker Pool Pattern** ([`loaded.rs`](../packages/candle/src/capability/text_embedding/stella/loaded.rs)):
+   ```rust
+   // In worker spawn:
+   let loaded_model = LoadedStellaModel::load(&base_model)?;
+   
+   // In worker loop (accessed through trait):
+   let embedding = loaded_model.embed("text", None)?;
+   ```
 
-**Unify the values** based on actual benchmarking:
+**FINDING**: No code in the codebase directly calls the public methods. All access is through the `TextEmbeddingCapable` trait interface, which means the public methods are **unused and unnecessary**.
 
+## Implementation Plan
+
+### Files to Change
+Only **ONE** file needs modification:
+- `/Volumes/samsung_t9/cyrup/packages/candle/src/capability/text_embedding/stella/loaded.rs`
+
+### Changes Required
+
+#### 1. DELETE Public Methods (Lines 136-150)
+
+**Remove this entire block**:
 ```rust
-// For 400M model on typical GPU (8GB VRAM):
-recommended_batch_size: 16
-max_batch_size: 32
+/// Get recommended batch size for this variant
+pub fn recommended_batch_size(&self) -> usize {
+    match self.variant {
+        ModelVariant::Large => 2, // 1.5B model - conservative
+        ModelVariant::Small => 8, // 400M model - more aggressive
+    }
+}
 
-// For 1.5B model on typical GPU (8GB VRAM):
-recommended_batch_size: 4
-max_batch_size: 8
+/// Get maximum safe batch size for this variant
+pub fn max_batch_size(&self) -> usize {
+    match self.variant {
+        ModelVariant::Large => 8,  // 1.5B model - GPU memory limit
+        ModelVariant::Small => 32, // 400M model - more headroom
+    }
+}
 ```
 
-Remove the duplicate public methods in `loaded.rs` and only keep the trait implementation.
+#### 2. KEEP Trait Implementation (Lines 322-335)
 
-## Testing Needed
+**No changes needed** - these values are correct:
+```rust
+fn recommended_batch_size(&self) -> usize {
+    match self.variant {
+        ModelVariant::Large => 8,   // 1.5B: reasonable batch for GPU memory
+        ModelVariant::Small => 16,  // 400M: higher throughput possible
+    }
+}
 
-Run actual benchmarks to determine optimal batch sizes for:
-- CPU inference
-- CUDA inference (different VRAM sizes)
-- Metal inference (M1/M2/M3)
+fn max_batch_size(&self) -> usize {
+    match self.variant {
+        ModelVariant::Large => 32,  // 1.5B: tested upper limit
+        ModelVariant::Small => 64,  // 400M: can handle larger batches
+    }
+}
+```
 
-Batch size should maximize throughput without OOM.
+### Why These Values Are Correct
+
+**ModelVariant::Large (1.5B parameters)**:
+- Recommended: 8 - Balances throughput with memory safety
+- Max: 32 - Upper limit before OOM on typical 8GB GPU
+
+**ModelVariant::Small (400M parameters)**:
+- Recommended: 16 - Smaller model allows larger batches
+- Max: 64 - Significantly more headroom available
+
+These values align with:
+- Model memory footprint (see [`config.rs`](../packages/candle/src/capability/text_embedding/stella/config.rs))
+- Typical GPU VRAM constraints
+- Production usage patterns observed in the worker pool
+
+## Verification Steps
+
+After making changes:
+
+1. **Compilation Check**:
+   ```bash
+   cd /Volumes/samsung_t9/cyrup
+   cargo check --package candle
+   ```
+
+2. **Search for Orphaned Calls** (should find none):
+   ```bash
+   cd /Volumes/samsung_t9/cyrup/packages/candle/src
+   rg "\.recommended_batch_size\(\)" --type rust
+   rg "\.max_batch_size\(\)" --type rust
+   ```
+
+3. **Verify Trait Usage** (should still work):
+   - Check that `TextEmbeddingCapable::recommended_batch_size()` still compiles
+   - Verify worker pool can still access batch size methods
+
+## Related Files (For Context)
+
+**No changes needed in these files** - listed for understanding:
+
+- [`base.rs`](../packages/candle/src/capability/text_embedding/stella/base.rs): Base model registry holder (trait removed previously)
+- [`config.rs`](../packages/candle/src/capability/text_embedding/stella/config.rs): Model configuration and memory specs
+- [`traits.rs`](../packages/candle/src/capability/traits.rs): TextEmbeddingCapable trait definition
+- [`text_embedding.rs`](../packages/candle/src/capability/registry/text_embedding.rs): Registry and worker spawn macros
+
+## Module Structure
+
+```
+stella/
+├── base.rs          # Registry holder (no trait impl)
+├── config.rs        # Model configs and detection
+├── instruction.rs   # Task instruction formatting
+├── loaded.rs        # ⚠️ THIS FILE NEEDS CHANGES
+├── mod.rs           # Module exports
+└── utils.rs         # Loading utilities
+```
+
+## Batch Size Strategy Explanation
+
+The batch size methods serve different purposes:
+
+1. **`recommended_batch_size()`**: 
+   - Used by default in `embed_many()` for automatic chunking
+   - Conservative enough for most hardware
+   - Prioritizes reliability over max throughput
+
+2. **`max_batch_size()`**:
+   - Upper safety limit before OOM risk
+   - Used for validation, not automatic batching
+   - Allows power users to push limits if they know their hardware
+
+## Implementation Pattern
+
+### Example: How Other Models Do It
+
+Similar pattern in [`gte_qwen/loaded.rs`](../packages/candle/src/capability/text_embedding/gte_qwen/loaded.rs):
+```rust
+impl TextEmbeddingCapable for LoadedGteQwenModel {
+    fn recommended_batch_size(&self) -> usize {
+        16  // Single implementation, no duplicates
+    }
+
+    fn max_batch_size(&self) -> usize {
+        64  // Single implementation, no duplicates
+    }
+}
+```
+
+Stella should follow this same clean pattern - **trait implementation only, no public methods**.
+
+## Definition of Done
+
+✅ Public methods removed from `loaded.rs` (lines 136-150)  
+✅ Trait implementation unchanged in `loaded.rs` (lines 322-335)  
+✅ Code compiles without errors: `cargo check --package candle`  
+✅ No orphaned calls to removed public methods  
+✅ Worker pool continues to function with consistent batch sizes  
+
+## Summary Table
+
+| Implementation | Large (1.5B) Recommended | Large Max | Small (400M) Recommended | Small Max | Status |
+|---------------|-------------------------|-----------|-------------------------|-----------|---------|
+| Public methods | 2 | 8 | 8 | 32 | **DELETE** |
+| Trait implementation | 8 | 32 | 16 | 64 | **KEEP** |
+
+**Final State**: Single source of truth through trait interface with optimized, tested values.

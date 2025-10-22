@@ -517,6 +517,29 @@ impl Drop for SpawnGuard {
     }
 }
 
+/// RAII guard that automatically decrements pending_requests counter on drop
+///
+/// Prevents counter leaks when requests fail or panic. Follows the same
+/// pattern as SpawnGuard and AllocationGuard for consistent resource cleanup.
+pub(crate) struct PendingRequestsGuard {
+    counter: Arc<AtomicUsize>,
+}
+
+impl PendingRequestsGuard {
+    pub(crate) fn new(counter: &Arc<AtomicUsize>) -> Self {
+        Self {
+            counter: counter.clone(),
+        }
+    }
+}
+
+impl Drop for PendingRequestsGuard {
+    fn drop(&mut self) {
+        self.counter.fetch_sub(1, Ordering::Release);
+        debug!("Decremented pending_requests via guard");
+    }
+}
+
 /// Trait for capability-specific worker handles
 ///
 /// All worker handles (TextEmbeddingWorkerHandle, TextToTextWorkerHandle, etc.)

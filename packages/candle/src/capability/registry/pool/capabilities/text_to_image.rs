@@ -9,7 +9,7 @@ use tokio_stream::Stream;
 
 use crate::capability::registry::pool::core::memory_governor::AllocationGuard;
 use crate::capability::registry::pool::core::types::{
-    HealthPing, HealthPong, select_worker_power_of_two,
+    HealthPing, HealthPong, select_worker_power_of_two, PendingRequestsGuard,
 };
 use crate::capability::registry::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
 use crate::capability::traits::TextToImageCapable;
@@ -337,7 +337,8 @@ impl Pool<TextToImageWorkerHandle> {
             };
 
             // Track request
-            worker.core.pending_requests.fetch_add(1, Ordering::Release);
+            worker.core.pending_requests.fetch_add(1, Ordering::Relaxed);
+            let _guard = PendingRequestsGuard::new(&worker.core.pending_requests);
             worker.core.touch();
 
             // Send request to worker
@@ -352,7 +353,6 @@ impl Pool<TextToImageWorkerHandle> {
                     "Failed to send request: {}",
                     e
                 )));
-                worker.core.pending_requests.fetch_sub(1, Ordering::Release);
                 return;
             }
 
@@ -370,7 +370,6 @@ impl Pool<TextToImageWorkerHandle> {
                     pool.metrics().total_errors.fetch_add(1, Ordering::Relaxed);
 
                     let _ = tx.send(ImageGenerationChunk::Error(format!("Worker error: {}", e)));
-                    worker.core.pending_requests.fetch_sub(1, Ordering::Release);
                     return;
                 }
                 Ok(Err(_)) => {
@@ -381,7 +380,6 @@ impl Pool<TextToImageWorkerHandle> {
                     let _ = tx.send(ImageGenerationChunk::Error(
                         "Response channel closed".to_string(),
                     ));
-                    worker.core.pending_requests.fetch_sub(1, Ordering::Release);
                     return;
                 }
                 Err(_) => {
@@ -392,7 +390,6 @@ impl Pool<TextToImageWorkerHandle> {
                         .fetch_add(1, Ordering::Relaxed);
 
                     let _ = tx.send(ImageGenerationChunk::Error("Request timeout".to_string()));
-                    worker.core.pending_requests.fetch_sub(1, Ordering::Release);
                     return;
                 }
             };
@@ -404,8 +401,6 @@ impl Pool<TextToImageWorkerHandle> {
                     break;
                 }
             }
-
-            worker.core.pending_requests.fetch_sub(1, Ordering::Release);
         }))
     }
 }

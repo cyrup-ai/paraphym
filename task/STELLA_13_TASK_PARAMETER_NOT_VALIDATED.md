@@ -1,5 +1,8 @@
 # Issue: Task Parameter Not Validated
 
+## Status: ✅ FIXED
+See: `/Volumes/samsung_t9/cyrup/task/STELLA_13_TASK_PARAMETER_NOT_VALIDATED_FIXED.md`
+
 ## Severity: LOW
 **Impact**: Silent fallback to default, user confusion
 
