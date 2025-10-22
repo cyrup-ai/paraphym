@@ -11,7 +11,71 @@ const VALID_TASKS: &[&str] = &[
     "retrieval",
 ];
 
-/// Format texts with task-specific instruction prefix following canonical Stella example
+/// Get the instruction string for a given task (or default)
+///
+/// Validates the task parameter and logs a warning if invalid.
+/// Returns the appropriate instruction text for the task.
+fn get_instruction(task: Option<&str>) -> &'static str {
+    // Validate task parameter and warn if invalid
+    if let Some(t) = task
+        && !VALID_TASKS.contains(&t)
+    {
+        log::warn!(
+            "Unknown embedding task '{}'. Using default 's2p'. Valid tasks: {}",
+            t,
+            VALID_TASKS.join(", ")
+        );
+    }
+
+    match task {
+        Some("s2p") => {
+            "Given a web search query, retrieve relevant passages that answer the query."
+        }
+        Some("s2s") => "Retrieve semantically similar text.",
+        Some("search_query") => {
+            "Given a web search query, retrieve relevant passages that answer the query."
+        } // Map to s2p
+        Some("search_document") => {
+            "Given a web search query, retrieve relevant passages that answer the query."
+        } // Map to s2p
+        Some("classification") => "Retrieve semantically similar text.", // Map to s2s
+        Some("clustering") => "Retrieve semantically similar text.",     // Map to s2s
+        Some("retrieval") => {
+            "Given a web search query, retrieve relevant passages that answer the query."
+        } // Map to s2p
+        _ => "Given a web search query, retrieve relevant passages that answer the query.", // Default to s2p
+    }
+}
+
+/// Format a single text with task-specific instruction prefix
+///
+/// Optimized for single-text embeddings - avoids Vec allocation.
+/// For batch operations, use `format_with_instruction()` instead.
+///
+/// # Task Types
+/// - `"s2p"`, `"search_query"`, `"search_document"`, or `"retrieval"`: Search query → passage retrieval
+///   - Instruction: "Given a web search query, retrieve relevant passages that answer the query."
+/// - `"s2s"`, `"classification"`, or `"clustering"`: Semantic similarity
+///   - Instruction: "Retrieve semantically similar text."
+/// - `None`: Defaults to search query mode (`"s2p"`)
+///
+/// # Validation
+/// Invalid tasks trigger a warning and fall back to default `"s2p"` instruction.
+///
+/// # Examples
+/// ```ignore
+/// let formatted = format_single_with_instruction("What is Rust?", Some("search_query"));
+/// // Returns: "Instruct: Given a web search query...\nQuery: What is Rust?"
+/// ```
+#[inline]
+pub(crate) fn format_single_with_instruction(text: &str, task: Option<&str>) -> String {
+    let instruct = get_instruction(task);
+    format!("Instruct: {}\nQuery: {}", instruct, text)
+}
+
+/// Format multiple texts with task-specific instruction prefix
+///
+/// For single-text embeddings, prefer `format_single_with_instruction()` to avoid Vec allocation.
 ///
 /// # Task Types
 /// - `"s2p"`, `"search_query"`, `"search_document"`, or `"retrieval"`: Search query → passage retrieval
@@ -30,36 +94,7 @@ const VALID_TASKS: &[&str] = &[
 /// // Returns texts prefixed with search instruction
 /// ```
 pub(crate) fn format_with_instruction(texts: &[&str], task: Option<&str>) -> Vec<String> {
-    // Validate task parameter and warn if invalid
-    if let Some(t) = task {
-        if !VALID_TASKS.contains(&t) {
-            log::warn!(
-                "Unknown embedding task '{}'. Using default 's2p'. Valid tasks: {}",
-                t,
-                VALID_TASKS.join(", ")
-            );
-        }
-    }
-
-    let instruct = match task {
-        Some("s2p") => {
-            "Given a web search query, retrieve relevant passages that answer the query."
-        }
-        Some("s2s") => "Retrieve semantically similar text.",
-        Some("search_query") => {
-            "Given a web search query, retrieve relevant passages that answer the query."
-        } // Map to s2p
-        Some("search_document") => {
-            "Given a web search query, retrieve relevant passages that answer the query."
-        } // Map to s2p
-        Some("classification") => "Retrieve semantically similar text.", // Map to s2s
-        Some("clustering") => "Retrieve semantically similar text.",     // Map to s2s
-        Some("retrieval") => {
-            "Given a web search query, retrieve relevant passages that answer the query."
-        } // Map to s2p
-        _ => "Given a web search query, retrieve relevant passages that answer the query.", // Default to s2p
-    };
-
+    let instruct = get_instruction(task);
     texts
         .iter()
         .map(|text| format!("Instruct: {}\nQuery: {}", instruct, text))
@@ -126,6 +161,7 @@ mod tests {
 
     #[test]
     fn test_case_sensitive_task() {
+        init_test_logging();
         // Uppercase should trigger warning
         let result = format_with_instruction(&["test"], Some("S2P"));
         assert_eq!(result.len(), 1);
@@ -135,6 +171,7 @@ mod tests {
 
     #[test]
     fn test_empty_string_task() {
+        init_test_logging();
         let result = format_with_instruction(&["test"], Some(""));
         assert_eq!(result.len(), 1);
         // Should trigger warning and use default

@@ -1,10 +1,9 @@
 //! Loaded Stella model wrapper with thread-safe interior mutability
 
-use super::config::{STELLA_400M_MODEL_INFO, STELLA_1_5B_MODEL_INFO, detect_variant, embed_dim};
-use super::instruction::format_with_instruction;
+use super::config::{STELLA_1_5B_MODEL_INFO, STELLA_400M_MODEL_INFO, detect_variant, embed_dim};
+use super::instruction::{format_single_with_instruction, format_with_instruction};
 use super::utils::{
-    configure_stella_tokenizer, create_stella_config,
-    detect_device_and_dtype, load_stella_weights,
+    configure_stella_tokenizer, create_stella_config, detect_device_and_dtype, load_stella_weights,
 };
 use crate::capability::traits::TextEmbeddingCapable;
 use crate::domain::model::CandleModelInfo;
@@ -132,22 +131,6 @@ impl LoadedStellaModel {
     pub fn supported_dimensions(&self) -> Vec<usize> {
         vec![256, 768, 1024, 2048, 4096, 6144, 8192]
     }
-
-    /// Get recommended batch size for this variant
-    pub fn recommended_batch_size(&self) -> usize {
-        match self.variant {
-            ModelVariant::Large => 2, // 1.5B model - conservative
-            ModelVariant::Small => 8, // 400M model - more aggressive
-        }
-    }
-
-    /// Get maximum safe batch size for this variant
-    pub fn max_batch_size(&self) -> usize {
-        match self.variant {
-            ModelVariant::Large => 8,  // 1.5B model - GPU memory limit
-            ModelVariant::Small => 32, // 400M model - more headroom
-        }
-    }
 }
 
 impl TextEmbeddingCapable for LoadedStellaModel {
@@ -176,7 +159,7 @@ impl TextEmbeddingCapable for LoadedStellaModel {
             // Wrap CPU-intensive operations in spawn_blocking to avoid blocking async runtime
             let embedding_vec = tokio::task::spawn_blocking(move || {
                 // Format with instruction prefix
-                let formatted_text = format_with_instruction(&[&text], task.as_deref())[0].clone();
+                let formatted_text = format_single_with_instruction(&text, task.as_deref());
 
                 // Tokenize
                 let tokens = tokenizer
@@ -191,13 +174,11 @@ impl TextEmbeddingCapable for LoadedStellaModel {
                     .map_err(|e| format!("Failed to convert mask dtype: {}", e))?;
 
                 // Forward pass - lock synchronous mutex in blocking context
-                let mut model_guard = model
-                    .lock()
-                    .unwrap_or_else(|poisoned| {
-                        log::error!("Model mutex was poisoned, attempting recovery");
-                        log::error!("Poison error: {:?}", poisoned);
-                        poisoned.into_inner()
-                    });
+                let mut model_guard = model.lock().unwrap_or_else(|poisoned| {
+                    log::error!("Model mutex was poisoned, attempting recovery");
+                    log::error!("Poison error: {:?}", poisoned);
+                    poisoned.into_inner()
+                });
                 let embeddings = model_guard
                     .forward_norm(
                         &input_ids
@@ -284,13 +265,11 @@ impl TextEmbeddingCapable for LoadedStellaModel {
                     .map_err(|e| format!("Failed to convert mask dtype: {}", e))?;
 
                 // Forward pass - lock synchronous mutex in blocking context
-                let mut model_guard = model
-                    .lock()
-                    .unwrap_or_else(|poisoned| {
-                        log::error!("Model mutex was poisoned, attempting recovery");
-                        log::error!("Poison error: {:?}", poisoned);
-                        poisoned.into_inner()
-                    });
+                let mut model_guard = model.lock().unwrap_or_else(|poisoned| {
+                    log::error!("Model mutex was poisoned, attempting recovery");
+                    log::error!("Poison error: {:?}", poisoned);
+                    poisoned.into_inner()
+                });
                 let embeddings = model_guard
                     .forward_norm(&input_ids, &attention_mask)
                     .map_err(|e| format!("Stella batch forward pass failed: {}", e))?;

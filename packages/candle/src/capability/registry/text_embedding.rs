@@ -116,7 +116,8 @@ macro_rules! impl_text_embedding_spawn {
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
             log::info!(">>> Workers ready, calling embed_text for {}", registry_key);
-            let result = pool.embed_text(registry_key, text, task)
+            let result = pool
+                .embed_text(registry_key, text, task)
                 .await
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>);
             log::info!(">>> embed_text returned for {}", registry_key);

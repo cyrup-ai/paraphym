@@ -8,7 +8,7 @@ use tokio_stream::Stream;
 
 use crate::capability::registry::pool::core::memory_governor::AllocationGuard;
 use crate::capability::registry::pool::core::types::{
-    HealthPing, HealthPong, select_worker_power_of_two, PendingRequestsGuard,
+    HealthPing, HealthPong, PendingRequestsGuard, select_worker_power_of_two,
 };
 use crate::capability::registry::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
 use crate::capability::traits::VisionCapable;

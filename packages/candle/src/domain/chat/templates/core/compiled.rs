@@ -148,9 +148,11 @@ impl CompiledTemplate {
     }
 
     fn parse_number_for(op: &str, value: &str) -> Result<f64, TemplateError> {
-        value.parse::<f64>().map_err(|_| TemplateError::RenderError {
-            message: format!("Cannot parse '{value}' as number for {op}"),
-        })
+        value
+            .parse::<f64>()
+            .map_err(|_| TemplateError::RenderError {
+                message: format!("Cannot parse '{value}' as number for {op}"),
+            })
     }
 
     fn op_add(left: &str, right: &str) -> String {

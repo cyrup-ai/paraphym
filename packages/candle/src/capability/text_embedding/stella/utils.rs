@@ -1,6 +1,6 @@
 //! Shared utilities for Stella embedding model
 
-use candle_core::{Device, DType};
+use candle_core::{DType, Device};
 use candle_nn::VarBuilder;
 use candle_transformers::models::stella_en_v5::{Config, EmbedDim, ModelVariant};
 use std::path::PathBuf;
@@ -14,7 +14,11 @@ pub(crate) fn detect_device_and_dtype() -> (Device, DType) {
         log::warn!("Device detection failed: {}. Using CPU.", e);
         Device::Cpu
     });
-    let dtype = if device.is_cuda() { DType::F16 } else { DType::F32 };
+    let dtype = if device.is_cuda() {
+        DType::F16
+    } else {
+        DType::F32
+    };
     (device, dtype)
 }
 

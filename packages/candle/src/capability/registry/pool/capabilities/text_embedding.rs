@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
-use tokio::time::{sleep, Instant};
+use tokio::time::{Instant, sleep};
 
 use crate::capability::registry::pool::WorkerState;
 use crate::capability::registry::pool::core::memory_governor::AllocationGuard;
@@ -112,7 +112,6 @@ pub async fn text_embedding_worker<T: TextEmbeddingCapable>(
     tokio::pin!(timeout);
 
     loop {
-
         tokio::select! {
             _ = &mut timeout => {
                 let current_state = WorkerState::from(state.load(Ordering::Acquire));
@@ -284,9 +283,9 @@ impl Pool<TextEmbeddingWorkerHandle> {
             };
 
             // Model loaded successfully - NOW create and register worker
-            use std::time::{SystemTime, UNIX_EPOCH};
             use std::sync::atomic::{AtomicU64, AtomicUsize};
-            
+            use std::time::{SystemTime, UNIX_EPOCH};
+
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_secs())
@@ -409,7 +408,9 @@ impl Pool<TextEmbeddingWorkerHandle> {
         let result = match tokio::time::timeout(timeout, response_rx).await {
             Err(_) => {
                 circuit.record_failure();
-                self.metrics().total_timeouts.fetch_add(1, Ordering::Relaxed);
+                self.metrics()
+                    .total_timeouts
+                    .fetch_add(1, Ordering::Relaxed);
                 Err(PoolError::Timeout("Request timed out".to_string()))
             }
             Ok(Err(_)) => {
@@ -494,7 +495,9 @@ impl Pool<TextEmbeddingWorkerHandle> {
         let result = match tokio::time::timeout(timeout, response_rx).await {
             Err(_) => {
                 circuit.record_failure();
-                self.metrics().total_timeouts.fetch_add(1, Ordering::Relaxed);
+                self.metrics()
+                    .total_timeouts
+                    .fetch_add(1, Ordering::Relaxed);
                 Err(PoolError::Timeout("Request timed out".to_string()))
             }
             Ok(Err(_)) => {
