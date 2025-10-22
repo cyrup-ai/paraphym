@@ -6,8 +6,8 @@
 
 use crate::capability::traits::TextEmbeddingCapable;
 use crate::domain::memory::cognitive::types::{CognitiveState, EntanglementType};
-use crate::memory::primitives::{MemoryNode, MemoryRelationship};
 use crate::memory::core::primitives::types::MemoryTypeEnum;
+use crate::memory::primitives::{MemoryNode, MemoryRelationship};
 use crate::memory::schema::memory_schema::MemoryNodeSchema;
 use crate::memory::schema::quantum_schema::QuantumSignatureSchema;
 use crate::memory::schema::relationship_schema::Relationship;
@@ -33,7 +33,8 @@ impl MemoryManager for SurrealDBMemoryManager {
 
                 // Auto-generate embedding if model is configured and embedding is missing
                 if let Some(ref model) = embedding_model
-                    && memory.metadata.embedding.is_none() {
+                    && memory.metadata.embedding.is_none()
+                {
                     log::info!("Auto-generating embedding for memory: {}", memory.id);
                     let embedding = model
                         .embed(&memory.content.text, Some("document".to_string()))
@@ -104,7 +105,10 @@ impl MemoryManager for SurrealDBMemoryManager {
                     .take(0)
                     .map_err(|e| Error::Database(format!("{:?}", e)))?;
 
-                Ok(results.into_iter().next().map(SurrealDBMemoryManager::from_schema))
+                Ok(results
+                    .into_iter()
+                    .next()
+                    .map(SurrealDBMemoryManager::from_schema))
             }
             .await;
 
@@ -295,27 +299,36 @@ impl MemoryManager for SurrealDBMemoryManager {
         tokio::spawn(async move {
             let query = "SELECT * FROM memory START $offset LIMIT $limit ORDER BY created_at DESC";
 
-            match db.query(query)
+            match db
+                .query(query)
                 .bind(("offset", offset))
                 .bind(("limit", limit))
                 .await
             {
-                Ok(mut response) => {
-                    match response.take::<Vec<MemoryNodeSchema>>(0) {
-                        Ok(results) => {
-                            for schema in results {
-                                let memory = SurrealDBMemoryManager::from_schema(schema);
-                                if tx.send(Ok(memory)).await.is_err() {
-                                    break;
-                                }
+                Ok(mut response) => match response.take::<Vec<MemoryNodeSchema>>(0) {
+                    Ok(results) => {
+                        for schema in results {
+                            let memory = SurrealDBMemoryManager::from_schema(schema);
+                            if tx.send(Ok(memory)).await.is_err() {
+                                break;
                             }
                         }
-                        Err(e) => {
-                            log::error!("Failed to parse memory batch (offset={}, limit={}): {:?}", offset, limit, e);
-                            let _ = tx.send(Err(Error::Database(format!("Memory batch parse failed: {:?}", e)))).await;
-                        }
                     }
-                }
+                    Err(e) => {
+                        log::error!(
+                            "Failed to parse memory batch (offset={}, limit={}): {:?}",
+                            offset,
+                            limit,
+                            e
+                        );
+                        let _ = tx
+                            .send(Err(Error::Database(format!(
+                                "Memory batch parse failed: {:?}",
+                                e
+                            ))))
+                            .await;
+                    }
+                },
                 Err(e) => {
                     let _ = tx.send(Err(Error::Database(format!("{:?}", e)))).await;
                 }
@@ -392,13 +405,10 @@ impl MemoryManager for SurrealDBMemoryManager {
         let memory_id = memory_id.to_string();
 
         tokio::spawn(async move {
-            let query = "SELECT * FROM relationship WHERE source_id = $memory_id OR target_id = $memory_id";
+            let query =
+                "SELECT * FROM relationship WHERE source_id = $memory_id OR target_id = $memory_id";
 
-            match db
-                .query(query)
-                .bind(("memory_id", memory_id))
-                .await
-            {
+            match db.query(query).bind(("memory_id", memory_id)).await {
                 Ok(mut response) => {
                     let results: Vec<Relationship> = response.take(0).unwrap_or_default();
 
@@ -701,11 +711,7 @@ impl MemoryManager for SurrealDBMemoryManager {
                 start_id, chain
             );
 
-            match db
-                .query(&query)
-                .bind(("min_strength", min_strength))
-                .await
-            {
+            match db.query(&query).bind(("min_strength", min_strength)).await {
                 Ok(mut response) => {
                     let results: Vec<MemoryNodeSchema> = response.take(0).unwrap_or_default();
 
@@ -746,11 +752,7 @@ impl MemoryManager for SurrealDBMemoryManager {
                 ids_json, expansion_factor
             );
 
-            match db
-                .query(&query)
-                .bind(("min_strength", min_strength))
-                .await
-            {
+            match db.query(&query).bind(("min_strength", min_strength)).await {
                 Ok(mut response) => {
                     let results: Vec<MemoryNodeSchema> = response.take(0).unwrap_or_default();
 
@@ -830,11 +832,7 @@ impl MemoryManager for SurrealDBMemoryManager {
         MemoryStream::new(rx)
     }
 
-    fn trace_causal_chain_forward(
-        &self,
-        start_memory_id: &str,
-        max_depth: usize,
-    ) -> MemoryStream {
+    fn trace_causal_chain_forward(&self, start_memory_id: &str, max_depth: usize) -> MemoryStream {
         let (tx, rx) = tokio::sync::mpsc::channel(100);
         let db = self.db.clone();
         let start_id = start_memory_id.to_string();
@@ -848,10 +846,7 @@ impl MemoryManager for SurrealDBMemoryManager {
                 chain.push_str("->memory->caused");
             }
 
-            let query = format!(
-                "SELECT DISTINCT out.* FROM {}{}",
-                start_id, chain
-            );
+            let query = format!("SELECT DISTINCT out.* FROM {}{}", start_id, chain);
 
             match db.query(&query).await {
                 Ok(mut response) => {
@@ -873,11 +868,7 @@ impl MemoryManager for SurrealDBMemoryManager {
         MemoryStream::new(rx)
     }
 
-    fn trace_causal_chain_backward(
-        &self,
-        start_memory_id: &str,
-        max_depth: usize,
-    ) -> MemoryStream {
+    fn trace_causal_chain_backward(&self, start_memory_id: &str, max_depth: usize) -> MemoryStream {
         let (tx, rx) = tokio::sync::mpsc::channel(100);
         let db = self.db.clone();
         let start_id = start_memory_id.to_string();
@@ -891,10 +882,7 @@ impl MemoryManager for SurrealDBMemoryManager {
                 chain.push_str("<-memory<-caused");
             }
 
-            let query = format!(
-                "SELECT DISTINCT in.* FROM {}{}",
-                start_id, chain
-            );
+            let query = format!("SELECT DISTINCT in.* FROM {}{}", start_id, chain);
 
             match db.query(&query).await {
                 Ok(mut response) => {

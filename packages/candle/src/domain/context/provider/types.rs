@@ -3,14 +3,14 @@
 //! This module contains all marker types, error enums, event types, data structures,
 //! and traits for the zero-allocation context provider system.
 
+use cyrup_sugars::prelude::MessageChunk;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
-use std::pin::Pin;
-use tokio_stream::Stream;
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use cyrup_sugars::prelude::MessageChunk;
+use tokio_stream::Stream;
 
 /// Marker types for `CandleContext`
 /// Marker type for file-based Candle context operations. Used in typestate pattern to ensure compile-time safety for file context providers.
@@ -389,7 +389,11 @@ impl CandleMemoryIntegration {
 /// Immutable embedding model with streaming operations for Candle
 pub trait CandleImmutableEmbeddingModel: Send + Sync + 'static {
     /// Generate embeddings for text with streaming results - returns unwrapped values
-    fn embed(&self, text: &str, context: Option<String>) -> Pin<Box<dyn Stream<Item = Vec<f32>> + Send>>;
+    fn embed(
+        &self,
+        text: &str,
+        context: Option<String>,
+    ) -> Pin<Box<dyn Stream<Item = Vec<f32>> + Send>>;
 
     /// Get model information
     fn model_info(&self) -> CandleEmbeddingModelInfo;
@@ -418,13 +422,25 @@ pub trait CandleImmutableMemoryManager: Send + Sync + 'static {
     fn create_memory(&self, node: CandleMemoryNode) -> Pin<Box<dyn Stream<Item = ()> + Send>>;
 
     /// Search by vector with streaming results - returns unwrapped values
-    fn search_by_vector(&self, vector: Vec<f32>, limit: usize) -> Pin<Box<dyn Stream<Item = CandleMemoryNode> + Send>>;
+    fn search_by_vector(
+        &self,
+        vector: Vec<f32>,
+        limit: usize,
+    ) -> Pin<Box<dyn Stream<Item = CandleMemoryNode> + Send>>;
 
     /// Search by text with streaming results - returns unwrapped values
-    fn search_by_text(&self, query: &str, limit: usize) -> Pin<Box<dyn Stream<Item = CandleMemoryNode> + Send>>;
+    fn search_by_text(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Pin<Box<dyn Stream<Item = CandleMemoryNode> + Send>>;
 
     /// Update memory with streaming confirmation - returns unwrapped values
-    fn update_memory(&self, memory_id: &str, node: CandleMemoryNode) -> Pin<Box<dyn Stream<Item = ()> + Send>>;
+    fn update_memory(
+        &self,
+        memory_id: &str,
+        node: CandleMemoryNode,
+    ) -> Pin<Box<dyn Stream<Item = ()> + Send>>;
 
     /// Delete memory with streaming confirmation - returns unwrapped values
     fn delete_memory(&self, memory_id: &str) -> Pin<Box<dyn Stream<Item = ()> + Send>>;

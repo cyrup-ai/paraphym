@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use super::{AlignedEmbedding, MemoryNode};
 use super::super::types::{MemoryError, MemoryResult};
+use super::{AlignedEmbedding, MemoryNode};
 
 impl MemoryNode {
     /// Set embedding with SIMD alignment

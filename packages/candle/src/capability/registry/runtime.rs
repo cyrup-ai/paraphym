@@ -38,14 +38,14 @@ impl std::error::Error for RegistrationError {}
 /// in ANY capability registry (prevents both same-capability and cross-capability duplicates).
 ///
 /// # Example
-/// 
-/// **Note**: This function is for internal use only. External code cannot 
+///
+/// **Note**: This function is for internal use only. External code cannot
 /// construct model instances directly. Use `registry::get()` to access models.
-/// 
+///
 /// ```rust,no_run
 /// // Internal use only - external code cannot import concrete types
 /// use cyrup_candle::capability::registry;
-/// 
+///
 /// // Model registration happens internally during initialization
 /// // External code should use: registry::get::<ImageEmbeddingModel>("model-key")
 /// ```
@@ -79,14 +79,14 @@ pub async fn register_image_embedding(
 /// in ANY capability registry (prevents both same-capability and cross-capability duplicates).
 ///
 /// # Example
-/// 
-/// **Note**: This function is for internal use only. External code cannot 
+///
+/// **Note**: This function is for internal use only. External code cannot
 /// construct model instances directly. Use `registry::get()` to access models.
-/// 
+///
 /// ```rust,no_run
 /// // Internal use only - external code cannot import concrete types
 /// use cyrup_candle::capability::registry;
-/// 
+///
 /// // Model registration happens internally during initialization
 /// // External code should use: registry::get::<TextToImageModel>("model-key")
 /// ```
@@ -120,14 +120,14 @@ pub async fn register_text_to_image(
 /// in ANY capability registry (prevents both same-capability and cross-capability duplicates).
 ///
 /// # Example
-/// 
-/// **Note**: This function is for internal use only. External code cannot 
+///
+/// **Note**: This function is for internal use only. External code cannot
 /// construct model instances directly. Use `registry::get()` to access models.
-/// 
+///
 /// ```rust,no_run
 /// // Internal use only - external code cannot import concrete types  
 /// use cyrup_candle::capability::registry;
-/// 
+///
 /// // Model registration happens internally during initialization
 /// // External code should use: registry::get::<TextToTextModel>("model-key")
 /// ```

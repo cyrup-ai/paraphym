@@ -260,10 +260,11 @@ impl CondParser {
     /// Check if current token matches and consume it if so
     fn match_token(&mut self, expected: &CondToken) -> bool {
         if let Some(current) = self.current()
-            && std::mem::discriminant(current) == std::mem::discriminant(expected) {
-                self.advance();
-                return true;
-            }
+            && std::mem::discriminant(current) == std::mem::discriminant(expected)
+        {
+            self.advance();
+            return true;
+        }
         false
     }
 

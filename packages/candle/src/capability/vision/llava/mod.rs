@@ -11,13 +11,13 @@ use tokio_stream::Stream;
 use crate::domain::context::CandleStringChunk;
 use crate::domain::model::{CandleModelInfo, CandleProvider, traits::CandleModel};
 
-mod config;
-mod request;
 mod builder;
-mod worker;
+mod config;
 mod inference;
-mod tokenizer;
+mod request;
 mod sampler;
+mod tokenizer;
+mod worker;
 
 pub use builder::VisionQueryBuilder;
 pub use config::VisionConfig;
@@ -111,7 +111,12 @@ impl LLaVAModel {
     ///
     /// Called by VisionQueryBuilder with user-configured parameters.
     /// Thread spawns lazily on first call.
-    pub(crate) async fn describe_image_internal(&self, image_path: &str, query: &str, config: VisionConfig) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
+    pub(crate) async fn describe_image_internal(
+        &self,
+        image_path: &str,
+        query: &str,
+        config: VisionConfig,
+    ) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
         // Ensure thread is spawned (lazy initialization)
         let sender = match self.core.ensure_thread_spawned(self).await {
             Ok(s) => s,
@@ -144,7 +149,7 @@ impl LLaVAModel {
             })),
             None => Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
                 let _ = tx.send(CandleStringChunk::text(
-                    "Error: Failed to receive response".to_string()
+                    "Error: Failed to receive response".to_string(),
                 ));
             })),
         }
@@ -154,7 +159,12 @@ impl LLaVAModel {
     ///
     /// Called by VisionQueryBuilder with user-configured parameters.
     /// Thread spawns lazily on first call.
-    pub(crate) async fn describe_url_internal(&self, image_url: &str, query: &str, config: VisionConfig) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
+    pub(crate) async fn describe_url_internal(
+        &self,
+        image_url: &str,
+        query: &str,
+        config: VisionConfig,
+    ) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
         // Ensure thread is spawned (lazy initialization)
         let sender = match self.core.ensure_thread_spawned(self).await {
             Ok(s) => s,
@@ -187,7 +197,7 @@ impl LLaVAModel {
             })),
             None => Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
                 let _ = tx.send(CandleStringChunk::text(
-                    "Error: Failed to receive response".to_string()
+                    "Error: Failed to receive response".to_string(),
                 ));
             })),
         }
@@ -199,14 +209,20 @@ impl LLaVAModel {
     /// streaming happens after full generation. Returns buffered tokio stream.
     ///
     /// For true streaming, await the entire response then iterate the stream.
-    pub fn stream_chat(&self, image_path: &str, question: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
+    pub fn stream_chat(
+        &self,
+        image_path: &str,
+        question: &str,
+    ) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
         let model = self.clone();
         let image_path = image_path.to_string();
         let question = question.to_string();
-        
+
         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Call internal method with default config
-            let stream = model.describe_image_internal(&image_path, &question, VisionConfig::default()).await;
+            let stream = model
+                .describe_image_internal(&image_path, &question, VisionConfig::default())
+                .await;
             use tokio_stream::StreamExt;
             tokio::pin!(stream);
             while let Some(chunk) = stream.next().await {
@@ -223,12 +239,18 @@ impl CandleModel for LLaVAModel {
 }
 
 impl crate::capability::traits::VisionCapable for LLaVAModel {
-    fn describe_image(&self, image_path: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
+    fn describe_image(
+        &self,
+        image_path: &str,
+        query: &str,
+    ) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
         let model = self.clone();
         let image_path = image_path.to_string();
         let query = query.to_string();
         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-            let stream = model.describe_image_internal(&image_path, &query, VisionConfig::default()).await;
+            let stream = model
+                .describe_image_internal(&image_path, &query, VisionConfig::default())
+                .await;
             tokio::pin!(stream);
             use tokio_stream::StreamExt;
             while let Some(chunk) = stream.next().await {
@@ -237,12 +259,18 @@ impl crate::capability::traits::VisionCapable for LLaVAModel {
         }))
     }
 
-    fn describe_url(&self, url: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
+    fn describe_url(
+        &self,
+        url: &str,
+        query: &str,
+    ) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
         let model = self.clone();
         let url = url.to_string();
         let query = query.to_string();
         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
-            let stream = model.describe_url_internal(&url, &query, VisionConfig::default()).await;
+            let stream = model
+                .describe_url_internal(&url, &query, VisionConfig::default())
+                .await;
             tokio::pin!(stream);
             use tokio_stream::StreamExt;
             while let Some(chunk) = stream.next().await {
@@ -287,11 +315,19 @@ impl CandleModel for LoadedLLaVAModel {
 }
 
 impl crate::capability::traits::VisionCapable for LoadedLLaVAModel {
-    fn describe_image(&self, image_path: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
+    fn describe_image(
+        &self,
+        image_path: &str,
+        query: &str,
+    ) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
         self.model.describe_image(image_path, query)
     }
 
-    fn describe_url(&self, url: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
+    fn describe_url(
+        &self,
+        url: &str,
+        query: &str,
+    ) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
         self.model.describe_url(url, query)
     }
 }

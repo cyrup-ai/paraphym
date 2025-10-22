@@ -24,7 +24,7 @@ use crate::core::model_config::ModelArchitecture;
 use crate::domain::model::error::CandleModelError;
 
 /// Wrapper to make raw pointers Send for spawn_blocking
-/// 
+///
 /// # Safety
 /// This is safe because:
 /// 1. We have exclusive &mut access to the model
@@ -37,7 +37,7 @@ impl<T> SendPtr<T> {
     unsafe fn new(ptr: *mut T) -> Self {
         SendPtr(ptr)
     }
-    
+
     unsafe fn into_mut(self) -> &'static mut T {
         unsafe { &mut *self.0 }
     }
@@ -52,7 +52,11 @@ pub trait CandleModel: Send + Sync {
     ///
     /// Implementations should wrap CPU/GPU compute in spawn_blocking
     /// to avoid blocking the async runtime.
-    fn forward<'a>(&'a mut self, input: &'a Tensor, position: usize) -> Pin<Box<dyn Future<Output = CandleResult<Tensor>> + Send + '_>>;
+    fn forward<'a>(
+        &'a mut self,
+        input: &'a Tensor,
+        position: usize,
+    ) -> Pin<Box<dyn Future<Output = CandleResult<Tensor>> + Send + '_>>;
 
     /// Get the model's device
     fn device(&self) -> &Device;
@@ -202,16 +206,22 @@ impl CandleLlamaModel {
 }
 
 impl CandleModel for CandleLlamaModel {
-    fn forward<'a>(&'a mut self, input: &'a Tensor, position: usize) -> Pin<Box<dyn Future<Output = CandleResult<Tensor>> + Send + '_>> {
+    fn forward<'a>(
+        &'a mut self,
+        input: &'a Tensor,
+        position: usize,
+    ) -> Pin<Box<dyn Future<Output = CandleResult<Tensor>> + Send + '_>> {
         Box::pin(async move {
             let input_clone = input.clone();
             let model_ptr = unsafe { SendPtr::new(self as *mut Self) };
-            
+
             tokio::task::spawn_blocking(move || unsafe {
                 model_ptr.into_mut().forward_sync(&input_clone, position)
             })
             .await
-            .map_err(|e| CandleModelError::Internal(format!("spawn_blocking failed: {}", e).into()))?
+            .map_err(|e| {
+                CandleModelError::Internal(format!("spawn_blocking failed: {}", e).into())
+            })?
         })
     }
 
@@ -321,16 +331,22 @@ impl CandleQuantizedLlamaModel {
 }
 
 impl CandleModel for CandleQuantizedLlamaModel {
-    fn forward<'a>(&'a mut self, input: &'a Tensor, position: usize) -> Pin<Box<dyn Future<Output = CandleResult<Tensor>> + Send + '_>> {
+    fn forward<'a>(
+        &'a mut self,
+        input: &'a Tensor,
+        position: usize,
+    ) -> Pin<Box<dyn Future<Output = CandleResult<Tensor>> + Send + '_>> {
         Box::pin(async move {
             let input_clone = input.clone();
             let model_ptr = unsafe { SendPtr::new(self as *mut Self) };
-            
+
             tokio::task::spawn_blocking(move || unsafe {
                 model_ptr.into_mut().forward_sync(&input_clone, position)
             })
             .await
-            .map_err(|e| CandleModelError::Internal(format!("spawn_blocking failed: {}", e).into()))?
+            .map_err(|e| {
+                CandleModelError::Internal(format!("spawn_blocking failed: {}", e).into())
+            })?
         })
     }
 
@@ -397,43 +413,44 @@ impl CandleQuantizedMixFormerModel {
         let device_clone = device.clone();
 
         // CRITICAL: Run blocking GGUF operations on blocking thread
-        let (vocab_size, config, vb, gguf_content) = tokio::task::spawn_blocking(move || -> Result<_, candle_core::Error> {
-            let gguf_content = gguf_file::Content::read(&mut file)?;
-            
-            // Extract vocab size from GGUF metadata
-            let vocab_size = gguf_content
-                .metadata
-                .get("tokenizer.ggml.tokens")
-                .and_then(|v| match v {
-                    gguf_file::Value::Array(arr) => Some(arr.len()),
-                    _ => None,
-                })
-                .unwrap_or(32000); // Default MixFormer vocab size
+        let (vocab_size, config, vb, gguf_content) =
+            tokio::task::spawn_blocking(move || -> Result<_, candle_core::Error> {
+                let gguf_content = gguf_file::Content::read(&mut file)?;
 
-            log::info!(
-                "Loading MixFormer model from GGUF with vocab_size={}",
-                vocab_size
-            );
+                // Extract vocab size from GGUF metadata
+                let vocab_size = gguf_content
+                    .metadata
+                    .get("tokenizer.ggml.tokens")
+                    .and_then(|v| match v {
+                        gguf_file::Value::Array(arr) => Some(arr.len()),
+                        _ => None,
+                    })
+                    .unwrap_or(32000); // Default MixFormer vocab size
 
-            // Use default v2 config (Phi-3 style)
-            let config = MixFormerConfig::v2();
+                log::info!(
+                    "Loading MixFormer model from GGUF with vocab_size={}",
+                    vocab_size
+                );
 
-            // Load GGUF model using quantized VarBuilder
-            let vb = QuantizedVarBuilder::from_gguf(&model_path_buf, &device_clone)?;
-            
-            Ok((vocab_size, config, vb, gguf_content))
-        })
-        .await
-        .map_err(|e| {
-            crate::domain::model::error::CandleModelError::InvalidConfiguration(
-                format!("Failed to spawn blocking task: {}", e).into(),
-            )
-        })?
-        .map_err(|e| {
-            crate::domain::model::error::CandleModelError::InvalidConfiguration(
-                format!("Failed to load GGUF model: {}", e).into(),
-            )
-        })?;
+                // Use default v2 config (Phi-3 style)
+                let config = MixFormerConfig::v2();
+
+                // Load GGUF model using quantized VarBuilder
+                let vb = QuantizedVarBuilder::from_gguf(&model_path_buf, &device_clone)?;
+
+                Ok((vocab_size, config, vb, gguf_content))
+            })
+            .await
+            .map_err(|e| {
+                crate::domain::model::error::CandleModelError::InvalidConfiguration(
+                    format!("Failed to spawn blocking task: {}", e).into(),
+                )
+            })?
+            .map_err(|e| {
+                crate::domain::model::error::CandleModelError::InvalidConfiguration(
+                    format!("Failed to load GGUF model: {}", e).into(),
+                )
+            })?;
 
         // Log first 20 tensor names to understand the structure
         log::info!("GGUF tensor names (first 20):");
@@ -448,7 +465,10 @@ impl CandleQuantizedMixFormerModel {
             .keys()
             .any(|k| k.starts_with("transformer."));
 
-        log::info!("Detected tensor layout: uses_transformer_prefix={}", uses_transformer_prefix);
+        log::info!(
+            "Detected tensor layout: uses_transformer_prefix={}",
+            uses_transformer_prefix
+        );
 
         // Create model using appropriate constructor based on tensor layout
         let model = if uses_transformer_prefix {
@@ -482,23 +502,33 @@ impl CandleQuantizedMixFormerModel {
 
 impl CandleQuantizedMixFormerModel {
     /// Synchronous forward pass (internal implementation)
-    pub(crate) fn forward_sync(&mut self, input: &Tensor, _position: usize) -> CandleResult<Tensor> {
+    pub(crate) fn forward_sync(
+        &mut self,
+        input: &Tensor,
+        _position: usize,
+    ) -> CandleResult<Tensor> {
         // MixFormer manages KV cache internally, position parameter is ignored
         self.model_weights.forward(input).map_err(Into::into)
     }
 }
 
 impl CandleModel for CandleQuantizedMixFormerModel {
-    fn forward<'a>(&'a mut self, input: &'a Tensor, position: usize) -> Pin<Box<dyn Future<Output = CandleResult<Tensor>> + Send + '_>> {
+    fn forward<'a>(
+        &'a mut self,
+        input: &'a Tensor,
+        position: usize,
+    ) -> Pin<Box<dyn Future<Output = CandleResult<Tensor>> + Send + '_>> {
         Box::pin(async move {
             let input_clone = input.clone();
             let model_ptr = unsafe { SendPtr::new(self as *mut Self) };
-            
+
             tokio::task::spawn_blocking(move || unsafe {
                 model_ptr.into_mut().forward_sync(&input_clone, position)
             })
             .await
-            .map_err(|e| CandleModelError::Internal(format!("spawn_blocking failed: {}", e).into()))?
+            .map_err(|e| {
+                CandleModelError::Internal(format!("spawn_blocking failed: {}", e).into())
+            })?
         })
     }
 
@@ -556,67 +586,82 @@ impl CandleQuantizedPhiModel {
         use candle_core::quantized::gguf_file;
 
         // Open GGUF file
-        let file = tokio::fs::File::open(model_path.as_ref()).await.map_err(|e| {
-            CandleModelError::InvalidConfiguration(
-                format!("Failed to open GGUF file: {}", e).into(),
-            )
-        })?;
+        let file = tokio::fs::File::open(model_path.as_ref())
+            .await
+            .map_err(|e| {
+                CandleModelError::InvalidConfiguration(
+                    format!("Failed to open GGUF file: {}", e).into(),
+                )
+            })?;
         let mut file = file.into_std().await;
         let device_clone = device.clone();
 
         // CRITICAL: Run blocking GGUF operations on a blocking thread to avoid blocking async runtime
-        let (model, vocab_size, eos_token_id) = tokio::task::spawn_blocking(move || -> Result<_, candle_core::Error> {
-            // Read GGUF content
-            let gguf_content = gguf_file::Content::read(&mut file)?;
+        let (model, vocab_size, eos_token_id) =
+            tokio::task::spawn_blocking(move || -> Result<_, candle_core::Error> {
+                // Read GGUF content
+                let gguf_content = gguf_file::Content::read(&mut file)?;
 
-            // Extract vocab size from GGUF metadata
-            let vocab_size = gguf_content
-                .metadata
-                .get("tokenizer.ggml.tokens")
-                .and_then(|v| match v {
-                    gguf_file::Value::Array(arr) => Some(arr.len()),
-                    _ => None,
-                })
-                .unwrap_or(100352); // Phi-4 default vocab size
+                // Extract vocab size from GGUF metadata
+                let vocab_size = gguf_content
+                    .metadata
+                    .get("tokenizer.ggml.tokens")
+                    .and_then(|v| match v {
+                        gguf_file::Value::Array(arr) => Some(arr.len()),
+                        _ => None,
+                    })
+                    .unwrap_or(100352); // Phi-4 default vocab size
 
-            // Extract EOS token ID from GGUF metadata
-            let eos_token_id = gguf_content
-                .metadata
-                .get("tokenizer.ggml.eos_token_id")
-                .and_then(|v| match v {
-                    gguf_file::Value::U32(id) => Some(*id),
-                    gguf_file::Value::I32(id) if *id >= 0 => Some(*id as u32),
-                    _ => None,
-                });
+                // Extract EOS token ID from GGUF metadata
+                let eos_token_id = gguf_content
+                    .metadata
+                    .get("tokenizer.ggml.eos_token_id")
+                    .and_then(|v| match v {
+                        gguf_file::Value::U32(id) => Some(*id),
+                        gguf_file::Value::I32(id) if *id >= 0 => Some(*id as u32),
+                        _ => None,
+                    });
 
-            log::info!("Loading Phi model from GGUF with vocab_size={}, eos_token_id={:?}", vocab_size, eos_token_id);
-            
-            // Log available metadata keys to understand what Phi-4 uses
-            log::info!("GGUF metadata keys (first 30):");
-            for (i, key) in gguf_content.metadata.keys().take(30).enumerate() {
-                log::info!("  [{}] {}", i, key);
-            }
+                log::info!(
+                    "Loading Phi model from GGUF with vocab_size={}, eos_token_id={:?}",
+                    vocab_size,
+                    eos_token_id
+                );
 
-            // Create model using quantized_phi3 (Phi-4 uses phi3.* metadata)
-            // Phi-4 does not support flash attention according to model docs
-            let use_flash_attn = false;
-            log::info!("Loading quantized_phi3 model with flash_attn={}", use_flash_attn);
-            
-            let model = quantized_phi3::ModelWeights::from_gguf(use_flash_attn, gguf_content, &mut file, &device_clone)?;
-            
-            Ok((model, vocab_size, eos_token_id))
-        })
-        .await
-        .map_err(|e| {
-            CandleModelError::InvalidConfiguration(
-                format!("Failed to spawn blocking task: {}", e).into(),
-            )
-        })?
-        .map_err(|e| {
-            CandleModelError::InvalidConfiguration(
-                format!("Failed to load Phi-3/Phi-4 model: {}", e).into(),
-            )
-        })?;
+                // Log available metadata keys to understand what Phi-4 uses
+                log::info!("GGUF metadata keys (first 30):");
+                for (i, key) in gguf_content.metadata.keys().take(30).enumerate() {
+                    log::info!("  [{}] {}", i, key);
+                }
+
+                // Create model using quantized_phi3 (Phi-4 uses phi3.* metadata)
+                // Phi-4 does not support flash attention according to model docs
+                let use_flash_attn = false;
+                log::info!(
+                    "Loading quantized_phi3 model with flash_attn={}",
+                    use_flash_attn
+                );
+
+                let model = quantized_phi3::ModelWeights::from_gguf(
+                    use_flash_attn,
+                    gguf_content,
+                    &mut file,
+                    &device_clone,
+                )?;
+
+                Ok((model, vocab_size, eos_token_id))
+            })
+            .await
+            .map_err(|e| {
+                CandleModelError::InvalidConfiguration(
+                    format!("Failed to spawn blocking task: {}", e).into(),
+                )
+            })?
+            .map_err(|e| {
+                CandleModelError::InvalidConfiguration(
+                    format!("Failed to load Phi-3/Phi-4 model: {}", e).into(),
+                )
+            })?;
 
         log::info!("✅ Phi model loaded successfully!");
         Ok(Self::new(model, device, vocab_size, eos_token_id))
@@ -625,22 +670,34 @@ impl CandleQuantizedPhiModel {
 
 impl CandleQuantizedPhiModel {
     /// Synchronous forward pass (internal implementation)
-    pub(crate) fn forward_sync(&mut self, input: &Tensor, index_pos: usize) -> CandleResult<Tensor> {
-        self.model_weights.forward(input, index_pos).map_err(Into::into)
+    pub(crate) fn forward_sync(
+        &mut self,
+        input: &Tensor,
+        index_pos: usize,
+    ) -> CandleResult<Tensor> {
+        self.model_weights
+            .forward(input, index_pos)
+            .map_err(Into::into)
     }
 }
 
 impl CandleModel for CandleQuantizedPhiModel {
-    fn forward<'a>(&'a mut self, input: &'a Tensor, index_pos: usize) -> Pin<Box<dyn Future<Output = CandleResult<Tensor>> + Send + '_>> {
+    fn forward<'a>(
+        &'a mut self,
+        input: &'a Tensor,
+        index_pos: usize,
+    ) -> Pin<Box<dyn Future<Output = CandleResult<Tensor>> + Send + '_>> {
         Box::pin(async move {
             let input_clone = input.clone();
             let model_ptr = unsafe { SendPtr::new(self as *mut Self) };
-            
+
             tokio::task::spawn_blocking(move || unsafe {
                 model_ptr.into_mut().forward_sync(&input_clone, index_pos)
             })
             .await
-            .map_err(|e| CandleModelError::Internal(format!("spawn_blocking failed: {}", e).into()))?
+            .map_err(|e| {
+                CandleModelError::Internal(format!("spawn_blocking failed: {}", e).into())
+            })?
         })
     }
 

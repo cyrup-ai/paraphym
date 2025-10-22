@@ -24,7 +24,7 @@ impl crate::capability::traits::ImageEmbeddingCapable for LoadedClipVisionModel 
         >,
     > {
         use crate::domain::model::traits::CandleModel;
-        
+
         let image_path = image_path.to_string();
         // Clone for move into spawn_blocking
         let model = self.model.clone();
@@ -44,12 +44,10 @@ impl crate::capability::traits::ImageEmbeddingCapable for LoadedClipVisionModel 
         Box::pin(async move {
             // Handle config extraction errors before spawn_blocking
             let image_mean = image_mean.map_err(|e| {
-                Box::new(std::io::Error::other(e))
-                    as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>
             })?;
             let image_std = image_std.map_err(|e| {
-                Box::new(std::io::Error::other(e))
-                    as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>
             })?;
 
             let config = PreprocessingConfig {
@@ -64,13 +62,13 @@ impl crate::capability::traits::ImageEmbeddingCapable for LoadedClipVisionModel 
             })
             .await
             .map_err(|e| {
-                Box::new(std::io::Error::other(
-                    format!("Spawn blocking failed: {}", e),
-                )) as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(format!(
+                    "Spawn blocking failed: {}",
+                    e
+                ))) as Box<dyn std::error::Error + Send + Sync>
             })?
             .map_err(|e: String| {
-                Box::new(std::io::Error::other(e))
-                    as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>
             })?;
 
             Ok(embedding)
@@ -92,7 +90,7 @@ impl crate::capability::traits::ImageEmbeddingCapable for LoadedClipVisionModel 
         >,
     > {
         use crate::domain::model::traits::CandleModel;
-        
+
         let url = url.to_string();
         // Clone for move into spawn_blocking
         let model = self.model.clone();
@@ -112,12 +110,10 @@ impl crate::capability::traits::ImageEmbeddingCapable for LoadedClipVisionModel 
         Box::pin(async move {
             // Handle config extraction errors before spawn_blocking
             let image_mean = image_mean.map_err(|e| {
-                Box::new(std::io::Error::other(e))
-                    as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>
             })?;
             let image_std = image_std.map_err(|e| {
-                Box::new(std::io::Error::other(e))
-                    as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>
             })?;
 
             let config = PreprocessingConfig {
@@ -132,13 +128,13 @@ impl crate::capability::traits::ImageEmbeddingCapable for LoadedClipVisionModel 
             })
             .await
             .map_err(|e| {
-                Box::new(std::io::Error::other(
-                    format!("Spawn blocking failed: {}", e),
-                )) as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(format!(
+                    "Spawn blocking failed: {}",
+                    e
+                ))) as Box<dyn std::error::Error + Send + Sync>
             })?
             .map_err(|e: String| {
-                Box::new(std::io::Error::other(e))
-                    as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>
             })?;
 
             Ok(embedding)
@@ -160,7 +156,7 @@ impl crate::capability::traits::ImageEmbeddingCapable for LoadedClipVisionModel 
         >,
     > {
         use crate::domain::model::traits::CandleModel;
-        
+
         let base64_data = base64_data.to_string();
         // Clone for move into spawn_blocking
         let model = self.model.clone();
@@ -180,12 +176,10 @@ impl crate::capability::traits::ImageEmbeddingCapable for LoadedClipVisionModel 
         Box::pin(async move {
             // Handle config extraction errors before spawn_blocking
             let image_mean = image_mean.map_err(|e| {
-                Box::new(std::io::Error::other(e))
-                    as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>
             })?;
             let image_std = image_std.map_err(|e| {
-                Box::new(std::io::Error::other(e))
-                    as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>
             })?;
 
             let config = PreprocessingConfig {
@@ -200,13 +194,13 @@ impl crate::capability::traits::ImageEmbeddingCapable for LoadedClipVisionModel 
             })
             .await
             .map_err(|e| {
-                Box::new(std::io::Error::other(
-                    format!("Spawn blocking failed: {}", e),
-                )) as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(format!(
+                    "Spawn blocking failed: {}",
+                    e
+                ))) as Box<dyn std::error::Error + Send + Sync>
             })?
             .map_err(|e: String| {
-                Box::new(std::io::Error::other(e))
-                    as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>
             })?;
 
             Ok(embedding)
@@ -228,7 +222,7 @@ impl crate::capability::traits::ImageEmbeddingCapable for LoadedClipVisionModel 
         >,
     > {
         use crate::domain::model::traits::CandleModel;
-        
+
         let paths: Vec<String> = image_paths.iter().map(|s| s.to_string()).collect();
         // Clone for move into spawn_blocking
         let model = self.model.clone();
@@ -248,12 +242,10 @@ impl crate::capability::traits::ImageEmbeddingCapable for LoadedClipVisionModel 
         Box::pin(async move {
             // Handle config extraction errors before spawn_blocking
             let image_mean = image_mean.map_err(|e| {
-                Box::new(std::io::Error::other(e))
-                    as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>
             })?;
             let image_std = image_std.map_err(|e| {
-                Box::new(std::io::Error::other(e))
-                    as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>
             })?;
 
             let config = PreprocessingConfig {
@@ -268,13 +260,13 @@ impl crate::capability::traits::ImageEmbeddingCapable for LoadedClipVisionModel 
             })
             .await
             .map_err(|e| {
-                Box::new(std::io::Error::other(
-                    format!("Spawn blocking failed: {}", e),
-                )) as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(format!(
+                    "Spawn blocking failed: {}",
+                    e
+                ))) as Box<dyn std::error::Error + Send + Sync>
             })?
             .map_err(|e: String| {
-                Box::new(std::io::Error::other(e))
-                    as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>
             })?;
 
             Ok(embeddings)

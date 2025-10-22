@@ -142,9 +142,9 @@ impl CandleJinaBertEmbeddingModel {
 
         // Extract embeddings - wrap in spawn_blocking for CPU-intensive operation
         let embeddings_data = tokio::task::spawn_blocking(move || {
-            pooled_embeddings
-                .to_vec2::<f32>()
-                .map_err(|e| MemoryError::ModelError(format!("Failed to convert embeddings: {}", e)))
+            pooled_embeddings.to_vec2::<f32>().map_err(|e| {
+                MemoryError::ModelError(format!("Failed to convert embeddings: {}", e))
+            })
         })
         .await
         .map_err(|e| MemoryError::ModelError(format!("Spawn blocking failed: {}", e)))??;
@@ -220,91 +220,95 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleJinaBertEmbedding
             self.validate_input(&text)?;
             let _ = task; // Jina-BERT doesn't use task-specific instructions
 
-        // Get max_length from ModelInfo - single source of truth
-        let max_length = self
-            .info()
-            .max_input_tokens
-            .ok_or("max_input_tokens missing in ModelInfo")?
-            .get() as usize;
+            // Get max_length from ModelInfo - single source of truth
+            let max_length = self
+                .info()
+                .max_input_tokens
+                .ok_or("max_input_tokens missing in ModelInfo")?
+                .get() as usize;
 
-        // Auto-detect device
-        let device = crate::core::device_util::detect_best_device().unwrap_or_else(|e| {
-            log::warn!("Device detection failed: {}. Using CPU.", e);
-            Device::Cpu
-        });
+            // Auto-detect device
+            let device = crate::core::device_util::detect_best_device().unwrap_or_else(|e| {
+                log::warn!("Device detection failed: {}. Using CPU.", e);
+                Device::Cpu
+            });
 
-        // Auto-detect dtype based on device
-        let dtype = if device.is_cuda() {
-            DType::F16
-        } else {
-            DType::F32
-        };
+            // Auto-detect dtype based on device
+            let dtype = if device.is_cuda() {
+                DType::F16
+            } else {
+                DType::F32
+            };
 
-        // Get file paths via huggingface_file
-        let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json").await?;
-        let weights_path = self.huggingface_file(self.info().registry_key, "model.safetensors").await?;
+            // Get file paths via huggingface_file
+            let tokenizer_path = self
+                .huggingface_file(self.info().registry_key, "tokenizer.json")
+                .await?;
+            let weights_path = self
+                .huggingface_file(self.info().registry_key, "model.safetensors")
+                .await?;
 
-        // Load tokenizer
-        let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
-            .map_err(|e| format!("Failed to load tokenizer: {}", e))?;
+            // Load tokenizer
+            let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
+                .map_err(|e| format!("Failed to load tokenizer: {}", e))?;
 
-        // Configure tokenizer
-        let pad_id = tokenizer
-            .token_to_id("[PAD]")
-            .ok_or("Missing [PAD] token")?;
+            // Configure tokenizer
+            let pad_id = tokenizer
+                .token_to_id("[PAD]")
+                .ok_or("Missing [PAD] token")?;
 
-        let padding_params = PaddingParams {
-            strategy: tokenizers::PaddingStrategy::BatchLongest,
-            direction: tokenizers::PaddingDirection::Right,
-            pad_id,
-            pad_token: "[PAD]".to_string(),
-            ..Default::default()
-        };
-        tokenizer.with_padding(Some(padding_params));
+            let padding_params = PaddingParams {
+                strategy: tokenizers::PaddingStrategy::BatchLongest,
+                direction: tokenizers::PaddingDirection::Right,
+                pad_id,
+                pad_token: "[PAD]".to_string(),
+                ..Default::default()
+            };
+            tokenizer.with_padding(Some(padding_params));
 
-        let truncation_params = TruncationParams {
-            max_length,
-            ..Default::default()
-        };
-        tokenizer
-            .with_truncation(Some(truncation_params))
-            .map_err(|e| format!("Failed to set truncation: {}", e))?;
+            let truncation_params = TruncationParams {
+                max_length,
+                ..Default::default()
+            };
+            tokenizer
+                .with_truncation(Some(truncation_params))
+                .map_err(|e| format!("Failed to set truncation: {}", e))?;
 
-        // Create Jina-BERT config
-        let jina_config = Config {
-            vocab_size: 30528,
-            hidden_size: 768,
-            num_hidden_layers: 12,
-            num_attention_heads: 12,
-            intermediate_size: 3072,
-            hidden_act: candle_nn::Activation::Gelu,
-            max_position_embeddings: 8192,
-            type_vocab_size: 2,
-            initializer_range: 0.02,
-            layer_norm_eps: 1e-12,
-            pad_token_id: 0,
-            position_embedding_type: PositionEmbeddingType::Alibi,
-        };
+            // Create Jina-BERT config
+            let jina_config = Config {
+                vocab_size: 30528,
+                hidden_size: 768,
+                num_hidden_layers: 12,
+                num_attention_heads: 12,
+                intermediate_size: 3072,
+                hidden_act: candle_nn::Activation::Gelu,
+                max_position_embeddings: 8192,
+                type_vocab_size: 2,
+                initializer_range: 0.02,
+                layer_norm_eps: 1e-12,
+                pad_token_id: 0,
+                position_embedding_type: PositionEmbeddingType::Alibi,
+            };
 
-        // Load model weights
-        let vb = unsafe {
-            VarBuilder::from_mmaped_safetensors(&[weights_path], dtype, &device)
-                .map_err(|e| format!("Failed to load weights: {}", e))?
-        };
+            // Load model weights
+            let vb = unsafe {
+                VarBuilder::from_mmaped_safetensors(&[weights_path], dtype, &device)
+                    .map_err(|e| format!("Failed to load weights: {}", e))?
+            };
 
-        // Create model
-        let model = BertModel::new(vb, &jina_config)
-            .map_err(|e| format!("Failed to create model: {}", e))?;
+            // Create model
+            let model = BertModel::new(vb, &jina_config)
+                .map_err(|e| format!("Failed to create model: {}", e))?;
 
-        // Run inference with async forward_pass
-        let embeddings = Self::forward_pass(tokenizer, model, device, vec![text])
-            .await
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+            // Run inference with async forward_pass
+            let embeddings = Self::forward_pass(tokenizer, model, device, vec![text])
+                .await
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
-        embeddings
-            .into_iter()
-            .next()
-            .ok_or_else(|| "No embeddings generated".into())
+            embeddings
+                .into_iter()
+                .next()
+                .ok_or_else(|| "No embeddings generated".into())
         })
     }
 
@@ -328,86 +332,90 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleJinaBertEmbedding
             self.validate_batch(&texts)?;
             let _ = task; // Jina-BERT doesn't use task-specific instructions
 
-        // Get max_length from ModelInfo - single source of truth
-        let max_length = self
-            .info()
-            .max_input_tokens
-            .ok_or("max_input_tokens missing in ModelInfo")?
-            .get() as usize;
+            // Get max_length from ModelInfo - single source of truth
+            let max_length = self
+                .info()
+                .max_input_tokens
+                .ok_or("max_input_tokens missing in ModelInfo")?
+                .get() as usize;
 
-        // Auto-detect device
-        let device = crate::core::device_util::detect_best_device().unwrap_or_else(|e| {
-            log::warn!("Device detection failed: {}. Using CPU.", e);
-            Device::Cpu
-        });
+            // Auto-detect device
+            let device = crate::core::device_util::detect_best_device().unwrap_or_else(|e| {
+                log::warn!("Device detection failed: {}. Using CPU.", e);
+                Device::Cpu
+            });
 
-        // Auto-detect dtype based on device
-        let dtype = if device.is_cuda() {
-            DType::F16
-        } else {
-            DType::F32
-        };
+            // Auto-detect dtype based on device
+            let dtype = if device.is_cuda() {
+                DType::F16
+            } else {
+                DType::F32
+            };
 
-        // Get file paths via huggingface_file
-        let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json").await?;
-        let weights_path = self.huggingface_file(self.info().registry_key, "model.safetensors").await?;
+            // Get file paths via huggingface_file
+            let tokenizer_path = self
+                .huggingface_file(self.info().registry_key, "tokenizer.json")
+                .await?;
+            let weights_path = self
+                .huggingface_file(self.info().registry_key, "model.safetensors")
+                .await?;
 
-        // Load tokenizer
-        let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
-            .map_err(|e| format!("Failed to load tokenizer: {}", e))?;
+            // Load tokenizer
+            let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
+                .map_err(|e| format!("Failed to load tokenizer: {}", e))?;
 
-        // Configure tokenizer
-        let pad_id = tokenizer
-            .token_to_id("[PAD]")
-            .ok_or("Missing [PAD] token")?;
+            // Configure tokenizer
+            let pad_id = tokenizer
+                .token_to_id("[PAD]")
+                .ok_or("Missing [PAD] token")?;
 
-        let padding_params = PaddingParams {
-            strategy: tokenizers::PaddingStrategy::BatchLongest,
-            direction: tokenizers::PaddingDirection::Right,
-            pad_id,
-            pad_token: "[PAD]".to_string(),
-            ..Default::default()
-        };
-        tokenizer.with_padding(Some(padding_params));
+            let padding_params = PaddingParams {
+                strategy: tokenizers::PaddingStrategy::BatchLongest,
+                direction: tokenizers::PaddingDirection::Right,
+                pad_id,
+                pad_token: "[PAD]".to_string(),
+                ..Default::default()
+            };
+            tokenizer.with_padding(Some(padding_params));
 
-        let truncation_params = TruncationParams {
-            max_length,
-            ..Default::default()
-        };
-        tokenizer
-            .with_truncation(Some(truncation_params))
-            .map_err(|e| format!("Failed to set truncation: {}", e))?;
+            let truncation_params = TruncationParams {
+                max_length,
+                ..Default::default()
+            };
+            tokenizer
+                .with_truncation(Some(truncation_params))
+                .map_err(|e| format!("Failed to set truncation: {}", e))?;
 
-        // Create Jina-BERT config
-        let jina_config = Config {
-            vocab_size: 30528,
-            hidden_size: 768,
-            num_hidden_layers: 12,
-            num_attention_heads: 12,
-            intermediate_size: 3072,
-            hidden_act: candle_nn::Activation::Gelu,
-            max_position_embeddings: 8192,
-            type_vocab_size: 2,
-            initializer_range: 0.02,
-            layer_norm_eps: 1e-12,
-            pad_token_id: 0,
-            position_embedding_type: PositionEmbeddingType::Alibi,
-        };
+            // Create Jina-BERT config
+            let jina_config = Config {
+                vocab_size: 30528,
+                hidden_size: 768,
+                num_hidden_layers: 12,
+                num_attention_heads: 12,
+                intermediate_size: 3072,
+                hidden_act: candle_nn::Activation::Gelu,
+                max_position_embeddings: 8192,
+                type_vocab_size: 2,
+                initializer_range: 0.02,
+                layer_norm_eps: 1e-12,
+                pad_token_id: 0,
+                position_embedding_type: PositionEmbeddingType::Alibi,
+            };
 
-        // Load model weights
-        let vb = unsafe {
-            VarBuilder::from_mmaped_safetensors(&[weights_path], dtype, &device)
-                .map_err(|e| format!("Failed to load weights: {}", e))?
-        };
+            // Load model weights
+            let vb = unsafe {
+                VarBuilder::from_mmaped_safetensors(&[weights_path], dtype, &device)
+                    .map_err(|e| format!("Failed to load weights: {}", e))?
+            };
 
-        // Create model
-        let model = BertModel::new(vb, &jina_config)
-            .map_err(|e| format!("Failed to create model: {}", e))?;
+            // Create model
+            let model = BertModel::new(vb, &jina_config)
+                .map_err(|e| format!("Failed to create model: {}", e))?;
 
-        // Run inference with async forward_pass
-        Self::forward_pass(tokenizer, model, device, texts)
-            .await
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            // Run inference with async forward_pass
+            Self::forward_pass(tokenizer, model, device, texts)
+                .await
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
         })
     }
 
@@ -476,10 +484,12 @@ impl LoadedJinaBertModel {
         };
 
         // Get file paths via huggingface_file
-        let tokenizer_path =
-            base_model.huggingface_file(base_model.info().registry_key, "tokenizer.json").await?;
-        let weights_path =
-            base_model.huggingface_file(base_model.info().registry_key, "model.safetensors").await?;
+        let tokenizer_path = base_model
+            .huggingface_file(base_model.info().registry_key, "tokenizer.json")
+            .await?;
+        let weights_path = base_model
+            .huggingface_file(base_model.info().registry_key, "model.safetensors")
+            .await?;
 
         // Load tokenizer
         let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
@@ -636,13 +646,9 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedJinaBertModel {
         let model = self.model.clone();
         let device = self.device.clone();
         Box::pin(async move {
-            let embeddings = CandleJinaBertEmbeddingModel::forward_pass(
-                tokenizer,
-                model,
-                device,
-                vec![text],
-            )
-            .await?;
+            let embeddings =
+                CandleJinaBertEmbeddingModel::forward_pass(tokenizer, model, device, vec![text])
+                    .await?;
 
             embeddings
                 .into_iter()
@@ -671,14 +677,9 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedJinaBertModel {
         let model = self.model.clone();
         let device = self.device.clone();
         Box::pin(async move {
-            CandleJinaBertEmbeddingModel::forward_pass(
-                tokenizer,
-                model,
-                device,
-                texts,
-            )
-            .await
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            CandleJinaBertEmbeddingModel::forward_pass(tokenizer, model, device, texts)
+                .await
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
         })
     }
 

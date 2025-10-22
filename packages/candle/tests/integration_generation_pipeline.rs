@@ -6,10 +6,10 @@
 //! These tests verify that all components work together correctly
 //! according to the architecture defined in CANDLE_GENERATION_PIPELINE.md
 
+use cyrup_candle::StreamExt;
 use cyrup_candle::core::engine::{Engine, EngineConfig};
 use cyrup_candle::domain::completion::CandleCompletionChunk;
 use cyrup_candle::domain::context::chunks::CandleStringChunk;
-use cyrup_candle::StreamExt;
 
 /// Test 1: Provider Type Verification
 ///
@@ -158,7 +158,14 @@ async fn test_text_generator_with_mock_model() {
             &'a mut self,
             input: &'a Tensor,
             _position: usize,
-        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = cyrup_candle::core::generation::types::CandleResult<Tensor>> + Send + '_>> {
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = cyrup_candle::core::generation::types::CandleResult<Tensor>,
+                    > + Send
+                    + '_,
+            >,
+        > {
             // Return mock logits favoring token 0
             let dims = input.dims();
             let batch_size = dims[0];
@@ -174,12 +181,8 @@ async fn test_text_generator_with_mock_model() {
                     logits[i * vocab_size] = 10.0;
                 }
 
-                Tensor::from_slice(
-                    &logits,
-                    (batch_size, seq_len, vocab_size),
-                    &device,
-                )
-                .map_err(|e| e.into())
+                Tensor::from_slice(&logits, (batch_size, seq_len, vocab_size), &device)
+                    .map_err(|e| e.into())
             })
         }
 

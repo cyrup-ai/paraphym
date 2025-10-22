@@ -38,8 +38,7 @@ const MAX_MEMORY_TOOL_RESULTS: usize = 1000;
 const MAX_STREAMING_RESULTS: usize = 100;
 
 /// Global result aggregation statistics
-static TOOL_STATS: LazyLock<AtomicUsize> =
-    LazyLock::new(|| AtomicUsize::new(0));
+static TOOL_STATS: LazyLock<AtomicUsize> = LazyLock::new(|| AtomicUsize::new(0));
 
 /// Result queue for aggregation
 static RESULT_QUEUE: LazyLock<MemoryNodeQueue> = LazyLock::new(|| {

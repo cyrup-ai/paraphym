@@ -53,7 +53,7 @@ pub fn encode_batch_sync(
     model: &ClipModel,
 ) -> Result<Vec<Vec<f32>>, String> {
     use crate::domain::image::Image;
-    
+
     // Preprocess all images (CPU-intensive)
     let mut tensors = Vec::with_capacity(paths.len());
     for path in paths {
@@ -70,8 +70,8 @@ pub fn encode_batch_sync(
     }
 
     // Stack into batch (CPU-intensive)
-    let batched = Tensor::stack(&tensors, 0)
-        .map_err(|e| format!("Failed to batch tensors: {}", e))?;
+    let batched =
+        Tensor::stack(&tensors, 0).map_err(|e| format!("Failed to batch tensors: {}", e))?;
 
     // Model inference (CPU-intensive)
     let features = model

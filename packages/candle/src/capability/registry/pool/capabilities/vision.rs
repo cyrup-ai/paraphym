@@ -1,21 +1,22 @@
 use once_cell::sync::Lazy;
-use tokio::sync::{mpsc, oneshot};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio::sync::{mpsc, oneshot};
 use tokio_stream::Stream;
 
+use crate::capability::registry::pool::core::memory_governor::AllocationGuard;
+use crate::capability::registry::pool::core::types::{
+    HealthPing, HealthPong, select_worker_power_of_two,
+};
+use crate::capability::registry::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
 use crate::capability::traits::VisionCapable;
 use crate::domain::context::CandleStringChunk;
-use crate::capability::registry::pool::core::memory_governor::AllocationGuard;
-use crate::capability::registry::pool::core::types::{HealthPing, HealthPong, select_worker_power_of_two};
-use crate::capability::registry::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
 
 /// Type alias for vision streaming response sender
-type VisionResponse = oneshot::Sender<
-    Result<Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>>, PoolError>
->;
+type VisionResponse =
+    oneshot::Sender<Result<Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>>, PoolError>>;
 
 /// Request for describe_image() operation (streaming response)
 pub struct DescribeImageRequest {
@@ -256,7 +257,8 @@ impl Pool<VisionWorkerHandle> {
                     worker_id,
                     state: Arc::clone(&state_clone),
                 },
-            ).await;
+            )
+            .await;
 
             // Transition: Ready → Dead (when worker loop exits)
             state_clone.store(
@@ -327,7 +329,10 @@ impl Pool<VisionWorkerHandle> {
             let circuit = pool.get_circuit_breaker(&registry_key);
 
             if !circuit.can_request() {
-                let _ = tx.send(CandleStringChunk::text(format!("Circuit breaker open for {}", registry_key)));
+                let _ = tx.send(CandleStringChunk::text(format!(
+                    "Circuit breaker open for {}",
+                    registry_key
+                )));
                 // Update metrics
                 pool.metrics()
                     .circuit_rejections
@@ -339,7 +344,10 @@ impl Pool<VisionWorkerHandle> {
             let workers = match pool.workers().get(&registry_key) {
                 Some(w) => w,
                 None => {
-                    let _ = tx.send(CandleStringChunk::text(format!("No workers for {}", registry_key)));
+                    let _ = tx.send(CandleStringChunk::text(format!(
+                        "No workers for {}",
+                        registry_key
+                    )));
                     return;
                 }
             };
@@ -355,7 +363,10 @@ impl Pool<VisionWorkerHandle> {
             let worker = match select_worker_power_of_two(&alive_workers, |w| &w.core) {
                 Some(w) => w,
                 None => {
-                    let _ = tx.send(CandleStringChunk::text(format!("No alive workers for {}", registry_key)));
+                    let _ = tx.send(CandleStringChunk::text(format!(
+                        "No alive workers for {}",
+                        registry_key
+                    )));
                     return;
                 }
             };
@@ -371,7 +382,10 @@ impl Pool<VisionWorkerHandle> {
                 query,
                 response: response_tx,
             }) {
-                let _ = tx.send(CandleStringChunk::text(format!("Failed to send request: {}", e)));
+                let _ = tx.send(CandleStringChunk::text(format!(
+                    "Failed to send request: {}",
+                    e
+                )));
                 worker.core.pending_requests.fetch_sub(1, Ordering::Release);
                 return;
             }
@@ -398,7 +412,9 @@ impl Pool<VisionWorkerHandle> {
                     circuit.record_failure();
                     pool.metrics().total_errors.fetch_add(1, Ordering::Relaxed);
 
-                    let _ = tx.send(CandleStringChunk::text("Response channel closed".to_string()));
+                    let _ = tx.send(CandleStringChunk::text(
+                        "Response channel closed".to_string(),
+                    ));
                     worker.core.pending_requests.fetch_sub(1, Ordering::Release);
                     return;
                 }
@@ -453,7 +469,10 @@ impl Pool<VisionWorkerHandle> {
             let circuit = pool.get_circuit_breaker(&registry_key);
 
             if !circuit.can_request() {
-                let _ = tx.send(CandleStringChunk::text(format!("Circuit breaker open for {}", registry_key)));
+                let _ = tx.send(CandleStringChunk::text(format!(
+                    "Circuit breaker open for {}",
+                    registry_key
+                )));
                 // Update metrics
                 pool.metrics()
                     .circuit_rejections
@@ -465,7 +484,10 @@ impl Pool<VisionWorkerHandle> {
             let workers = match pool.workers().get(&registry_key) {
                 Some(w) => w,
                 None => {
-                    let _ = tx.send(CandleStringChunk::text(format!("No workers for {}", registry_key)));
+                    let _ = tx.send(CandleStringChunk::text(format!(
+                        "No workers for {}",
+                        registry_key
+                    )));
                     return;
                 }
             };
@@ -481,7 +503,10 @@ impl Pool<VisionWorkerHandle> {
             let worker = match select_worker_power_of_two(&alive_workers, |w| &w.core) {
                 Some(w) => w,
                 None => {
-                    let _ = tx.send(CandleStringChunk::text(format!("No alive workers for {}", registry_key)));
+                    let _ = tx.send(CandleStringChunk::text(format!(
+                        "No alive workers for {}",
+                        registry_key
+                    )));
                     return;
                 }
             };
@@ -497,7 +522,10 @@ impl Pool<VisionWorkerHandle> {
                 query,
                 response: response_tx,
             }) {
-                let _ = tx.send(CandleStringChunk::text(format!("Failed to send request: {}", e)));
+                let _ = tx.send(CandleStringChunk::text(format!(
+                    "Failed to send request: {}",
+                    e
+                )));
                 worker.core.pending_requests.fetch_sub(1, Ordering::Release);
                 return;
             }
@@ -524,7 +552,9 @@ impl Pool<VisionWorkerHandle> {
                     circuit.record_failure();
                     pool.metrics().total_errors.fetch_add(1, Ordering::Relaxed);
 
-                    let _ = tx.send(CandleStringChunk::text("Response channel closed".to_string()));
+                    let _ = tx.send(CandleStringChunk::text(
+                        "Response channel closed".to_string(),
+                    ));
                     worker.core.pending_requests.fetch_sub(1, Ordering::Release);
                     return;
                 }

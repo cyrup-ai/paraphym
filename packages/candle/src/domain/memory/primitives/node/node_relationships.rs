@@ -4,8 +4,10 @@ use std::time::SystemTime;
 
 use uuid::Uuid;
 
+use super::super::types::{
+    MemoryContent, MemoryError, MemoryResult, MemoryTypeEnum, RelationshipType,
+};
 use super::{MemoryNode, MemoryNodeMetadata, MemoryNodeStats, MemoryRelationshipEntry};
-use super::super::types::{MemoryContent, MemoryError, MemoryResult, MemoryTypeEnum, RelationshipType};
 
 impl MemoryNode {
     /// Add relationship with lock-free skip-list

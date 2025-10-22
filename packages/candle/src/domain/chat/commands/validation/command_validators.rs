@@ -220,7 +220,11 @@ impl ValidationConfig {
     #[inline]
     pub fn validate_debug_command(level: Option<&str>) -> Result<(), ValidationError> {
         if let Some(l) = level {
-            Self::validate_enum_parameter("level", l, &["trace", "debug", "info", "warn", "error"])?;
+            Self::validate_enum_parameter(
+                "level",
+                l,
+                &["trace", "debug", "info", "warn", "error"],
+            )?;
         }
         Ok(())
     }
@@ -393,12 +397,7 @@ impl ValidationConfig {
             self.validate_content_parameter("context", ctx)?;
         }
         if let Some(p) = priority {
-            Self::validate_integer_parameter(
-                "priority",
-                i64::from(p),
-                Some(0),
-                Some(10),
-            )?;
+            Self::validate_integer_parameter("priority", i64::from(p), Some(0), Some(10))?;
         }
         Ok(())
     }

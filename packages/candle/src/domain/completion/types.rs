@@ -43,7 +43,7 @@ pub struct CandleCompletionParams {
 impl Default for CandleCompletionParams {
     fn default() -> Self {
         Self {
-            temperature: 0.0,  // Greedy sampling for deterministic output
+            temperature: 0.0, // Greedy sampling for deterministic output
             max_tokens: None,
             n: match std::num::NonZeroU8::new(1) {
                 Some(n) => n,

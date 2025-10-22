@@ -193,28 +193,30 @@ where
         let second = self.second.clone();
 
         // Create streaming composition using correct AsyncStream patterns
-        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
-            // Execute first operation to get intermediate stream
-            let first_stream = first.call(input);
-            tokio::pin!(first_stream);
+        Box::pin(crate::async_stream::spawn_stream(
+            move |sender| async move {
+                // Execute first operation to get intermediate stream
+                let first_stream = first.call(input);
+                tokio::pin!(first_stream);
 
-            // Process each intermediate value through second operation
-            while let Some(mid_value) = first_stream.next().await {
-                // Execute second operation with intermediate value
-                let second_stream = second.call(mid_value);
-                tokio::pin!(second_stream);
+                // Process each intermediate value through second operation
+                while let Some(mid_value) = first_stream.next().await {
+                    // Execute second operation with intermediate value
+                    let second_stream = second.call(mid_value);
+                    tokio::pin!(second_stream);
 
-                // Forward all outputs from second operation
-                while let Some(output) = second_stream.next().await {
-                    if sender.send(output).is_err() {
-                        log::debug!(
-                            "Stream receiver dropped during sequential operation - execution terminated"
-                        );
-                        return; // Receiver dropped, exit gracefully
+                    // Forward all outputs from second operation
+                    while let Some(output) = second_stream.next().await {
+                        if sender.send(output).is_err() {
+                            log::debug!(
+                                "Stream receiver dropped during sequential operation - execution terminated"
+                            );
+                            return; // Receiver dropped, exit gracefully
+                        }
                     }
                 }
-            }
-        }))
+            },
+        ))
     }
 }
 
@@ -249,21 +251,23 @@ where
         let op = self.op.clone();
         let func = self.func.clone();
 
-        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
-            let stream = op.call(input);
-            tokio::pin!(stream);
+        Box::pin(crate::async_stream::spawn_stream(
+            move |sender| async move {
+                let stream = op.call(input);
+                tokio::pin!(stream);
 
-            // Apply transformation function to each output
-            while let Some(output) = stream.next().await {
-                let transformed = func(output);
-                if sender.send(transformed).is_err() {
-                    log::debug!(
-                        "Stream receiver dropped during map operation - execution terminated"
-                    );
-                    return; // Receiver dropped
+                // Apply transformation function to each output
+                while let Some(output) = stream.next().await {
+                    let transformed = func(output);
+                    if sender.send(transformed).is_err() {
+                        log::debug!(
+                            "Stream receiver dropped during map operation - execution terminated"
+                        );
+                        return; // Receiver dropped
+                    }
                 }
-            }
-        }))
+            },
+        ))
     }
 }
 
@@ -288,10 +292,12 @@ where
 {
     #[inline]
     fn call(&self, input: T) -> Pin<Box<dyn Stream<Item = T> + Send>> {
-        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
-            // Direct passthrough - no transformation
-            let _ = sender.send(input);
-        }))
+        Box::pin(crate::async_stream::spawn_stream(
+            move |sender| async move {
+                // Direct passthrough - no transformation
+                let _ = sender.send(input);
+            },
+        ))
     }
 }
 
@@ -320,10 +326,12 @@ where
     #[inline]
     fn call(&self, input: In) -> Pin<Box<dyn Stream<Item = Out> + Send>> {
         let func = self.func.clone();
-        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
-            let output = func(input);
-            let _ = sender.send(output);
-        }))
+        Box::pin(crate::async_stream::spawn_stream(
+            move |sender| async move {
+                let output = func(input);
+                let _ = sender.send(output);
+            },
+        ))
     }
 }
 

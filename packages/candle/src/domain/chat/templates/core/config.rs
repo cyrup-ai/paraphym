@@ -1,7 +1,7 @@
 //! Template configuration and auxiliary types
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Template configuration
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

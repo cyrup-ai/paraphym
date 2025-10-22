@@ -197,19 +197,19 @@ where
     fn to_tensor_sync(self, device: &candle_core::Device) -> Result<candle_core::Tensor, String> {
         // Step 1: Load image from source (base64/URL/path)
         let img = self.load_image_from_source()?;
-        
+
         // Step 2: Apply image-level operations (resize, RGB conversion)
         let img = self.apply_image_operations(img)?;
-        
+
         // Step 3: Convert image to tensor (HWC→CHW, u8→f32)
         let tensor = self.image_to_tensor(img)?;
-        
+
         // Step 4: Apply tensor-level operations (normalize, clamp)
         let tensor = self.apply_tensor_operations(tensor)?;
-        
+
         // Step 5: Transfer to target device
         let tensor = self.transfer_to_device(tensor, device)?;
-        
+
         Ok(tensor)
     }
 
@@ -257,9 +257,11 @@ where
             metadata: std::collections::HashMap::new(),
         };
 
-        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
-            let _ = sender.send(chunk);
-        }))
+        Box::pin(crate::async_stream::spawn_stream(
+            move |sender| async move {
+                let _ = sender.send(chunk);
+            },
+        ))
     }
 
     /// Process image - EXACT syntax: .process(|chunk| { ... })

@@ -3,8 +3,8 @@
 //! Provides blazing-fast command execution with streaming processing, comprehensive error handling,
 //! and zero-allocation patterns for production-ready performance.
 
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Instant;
 
 use std::pin::Pin;
@@ -52,7 +52,9 @@ impl Clone for CommandExecutor {
             execution_counter: AtomicU64::new(self.execution_counter.load(Ordering::Relaxed)),
             active_executions: AtomicUsize::new(0),
             total_executions: AtomicU64::new(self.total_executions.load(Ordering::Relaxed)),
-            successful_executions: AtomicU64::new(self.successful_executions.load(Ordering::Relaxed)),
+            successful_executions: AtomicU64::new(
+                self.successful_executions.load(Ordering::Relaxed),
+            ),
             failed_executions: AtomicU64::new(self.failed_executions.load(Ordering::Relaxed)),
             memory: self.memory.clone(),
         }
@@ -104,155 +106,157 @@ impl CommandExecutor {
         // Clone self for the thread closure - Clone implementation creates fresh counters
         let self_clone = self.clone();
 
-        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
-            let start_time = Instant::now();
+        Box::pin(crate::async_stream::spawn_stream(
+            move |sender| async move {
+                let start_time = Instant::now();
 
-            // Update metrics atomically using cloned instance
-            self_clone.total_executions.fetch_add(1, Ordering::AcqRel);
-            self_clone.active_executions.fetch_add(1, Ordering::AcqRel);
+                // Update metrics atomically using cloned instance
+                self_clone.total_executions.fetch_add(1, Ordering::AcqRel);
+                self_clone.active_executions.fetch_add(1, Ordering::AcqRel);
 
-            let execution_id = self_clone.execution_counter.fetch_add(1, Ordering::AcqRel);
+                let execution_id = self_clone.execution_counter.fetch_add(1, Ordering::AcqRel);
 
-            // Emit Started event
-            let _ = sender.send(CommandEvent::Started {
-                command: command.clone(),
-                execution_id,
-                timestamp_us: current_timestamp_us(),
-            });
+                // Emit Started event
+                let _ = sender.send(CommandEvent::Started {
+                    command: command.clone(),
+                    execution_id,
+                    timestamp_us: current_timestamp_us(),
+                });
 
-            // Execute command and handle results
-            match command {
-                ImmutableChatCommand::Help { command, extended } => {
-                    let message = if let Some(cmd) = command {
-                        if extended {
-                            format!("Extended help for command '{cmd}': <detailed help>")
+                // Execute command and handle results
+                match command {
+                    ImmutableChatCommand::Help { command, extended } => {
+                        let message = if let Some(cmd) = command {
+                            if extended {
+                                format!("Extended help for command '{cmd}': <detailed help>")
+                            } else {
+                                format!("Help for command '{cmd}'")
+                            }
+                        } else if extended {
+                            "Extended help: <comprehensive help text>".to_string()
                         } else {
-                            format!("Help for command '{cmd}'")
-                        }
-                    } else if extended {
-                        "Extended help: <comprehensive help text>".to_string()
-                    } else {
-                        "Available commands: help, clear, export, config, search".to_string()
-                    };
+                            "Available commands: help, clear, export, config, search".to_string()
+                        };
 
-                    // Emit Output event with help content
-                    let _ = sender.send(CommandEvent::Output {
-                        execution_id,
-                        content: message.clone(),
-                        output_type: OutputType::Text,
-                        timestamp_us: current_timestamp_us(),
-                    });
-                }
-                ImmutableChatCommand::Clear {
-                    confirm: _,
-                    keep_last: _,
-                } => {
-                    let _ = sender.send(CommandEvent::Output {
-                        execution_id,
-                        content: "Chat cleared successfully".to_string(),
-                        output_type: OutputType::Text,
-                        timestamp_us: current_timestamp_us(),
-                    });
-                }
-                ImmutableChatCommand::Export {
-                    format,
-                    output,
-                    include_metadata,
-                } => {
-                    // Import StreamExt in local scope
-                    use tokio_stream::StreamExt;
-                    
-                    // Delegate to the real export implementation
-                    let export_stream = self_clone.execute_export_streaming(
-                        execution_id,
+                        // Emit Output event with help content
+                        let _ = sender.send(CommandEvent::Output {
+                            execution_id,
+                            content: message.clone(),
+                            output_type: OutputType::Text,
+                            timestamp_us: current_timestamp_us(),
+                        });
+                    }
+                    ImmutableChatCommand::Clear {
+                        confirm: _,
+                        keep_last: _,
+                    } => {
+                        let _ = sender.send(CommandEvent::Output {
+                            execution_id,
+                            content: "Chat cleared successfully".to_string(),
+                            output_type: OutputType::Text,
+                            timestamp_us: current_timestamp_us(),
+                        });
+                    }
+                    ImmutableChatCommand::Export {
                         format,
                         output,
                         include_metadata,
-                    );
-                    
-                    // Pin and forward all events from the export stream
-                    tokio::pin!(export_stream);
-                    while let Some(event) = export_stream.next().await {
-                        let _ = sender.send(event);
-                    }
-                }
-                ImmutableChatCommand::Config {
-                    key: _,
-                    value: _,
-                    show: _,
-                    reset: _,
-                } => {
-                    let _ = sender.send(CommandEvent::Output {
-                        execution_id,
-                        content: "Configuration updated successfully".to_string(),
-                        output_type: OutputType::Text,
-                        timestamp_us: current_timestamp_us(),
-                    });
-                }
-                ImmutableChatCommand::Search {
-                    query,
-                    scope,
-                    limit,
-                    include_context,
-                } => {
-                    // Emit progress events for search operation (25%, 50%, 75%, 100%)
-                    let progress_steps = [25, 50, 75, 100];
-                    for progress in progress_steps {
-                        #[allow(clippy::cast_precision_loss)]
-                        let progress_f32 = progress as f32;
-                        let _ = sender.send(CommandEvent::Progress {
+                    } => {
+                        // Import StreamExt in local scope
+                        use tokio_stream::StreamExt;
+
+                        // Delegate to the real export implementation
+                        let export_stream = self_clone.execute_export_streaming(
                             execution_id,
-                            progress: progress_f32,
-                            message: format!("Searching... {progress}%"),
-                            timestamp: current_timestamp_us(),
-                        });
+                            format,
+                            output,
+                            include_metadata,
+                        );
 
-                        // Simulate realistic search processing time
-                        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                        // Pin and forward all events from the export stream
+                        tokio::pin!(export_stream);
+                        while let Some(event) = export_stream.next().await {
+                            let _ = sender.send(event);
+                        }
                     }
+                    ImmutableChatCommand::Config {
+                        key: _,
+                        value: _,
+                        show: _,
+                        reset: _,
+                    } => {
+                        let _ = sender.send(CommandEvent::Output {
+                            execution_id,
+                            content: "Configuration updated successfully".to_string(),
+                            output_type: OutputType::Text,
+                            timestamp_us: current_timestamp_us(),
+                        });
+                    }
+                    ImmutableChatCommand::Search {
+                        query,
+                        scope,
+                        limit,
+                        include_context,
+                    } => {
+                        // Emit progress events for search operation (25%, 50%, 75%, 100%)
+                        let progress_steps = [25, 50, 75, 100];
+                        for progress in progress_steps {
+                            #[allow(clippy::cast_precision_loss)]
+                            let progress_f32 = progress as f32;
+                            let _ = sender.send(CommandEvent::Progress {
+                                execution_id,
+                                progress: progress_f32,
+                                message: format!("Searching... {progress}%"),
+                                timestamp: current_timestamp_us(),
+                            });
 
-                    // Build search result message
-                    let scope_str = format!("{scope:?}").to_lowercase();
-                    let limit_str = limit.map(|l| format!(" (limit: {l})")).unwrap_or_default();
-                    let context_str = if include_context { " with context" } else { "" };
-                    let message = format!(
-                        "Search for '{query}' in {scope_str} scope{limit_str}{context_str} completed"
-                    );
+                            // Simulate realistic search processing time
+                            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                        }
 
-                    let _ = sender.send(CommandEvent::Output {
-                        execution_id,
-                        content: message,
-                        output_type: OutputType::Text,
-                        timestamp_us: current_timestamp_us(),
-                    });
+                        // Build search result message
+                        let scope_str = format!("{scope:?}").to_lowercase();
+                        let limit_str = limit.map(|l| format!(" (limit: {l})")).unwrap_or_default();
+                        let context_str = if include_context { " with context" } else { "" };
+                        let message = format!(
+                            "Search for '{query}' in {scope_str} scope{limit_str}{context_str} completed"
+                        );
+
+                        let _ = sender.send(CommandEvent::Output {
+                            execution_id,
+                            content: message,
+                            output_type: OutputType::Text,
+                            timestamp_us: current_timestamp_us(),
+                        });
+                    }
+                    _ => {
+                        // Default implementation for other commands
+                        let _ = sender.send(CommandEvent::Output {
+                            execution_id,
+                            content: "Command executed successfully".to_string(),
+                            output_type: OutputType::Text,
+                            timestamp_us: current_timestamp_us(),
+                        });
+                    }
                 }
-                _ => {
-                    // Default implementation for other commands
-                    let _ = sender.send(CommandEvent::Output {
-                        execution_id,
-                        content: "Command executed successfully".to_string(),
-                        output_type: OutputType::Text,
-                        timestamp_us: current_timestamp_us(),
-                    });
-                }
-            }
 
-            // Emit Completed event and update metrics
-            self_clone
-                .successful_executions
-                .fetch_add(1, Ordering::AcqRel);
-            #[allow(clippy::cast_possible_truncation)]
-            let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
-            let _ = sender.send(CommandEvent::completed(
-                execution_id,
-                CommandExecutionResult::Success("Command completed successfully".to_string()),
-                duration_us,
-                ResourceUsage::default()
-            ));
+                // Emit Completed event and update metrics
+                self_clone
+                    .successful_executions
+                    .fetch_add(1, Ordering::AcqRel);
+                #[allow(clippy::cast_possible_truncation)]
+                let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
+                let _ = sender.send(CommandEvent::completed(
+                    execution_id,
+                    CommandExecutionResult::Success("Command completed successfully".to_string()),
+                    duration_us,
+                    ResourceUsage::default(),
+                ));
 
-            // Decrement active executions
-            self_clone.active_executions.fetch_sub(1, Ordering::AcqRel);
-        }))
+                // Decrement active executions
+                self_clone.active_executions.fetch_sub(1, Ordering::AcqRel);
+            },
+        ))
     }
 
     /// Execute help command (streaming-only, zero-allocation)
@@ -264,51 +268,58 @@ impl CommandExecutor {
     ) -> Pin<Box<dyn Stream<Item = CommandEvent> + Send>> {
         let start_time = Instant::now();
 
-        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
-            tokio::spawn(async move {
-                // Emit started event
-                #[allow(clippy::cast_possible_truncation)]
-                let timestamp_us =
-                    start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
-                let _ = sender.send(CommandEvent::Started {
-                    command: ImmutableChatCommand::Help {
-                        command: command.clone(),
-                        extended
-                    },
-                    execution_id,
-                    timestamp_us
-                });
+        Box::pin(crate::async_stream::spawn_stream(
+            move |sender| async move {
+                tokio::spawn(async move {
+                    // Emit started event
+                    #[allow(clippy::cast_possible_truncation)]
+                    let timestamp_us =
+                        start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
+                    let _ = sender.send(CommandEvent::Started {
+                        command: ImmutableChatCommand::Help {
+                            command: command.clone(),
+                            extended,
+                        },
+                        execution_id,
+                        timestamp_us,
+                    });
 
-                // Generate help message with zero allocation
-                let message = if let Some(cmd) = command {
-                    if extended {
-                        format!(
-                            "Extended help for command '{cmd}': Detailed usage, examples, and advanced options available"
-                        )
+                    // Generate help message with zero allocation
+                    let message = if let Some(cmd) = command {
+                        if extended {
+                            format!(
+                                "Extended help for command '{cmd}': Detailed usage, examples, and advanced options available"
+                            )
+                        } else {
+                            format!("Help for command '{cmd}': Basic usage and description")
+                        }
+                    } else if extended {
+                        "Extended help: All commands with detailed descriptions, usage patterns, and examples".to_string()
                     } else {
-                        format!("Help for command '{cmd}': Basic usage and description")
-                    }
-                } else if extended {
-                    "Extended help: All commands with detailed descriptions, usage patterns, and examples".to_string()
-                } else {
-                    "Available commands: help, clear, export, config, search, template, macro, branch, session, tool, stats, theme, debug, history, save, load, import, settings, custom".to_string()
-                };
+                        "Available commands: help, clear, export, config, search, template, macro, branch, session, tool, stats, theme, debug, history, save, load, import, settings, custom".to_string()
+                    };
 
-                // Emit output event
-                let _ = sender.send(CommandEvent::output(execution_id, message.clone(), OutputType::Text));
+                    // Emit output event
+                    let _ = sender.send(CommandEvent::output(
+                        execution_id,
+                        message.clone(),
+                        OutputType::Text,
+                    ));
 
-                // Emit completion event
-                #[allow(clippy::cast_possible_truncation)]
-                let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
-                let _ = sender.send(CommandEvent::Completed {
-                    execution_id,
-                    result: CommandExecutionResult::Success(message.clone()),
-                    duration_us,
-                    resource_usage: ResourceUsage::default(),
-                    timestamp_us: current_timestamp_us()
+                    // Emit completion event
+                    #[allow(clippy::cast_possible_truncation)]
+                    let duration_us =
+                        start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
+                    let _ = sender.send(CommandEvent::Completed {
+                        execution_id,
+                        result: CommandExecutionResult::Success(message.clone()),
+                        duration_us,
+                        resource_usage: ResourceUsage::default(),
+                        timestamp_us: current_timestamp_us(),
+                    });
                 });
-            });
-        }))
+            },
+        ))
     }
 
     /// Execute clear command (streaming-only, zero-allocation)
@@ -320,60 +331,67 @@ impl CommandExecutor {
     ) -> Pin<Box<dyn Stream<Item = CommandEvent> + Send>> {
         let start_time = Instant::now();
 
-        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
-            tokio::spawn(async move {
-                // Emit started event
-                #[allow(clippy::cast_possible_truncation)]
-                let timestamp_us =
-                    start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
-                let _ = sender.send(CommandEvent::Started {
-                    command: ImmutableChatCommand::Clear {
-                        confirm,
-                        keep_last: keep_last.and_then(|n| usize::try_from(n).ok())
-                    },
-                    execution_id,
-                    timestamp_us
-                });
-
-                // Execute clear operation with zero allocation
-                let message = if confirm {
-                    if let Some(n) = keep_last {
-                        format!("Chat cleared successfully, keeping last {n} messages")
-                    } else {
-                        "Chat cleared completely - all messages removed".to_string()
-                    }
-                } else {
-                    "Clear operation cancelled (use --confirm to proceed)".to_string()
-                };
-
-                // Emit progress for clearing operation with all required fields
-                if confirm {
-                    let _ = sender.send(CommandEvent::Progress {
+        Box::pin(crate::async_stream::spawn_stream(
+            move |sender| async move {
+                tokio::spawn(async move {
+                    // Emit started event
+                    #[allow(clippy::cast_possible_truncation)]
+                    let timestamp_us =
+                        start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
+                    let _ = sender.send(CommandEvent::Started {
+                        command: ImmutableChatCommand::Clear {
+                            confirm,
+                            keep_last: keep_last.and_then(|n| usize::try_from(n).ok()),
+                        },
                         execution_id,
-                        progress: 100.0,
-                        message: "Clear operation completed".to_string(),
-                        timestamp: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
-                            .as_secs()
+                        timestamp_us,
                     });
-                }
 
-                // Emit output event
-                let _ = sender.send(CommandEvent::output(execution_id, message.clone(), OutputType::Text));
+                    // Execute clear operation with zero allocation
+                    let message = if confirm {
+                        if let Some(n) = keep_last {
+                            format!("Chat cleared successfully, keeping last {n} messages")
+                        } else {
+                            "Chat cleared completely - all messages removed".to_string()
+                        }
+                    } else {
+                        "Clear operation cancelled (use --confirm to proceed)".to_string()
+                    };
 
-                // Emit completion event
-                #[allow(clippy::cast_possible_truncation)]
-                let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
-                let _ = sender.send(CommandEvent::Completed {
-                    execution_id,
-                    result: CommandExecutionResult::Success(message.clone()),
-                    duration_us,
-                    resource_usage: ResourceUsage::default(),
-                    timestamp_us: current_timestamp_us()
+                    // Emit progress for clearing operation with all required fields
+                    if confirm {
+                        let _ = sender.send(CommandEvent::Progress {
+                            execution_id,
+                            progress: 100.0,
+                            message: "Clear operation completed".to_string(),
+                            timestamp: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+                                .as_secs(),
+                        });
+                    }
+
+                    // Emit output event
+                    let _ = sender.send(CommandEvent::output(
+                        execution_id,
+                        message.clone(),
+                        OutputType::Text,
+                    ));
+
+                    // Emit completion event
+                    #[allow(clippy::cast_possible_truncation)]
+                    let duration_us =
+                        start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
+                    let _ = sender.send(CommandEvent::Completed {
+                        execution_id,
+                        result: CommandExecutionResult::Success(message.clone()),
+                        duration_us,
+                        resource_usage: ResourceUsage::default(),
+                        timestamp_us: current_timestamp_us(),
+                    });
                 });
-            });
-        }))
+            },
+        ))
     }
 
     /// Execute export command (streaming-only, zero-allocation)
@@ -387,79 +405,134 @@ impl CommandExecutor {
         let start_time = Instant::now();
         let memory = self.memory.clone();
 
-        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
-            tokio::spawn(async move {
-                // Emit started event
-                let _ = sender.send(CommandEvent::Started {
-                    command: ImmutableChatCommand::Export {
-                        format: format.clone(),
-                        output: output.clone(),
-                        include_metadata,
-                    },
-                    execution_id,
-                    #[allow(clippy::cast_possible_truncation)]
-                    timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
-                });
+        Box::pin(crate::async_stream::spawn_stream(
+            move |sender| async move {
+                tokio::spawn(async move {
+                    // Emit started event
+                    let _ = sender.send(CommandEvent::Started {
+                        command: ImmutableChatCommand::Export {
+                            format: format.clone(),
+                            output: output.clone(),
+                            include_metadata,
+                        },
+                        execution_id,
+                        #[allow(clippy::cast_possible_truncation)]
+                        timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX))
+                            as u64,
+                    });
 
-                // STEP 1: Retrieve messages from memory (25% progress)
-                send_export_progress(&sender, execution_id, 25.0, "Retrieving conversation messages...".to_string());
+                    // STEP 1: Retrieve messages from memory (25% progress)
+                    send_export_progress(
+                        &sender,
+                        execution_id,
+                        25.0,
+                        "Retrieving conversation messages...".to_string(),
+                    );
 
-                let messages = if let Some(mem) = memory {
-                    match retrieve_conversation_messages(&mem).await {
-                        Ok(msgs) => msgs,
+                    let messages = if let Some(mem) = memory {
+                        match retrieve_conversation_messages(&mem).await {
+                            Ok(msgs) => msgs,
+                            Err(e) => {
+                                send_export_failure(
+                                    &sender,
+                                    execution_id,
+                                    format!("Failed to retrieve messages: {e}"),
+                                    4001,
+                                    &start_time,
+                                );
+                                return;
+                            }
+                        }
+                    } else {
+                        send_export_failure(
+                            &sender,
+                            execution_id,
+                            "Memory not available for export".to_string(),
+                            4000,
+                            &start_time,
+                        );
+                        return;
+                    };
+
+                    if messages.is_empty() {
+                        send_export_failure(
+                            &sender,
+                            execution_id,
+                            "No messages to export".to_string(),
+                            4001,
+                            &start_time,
+                        );
+                        return;
+                    }
+
+                    // STEP 2: Parse format and create exporter (50% progress)
+                    send_export_progress(
+                        &sender,
+                        execution_id,
+                        50.0,
+                        format!("Preparing {format} export..."),
+                    );
+
+                    let export_format = match parse_export_format(&format) {
+                        Ok(fmt) => fmt,
                         Err(e) => {
-                            send_export_failure(&sender, execution_id, format!("Failed to retrieve messages: {e}"), 4001, &start_time);
+                            send_export_failure(&sender, execution_id, e, 4002, &start_time);
                             return;
                         }
-                    }
-                } else {
-                    send_export_failure(&sender, execution_id, "Memory not available for export".to_string(), 4000, &start_time);
-                    return;
-                };
+                    };
 
-                if messages.is_empty() {
-                    send_export_failure(&sender, execution_id, "No messages to export".to_string(), 4001, &start_time);
-                    return;
-                }
+                    let config =
+                        create_export_config(export_format, include_metadata, output.clone());
 
-                // STEP 2: Parse format and create exporter (50% progress)
-                send_export_progress(&sender, execution_id, 50.0, format!("Preparing {format} export..."));
+                    // STEP 3: Export messages (75% progress)
+                    send_export_progress(
+                        &sender,
+                        execution_id,
+                        75.0,
+                        "Exporting messages...".to_string(),
+                    );
 
-                let export_format = match parse_export_format(&format) {
-                    Ok(fmt) => fmt,
-                    Err(e) => {
-                        send_export_failure(&sender, execution_id, e, 4002, &start_time);
+                    let export_data = match perform_message_export(&messages, config) {
+                        Ok(data) => data,
+                        Err(e) => {
+                            send_export_failure(&sender, execution_id, e, 4003, &start_time);
+                            return;
+                        }
+                    };
+
+                    // STEP 4: Write to file (90% progress)
+                    send_export_progress(
+                        &sender,
+                        execution_id,
+                        90.0,
+                        "Writing to file...".to_string(),
+                    );
+
+                    let output_path = determine_output_path(output, &export_data.file_extension);
+
+                    if let Err(e) = tokio::fs::write(&output_path, &export_data.content).await {
+                        send_export_failure(
+                            &sender,
+                            execution_id,
+                            format!("Failed to write file: {e}"),
+                            4004,
+                            &start_time,
+                        );
                         return;
                     }
-                };
 
-                let config = create_export_config(export_format, include_metadata, output.clone());
-
-                // STEP 3: Export messages (75% progress)
-                send_export_progress(&sender, execution_id, 75.0, "Exporting messages...".to_string());
-
-                let export_data = match perform_message_export(&messages, config) {
-                    Ok(data) => data,
-                    Err(e) => {
-                        send_export_failure(&sender, execution_id, e, 4003, &start_time);
-                        return;
-                    }
-                };
-
-                // STEP 4: Write to file (90% progress)
-                send_export_progress(&sender, execution_id, 90.0, "Writing to file...".to_string());
-
-                let output_path = determine_output_path(output, &export_data.file_extension);
-
-                if let Err(e) = tokio::fs::write(&output_path, &export_data.content).await {
-                    send_export_failure(&sender, execution_id, format!("Failed to write file: {e}"), 4004, &start_time);
-                    return;
-                }
-
-                // STEP 5: Complete (100%)
-                send_export_completion(&sender, execution_id, &export_data, &output_path, &format, &start_time);
-            });
-        }))
+                    // STEP 5: Complete (100%)
+                    send_export_completion(
+                        &sender,
+                        execution_id,
+                        &export_data,
+                        &output_path,
+                        &format,
+                        &start_time,
+                    );
+                });
+            },
+        ))
     }
 }
 
@@ -468,35 +541,51 @@ async fn retrieve_conversation_messages(
     memory: &MemoryCoordinator,
 ) -> Result<Vec<CandleMessage>, String> {
     use crate::memory::core::ops::filter::MemoryFilter;
-    
+
     // Use public MemoryFilter API to query by tags
-    let filter = MemoryFilter::new()
-        .with_tags(vec![
-            "message_type.user".to_string(),
-            "message_type.assistant".to_string(),
-            "message_type.system".to_string(),
-        ]);
-    
+    let filter = MemoryFilter::new().with_tags(vec![
+        "message_type.user".to_string(),
+        "message_type.assistant".to_string(),
+        "message_type.system".to_string(),
+    ]);
+
     // Use public get_memories() API - returns Vec<DomainMemoryNode>
-    let memories = memory.get_memories(filter).await
+    let memories = memory
+        .get_memories(filter)
+        .await
         .map_err(|e| format!("Failed to retrieve memories: {e}"))?;
-    
+
     // Convert domain memory nodes to CandleMessage format
     let mut messages: Vec<CandleMessage> = memories
         .iter()
         .map(|mem| {
             // Determine role from tags
-            let role = if mem.metadata.tags.iter().any(|t| t.as_ref() == "message_type.user") {
+            let role = if mem
+                .metadata
+                .tags
+                .iter()
+                .any(|t| t.as_ref() == "message_type.user")
+            {
                 CandleMessageRole::User
-            } else if mem.metadata.tags.iter().any(|t| t.as_ref() == "message_type.system") {
+            } else if mem
+                .metadata
+                .tags
+                .iter()
+                .any(|t| t.as_ref() == "message_type.system")
+            {
                 CandleMessageRole::System
-            } else if mem.metadata.tags.iter().any(|t| t.as_ref() == "message_type.assistant") {
+            } else if mem
+                .metadata
+                .tags
+                .iter()
+                .any(|t| t.as_ref() == "message_type.assistant")
+            {
                 CandleMessageRole::Assistant
             } else {
                 // Fallback for unrecognized tags - treat as Assistant
                 CandleMessageRole::Assistant
             };
-            
+
             CandleMessage {
                 role,
                 content: mem.content().to_string(),
@@ -505,15 +594,15 @@ async fn retrieve_conversation_messages(
                     mem.creation_time()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or_default()
-                        .as_secs()
+                        .as_secs(),
                 ),
             }
         })
         .collect();
-    
+
     // Sort by timestamp to maintain conversation order
     messages.sort_by_key(|m| m.timestamp.unwrap_or(0));
-    
+
     Ok(messages)
 }
 
@@ -590,7 +679,8 @@ fn perform_message_export(
     config: ExportConfig,
 ) -> Result<ExportData, String> {
     let mut exporter = ChatExporter::with_config(config);
-    exporter.export_messages(messages)
+    exporter
+        .export_messages(messages)
         .map_err(|e| format!("Export failed: {e}"))
 }
 
@@ -614,10 +704,7 @@ fn send_export_completion(
     // Send success output message
     let success_message = format!(
         "Successfully exported {} messages to '{}' ({} format, {} bytes)",
-        export_data.metadata.message_count,
-        output_path,
-        format,
-        export_data.metadata.size_bytes
+        export_data.metadata.message_count, output_path, format, export_data.metadata.size_bytes
     );
 
     let _ = sender.send(CommandEvent::output(
@@ -636,7 +723,7 @@ fn send_export_completion(
 
     #[allow(clippy::cast_possible_truncation)]
     let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
-    
+
     let _ = sender.send(CommandEvent::completed(
         execution_id,
         result,
@@ -657,49 +744,56 @@ impl CommandExecutor {
     ) -> Pin<Box<dyn Stream<Item = CommandEvent> + Send>> {
         let start_time = Instant::now();
 
-        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
-            tokio::spawn(async move {
-                // Emit started event
-                let _ = sender.send(CommandEvent::Started {
-                    command: ImmutableChatCommand::Config {
-                        key: key.clone(),
-                        value: value.clone(),
-                        show,
-                        reset
-                    },
-                    execution_id,
+        Box::pin(crate::async_stream::spawn_stream(
+            move |sender| async move {
+                tokio::spawn(async move {
+                    // Emit started event
+                    let _ = sender.send(CommandEvent::Started {
+                        command: ImmutableChatCommand::Config {
+                            key: key.clone(),
+                            value: value.clone(),
+                            show,
+                            reset,
+                        },
+                        execution_id,
+                        #[allow(clippy::cast_possible_truncation)]
+                        timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX))
+                            as u64,
+                    });
+
+                    let message = if reset {
+                        "Configuration reset to defaults".to_string()
+                    } else if show {
+                        "Current configuration: <config data>".to_string()
+                    } else if let (Some(k), Some(v)) = (key.as_ref(), value.as_ref()) {
+                        format!("Configuration updated: {k} = {v}")
+                    } else if let Some(k) = key {
+                        format!("Configuration value for {k}: <value>")
+                    } else {
+                        "Use --show to display current configuration".to_string()
+                    };
+
+                    // Emit output event
+                    let _ = sender.send(CommandEvent::output(
+                        execution_id,
+                        message.clone(),
+                        OutputType::Text,
+                    ));
+
+                    // Emit completion event
                     #[allow(clippy::cast_possible_truncation)]
-                    timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX))
-                        as u64
+                    let duration_us =
+                        start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
+                    let _ = sender.send(CommandEvent::Completed {
+                        execution_id,
+                        result: CommandExecutionResult::Success(message.clone()),
+                        duration_us,
+                        resource_usage: ResourceUsage::default(),
+                        timestamp_us: current_timestamp_us(),
+                    });
                 });
-
-                let message = if reset {
-                    "Configuration reset to defaults".to_string()
-                } else if show {
-                    "Current configuration: <config data>".to_string()
-                } else if let (Some(k), Some(v)) = (key.as_ref(), value.as_ref()) {
-                    format!("Configuration updated: {k} = {v}")
-                } else if let Some(k) = key {
-                    format!("Configuration value for {k}: <value>")
-                } else {
-                    "Use --show to display current configuration".to_string()
-                };
-
-                // Emit output event
-                let _ = sender.send(CommandEvent::output(execution_id, message.clone(), OutputType::Text));
-
-                // Emit completion event
-                #[allow(clippy::cast_possible_truncation)]
-                let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
-                let _ = sender.send(CommandEvent::Completed {
-                    execution_id,
-                    result: CommandExecutionResult::Success(message.clone()),
-                    duration_us,
-                    resource_usage: ResourceUsage::default(),
-                    timestamp_us: current_timestamp_us()
-                });
-            });
-        }))
+            },
+        ))
     }
 
     /// Execute search command (streaming-only, zero-allocation)
@@ -713,80 +807,87 @@ impl CommandExecutor {
     ) -> Pin<Box<dyn Stream<Item = CommandEvent> + Send>> {
         let start_time = Instant::now();
 
-        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
-            tokio::spawn(async move {
-                // Emit started event
-                let _ = sender.send(CommandEvent::Started {
-                    command: ImmutableChatCommand::Search {
-                        query: query.clone(),
-                        scope,
-                        limit,
-                        include_context
-                    },
-                    execution_id,
-                    #[allow(clippy::cast_possible_truncation)]
-                    timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX))
-                        as u64
-                });
-
-                // Simulate search progress with zero allocation
-                for progress in [20, 40, 60, 80, 100] {
-                    #[allow(clippy::cast_precision_loss)]
-                    let progress_f32 = progress as f32;
-                    let _ = sender.send(CommandEvent::Progress {
+        Box::pin(crate::async_stream::spawn_stream(
+            move |sender| async move {
+                tokio::spawn(async move {
+                    // Emit started event
+                    let _ = sender.send(CommandEvent::Started {
+                        command: ImmutableChatCommand::Search {
+                            query: query.clone(),
+                            scope,
+                            limit,
+                            include_context,
+                        },
                         execution_id,
-                        progress: progress_f32,
-                        message: format!("Searching... {progress}%"),
-                        timestamp: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
-                            .as_secs()
+                        #[allow(clippy::cast_possible_truncation)]
+                        timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX))
+                            as u64,
                     });
-                }
 
-                let scope_str = match scope {
-                    SearchScope::All => "all conversations",
-                    SearchScope::Session => "current session",
-                    SearchScope::Current => "current conversation",
-                    SearchScope::Recent => "recent conversations",
-                    SearchScope::Bookmarked => "bookmarked conversations",
-                    SearchScope::User => "user messages",
-                    SearchScope::Assistant => "assistant messages",
-                    SearchScope::System => "system messages",
-                    SearchScope::Branch => "current branch",
-                    SearchScope::TimeRange => "time range",
-                    SearchScope::MessageType => "message type",
-                    SearchScope::Tags => "tags",
-                    SearchScope::Archived => "archived content",
-                };
+                    // Simulate search progress with zero allocation
+                    for progress in [20, 40, 60, 80, 100] {
+                        #[allow(clippy::cast_precision_loss)]
+                        let progress_f32 = progress as f32;
+                        let _ = sender.send(CommandEvent::Progress {
+                            execution_id,
+                            progress: progress_f32,
+                            message: format!("Searching... {progress}%"),
+                            timestamp: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+                                .as_secs(),
+                        });
+                    }
 
-                let limit_str = limit.map(|n| format!(" (limit: {n})")).unwrap_or_default();
-                let context_str = if include_context { " with context" } else { "" };
+                    let scope_str = match scope {
+                        SearchScope::All => "all conversations",
+                        SearchScope::Session => "current session",
+                        SearchScope::Current => "current conversation",
+                        SearchScope::Recent => "recent conversations",
+                        SearchScope::Bookmarked => "bookmarked conversations",
+                        SearchScope::User => "user messages",
+                        SearchScope::Assistant => "assistant messages",
+                        SearchScope::System => "system messages",
+                        SearchScope::Branch => "current branch",
+                        SearchScope::TimeRange => "time range",
+                        SearchScope::MessageType => "message type",
+                        SearchScope::Tags => "tags",
+                        SearchScope::Archived => "archived content",
+                    };
 
-                let message = format!(
-                    "Searching for '{query}' in {scope_str}{limit_str}{context_str}\nSearch completed - 0 results found"
-                );
+                    let limit_str = limit.map(|n| format!(" (limit: {n})")).unwrap_or_default();
+                    let context_str = if include_context { " with context" } else { "" };
 
-                // Emit output event
-                let _ = sender.send(CommandEvent::output(execution_id, message.clone(), OutputType::Text));
+                    let message = format!(
+                        "Searching for '{query}' in {scope_str}{limit_str}{context_str}\nSearch completed - 0 results found"
+                    );
 
-                // Emit completion event with search results
-                let result = CommandExecutionResult::Data(serde_json::json!({
-                    "query": query,
-                    "scope": format!("{:?}", scope),
-                    "results": [],
-                    "total_found": 0
-                }));
-                #[allow(clippy::cast_possible_truncation)]
-                let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
-                let _ = sender.send(CommandEvent::completed(
-                    execution_id,
-                    result,
-                    duration_us,
-                    ResourceUsage::default()
-                ));
-            });
-        }))
+                    // Emit output event
+                    let _ = sender.send(CommandEvent::output(
+                        execution_id,
+                        message.clone(),
+                        OutputType::Text,
+                    ));
+
+                    // Emit completion event with search results
+                    let result = CommandExecutionResult::Data(serde_json::json!({
+                        "query": query,
+                        "scope": format!("{:?}", scope),
+                        "results": [],
+                        "total_found": 0
+                    }));
+                    #[allow(clippy::cast_possible_truncation)]
+                    let duration_us =
+                        start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
+                    let _ = sender.send(CommandEvent::completed(
+                        execution_id,
+                        result,
+                        duration_us,
+                        ResourceUsage::default(),
+                    ));
+                });
+            },
+        ))
     }
 
     /// Get parser reference
@@ -806,45 +907,51 @@ impl CommandExecutor {
     }
 
     /// Parse and execute command from string (streaming-only, zero-allocation)
-    pub fn parse_and_execute(&self, input: &str) -> Pin<Box<dyn Stream<Item = CommandEvent> + Send>> {
+    pub fn parse_and_execute(
+        &self,
+        input: &str,
+    ) -> Pin<Box<dyn Stream<Item = CommandEvent> + Send>> {
         let execution_id = self.execution_counter.fetch_add(1, Ordering::AcqRel);
         let command_result = self.parser.parse_command(input);
-        
+
         // Clone self for use in async closure
         let self_clone = self.clone();
 
-        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
-            let start_time = Instant::now();
-            
-            match command_result {
-                Ok(command) => {
-                    use tokio_stream::StreamExt;
-                    
-                    // Delegate to execute_streaming which has full timing
-                    let execution_stream = self_clone.execute_streaming(execution_id, command);
-                    
-                    // Forward all events from execute_streaming
-                    tokio::pin!(execution_stream);
-                    while let Some(event) = execution_stream.next().await {
-                        let _ = sender.send(event);
+        Box::pin(crate::async_stream::spawn_stream(
+            move |sender| async move {
+                let start_time = Instant::now();
+
+                match command_result {
+                    Ok(command) => {
+                        use tokio_stream::StreamExt;
+
+                        // Delegate to execute_streaming which has full timing
+                        let execution_stream = self_clone.execute_streaming(execution_id, command);
+
+                        // Forward all events from execute_streaming
+                        tokio::pin!(execution_stream);
+                        while let Some(event) = execution_stream.next().await {
+                            let _ = sender.send(event);
+                        }
+                    }
+                    Err(e) => {
+                        // Calculate elapsed time for parse error
+                        #[allow(clippy::cast_possible_truncation)]
+                        let duration_us =
+                            start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
+
+                        // Emit Failed event with actual duration
+                        let _ = sender.send(CommandEvent::Failed {
+                            execution_id,
+                            error: format!("Parse error: {e}"),
+                            error_code: 1001,
+                            duration_us,
+                            resource_usage: ResourceUsage::default(),
+                            timestamp_us: current_timestamp_us(),
+                        });
                     }
                 }
-                Err(e) => {
-                    // Calculate elapsed time for parse error
-                    #[allow(clippy::cast_possible_truncation)]
-                    let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
-                    
-                    // Emit Failed event with actual duration
-                    let _ = sender.send(CommandEvent::Failed {
-                        execution_id,
-                        error: format!("Parse error: {e}"),
-                        error_code: 1001,
-                        duration_us,
-                        resource_usage: ResourceUsage::default(),
-                        timestamp_us: current_timestamp_us(),
-                    });
-                }
-            }
-        }))
+            },
+        ))
     }
 }

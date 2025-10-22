@@ -4,9 +4,9 @@ use super::builder_impl::ImageBuilderImpl;
 use super::operations::{ImageOperation, convert_filter};
 use crate::domain::context::CandleDocumentChunk as ImageChunk;
 use crate::domain::image::ContentFormat;
+use base64::Engine;
 use candle_core::{DType, Device, Tensor};
 use image::{DynamicImage, ImageReader};
-use base64::Engine;
 
 // Private helper methods for image loading and processing
 impl<F1, F2> ImageBuilderImpl<F1, F2>
@@ -59,7 +59,10 @@ where
     /// Pattern references:
     /// - CLIP resize: tmp/candle-examples/candle-examples/examples/clip/main.rs:38-42
     /// - RGB conversion: tmp/candle-examples/candle-examples/examples/clip/main.rs:44
-    pub(super) fn apply_image_operations(&self, mut img: DynamicImage) -> Result<DynamicImage, String> {
+    pub(super) fn apply_image_operations(
+        &self,
+        mut img: DynamicImage,
+    ) -> Result<DynamicImage, String> {
         for op in &self.operations {
             img = match op {
                 ImageOperation::Resize {
@@ -203,7 +206,11 @@ where
     /// Initial processing is done on CPU, final tensor is on target device.
     ///
     /// Device::clone() is cheap (Arc pointer), safe for frequent use.
-    pub(super) fn transfer_to_device(&self, tensor: Tensor, device: &Device) -> Result<Tensor, String> {
+    pub(super) fn transfer_to_device(
+        &self,
+        tensor: Tensor,
+        device: &Device,
+    ) -> Result<Tensor, String> {
         tensor
             .to_device(device)
             .map_err(|e| format!("Failed to transfer to device: {}", e))

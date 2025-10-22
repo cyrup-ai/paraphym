@@ -7,8 +7,8 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::sync::oneshot;
 
-use crate::memory::graph::graph_db::{GraphError, Result};
 use super::types::Entity;
+use crate::memory::graph::graph_db::{GraphError, Result};
 
 /// Future wrapper for entity creation/update operations
 pub struct PendingEntity {
@@ -24,10 +24,7 @@ impl PendingEntity {
 impl std::future::Future for PendingEntity {
     type Output = Result<Box<dyn Entity>>;
 
-    fn poll(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Self::Output> {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match Pin::new(&mut self.rx).poll(cx) {
             Poll::Ready(Ok(result)) => Poll::Ready(result),
             Poll::Ready(Err(_)) => {
@@ -52,10 +49,7 @@ impl PendingEntityOption {
 impl std::future::Future for PendingEntityOption {
     type Output = Result<Option<Box<dyn Entity>>>;
 
-    fn poll(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Self::Output> {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match Pin::new(&mut self.rx).poll(cx) {
             Poll::Ready(Ok(result)) => Poll::Ready(result),
             Poll::Ready(Err(_)) => {
@@ -80,10 +74,7 @@ impl PendingEntityList {
 impl std::future::Future for PendingEntityList {
     type Output = Result<Vec<Box<dyn Entity>>>;
 
-    fn poll(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Self::Output> {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match Pin::new(&mut self.rx).poll(cx) {
             Poll::Ready(Ok(result)) => Poll::Ready(result),
             Poll::Ready(Err(_)) => {
@@ -108,10 +99,7 @@ impl PendingEntityCount {
 impl std::future::Future for PendingEntityCount {
     type Output = Result<usize>;
 
-    fn poll(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Self::Output> {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match Pin::new(&mut self.rx).poll(cx) {
             Poll::Ready(Ok(result)) => Poll::Ready(result),
             Poll::Ready(Err(_)) => {
@@ -136,10 +124,7 @@ impl PendingUnit {
 impl std::future::Future for PendingUnit {
     type Output = Result<()>;
 
-    fn poll(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Self::Output> {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match Pin::new(&mut self.rx).poll(cx) {
             Poll::Ready(Ok(result)) => Poll::Ready(result),
             Poll::Ready(Err(_)) => {

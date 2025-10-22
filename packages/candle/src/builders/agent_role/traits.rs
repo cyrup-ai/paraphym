@@ -87,7 +87,9 @@ pub trait CandleAgentRoleBuilder: Sized + Send {
     fn on_conversation_turn<F, Fut>(self, handler: F) -> impl CandleAgentRoleBuilder
     where
         F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> Fut + Send + Sync + 'static,
-        Fut: std::future::Future<Output = Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>> + Send + 'static;
+        Fut: std::future::Future<Output = Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>>
+            + Send
+            + 'static;
 
     /// Convert to agent - EXACT syntax: .into_agent()
     #[must_use]
@@ -101,13 +103,19 @@ pub trait CandleAgentRoleBuilder: Sized + Send {
     ) -> impl CandleAgentRoleBuilder;
 
     /// Chat with closure - EXACT syntax: .chat(|conversation| ChatLoop)
-    fn chat<F, Fut>(self, handler: F) -> Result<Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>, AgentError>
+    fn chat<F, Fut>(
+        self,
+        handler: F,
+    ) -> Result<Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>, AgentError>
     where
         F: Fn(&CandleAgentConversation) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = CandleChatLoop> + Send + 'static;
 
     /// Chat with message - EXACT syntax: .chat_with_message("message")
-    fn chat_with_message(self, message: impl Into<String>) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>;
+    fn chat_with_message(
+        self,
+        message: impl Into<String>,
+    ) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>;
 }
 
 /// MCP server builder for fluent chaining
@@ -212,20 +220,28 @@ pub trait CandleAgentBuilder: Sized + Send + Sync {
     fn on_conversation_turn<F, Fut>(self, handler: F) -> impl CandleAgentBuilder
     where
         F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> Fut + Send + Sync + 'static,
-        Fut: std::future::Future<Output = Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>> + Send + 'static;
+        Fut: std::future::Future<Output = Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>>
+            + Send
+            + 'static;
 
     /// Set conversation history - EXACT syntax from ARCHITECTURE.md
     /// Supports: .conversation_history(CandleMessageRole::User => "content", CandleMessageRole::System => "content", ...)
     #[must_use]
-    fn conversation_history(self, history: impl ConversationHistoryArgs) -> impl CandleAgentBuilder;
+    fn conversation_history(self, history: impl ConversationHistoryArgs)
+    -> impl CandleAgentBuilder;
 
     /// Chat with closure - EXACT syntax: .chat(|conversation| ChatLoop)
-    fn chat<F, Fut>(self, handler: F) -> Result<Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>, AgentError>
+    fn chat<F, Fut>(
+        self,
+        handler: F,
+    ) -> Result<Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>, AgentError>
     where
         F: Fn(&CandleAgentConversation) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = CandleChatLoop> + Send + 'static;
 
     /// Chat with message - EXACT syntax: .chat_with_message("message")
-    fn chat_with_message(self, message: impl Into<String>) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>;
+    fn chat_with_message(
+        self,
+        message: impl Into<String>,
+    ) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>;
 }
-

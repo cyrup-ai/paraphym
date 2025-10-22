@@ -8,10 +8,10 @@ use crate::memory::primitives::MemoryNode;
 use crate::memory::schema::memory_schema::MemoryNodeSchema;
 use crate::memory::utils::error::Error;
 
+use super::Result;
 use super::futures::MemoryStream;
 use super::manager::SurrealDBMemoryManager;
 use super::trait_def::MemoryManager;
-use super::Result;
 
 impl SurrealDBMemoryManager {
     /// Advanced hybrid search combining vector similarity and graph expansion
@@ -224,7 +224,9 @@ impl SurrealDBMemoryManager {
     /// Search memories by text with auto-embedding generation
     pub async fn search_by_text(&self, text: &str, limit: usize) -> Result<MemoryStream> {
         if let Some(ref embedding_model) = self.embedding_model {
-            let embedding = embedding_model.embed(text, Some("search".to_string())).await?;
+            let embedding = embedding_model
+                .embed(text, Some("search".to_string()))
+                .await?;
             let stream = self.search_by_vector(embedding, limit);
             Ok(stream)
         } else {
@@ -442,11 +444,17 @@ impl SurrealDBMemoryManager {
         for edge in entangled_results {
             // Parse record IDs - skip invalid edges with warning
             let Some(source_full) = edge.source.as_str() else {
-                log::warn!("Skipping entangled edge with invalid source ID: {:?}", edge.source);
+                log::warn!(
+                    "Skipping entangled edge with invalid source ID: {:?}",
+                    edge.source
+                );
                 continue;
             };
             let Some(target_full) = edge.target.as_str() else {
-                log::warn!("Skipping entangled edge with invalid target ID: {:?}", edge.target);
+                log::warn!(
+                    "Skipping entangled edge with invalid target ID: {:?}",
+                    edge.target
+                );
                 continue;
             };
 
@@ -487,11 +495,17 @@ impl SurrealDBMemoryManager {
         for edge in causal_results {
             // Parse record IDs - skip invalid edges with warning
             let Some(source_full) = edge.source.as_str() else {
-                log::warn!("Skipping causal edge with invalid source ID: {:?}", edge.source);
+                log::warn!(
+                    "Skipping causal edge with invalid source ID: {:?}",
+                    edge.source
+                );
                 continue;
             };
             let Some(target_full) = edge.target.as_str() else {
-                log::warn!("Skipping causal edge with invalid target ID: {:?}", edge.target);
+                log::warn!(
+                    "Skipping causal edge with invalid target ID: {:?}",
+                    edge.target
+                );
                 continue;
             };
 

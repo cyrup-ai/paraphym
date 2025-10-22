@@ -63,17 +63,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let stream = agent.chat(|_conversation| async move {
         print!("You: ");
         io::stdout().flush().unwrap();
-        
+
         // Use tokio async stdin
         use tokio::io::{AsyncBufReadExt, BufReader};
         let stdin = tokio::io::stdin();
         let mut reader = BufReader::new(stdin);
         let mut input = String::new();
-        
+
         match reader.read_line(&mut input).await {
             Ok(_) => {
                 let input = input.trim();
-                
+
                 // Handle exit commands
                 if input.eq_ignore_ascii_case("exit")
                     || input.eq_ignore_ascii_case("quit")
@@ -83,12 +83,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("Goodbye! 👋");
                     return CandleChatLoop::Break;
                 }
-                
+
                 // Handle empty input
                 if input.is_empty() {
                     return CandleChatLoop::Reprompt(String::new());
                 }
-                
+
                 // Send to model
                 CandleChatLoop::UserPrompt(input.to_string())
             }
@@ -113,16 +113,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ..
             } => {
                 println!("\n");
-                
+
                 // Display generation statistics
-                if let (Some(tc), Some(es), Some(tps)) =
-                    (token_count, elapsed_secs, tokens_per_sec)
+                if let (Some(tc), Some(es), Some(tps)) = (token_count, elapsed_secs, tokens_per_sec)
                 {
                     println!("✓ {} tokens in {:.2}s ({:.1} tokens/sec)", tc, es, tps);
                 }
-                
-                println!();  // Blank line before next prompt
-                
+
+                println!(); // Blank line before next prompt
+
                 // Stream continues - loop will call handler again for next input
                 print!("Assistant: ");
             }

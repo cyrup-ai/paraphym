@@ -4,11 +4,13 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::capability::traits::TextEmbeddingCapable;
 use crate::capability::registry::pool::WorkerState;
 use crate::capability::registry::pool::core::memory_governor::AllocationGuard;
-use crate::capability::registry::pool::core::types::{HealthPing, HealthPong, select_worker_power_of_two};
+use crate::capability::registry::pool::core::types::{
+    HealthPing, HealthPong, select_worker_power_of_two,
+};
 use crate::capability::registry::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
+use crate::capability::traits::TextEmbeddingCapable;
 
 /// Request for embed() operation
 pub struct EmbedRequest {
@@ -34,7 +36,9 @@ pub struct TextEmbeddingWorkerHandle {
     pub registry_key: String, // Added to enable cleanup on drop
 }
 
-impl crate::capability::registry::pool::core::types::PoolWorkerHandle for TextEmbeddingWorkerHandle {
+impl crate::capability::registry::pool::core::types::PoolWorkerHandle
+    for TextEmbeddingWorkerHandle
+{
     fn core(&self) -> &crate::capability::registry::pool::core::WorkerHandle {
         &self.core
     }
@@ -268,7 +272,8 @@ impl Pool<TextEmbeddingWorkerHandle> {
                     registry_key: registry_key_clone.clone(),
                     state: Arc::clone(&state_clone),
                 },
-            ).await;
+            )
+            .await;
 
             // Transition: Ready → Dead (when worker loop exits)
             state_clone.store(

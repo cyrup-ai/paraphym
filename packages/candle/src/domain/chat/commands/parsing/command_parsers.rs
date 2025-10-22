@@ -2,14 +2,17 @@
 
 use std::collections::HashMap;
 
-use super::errors::{ParseError, ParseResult};
 use super::super::types::{ImmutableChatCommand, SearchScope};
+use super::errors::{ParseError, ParseResult};
 
 /// Parse a command string with zero-allocation patterns
 ///
 /// # Errors
 /// Returns `ParseError::InvalidSyntax` if the command doesn't start with '/', if the command name is unknown, or if arguments are malformed
-pub(super) fn parse(input: &str, aliases: &HashMap<String, String>) -> ParseResult<ImmutableChatCommand> {
+pub(super) fn parse(
+    input: &str,
+    aliases: &HashMap<String, String>,
+) -> ParseResult<ImmutableChatCommand> {
     let input = input.trim();
 
     // Check if it's a command (starts with /)
@@ -235,15 +238,14 @@ pub(super) fn parse_search_args(args: &[&str]) -> ParseResult<ImmutableChatComma
                         parameter: "limit".to_string(),
                     });
                 }
-                limit =
-                    Some(
-                        args[i]
-                            .parse()
-                            .map_err(|_| ParseError::InvalidParameterValue {
-                                parameter: "limit".to_string(),
-                                value: args[i].to_string(),
-                            })?,
-                    );
+                limit = Some(
+                    args[i]
+                        .parse()
+                        .map_err(|_| ParseError::InvalidParameterValue {
+                            parameter: "limit".to_string(),
+                            value: args[i].to_string(),
+                        })?,
+                );
             }
             "--include-context" => include_context = true,
             arg if !arg.starts_with('-') => {

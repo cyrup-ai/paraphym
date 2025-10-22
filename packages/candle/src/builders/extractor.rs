@@ -5,23 +5,23 @@
 use std::fmt;
 use std::marker::PhantomData;
 
-use serde::de::DeserializeOwned;
 use cyrup_sugars::prelude::MessageChunk;
+use serde::de::DeserializeOwned;
 
 use crate::capability::registry::TextToTextModel;
 use crate::domain::context::extraction::{Extractor, ExtractorImpl};
 
 /// Extractor builder trait - elegant zero-allocation builder pattern
-pub trait ExtractorBuilder<T>: Sized 
+pub trait ExtractorBuilder<T>: Sized
 where
     T: DeserializeOwned + Send + Sync + fmt::Debug + Clone + Default + MessageChunk + 'static,
 {
     /// Set system prompt - EXACT syntax: .system_prompt("...")
     fn system_prompt(self, prompt: impl Into<String>) -> Self;
-    
+
     /// Set instructions (alias for system_prompt) - EXACT syntax: .instructions("...")
     fn instructions(self, instructions: impl Into<String>) -> Self;
-    
+
     /// Build extractor - EXACT syntax: .build()
     fn build(self) -> ExtractorImpl<T, TextToTextModel>;
 }
@@ -44,12 +44,12 @@ where
         self.system_prompt = Some(prompt.into());
         self
     }
-    
+
     fn instructions(mut self, instructions: impl Into<String>) -> Self {
         self.system_prompt = Some(instructions.into());
         self
     }
-    
+
     fn build(self) -> ExtractorImpl<T, TextToTextModel> {
         let mut extractor = ExtractorImpl::new_with_provider(self.model);
         if let Some(prompt) = self.system_prompt {
@@ -60,22 +60,22 @@ where
 }
 
 /// Entry point for extractor builder
-/// 
+///
 /// # Example
 /// ```no_run
 /// use cyrup_candle::builders::extractor::extractor;
 /// use cyrup_candle::capability::registry;
 /// use serde::{Deserialize, Serialize};
-/// 
+///
 /// #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 /// struct Person {
 ///     name: String,
 ///     age: u32,
 /// }
-/// 
+///
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let model = registry::get_text_to_text("phi4:latest")?;
-/// 
+///
 /// let extractor = extractor::<Person>(model)
 ///     .system_prompt("Extract person information as JSON")
 ///     .build();

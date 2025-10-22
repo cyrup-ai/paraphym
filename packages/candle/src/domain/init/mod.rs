@@ -3,7 +3,7 @@
 pub mod globals;
 
 use std::sync::{Arc, LazyLock};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 
 use crate::domain::memory::MemoryConfig;
 use crate::memory::core::manager::surreal::SurrealDBMemoryManager;
@@ -88,11 +88,10 @@ pub fn get_default_memory_config() -> MemoryConfig {
 /// Memory service connection pool for efficient resource management
 ///
 /// Uses Arc<SurrealDBMemoryManager> for shared ownership across threads
-static MEMORY_SERVICE_POOL: LazyLock<MemoryManagerPool> =
-    LazyLock::new(|| {
-        let (sender, receiver) = mpsc::unbounded_channel();
-        (sender, Arc::new(Mutex::new(receiver)))
-    });
+static MEMORY_SERVICE_POOL: LazyLock<MemoryManagerPool> = LazyLock::new(|| {
+    let (sender, receiver) = mpsc::unbounded_channel();
+    (sender, Arc::new(Mutex::new(receiver)))
+});
 
 /// Get a memory manager from the connection pool
 ///

@@ -1,6 +1,7 @@
 //! MemoryManager trait implementation for coordinator
 
 use crate::domain::memory::cognitive::types::{CognitiveState, EntanglementType};
+use crate::memory::MemoryRelationship;
 use crate::memory::core::manager::surreal::{
     MemoryManager, MemoryStream, PendingDeletion, PendingEntanglementEdge, PendingMemory,
     PendingQuantumSignature, PendingQuantumUpdate, PendingRelationship, RelationshipStream,
@@ -8,7 +9,6 @@ use crate::memory::core::manager::surreal::{
 use crate::memory::core::primitives::{
     node::MemoryNode as CoreMemoryNode, types::MemoryTypeEnum as CoreMemoryTypeEnum,
 };
-use crate::memory::MemoryRelationship;
 
 use super::lifecycle::MemoryCoordinator;
 
@@ -80,28 +80,48 @@ impl MemoryManager for MemoryCoordinator {
         entanglement_type: EntanglementType,
         strength: f32,
     ) -> PendingEntanglementEdge {
-        self.surreal_manager
-            .create_entanglement_edge(source_id, target_id, entanglement_type, strength)
+        self.surreal_manager.create_entanglement_edge(
+            source_id,
+            target_id,
+            entanglement_type,
+            strength,
+        )
     }
 
     fn get_entangled_memories(&self, memory_id: &str) -> MemoryStream {
-        self.surreal_manager
-            .get_entangled_memories(memory_id)
+        self.surreal_manager.get_entangled_memories(memory_id)
     }
 
-    fn get_entangled_by_type(&self, memory_id: &str, entanglement_type: EntanglementType) -> MemoryStream {
+    fn get_entangled_by_type(
+        &self,
+        memory_id: &str,
+        entanglement_type: EntanglementType,
+    ) -> MemoryStream {
         self.surreal_manager
             .get_entangled_by_type(memory_id, entanglement_type)
     }
 
-    fn traverse_entanglement_graph(&self, start_memory_id: &str, max_depth: usize, min_strength: f32) -> MemoryStream {
+    fn traverse_entanglement_graph(
+        &self,
+        start_memory_id: &str,
+        max_depth: usize,
+        min_strength: f32,
+    ) -> MemoryStream {
         self.surreal_manager
             .traverse_entanglement_graph(start_memory_id, max_depth, min_strength)
     }
 
-    fn expand_via_entanglement(&self, seed_memory_ids: Vec<String>, expansion_factor: usize, min_strength: f32) -> MemoryStream {
-        self.surreal_manager
-            .expand_via_entanglement(seed_memory_ids, expansion_factor, min_strength)
+    fn expand_via_entanglement(
+        &self,
+        seed_memory_ids: Vec<String>,
+        expansion_factor: usize,
+        min_strength: f32,
+    ) -> MemoryStream {
+        self.surreal_manager.expand_via_entanglement(
+            seed_memory_ids,
+            expansion_factor,
+            min_strength,
+        )
     }
 
     fn create_causal_edge(
@@ -123,20 +143,12 @@ impl MemoryManager for MemoryCoordinator {
         self.surreal_manager.get_causal_successors(memory_id)
     }
 
-    fn trace_causal_chain_forward(
-        &self,
-        start_memory_id: &str,
-        max_depth: usize,
-    ) -> MemoryStream {
+    fn trace_causal_chain_forward(&self, start_memory_id: &str, max_depth: usize) -> MemoryStream {
         self.surreal_manager
             .trace_causal_chain_forward(start_memory_id, max_depth)
     }
 
-    fn trace_causal_chain_backward(
-        &self,
-        start_memory_id: &str,
-        max_depth: usize,
-    ) -> MemoryStream {
+    fn trace_causal_chain_backward(&self, start_memory_id: &str, max_depth: usize) -> MemoryStream {
         self.surreal_manager
             .trace_causal_chain_backward(start_memory_id, max_depth)
     }

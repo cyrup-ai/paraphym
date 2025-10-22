@@ -1,59 +1,61 @@
 //! Chat session orchestration executor
 
+use futures::future::BoxFuture;
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::pin::Pin;
 use std::sync::Arc;
-use futures::future::BoxFuture;
 use tokio_stream::{Stream, StreamExt};
 
 // Context types (use provider:: to get the concrete struct, not the trait)
 use crate::domain::context::provider::{
-    CandleContext,
-    CandleFile,
-    CandleFiles,
-    CandleDirectory,
-    CandleGithub,
+    CandleContext, CandleDirectory, CandleFile, CandleFiles, CandleGithub,
 };
 
 // Memory helper functions (copied from builders since they're not publicly exported)
 
 // Import domain types
-use crate::domain::chat::{
-    config::{CandleModelConfig, CandleChatConfig},
-    message::{CandleMessageChunk, CandleMessageRole},
-    r#loop::CandleChatLoop,
-};
-use crate::domain::agent::role::CandleAgentConversation;
 use crate::builders::agent_role::CandleAgentRoleAgent;
-use crate::domain::agent::{
-    role::convert_serde_to_sweet_json,
-};
 use crate::domain::agent::core::AGENT_STATS;
+use crate::domain::agent::role::CandleAgentConversation;
+use crate::domain::agent::role::convert_serde_to_sweet_json;
+use crate::domain::chat::{
+    config::{CandleChatConfig, CandleModelConfig},
+    r#loop::CandleChatLoop,
+    message::{CandleMessageChunk, CandleMessageRole},
+};
 use crate::domain::completion::CandleCompletionChunk;
-use crate::domain::prompt::CandlePrompt;
 use crate::domain::completion::CandleCompletionParams;
+use crate::domain::prompt::CandlePrompt;
 use crate::domain::tool::SweetMcpRouter;
 use crate::domain::tool::router::PluginConfig;
 
 use crate::builders::agent_role::AgentBuilderState;
 use crate::capability::registry::TextToTextModel;
 use crate::capability::traits::TextToTextCapable;
-use crate::memory::core::manager::coordinator::MemoryCoordinator;
-use crate::memory::core::manager::surreal::MemoryManager;  // Trait must be in scope
-use crate::memory::primitives::node::MemoryNode as CoreMemoryNode;
-use crate::memory::primitives::types::{MemoryContent, MemoryTypeEnum as CoreMemoryTypeEnum};
 use crate::domain::memory::primitives::node::MemoryNode as DomainMemoryNode;
 use crate::domain::memory::primitives::types::MemoryTypeEnum as DomainMemoryTypeEnum;
 use crate::memory::MemoryMetadata;
+use crate::memory::core::manager::coordinator::MemoryCoordinator;
+use crate::memory::core::manager::surreal::MemoryManager; // Trait must be in scope
+use crate::memory::primitives::node::MemoryNode as CoreMemoryNode;
+use crate::memory::primitives::types::{MemoryContent, MemoryTypeEnum as CoreMemoryTypeEnum};
 
-use sweet_mcp_type::ToolInfo;
 use cyrup_sugars::collections::ZeroOneOrMany;
+use sweet_mcp_type::ToolInfo;
 
 // Type aliases for complex callback types
-type OnChunkHandler = Arc<dyn Fn(CandleMessageChunk) -> BoxFuture<'static, CandleMessageChunk> + Send + Sync>;
+type OnChunkHandler =
+    Arc<dyn Fn(CandleMessageChunk) -> BoxFuture<'static, CandleMessageChunk> + Send + Sync>;
 type OnToolResultHandler = Arc<dyn Fn(&[String]) -> BoxFuture<'static, ()> + Send + Sync>;
-type OnConversationTurnHandler = Arc<dyn Fn(&CandleAgentConversation, &crate::builders::agent_role::CandleAgentRoleAgent) -> BoxFuture<'static, Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>> + Send + Sync>;
+type OnConversationTurnHandler = Arc<
+    dyn Fn(
+            &CandleAgentConversation,
+            &crate::builders::agent_role::CandleAgentRoleAgent,
+        ) -> BoxFuture<'static, Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>>
+        + Send
+        + Sync,
+>;
 
 /// Configuration bundle for chat session execution
 pub struct ChatSessionConfig<S> {
@@ -88,7 +90,10 @@ fn format_memory_context(memories: &[DomainMemoryNode], max_chars: usize) -> Str
 
     for memory in memories {
         let content = memory.content().to_string();
-        let source = memory.metadata.custom.get("source")
+        let source = memory
+            .metadata
+            .custom
+            .get("source")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown");
         let entry = format!("- [{source}]: {content}\n");
@@ -122,7 +127,9 @@ async fn load_context_stream(
         node.metadata.agent_id = metadata.get("agent_id").cloned();
         node.metadata.context = "session_context".to_string();
         node.metadata.category = "context".to_string();
-        node.metadata.source = doc.additional_props.get("path")
+        node.metadata.source = doc
+            .additional_props
+            .get("path")
             .and_then(|v| v.as_str())
             .map(std::string::ToString::to_string);
         node.metadata.importance = 0.5;
@@ -152,18 +159,16 @@ fn process_break_loop() -> CandleMessageChunk {
 async fn initialize_tool_router(
     sender: &tokio::sync::mpsc::UnboundedSender<CandleMessageChunk>,
 ) -> Option<SweetMcpRouter> {
-    let reasoner_schema = convert_serde_to_sweet_json(
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "thought": {"type": "string", "description": "Current reasoning step"},
-                "thoughtNumber": {"type": "integer", "description": "Current step number", "minimum": 1},
-                "totalThoughts": {"type": "integer", "description": "Total expected steps", "minimum": 1},
-                "nextThoughtNeeded": {"type": "boolean", "description": "Whether another step is needed"}
-            },
-            "required": ["thought", "thoughtNumber", "totalThoughts", "nextThoughtNeeded"]
-        }),
-    );
+    let reasoner_schema = convert_serde_to_sweet_json(serde_json::json!({
+        "type": "object",
+        "properties": {
+            "thought": {"type": "string", "description": "Current reasoning step"},
+            "thoughtNumber": {"type": "integer", "description": "Current step number", "minimum": 1},
+            "totalThoughts": {"type": "integer", "description": "Total expected steps", "minimum": 1},
+            "nextThoughtNeeded": {"type": "boolean", "description": "Whether another step is needed"}
+        },
+        "required": ["thought", "thoughtNumber", "totalThoughts", "nextThoughtNeeded"]
+    }));
 
     let default_plugin_config = PluginConfig {
         tool_name: "mcp-reasoner".to_string(),
@@ -186,10 +191,7 @@ async fn initialize_tool_router(
 }
 
 /// Search memory and format context
-async fn search_and_format_memory(
-    memory: &Arc<MemoryCoordinator>,
-    user_message: &str,
-) -> String {
+async fn search_and_format_memory(memory: &Arc<MemoryCoordinator>, user_message: &str) -> String {
     match memory.search_memories(user_message, 10, None).await {
         Ok(memories) => {
             if memories.is_empty() {
@@ -206,10 +208,7 @@ async fn search_and_format_memory(
 }
 
 /// Build system prompt with personality traits and custom instructions
-fn build_system_prompt(
-    model_config: &CandleModelConfig,
-    chat_config: &CandleChatConfig,
-) -> String {
+fn build_system_prompt(model_config: &CandleModelConfig, chat_config: &CandleChatConfig) -> String {
     let mut system_prompt = model_config.system_prompt.clone().unwrap_or_default();
 
     if let Some(custom) = &chat_config.personality.custom_instructions {
@@ -446,11 +445,14 @@ fn store_conversation_in_memory<S: std::hash::BuildHasher>(
         let memory_clone = memory.clone();
         let system_msg = system_prompt.to_string();
         tokio::spawn(async move {
-            if let Err(e) = memory_clone.add_memory(
-                system_msg,
-                DomainMemoryTypeEnum::Semantic,
-                Some(system_meta)
-            ).await {
+            if let Err(e) = memory_clone
+                .add_memory(
+                    system_msg,
+                    DomainMemoryTypeEnum::Semantic,
+                    Some(system_meta),
+                )
+                .await
+            {
                 log::error!("Failed to store system memory: {e:?}");
             }
         });
@@ -465,11 +467,10 @@ fn store_conversation_in_memory<S: std::hash::BuildHasher>(
     let memory_clone = memory.clone();
     let user_msg = user_message.to_string();
     tokio::spawn(async move {
-        if let Err(e) = memory_clone.add_memory(
-            user_msg,
-            DomainMemoryTypeEnum::Episodic,
-            Some(user_meta)
-        ).await {
+        if let Err(e) = memory_clone
+            .add_memory(user_msg, DomainMemoryTypeEnum::Episodic, Some(user_meta))
+            .await
+        {
             log::error!("Failed to store user memory: {e:?}");
         }
     });
@@ -483,11 +484,14 @@ fn store_conversation_in_memory<S: std::hash::BuildHasher>(
     let memory_clone = memory.clone();
     let assistant_msg = assistant_response.to_string();
     tokio::spawn(async move {
-        if let Err(e) = memory_clone.add_memory(
-            assistant_msg,
-            DomainMemoryTypeEnum::Episodic,
-            Some(assistant_meta)
-        ).await {
+        if let Err(e) = memory_clone
+            .add_memory(
+                assistant_msg,
+                DomainMemoryTypeEnum::Episodic,
+                Some(assistant_meta),
+            )
+            .await
+        {
             log::error!("Failed to store assistant memory: {e:?}");
         }
     });
@@ -507,10 +511,7 @@ async fn invoke_turn_handler_if_configured(
     if let Some(handler) = on_conversation_turn_handler {
         let mut conversation = CandleAgentConversation::new();
         conversation.add_message(user_message.to_string(), CandleMessageRole::User);
-        conversation.add_message(
-            assistant_response.to_string(),
-            CandleMessageRole::Assistant,
-        );
+        conversation.add_message(assistant_response.to_string(), CandleMessageRole::Assistant);
 
         let builder_state = Arc::new(AgentBuilderState {
             name: String::from("agent"),
@@ -533,7 +534,8 @@ async fn invoke_turn_handler_if_configured(
         });
 
         let agent = CandleAgentRoleAgent::new(builder_state);
-        let handler_stream: Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>> = handler(&conversation, &agent).await;
+        let handler_stream: Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>> =
+            handler(&conversation, &agent).await;
         tokio::pin!(handler_stream);
         while let Some(chunk) = handler_stream.next().await {
             let _ = sender.send(chunk);
@@ -558,18 +560,12 @@ async fn execute_tool_call(
                             let results = vec![format!("{response:?}")];
                             handler(&results).await;
                         }
-                        CandleMessageChunk::Text(format!(
-                            "Tool '{name}' executed: {response:?}"
-                        ))
+                        CandleMessageChunk::Text(format!("Tool '{name}' executed: {response:?}"))
                     }
-                    Err(e) => CandleMessageChunk::Error(format!(
-                        "Tool '{name}' failed: {e}"
-                    )),
+                    Err(e) => CandleMessageChunk::Error(format!("Tool '{name}' failed: {e}")),
                 }
             }
-            Err(e) => {
-                CandleMessageChunk::Error(format!("Invalid JSON: {e}"))
-            }
+            Err(e) => CandleMessageChunk::Error(format!("Invalid JSON: {e}")),
         }
     } else {
         CandleMessageChunk::ToolCallComplete {
@@ -614,13 +610,16 @@ async fn handle_user_prompt<S: std::hash::BuildHasher>(
 
     // Search memory and build prompt
     let memory_context = search_and_format_memory(memory, &user_message).await;
-    let full_prompt = build_prompt_with_context(model_config, chat_config, &memory_context, &user_message);
+    let full_prompt =
+        build_prompt_with_context(model_config, chat_config, &memory_context, &user_message);
 
     // Call provider
     let prompt = CandlePrompt::new(full_prompt);
     let mut params = CandleCompletionParams {
         temperature: f64::from(model_config.temperature),
-        max_tokens: model_config.max_tokens.and_then(|t| std::num::NonZeroU64::new(u64::from(t))),
+        max_tokens: model_config
+            .max_tokens
+            .and_then(|t| std::num::NonZeroU64::new(u64::from(t))),
         ..Default::default()
     };
 
@@ -644,7 +643,8 @@ async fn handle_user_prompt<S: std::hash::BuildHasher>(
         tool_router.as_ref(),
         on_chunk_handler,
         on_tool_result_handler,
-    ).await;
+    )
+    .await;
 
     // Store conversation in memory including system prompt
     if !assistant_response.is_empty() {
@@ -654,7 +654,7 @@ async fn handle_user_prompt<S: std::hash::BuildHasher>(
             &user_message,
             &assistant_response,
             memory,
-            metadata
+            metadata,
         );
     }
 
@@ -667,7 +667,8 @@ async fn handle_user_prompt<S: std::hash::BuildHasher>(
         provider,
         tools,
         on_conversation_turn_handler,
-    ).await;
+    )
+    .await;
 }
 
 pub async fn execute_chat_session<F, Fut, S>(
@@ -682,60 +683,86 @@ where
     Fut: std::future::Future<Output = CandleChatLoop> + Send + 'static,
     S: std::hash::BuildHasher + Send + Sync + 'static,
 {
-    Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
-        // Destructure config and contexts for easier access
-        let ChatSessionConfig { model_config, chat_config, provider, memory, tools, metadata } = config;
-        let ChatSessionContexts { context_file, context_files, context_directory, context_github } = contexts;
-        let ChatSessionHandlers { on_chunk_handler, on_tool_result_handler, on_conversation_turn_handler } = handlers;
+    Box::pin(crate::async_stream::spawn_stream(
+        move |sender| async move {
+            // Destructure config and contexts for easier access
+            let ChatSessionConfig {
+                model_config,
+                chat_config,
+                provider,
+                memory,
+                tools,
+                metadata,
+            } = config;
+            let ChatSessionContexts {
+                context_file,
+                context_files,
+                context_directory,
+                context_github,
+            } = contexts;
+            let ChatSessionHandlers {
+                on_chunk_handler,
+                on_tool_result_handler,
+                on_conversation_turn_handler,
+            } = handlers;
 
-        // Load context documents from all sources in parallel using tokio::spawn
-        let load_tasks = load_all_contexts(&memory, &metadata, context_file, context_files, context_directory, context_github);
+            // Load context documents from all sources in parallel using tokio::spawn
+            let load_tasks = load_all_contexts(
+                &memory,
+                &metadata,
+                context_file,
+                context_files,
+                context_directory,
+                context_github,
+            );
 
-        // Wait for all context loading tasks to complete
-        for task in load_tasks {
-            if let Err(e) = task.await {
-                log::warn!("Context loading task panicked: {e:?}");
+            // Wait for all context loading tasks to complete
+            for task in load_tasks {
+                if let Err(e) = task.await {
+                    log::warn!("Context loading task panicked: {e:?}");
+                }
             }
-        }
 
-        // Create conversation and ALWAYS populate with history (history is not optional)
-        let mut initial_conversation = CandleAgentConversation::new();
+            // Create conversation and ALWAYS populate with history (history is not optional)
+            let mut initial_conversation = CandleAgentConversation::new();
 
-        // Convert ZeroOneOrMany to vec for iteration
-        let history_vec: Vec<(CandleMessageRole, String)> = match conversation_history {
-            ZeroOneOrMany::None => vec![],
-            ZeroOneOrMany::One(item) => vec![item],
-            ZeroOneOrMany::Many(items) => items,
-        };
+            // Convert ZeroOneOrMany to vec for iteration
+            let history_vec: Vec<(CandleMessageRole, String)> = match conversation_history {
+                ZeroOneOrMany::None => vec![],
+                ZeroOneOrMany::One(item) => vec![item],
+                ZeroOneOrMany::Many(items) => items,
+            };
 
-        for (role, message) in history_vec {
-            initial_conversation.add_message(message, role);
-        }
-
-        // Execute async handler to get CandleChatLoop result
-        let chat_loop_result = handler(&initial_conversation).await;
-
-        // Process CandleChatLoop result
-        match chat_loop_result {
-            CandleChatLoop::Break => {
-                let _ = sender.send(process_break_loop());
+            for (role, message) in history_vec {
+                initial_conversation.add_message(message, role);
             }
-            CandleChatLoop::UserPrompt(user_message)
-            | CandleChatLoop::Reprompt(user_message) => {
-                handle_user_prompt(
-                    user_message,
-                    &sender,
-                    &chat_config,
-                    &model_config,
-                    &provider,
-                    &memory,
-                    &tools,
-                    &metadata,
-                    on_chunk_handler.as_ref(),
-                    on_tool_result_handler.as_ref(),
-                    on_conversation_turn_handler.as_ref(),
-                ).await;
+
+            // Execute async handler to get CandleChatLoop result
+            let chat_loop_result = handler(&initial_conversation).await;
+
+            // Process CandleChatLoop result
+            match chat_loop_result {
+                CandleChatLoop::Break => {
+                    let _ = sender.send(process_break_loop());
+                }
+                CandleChatLoop::UserPrompt(user_message)
+                | CandleChatLoop::Reprompt(user_message) => {
+                    handle_user_prompt(
+                        user_message,
+                        &sender,
+                        &chat_config,
+                        &model_config,
+                        &provider,
+                        &memory,
+                        &tools,
+                        &metadata,
+                        on_chunk_handler.as_ref(),
+                        on_tool_result_handler.as_ref(),
+                        on_conversation_turn_handler.as_ref(),
+                    )
+                    .await;
+                }
             }
-        }
-    }))
+        },
+    ))
 }

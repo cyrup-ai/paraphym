@@ -7,11 +7,11 @@
 //! Features: File/Directory/GitHub indexing, vector embeddings, memory storage,
 //! parallel processing, real-time event streaming, comprehensive error handling.
 
-pub mod types;
-pub mod processor;
 pub mod context_impl;
+pub mod processor;
+pub mod types;
 
 // Re-export all public types to maintain API compatibility
-pub use types::*;
-pub use processor::*;
 pub use context_impl::*;
+pub use processor::*;
+pub use types::*;

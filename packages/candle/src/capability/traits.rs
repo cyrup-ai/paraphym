@@ -34,7 +34,10 @@ pub type EmbeddingFuture<'a> = Pin<
 pub type BatchEmbeddingFuture<'a> = Pin<
     Box<
         dyn std::future::Future<
-                Output = std::result::Result<Vec<Vec<f32>>, Box<dyn std::error::Error + Send + Sync>>,
+                Output = std::result::Result<
+                    Vec<Vec<f32>>,
+                    Box<dyn std::error::Error + Send + Sync>,
+                >,
             > + Send
             + 'a,
     >,
@@ -63,18 +66,10 @@ pub trait TextToTextCapable: CandleModel {
 /// Trait for models capable of text embedding
 pub trait TextEmbeddingCapable: CandleModel {
     /// Generate embedding for a single text
-    fn embed(
-        &self,
-        text: &str,
-        task: Option<String>,
-    ) -> EmbeddingFuture<'_>;
+    fn embed(&self, text: &str, task: Option<String>) -> EmbeddingFuture<'_>;
 
     /// Generate embeddings for multiple texts in batch
-    fn batch_embed(
-        &self,
-        texts: &[String],
-        task: Option<String>,
-    ) -> BatchEmbeddingFuture<'_>;
+    fn batch_embed(&self, texts: &[String], task: Option<String>) -> BatchEmbeddingFuture<'_>;
 
     /// Get the dimensionality of embeddings produced by this model
     fn embedding_dimension(&self) -> usize;
@@ -207,28 +202,16 @@ pub trait TextEmbeddingCapable: CandleModel {
 /// Trait for models capable of image embedding
 pub trait ImageEmbeddingCapable: CandleModel {
     /// Generate embedding for an image from file path
-    fn embed_image(
-        &self,
-        image_path: &str,
-    ) -> EmbeddingFuture<'_>;
+    fn embed_image(&self, image_path: &str) -> EmbeddingFuture<'_>;
 
     /// Generate embedding for an image from URL
-    fn embed_image_url(
-        &self,
-        url: &str,
-    ) -> EmbeddingFuture<'_>;
+    fn embed_image_url(&self, url: &str) -> EmbeddingFuture<'_>;
 
     /// Generate embedding for an image from base64-encoded data
-    fn embed_image_base64(
-        &self,
-        base64_data: &str,
-    ) -> EmbeddingFuture<'_>;
+    fn embed_image_base64(&self, base64_data: &str) -> EmbeddingFuture<'_>;
 
     /// Generate embeddings for multiple images in batch
-    fn batch_embed_images(
-        &self,
-        image_paths: Vec<&str>,
-    ) -> BatchEmbeddingFuture<'_>;
+    fn batch_embed_images(&self, image_paths: Vec<&str>) -> BatchEmbeddingFuture<'_>;
 
     /// Get the dimensionality of embeddings produced by this model
     fn embedding_dimension(&self) -> usize;
@@ -242,10 +225,18 @@ pub trait ImageEmbeddingCapable: CandleModel {
 /// Trait for models capable of vision/multimodal understanding
 pub trait VisionCapable: CandleModel {
     /// Describe an image with a text query, streaming tokens as generated
-    fn describe_image(&self, image_path: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>>;
+    fn describe_image(
+        &self,
+        image_path: &str,
+        query: &str,
+    ) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>>;
 
     /// Describe an image from URL with a text query, streaming tokens as generated
-    fn describe_url(&self, url: &str, query: &str) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>>;
+    fn describe_url(
+        &self,
+        url: &str,
+        query: &str,
+    ) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>>;
 }
 
 /// Trait for models capable of text-to-image generation

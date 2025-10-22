@@ -7,15 +7,18 @@ use std::pin::Pin;
 use tokio_stream::Stream;
 
 use super::{
-    CommandExecutionContext, CommandExecutionResult, CommandInfo,
-    ImmutableChatCommand, ValidationResult,
+    CommandExecutionContext, CommandExecutionResult, CommandInfo, ImmutableChatCommand,
+    ValidationResult,
 };
 
 /// Domain command executor trait for consistent execution interface
 /// Uses zero-allocation patterns and lock-free data structures
 pub trait DomainCommandExecutor: Send + Sync + 'static {
     /// Execute command and return stream of results - zero allocation where possible
-    fn execute(&self, context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>>;
+    fn execute(
+        &self,
+        context: &CommandExecutionContext,
+    ) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>>;
 
     /// Get command metadata - returns borrowed data to avoid allocation
     fn get_info(&self) -> &CommandInfo;

@@ -1,9 +1,9 @@
 //! ImageEmbeddingCapable trait implementation for ImageEmbeddingModel
 
-use crate::capability::traits::ImageEmbeddingCapable;
-use crate::domain::model::traits::CandleModel;
 use super::pool::capabilities::image_embedding_pool;
 use super::pool::core::ensure_workers_spawned_adaptive;
+use crate::capability::traits::ImageEmbeddingCapable;
+use crate::domain::model::traits::CandleModel;
 use std::sync::Arc;
 
 use super::enums::ImageEmbeddingModel;
@@ -25,9 +25,7 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
     > {
         let image_path = image_path.to_string();
         match self {
-            Self::ClipVision(m) => {
-                Box::pin(spawn_embed_image_clip(m.clone(), image_path))
-            }
+            Self::ClipVision(m) => Box::pin(spawn_embed_image_clip(m.clone(), image_path)),
         }
     }
 
@@ -47,9 +45,7 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
     > {
         let url = url.to_string();
         match self {
-            Self::ClipVision(m) => {
-                Box::pin(spawn_embed_image_url_clip(m.clone(), url))
-            }
+            Self::ClipVision(m) => Box::pin(spawn_embed_image_url_clip(m.clone(), url)),
         }
     }
 
@@ -69,9 +65,7 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
     > {
         let base64_data = base64_data.to_string();
         match self {
-            Self::ClipVision(m) => {
-                Box::pin(spawn_embed_image_base64_clip(m.clone(), base64_data))
-            }
+            Self::ClipVision(m) => Box::pin(spawn_embed_image_base64_clip(m.clone(), base64_data)),
         }
     }
 
@@ -91,9 +85,7 @@ impl ImageEmbeddingCapable for ImageEmbeddingModel {
     > {
         let paths: Vec<String> = image_paths.iter().map(|s| s.to_string()).collect();
         match self {
-            Self::ClipVision(m) => {
-                Box::pin(spawn_batch_embed_images_clip(m.clone(), paths))
-            }
+            Self::ClipVision(m) => Box::pin(spawn_batch_embed_images_clip(m.clone(), paths)),
         }
     }
 
@@ -112,7 +104,7 @@ async fn spawn_embed_image_clip(
     let registry_key = model.info().registry_key;
     let per_worker_mb = model.info().est_memory_allocation_mb;
     let pool = image_embedding_pool();
-    
+
     ensure_workers_spawned_adaptive(
         pool,
         registry_key,
@@ -143,7 +135,7 @@ async fn spawn_embed_image_url_clip(
     let registry_key = model.info().registry_key;
     let per_worker_mb = model.info().est_memory_allocation_mb;
     let pool = image_embedding_pool();
-    
+
     ensure_workers_spawned_adaptive(
         pool,
         registry_key,
@@ -174,7 +166,7 @@ async fn spawn_embed_image_base64_clip(
     let registry_key = model.info().registry_key;
     let per_worker_mb = model.info().est_memory_allocation_mb;
     let pool = image_embedding_pool();
-    
+
     ensure_workers_spawned_adaptive(
         pool,
         registry_key,
@@ -205,7 +197,7 @@ async fn spawn_batch_embed_images_clip(
     let registry_key = model.info().registry_key;
     let per_worker_mb = model.info().est_memory_allocation_mb;
     let pool = image_embedding_pool();
-    
+
     ensure_workers_spawned_adaptive(
         pool,
         registry_key,

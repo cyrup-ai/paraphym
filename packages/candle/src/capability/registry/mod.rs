@@ -100,15 +100,15 @@
 //! let model = registry::get_text_to_text_runtime("my-key").await.unwrap();
 //! ```
 
-mod enums;
-mod storage;
-mod text_to_text;
-mod text_embedding;
-mod image_embedding;
-mod text_to_image;
-mod vision;
 mod api;
+mod enums;
+mod image_embedding;
 mod runtime;
+mod storage;
+mod text_embedding;
+mod text_to_image;
+mod text_to_text;
+mod vision;
 
 // Pool is an integral part of registry - registry IS ALWAYS POOLED
 pub mod pool;
@@ -121,17 +121,17 @@ pub use enums::{
 
 // Re-export API functions
 pub use api::{
-    all_registry_keys, count_models_by_provider, get, get_by_provider_and_name,
+    FromRegistry, all_registry_keys, count_models_by_provider, get, get_by_provider_and_name,
     get_image_embedding, get_model, get_text_embedding, get_text_to_image, get_text_to_text,
-    get_vision, has_model, model_count, FromRegistry,
+    get_vision, has_model, model_count,
 };
 
 // Re-export runtime registration functions and types
 pub use runtime::{
-    get_image_embedding_runtime, get_text_to_image_runtime, get_text_to_text_runtime,
-    register_image_embedding, register_text_to_image, register_text_to_text,
-    unregister_image_embedding, unregister_text_to_image, unregister_text_to_text,
-    RegistrationError,
+    RegistrationError, get_image_embedding_runtime, get_text_to_image_runtime,
+    get_text_to_text_runtime, register_image_embedding, register_text_to_image,
+    register_text_to_text, unregister_image_embedding, unregister_text_to_image,
+    unregister_text_to_text,
 };
 
 // Test module

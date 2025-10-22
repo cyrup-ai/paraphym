@@ -9,10 +9,10 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
+use crate::async_stream;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio_stream::Stream;
-use crate::async_stream;
 
 use crate::domain::context::chunks::{CandleCompletionChunk, CandleStringChunk};
 use crate::domain::model::CandleUsage;
@@ -100,7 +100,7 @@ impl Default for EngineConfig {
             api_key: None,
             timeout_seconds: 30,
             max_tokens: Some(4096),
-            temperature: Some(0.0),  // Global default: greedy sampling for deterministic output
+            temperature: Some(0.0), // Global default: greedy sampling for deterministic output
             enable_streaming: false,
             endpoint_url: None,
         }
@@ -268,8 +268,6 @@ impl Engine {
         self.is_healthy.store(healthy, Ordering::Relaxed);
     }
 
-
-
     /// Coordinate text generation with metrics and streaming management
     ///
     /// Provides orchestration services for providers:
@@ -277,7 +275,10 @@ impl Engine {
     /// - Stream conversion from CandleStringChunk to CandleCompletionChunk  
     /// - Error handling and health monitoring
     /// - Performance timing and throughput calculation
-    pub fn coordinate_generation<F, S>(&self, generation_fn: F) -> impl Stream<Item = CandleCompletionChunk> + use<F, S>
+    pub fn coordinate_generation<F, S>(
+        &self,
+        generation_fn: F,
+    ) -> impl Stream<Item = CandleCompletionChunk> + use<F, S>
     where
         F: FnOnce() -> S + Send + 'static,
         S: Stream<Item = CandleStringChunk> + Send + 'static,
@@ -300,7 +301,10 @@ impl Engine {
     /// - Custom completion logic requiring direct control over chunk types
     ///
     /// This bypasses the text-to-completion conversion and provides metrics tracking only.
-    pub fn coordinate_completion<F, S>(&self, generation_fn: F) -> impl Stream<Item = CandleCompletionChunk> + use<F, S>
+    pub fn coordinate_completion<F, S>(
+        &self,
+        generation_fn: F,
+    ) -> impl Stream<Item = CandleCompletionChunk> + use<F, S>
     where
         F: FnOnce() -> S + Send + 'static,
         S: Stream<Item = CandleCompletionChunk> + Send + 'static,
@@ -366,14 +370,26 @@ impl Engine {
             while let Some(string_chunk) = stream.next().await {
                 // Convert CandleStringChunk to CandleCompletionChunk
                 let completion_chunk = match string_chunk {
-                    CandleStringChunk { text, is_final: false, stats: _ } if text.starts_with("ERROR:") => {
+                    CandleStringChunk {
+                        text,
+                        is_final: false,
+                        stats: _,
+                    } if text.starts_with("ERROR:") => {
                         has_error = true;
-                        CandleCompletionChunk::Error(text.strip_prefix("ERROR:").unwrap_or(&text).to_string())
+                        CandleCompletionChunk::Error(
+                            text.strip_prefix("ERROR:").unwrap_or(&text).to_string(),
+                        )
                     }
-                    CandleStringChunk { text, is_final: false, stats: _ } => {
-                        CandleCompletionChunk::Text(text.clone())
-                    }
-                    CandleStringChunk { text: _, is_final: true, stats: Some(gen_stats) } => {
+                    CandleStringChunk {
+                        text,
+                        is_final: false,
+                        stats: _,
+                    } => CandleCompletionChunk::Text(text.clone()),
+                    CandleStringChunk {
+                        text: _,
+                        is_final: true,
+                        stats: Some(gen_stats),
+                    } => {
                         // Final chunk with stats from TextGenerator - extract real timing
                         CandleCompletionChunk::Complete {
                             text: String::new(),
@@ -392,7 +408,11 @@ impl Engine {
                             tokens_per_sec: Some(gen_stats.tokens_per_sec),
                         }
                     }
-                    CandleStringChunk { text: _, is_final: true, stats: None } => {
+                    CandleStringChunk {
+                        text: _,
+                        is_final: true,
+                        stats: None,
+                    } => {
                         // Final chunk without stats (shouldn't happen, but handle gracefully)
                         log::warn!("Received final chunk without stats - this should not happen");
                         CandleCompletionChunk::Complete {

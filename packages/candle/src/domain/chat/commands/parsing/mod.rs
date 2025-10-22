@@ -3,18 +3,16 @@
 //! Provides zero-allocation command parsing with comprehensive validation and error handling.
 //! Uses blazing-fast parsing algorithms with ergonomic APIs and production-ready error messages.
 
-mod errors;
-mod command_parsers;
 mod builtin_commands;
+mod command_parsers;
+mod errors;
 
 // Public re-exports
 pub use errors::{ParseError, ParseResult};
 
 use std::collections::HashMap;
 
-use super::types::{
-    CandleCommandError, CommandInfo, ImmutableChatCommand, SearchScope,
-};
+use super::types::{CandleCommandError, CommandInfo, ImmutableChatCommand, SearchScope};
 
 /// Zero-allocation command parser with owned strings
 #[derive(Debug, Clone)]

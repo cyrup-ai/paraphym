@@ -1,13 +1,12 @@
 //! Document builder API - factory methods for creating DocumentBuilders
 
-use std::path::Path;
-use super::types::{DocumentBuilderData, DocumentBuilderImpl};
 use super::trait_def::DocumentBuilder;
+use super::types::{DocumentBuilderData, DocumentBuilderImpl};
 use crate::domain::context::{
-    CandleContentFormat as ContentFormat,
+    CandleContentFormat as ContentFormat, CandleDocument as Document,
     CandleDocumentMediaType as DocumentMediaType,
-    CandleDocument as Document,
 };
+use std::path::Path;
 
 impl Document {
     /// Create document from file path - EXACT syntax: Document::from_file("path/to/file.txt")

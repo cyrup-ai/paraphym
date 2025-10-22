@@ -2,9 +2,8 @@
 
 use super::types::DocumentBuilderData;
 use crate::domain::context::{
-    CandleContentFormat as ContentFormat,
+    CandleContentFormat as ContentFormat, CandleDocumentChunk as DocumentChunk,
     CandleDocumentMediaType as DocumentMediaType,
-    CandleDocumentChunk as DocumentChunk,
 };
 
 impl<F1, F2> super::types::DocumentBuilderImpl<F1, F2>
@@ -67,7 +66,10 @@ where
     }
 
     #[inline]
-    pub(super) fn detect_media_type(format: &ContentFormat, data: &DocumentBuilderData) -> DocumentMediaType {
+    pub(super) fn detect_media_type(
+        format: &ContentFormat,
+        data: &DocumentBuilderData,
+    ) -> DocumentMediaType {
         match format {
             ContentFormat::Json => DocumentMediaType::Json,
             ContentFormat::Html => DocumentMediaType::Html,

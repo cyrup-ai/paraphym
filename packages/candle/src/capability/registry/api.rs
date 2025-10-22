@@ -72,7 +72,9 @@ impl FromRegistry for ImageEmbeddingModel {
         // Lazy registration for CLIP Vision models
         match registry_key {
             "openai/clip-vit-base-patch32" => {
-                use crate::capability::image_embedding::{ClipVisionModel, ClipVisionEmbeddingModel};
+                use crate::capability::image_embedding::{
+                    ClipVisionEmbeddingModel, ClipVisionModel,
+                };
                 use std::sync::Arc;
 
                 // Synchronous initialization (ClipVisionModel::new is sync!)
@@ -87,7 +89,9 @@ impl FromRegistry for ImageEmbeddingModel {
                 Some(registry_model)
             }
             "openai/clip-vit-large-patch14-336" => {
-                use crate::capability::image_embedding::{ClipVisionModel, ClipVisionEmbeddingModel};
+                use crate::capability::image_embedding::{
+                    ClipVisionEmbeddingModel, ClipVisionModel,
+                };
                 use std::sync::Arc;
 
                 let clip_model = ClipVisionModel::new(768).ok()?;
@@ -99,7 +103,7 @@ impl FromRegistry for ImageEmbeddingModel {
 
                 Some(registry_model)
             }
-            _ => None
+            _ => None,
         }
     }
 }
@@ -142,7 +146,7 @@ impl FromRegistry for TextToImageModel {
 
                 Some(registry_model)
             }
-            _ => None
+            _ => None,
         }
     }
 }
@@ -157,27 +161,27 @@ impl FromRegistry for VisionModel {
 impl FromRegistry for AnyModel {
     fn from_registry(registry_key: &str) -> Option<Self> {
         // Delegate to specific FromRegistry implementations to trigger lazy loading
-        
+
         if let Some(model) = TextToTextModel::from_registry(registry_key) {
             return Some(AnyModel::TextToText(model));
         }
-        
+
         if let Some(model) = TextEmbeddingModel::from_registry(registry_key) {
             return Some(AnyModel::TextEmbedding(model));
         }
-        
+
         if let Some(model) = ImageEmbeddingModel::from_registry(registry_key) {
             return Some(AnyModel::ImageEmbedding(model));
         }
-        
+
         if let Some(model) = TextToImageModel::from_registry(registry_key) {
             return Some(AnyModel::TextToImage(model));
         }
-        
+
         if let Some(model) = VisionModel::from_registry(registry_key) {
             return Some(AnyModel::Vision(model));
         }
-        
+
         None
     }
 }
@@ -251,7 +255,7 @@ pub fn get_model(registry_key: &str) -> Option<impl CandleModel> {
 /// ```
 pub fn get_by_provider_and_name(provider: &str, name: &str) -> Option<AnyModel> {
     // Check each unified registry for matching provider and name
-    
+
     // Text-to-text models
     for model in TEXT_TO_TEXT_UNIFIED.read().values() {
         let info = model.info();
@@ -259,7 +263,7 @@ pub fn get_by_provider_and_name(provider: &str, name: &str) -> Option<AnyModel> 
             return Some(AnyModel::TextToText(model.clone()));
         }
     }
-    
+
     // Text embedding models
     for model in TEXT_EMBEDDING_UNIFIED.read().values() {
         let info = model.info();
@@ -267,7 +271,7 @@ pub fn get_by_provider_and_name(provider: &str, name: &str) -> Option<AnyModel> 
             return Some(AnyModel::TextEmbedding(model.clone()));
         }
     }
-    
+
     // Image embedding models
     for model in IMAGE_EMBEDDING_UNIFIED.read().values() {
         let info = model.info();
@@ -275,7 +279,7 @@ pub fn get_by_provider_and_name(provider: &str, name: &str) -> Option<AnyModel> 
             return Some(AnyModel::ImageEmbedding(model.clone()));
         }
     }
-    
+
     // Text-to-image models
     for model in TEXT_TO_IMAGE_UNIFIED.read().values() {
         let info = model.info();
@@ -283,7 +287,7 @@ pub fn get_by_provider_and_name(provider: &str, name: &str) -> Option<AnyModel> 
             return Some(AnyModel::TextToImage(model.clone()));
         }
     }
-    
+
     // Vision models
     for model in VISION_UNIFIED.read().values() {
         let info = model.info();
@@ -291,7 +295,7 @@ pub fn get_by_provider_and_name(provider: &str, name: &str) -> Option<AnyModel> 
             return Some(AnyModel::Vision(model.clone()));
         }
     }
-    
+
     None
 }
 
@@ -304,33 +308,33 @@ pub fn get_by_provider_and_name(provider: &str, name: &str) -> Option<AnyModel> 
 /// including runtime-registered models.
 pub fn count_models_by_provider() -> Vec<(&'static str, usize)> {
     let mut counts = HashMap::new();
-    
+
     // Aggregate from all unified registries
     for model in TEXT_TO_TEXT_UNIFIED.read().values() {
         let provider = model.info().provider_str();
         *counts.entry(provider).or_insert(0) += 1;
     }
-    
+
     for model in TEXT_EMBEDDING_UNIFIED.read().values() {
         let provider = model.info().provider_str();
         *counts.entry(provider).or_insert(0) += 1;
     }
-    
+
     for model in IMAGE_EMBEDDING_UNIFIED.read().values() {
         let provider = model.info().provider_str();
         *counts.entry(provider).or_insert(0) += 1;
     }
-    
+
     for model in TEXT_TO_IMAGE_UNIFIED.read().values() {
         let provider = model.info().provider_str();
         *counts.entry(provider).or_insert(0) += 1;
     }
-    
+
     for model in VISION_UNIFIED.read().values() {
         let provider = model.info().provider_str();
         *counts.entry(provider).or_insert(0) += 1;
     }
-    
+
     counts.into_iter().collect()
 }
 
@@ -353,16 +357,16 @@ pub fn count_models_by_provider() -> Vec<(&'static str, usize)> {
 /// ```
 pub fn all_registry_keys() -> Vec<String> {
     use std::collections::HashSet;
-    
+
     let mut keys = HashSet::new();
-    
+
     // Aggregate from all unified registries with automatic deduplication
     keys.extend(TEXT_TO_TEXT_UNIFIED.read().keys().cloned());
     keys.extend(TEXT_EMBEDDING_UNIFIED.read().keys().cloned());
     keys.extend(IMAGE_EMBEDDING_UNIFIED.read().keys().cloned());
     keys.extend(TEXT_TO_IMAGE_UNIFIED.read().keys().cloned());
     keys.extend(VISION_UNIFIED.read().keys().cloned());
-    
+
     keys.into_iter().collect()
 }
 

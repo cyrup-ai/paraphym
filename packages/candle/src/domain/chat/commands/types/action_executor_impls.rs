@@ -7,15 +7,21 @@ use std::pin::Pin;
 use tokio_stream::Stream;
 
 use super::{
+    CommandExecutionContext, CommandExecutionResult, CommandInfo, ImmutableChatCommand,
+    ValidationResult,
+    executor_defs::{
+        DomainCopyExecutor, DomainCustomExecutor, DomainHistoryExecutor, DomainRetryExecutor,
+        DomainToolExecutor, DomainUndoExecutor,
+    },
     executor_trait::DomainCommandExecutor,
-    executor_defs::{DomainToolExecutor, DomainCopyExecutor, DomainRetryExecutor, DomainUndoExecutor, DomainHistoryExecutor, DomainCustomExecutor},
-    CommandExecutionContext, CommandExecutionResult, CommandInfo,
-    ImmutableChatCommand, ValidationResult,
 };
 
 impl DomainCommandExecutor for DomainToolExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+    fn execute(
+        &self,
+        _context: &CommandExecutionContext,
+    ) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
         Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result =
                 CommandExecutionResult::Success("Domain tool executed successfully".to_string());
@@ -41,7 +47,10 @@ impl DomainCommandExecutor for DomainToolExecutor {
 
 impl DomainCommandExecutor for DomainCopyExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+    fn execute(
+        &self,
+        _context: &CommandExecutionContext,
+    ) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
         Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Success(
                 "Domain copy operation completed successfully".to_string(),
@@ -68,7 +77,10 @@ impl DomainCommandExecutor for DomainCopyExecutor {
 
 impl DomainCommandExecutor for DomainRetryExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+    fn execute(
+        &self,
+        _context: &CommandExecutionContext,
+    ) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
         Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Success(
                 "Domain retry operation completed successfully".to_string(),
@@ -95,7 +107,10 @@ impl DomainCommandExecutor for DomainRetryExecutor {
 
 impl DomainCommandExecutor for DomainUndoExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+    fn execute(
+        &self,
+        _context: &CommandExecutionContext,
+    ) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
         Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Success(
                 "Domain undo operation completed successfully".to_string(),
@@ -122,7 +137,10 @@ impl DomainCommandExecutor for DomainUndoExecutor {
 
 impl DomainCommandExecutor for DomainHistoryExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+    fn execute(
+        &self,
+        _context: &CommandExecutionContext,
+    ) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
         Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Data(serde_json::json!({
                 "history": [],
@@ -151,7 +169,10 @@ impl DomainCommandExecutor for DomainHistoryExecutor {
 
 impl DomainCommandExecutor for DomainCustomExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+    fn execute(
+        &self,
+        _context: &CommandExecutionContext,
+    ) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
         Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Success(
                 "Domain custom command executed successfully".to_string(),

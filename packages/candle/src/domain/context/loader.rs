@@ -7,11 +7,11 @@
 use std::fmt;
 use std::path::PathBuf;
 
+use crate::async_stream;
 use cyrup_sugars::ZeroOneOrMany;
 use cyrup_sugars::prelude::MessageChunk;
 use serde::{Deserialize, Serialize};
 use tokio_stream::Stream;
-use crate::async_stream;
 
 /// Wrapper for `PathBuf` that implements `MessageChunk` for streaming
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

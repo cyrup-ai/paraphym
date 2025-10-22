@@ -33,7 +33,7 @@ use worker::SD35WorkerRequest;
 static WORKER: OnceCell<mpsc::UnboundedSender<SD35WorkerRequest>> = OnceCell::new();
 
 /// Stable Diffusion 3.5 Large Turbo provider
-/// 
+///
 /// Models run on a dedicated worker thread to avoid Send/Sync issues.
 #[derive(Clone, Debug)]
 pub struct StableDiffusion35Turbo {}
@@ -69,10 +69,13 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
 
         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Download all required model files
-            let clip_g_path = match model_self.huggingface_file(
-                model_self.info().registry_key,
-                "text_encoders/clip_g.safetensors",
-            ).await {
+            let clip_g_path = match model_self
+                .huggingface_file(
+                    model_self.info().registry_key,
+                    "text_encoders/clip_g.safetensors",
+                )
+                .await
+            {
                 Ok(p) => p,
                 Err(e) => {
                     let _ = tx.send(ImageGenerationChunk::Error(format!(
@@ -83,10 +86,13 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
                 }
             };
 
-            let clip_l_path = match model_self.huggingface_file(
-                model_self.info().registry_key,
-                "text_encoders/clip_l.safetensors",
-            ).await {
+            let clip_l_path = match model_self
+                .huggingface_file(
+                    model_self.info().registry_key,
+                    "text_encoders/clip_l.safetensors",
+                )
+                .await
+            {
                 Ok(p) => p,
                 Err(e) => {
                     let _ = tx.send(ImageGenerationChunk::Error(format!(
@@ -97,10 +103,13 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
                 }
             };
 
-            let t5xxl_path = match model_self.huggingface_file(
-                model_self.info().registry_key,
-                "text_encoders/t5xxl_fp16.safetensors",
-            ).await {
+            let t5xxl_path = match model_self
+                .huggingface_file(
+                    model_self.info().registry_key,
+                    "text_encoders/t5xxl_fp16.safetensors",
+                )
+                .await
+            {
                 Ok(p) => p,
                 Err(e) => {
                     let _ = tx.send(ImageGenerationChunk::Error(format!(
@@ -111,10 +120,13 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
                 }
             };
 
-            let mmdit_path = match model_self.huggingface_file(
-                model_self.info().registry_key,
-                "sd3.5_large_turbo.safetensors",
-            ).await {
+            let mmdit_path = match model_self
+                .huggingface_file(
+                    model_self.info().registry_key,
+                    "sd3.5_large_turbo.safetensors",
+                )
+                .await
+            {
                 Ok(p) => p,
                 Err(e) => {
                     let _ = tx.send(ImageGenerationChunk::Error(format!(
@@ -127,7 +139,8 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
 
             // Download tokenizers
             let clip_l_tokenizer_path = match ClipLTokenizer
-                .huggingface_file(ClipLTokenizer.info().registry_key, "tokenizer.json").await
+                .huggingface_file(ClipLTokenizer.info().registry_key, "tokenizer.json")
+                .await
             {
                 Ok(p) => p,
                 Err(e) => {
@@ -140,7 +153,8 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
             };
 
             let clip_g_tokenizer_path = match ClipGTokenizer
-                .huggingface_file(ClipGTokenizer.info().registry_key, "tokenizer.json").await
+                .huggingface_file(ClipGTokenizer.info().registry_key, "tokenizer.json")
+                .await
             {
                 Ok(p) => p,
                 Err(e) => {
@@ -153,7 +167,8 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
             };
 
             let t5_config_path = match T5ConfigModel
-                .huggingface_file(T5ConfigModel.info().registry_key, "config.json").await
+                .huggingface_file(T5ConfigModel.info().registry_key, "config.json")
+                .await
             {
                 Ok(p) => p,
                 Err(e) => {
@@ -165,10 +180,13 @@ impl ImageGenerationModel for StableDiffusion35Turbo {
                 }
             };
 
-            let t5_tokenizer_path = match T5TokenizerModel.huggingface_file(
-                T5TokenizerModel.info().registry_key,
-                "t5-v1_1-xxl.tokenizer.json",
-            ).await {
+            let t5_tokenizer_path = match T5TokenizerModel
+                .huggingface_file(
+                    T5TokenizerModel.info().registry_key,
+                    "t5-v1_1-xxl.tokenizer.json",
+                )
+                .await
+            {
                 Ok(p) => p,
                 Err(e) => {
                     let _ = tx.send(ImageGenerationChunk::Error(format!(
@@ -276,7 +294,8 @@ impl crate::capability::traits::TextToImageCapable for StableDiffusion35Turbo {
         prompt: &str,
         config: &crate::domain::image_generation::ImageGenerationConfig,
         device: &candle_core::Device,
-    ) -> Pin<Box<dyn Stream<Item = crate::domain::image_generation::ImageGenerationChunk> + Send>> {
+    ) -> Pin<Box<dyn Stream<Item = crate::domain::image_generation::ImageGenerationChunk> + Send>>
+    {
         // Delegate to ImageGenerationModel trait
         <Self as ImageGenerationModel>::generate(self, prompt, config, device)
     }

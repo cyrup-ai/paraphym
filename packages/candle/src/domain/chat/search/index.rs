@@ -5,8 +5,8 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use tokio::sync::RwLock;
 
 use atomic_counter::{AtomicCounter, ConsistentCounter};
 use crossbeam_skiplist::SkipMap;
@@ -105,7 +105,13 @@ impl std::fmt::Debug for ChatSearchIndex {
                 "term_frequencies",
                 &format!("SkipMap with {} entries", self.term_frequencies.len()),
             )
-            .field("tagger", &self.tagger.as_ref().map(|_| "Some(Arc<CandleConversationTagger>)"))
+            .field(
+                "tagger",
+                &self
+                    .tagger
+                    .as_ref()
+                    .map(|_| "Some(Arc<CandleConversationTagger>)"),
+            )
             .field(
                 "document_count",
                 &self.document_count.load(Ordering::Relaxed),
@@ -152,7 +158,10 @@ impl ChatSearchIndex {
     }
 
     /// Add message to search index (streaming)
-    pub fn add_message_stream(&self, message: SearchChatMessage) -> Pin<Box<dyn Stream<Item = IndexResult> + Send>> {
+    pub fn add_message_stream(
+        &self,
+        message: SearchChatMessage,
+    ) -> Pin<Box<dyn Stream<Item = IndexResult> + Send>> {
         let self_clone = self.clone();
 
         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
@@ -260,9 +269,7 @@ impl ChatSearchIndex {
 
     /// Get search statistics
     pub fn get_statistics(&self) -> SearchStatistics {
-        self.statistics
-            .blocking_read()
-            .clone()
+        self.statistics.blocking_read().clone()
     }
 
     /// Get read-only access to the inverted index

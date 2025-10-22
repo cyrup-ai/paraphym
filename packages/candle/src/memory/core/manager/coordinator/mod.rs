@@ -3,15 +3,15 @@
 //! This module was decomposed from a 1,331-line monolithic file
 //! into 9 focused modules for better maintainability.
 
-mod types;
-mod lifecycle;
-mod temporal;
-mod workers;
-mod operations;
-mod search;
-mod relationships;
 mod conversions;
+mod lifecycle;
+mod operations;
+mod relationships;
+mod search;
+mod temporal;
 mod trait_impl;
+mod types;
+mod workers;
 
 // Re-export public types
 pub use types::*;

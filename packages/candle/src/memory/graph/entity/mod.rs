@@ -5,24 +5,16 @@
 //! All operations are thread-safe and use async patterns for maximum performance.
 
 mod futures;
-mod types;
 mod repository;
 mod surreal;
+mod types;
 
 // Re-export all public types to preserve API compatibility
 pub use futures::{
-    PendingEntity,
-    PendingEntityOption,
-    PendingEntityList,
-    PendingEntityCount,
-    PendingUnit,
+    PendingEntity, PendingEntityCount, PendingEntityList, PendingEntityOption, PendingUnit,
 };
 
-pub use types::{
-    Entity,
-    EntityValidatorFn,
-    BaseEntity,
-};
+pub use types::{BaseEntity, Entity, EntityValidatorFn};
 
 pub use repository::EntityRepository;
 

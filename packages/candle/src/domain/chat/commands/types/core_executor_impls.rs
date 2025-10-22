@@ -7,15 +7,21 @@ use std::pin::Pin;
 use tokio_stream::Stream;
 
 use super::{
+    CommandExecutionContext, CommandExecutionResult, CommandInfo, ImmutableChatCommand,
+    ValidationResult,
+    executor_defs::{
+        DomainChatExecutor, DomainClearExecutor, DomainDebugExecutor, DomainHelpExecutor,
+        DomainStatsExecutor, DomainThemeExecutor,
+    },
     executor_trait::DomainCommandExecutor,
-    executor_defs::{DomainHelpExecutor, DomainClearExecutor, DomainDebugExecutor, DomainStatsExecutor, DomainThemeExecutor, DomainChatExecutor},
-    CommandExecutionContext, CommandExecutionResult, CommandInfo,
-    ImmutableChatCommand, ValidationResult,
 };
 
 impl DomainCommandExecutor for DomainHelpExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+    fn execute(
+        &self,
+        _context: &CommandExecutionContext,
+    ) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
         Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Success(
                 "Domain help command executed successfully".to_string(),
@@ -42,7 +48,10 @@ impl DomainCommandExecutor for DomainHelpExecutor {
 
 impl DomainCommandExecutor for DomainClearExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+    fn execute(
+        &self,
+        _context: &CommandExecutionContext,
+    ) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
         Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Success(
                 "Domain clear command executed successfully".to_string(),
@@ -74,7 +83,10 @@ impl DomainCommandExecutor for DomainClearExecutor {
 
 impl DomainCommandExecutor for DomainDebugExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+    fn execute(
+        &self,
+        _context: &CommandExecutionContext,
+    ) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
         Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Data(serde_json::json!({
                 "debug_info": {
@@ -109,7 +121,10 @@ impl DomainCommandExecutor for DomainDebugExecutor {
 
 impl DomainCommandExecutor for DomainStatsExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+    fn execute(
+        &self,
+        _context: &CommandExecutionContext,
+    ) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
         Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Data(serde_json::json!({
                 "domain_stats": {
@@ -142,7 +157,10 @@ impl DomainCommandExecutor for DomainStatsExecutor {
 
 impl DomainCommandExecutor for DomainThemeExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+    fn execute(
+        &self,
+        _context: &CommandExecutionContext,
+    ) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
         Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result =
                 CommandExecutionResult::Success("Domain theme updated successfully".to_string());
@@ -168,7 +186,10 @@ impl DomainCommandExecutor for DomainThemeExecutor {
 
 impl DomainCommandExecutor for DomainChatExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+    fn execute(
+        &self,
+        _context: &CommandExecutionContext,
+    ) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
         Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Success(
                 "Domain chat command executed successfully".to_string(),

@@ -6,9 +6,9 @@
 //! Supports only trained MRL projection dimensions: 256, 768, 1024, 2048, 4096, 6144, 8192.
 //! Architecture follows the real Candle EmbeddingModel pattern with native lm_head projections.
 
+mod base;
 mod config;
 mod instruction;
-mod base;
 mod loaded;
 
 // Public API - maintain exact same exports as original stella.rs

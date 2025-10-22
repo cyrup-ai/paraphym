@@ -8,13 +8,13 @@ use std::num::NonZeroU32;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use candle_core::{Device, Tensor};
-use candle_core::quantized::gguf_file;
-use candle_transformers::models::quantized_qwen3::ModelWeights as Qwen3Model;
-use candle_transformers::generation::{LogitsProcessor, Sampling};
-use tokio_stream::Stream;
 use crate::async_stream;
 use crate::core::generation::TokenOutputStream;
+use candle_core::quantized::gguf_file;
+use candle_core::{Device, Tensor};
+use candle_transformers::generation::{LogitsProcessor, Sampling};
+use candle_transformers::models::quantized_qwen3::ModelWeights as Qwen3Model;
+use tokio_stream::Stream;
 
 use crate::core::{Engine, EngineConfig};
 
@@ -54,8 +54,8 @@ impl CandleQwen3QuantizedModel {
         // Create engine configuration using ModelInfo values
         let engine_config = EngineConfig::new("qwen3-quantized", "candle-qwen")
             .with_streaming()
-            .with_max_tokens(32768)  // From QWEN3_QUANTIZED_MODEL_INFO
-            .with_temperature(0.0);   // Greedy sampling for deterministic output
+            .with_max_tokens(32768) // From QWEN3_QUANTIZED_MODEL_INFO
+            .with_temperature(0.0); // Greedy sampling for deterministic output
 
         let engine = Arc::new(Engine::new(engine_config)?);
 
@@ -91,7 +91,7 @@ pub static QWEN3_QUANTIZED_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     image_size: None,
     image_mean: None,
     image_std: None,
-    default_temperature: Some(0.0),  // Greedy sampling for deterministic output
+    default_temperature: Some(0.0), // Greedy sampling for deterministic output
     default_top_k: Some(50),
     default_top_p: Some(0.9),
     supports_kv_cache: true,
@@ -135,10 +135,14 @@ impl LoadedQwen3QuantizedModel {
         base: &CandleQwen3QuantizedModel,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         log::info!("Loading Qwen3 model using Candle's native quantized implementation");
-        
+
         // Download files using huggingface_file()
-        let gguf_file_path = base.huggingface_file("unsloth/Qwen3-1.7B-GGUF", "Qwen3-1.7B-Q4_K_M.gguf").await?;
-        let tokenizer_path = base.huggingface_file("Qwen/Qwen3-1.7B", "tokenizer.json").await?;
+        let gguf_file_path = base
+            .huggingface_file("unsloth/Qwen3-1.7B-GGUF", "Qwen3-1.7B-Q4_K_M.gguf")
+            .await?;
+        let tokenizer_path = base
+            .huggingface_file("Qwen/Qwen3-1.7B", "tokenizer.json")
+            .await?;
 
         if !tokenizer_path.exists() {
             return Err(
@@ -159,7 +163,7 @@ impl LoadedQwen3QuantizedModel {
             Box::from(format!("Failed to open GGUF file: {}", e))
                 as Box<dyn std::error::Error + Send + Sync>
         })?;
-        
+
         let content = gguf_file::Content::read(&mut file).map_err(|e| {
             Box::from(format!("Failed to read GGUF content: {}", e))
                 as Box<dyn std::error::Error + Send + Sync>
@@ -208,7 +212,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3QuantizedModel 
     ) -> Pin<Box<dyn Stream<Item = CandleCompletionChunk> + Send>> {
         // Clone pre-loaded resources for the generation closure
         let engine = self.engine.clone();
-        let model = self.model.clone();  // ✅ Use CACHED model
+        let model = self.model.clone(); // ✅ Use CACHED model
         let device = self.device.clone();
         let tokenizer = self.tokenizer.clone(); // ✅ Clone pre-loaded tokenizer
         let eos_token_id = self.eos_token_id.unwrap_or(151645);
@@ -249,7 +253,10 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3QuantizedModel 
             .unwrap_or(64);
 
         // Format prompt using Qwen3 chat template
-        let prompt_text = format!("<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n", prompt.content);
+        let prompt_text = format!(
+            "<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n",
+            prompt.content
+        );
         let max_tokens = params.max_tokens.map(|n| n.get()).unwrap_or(1000);
 
         // Use Engine's coordinate_generation for automatic metrics and stream conversion
@@ -279,11 +286,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3QuantizedModel 
                             (None, None) => Sampling::All { temperature },
                             (Some(k), None) => Sampling::TopK { k, temperature },
                             (None, Some(p)) => Sampling::TopP { p, temperature },
-                            (Some(k), Some(p)) => Sampling::TopKThenTopP {
-                                k,
-                                p,
-                                temperature,
-                            },
+                            (Some(k), Some(p)) => Sampling::TopKThenTopP { k, p, temperature },
                         }
                     };
                     LogitsProcessor::from_sampling(seed, sampling)
@@ -503,15 +506,14 @@ impl crate::capability::traits::TextToTextCapable for LoadedQwen3QuantizedModel 
 
                 // Flush any remaining tokens
                 if let Ok(Some(t)) = tos.decode_rest()
-                    && !t.is_empty() {
-                        let _ = tx.send(CandleStringChunk::text(t));
-                    }
+                    && !t.is_empty()
+                {
+                    let _ = tx.send(CandleStringChunk::text(t));
+                }
             })
         }))
     }
 }
-
-
 
 impl std::fmt::Debug for LoadedQwen3QuantizedModel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -532,8 +534,6 @@ impl CandleModel for LoadedQwen3QuantizedModel {
 
 impl Default for CandleQwen3QuantizedModel {
     fn default() -> Self {
-        Self::new().unwrap_or_else(|e| {
-            panic!("Failed to initialize Qwen3 Quantized model: {}", e)
-        })
+        Self::new().unwrap_or_else(|e| panic!("Failed to initialize Qwen3 Quantized model: {}", e))
     }
 }

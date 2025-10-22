@@ -50,8 +50,8 @@ impl ClipVisionModel {
             VarBuilder::from_mmaped_safetensors(&[model_path], candle_core::DType::F32, &device)
                 .map_err(|e| format!("Failed to load model: {}", e))?
         };
-        let model =
-            ClipModel::new(vb, &clip_config).map_err(|e| format!("Failed to create model: {}", e))?;
+        let model = ClipModel::new(vb, &clip_config)
+            .map_err(|e| format!("Failed to create model: {}", e))?;
 
         // 6-7. PREPROCESS IMAGE & ADD BATCH DIMENSION - Use shared helper
         let batched = preprocess_image(Image::from_path(image_path), &config, &device).await?;
@@ -90,8 +90,8 @@ impl ClipVisionModel {
             VarBuilder::from_mmaped_safetensors(&[model_path], candle_core::DType::F32, &device)
                 .map_err(|e| format!("Failed to load model: {}", e))?
         };
-        let model =
-            ClipModel::new(vb, &clip_config).map_err(|e| format!("Failed to create model: {}", e))?;
+        let model = ClipModel::new(vb, &clip_config)
+            .map_err(|e| format!("Failed to create model: {}", e))?;
 
         // 6-7. PREPROCESS IMAGE & ADD BATCH DIMENSION - Use shared helper
         let batched = preprocess_image(Image::from_url(url), &config, &device).await?;
@@ -130,8 +130,8 @@ impl ClipVisionModel {
             VarBuilder::from_mmaped_safetensors(&[model_path], candle_core::DType::F32, &device)
                 .map_err(|e| format!("Failed to load model: {}", e))?
         };
-        let model =
-            ClipModel::new(vb, &clip_config).map_err(|e| format!("Failed to create model: {}", e))?;
+        let model = ClipModel::new(vb, &clip_config)
+            .map_err(|e| format!("Failed to create model: {}", e))?;
 
         // 6-7. PREPROCESS IMAGE & ADD BATCH DIMENSION - Use shared helper
         let batched = preprocess_image(Image::from_base64(base64_data), &config, &device).await?;
@@ -170,8 +170,8 @@ impl ClipVisionModel {
             VarBuilder::from_mmaped_safetensors(&[model_path], candle_core::DType::F32, &device)
                 .map_err(|e| format!("Failed to load model: {}", e))?
         };
-        let model =
-            ClipModel::new(vb, &clip_config).map_err(|e| format!("Failed to create model: {}", e))?;
+        let model = ClipModel::new(vb, &clip_config)
+            .map_err(|e| format!("Failed to create model: {}", e))?;
 
         // 6. PREPROCESS ALL IMAGES - CORRECT normalization
         use crate::builders::image::{ImageBuilder as _, ResizeFilter};

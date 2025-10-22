@@ -4,8 +4,8 @@ use std::time::SystemTime;
 use crossbeam_skiplist::SkipMap;
 use uuid::Uuid;
 
-use super::{AlignedEmbedding, MemoryNode, MemoryNodeMetadata, MemoryNodeStats};
 use super::super::types::{BaseMemory, MemoryContent, MemoryTypeEnum};
+use super::{AlignedEmbedding, MemoryNode, MemoryNodeMetadata, MemoryNodeStats};
 
 impl MemoryNode {
     /// Create new memory node with generated UUID

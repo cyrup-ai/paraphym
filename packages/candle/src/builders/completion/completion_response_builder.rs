@@ -1,6 +1,6 @@
 use std::borrow::Cow;
-use std::sync::Arc;
 use std::pin::Pin;
+use std::sync::Arc;
 
 use tokio_stream::Stream;
 
@@ -151,27 +151,29 @@ impl CompactCompletionResponseBuilder {
 
     /// Build the compact response
     pub fn build(self) -> Pin<Box<dyn Stream<Item = CompactCompletionResponse> + Send>> {
-        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
-            let response = CompactCompletionResponse {
-                content: self.content.map(|s| s.to_string()).unwrap_or_default(),
-                model: self
-                    .model
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| "unknown".to_string()),
-                provider: self
-                    .provider
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| "unknown".to_string()),
-                tokens_used: self.tokens_used,
-                finish_reason: self
-                    .finish_reason
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| "stop".to_string()),
-                response_time_ms: self.response_time_ms,
-            };
+        Box::pin(crate::async_stream::spawn_stream(
+            move |sender| async move {
+                let response = CompactCompletionResponse {
+                    content: self.content.map(|s| s.to_string()).unwrap_or_default(),
+                    model: self
+                        .model
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    provider: self
+                        .provider
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    tokens_used: self.tokens_used,
+                    finish_reason: self
+                        .finish_reason
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| "stop".to_string()),
+                    response_time_ms: self.response_time_ms,
+                };
 
-            let _ = sender.send(response);
-        }))
+                let _ = sender.send(response);
+            },
+        ))
     }
 }
 

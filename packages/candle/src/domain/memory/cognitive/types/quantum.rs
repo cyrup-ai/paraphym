@@ -1,10 +1,10 @@
 //! Quantum-inspired signatures and entanglement for cognitive memory routing
 
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::SystemTime;
 use tokio::sync::RwLock;
-use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use cyrup_simd::similarity::cosine_similarity;
@@ -155,12 +155,10 @@ impl QuantumSignature {
     ///
     /// Returns `CognitiveError` if amplitudes and phases have different dimensions
     #[inline]
-    pub fn with_coherence(
-        amplitudes: &[f32],
-        phases: Vec<f32>,
-    ) -> Result<Self, CognitiveError> {
+    pub fn with_coherence(amplitudes: &[f32], phases: Vec<f32>) -> Result<Self, CognitiveError> {
         // Create coherence fingerprint with validation
-        let coherence_fingerprint = AlignedCoherenceFingerprint::new(amplitudes.to_owned(), phases)?;
+        let coherence_fingerprint =
+            AlignedCoherenceFingerprint::new(amplitudes.to_owned(), phases)?;
 
         // Calculate initial collapse probability from amplitudes
         let collapse_probability = amplitudes.iter().map(|x| x * x).sum::<f32>();
@@ -171,11 +169,7 @@ impl QuantumSignature {
             .iter()
             .map(|&a| {
                 let p = f64::from(a * a);
-                if p > 0.0 {
-                    p * p.ln()
-                } else {
-                    0.0
-                }
+                if p > 0.0 { p * p.ln() } else { 0.0 }
             })
             .sum::<f64>();
 
@@ -220,7 +214,10 @@ impl QuantumSignature {
     /// Apply decoherence based on elapsed time
     #[inline]
     pub fn apply_decoherence(&self) {
-        let elapsed = self.creation_time.elapsed().unwrap_or(std::time::Duration::ZERO);
+        let elapsed = self
+            .creation_time
+            .elapsed()
+            .unwrap_or(std::time::Duration::ZERO);
         let decoherence_factor = (-self.decoherence_rate * elapsed.as_secs_f64()).exp();
 
         let current_entropy = self.quantum_entropy.load(Ordering::Relaxed);
@@ -297,9 +294,7 @@ impl QuantumSignature {
 
         // Use write lock for interior mutability
         // Lock is held only during the push operation, then immediately released
-        self.entanglement_bonds
-            .write().await
-            .push(bond);
+        self.entanglement_bonds.write().await.push(bond);
 
         Ok(())
     }
@@ -308,9 +303,7 @@ impl QuantumSignature {
     #[inline]
     pub async fn entanglement_bonds(&self) -> Vec<EntanglementBond> {
         // Read lock is held only during clone, then released
-        self.entanglement_bonds
-            .read().await
-            .clone()
+        self.entanglement_bonds.read().await.clone()
     }
 
     /// Get coherence fingerprint for quantum state access

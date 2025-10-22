@@ -1,11 +1,11 @@
 use serde::{Deserialize, Serialize};
 
-use crate::domain::memory::primitives::types::{MemoryError, MemoryResult};
 use super::super::shared::EmbeddingConfig;
-use super::types::{DistanceMetric, VectorStoreType};
-use super::simd::SimdConfig;
 use super::index::IndexConfig;
 use super::performance::{MemoryConfig, PerformanceConfig, VectorConnectionConfig};
+use super::simd::SimdConfig;
+use super::types::{DistanceMetric, VectorStoreType};
+use crate::domain::memory::primitives::types::{MemoryError, MemoryResult};
 
 /// Vector store configuration with SIMD optimization settings
 ///

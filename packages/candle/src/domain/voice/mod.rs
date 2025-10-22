@@ -38,7 +38,7 @@ pub enum VoiceError {
 pub type Result<T> = std::result::Result<T, VoiceError>;
 
 /// Voice processing service trait
-/// 
+///
 /// Note: This trait is currently unused in the codebase but provides the interface
 /// for future voice service implementations using 100% tokio async patterns.
 pub trait VoiceService: Send + Sync + 'static {

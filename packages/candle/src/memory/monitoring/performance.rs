@@ -181,11 +181,7 @@ impl Profiler {
 
     /// Stop a timer
     pub async fn stop(&self, name: &str) -> PerformanceResult<()> {
-        let start = self
-            .timers
-            .write()
-            .await
-            .remove(name);
+        let start = self.timers.write().await.remove(name);
 
         if let Some(start) = start {
             let duration = start.elapsed();

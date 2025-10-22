@@ -2,8 +2,8 @@
 
 use crate::domain::chat::formatting::{
     content::ImmutableMessageContent,
-    options::{ImmutableFormatOptions, ImmutableColorScheme, ImmutableCustomFormatRule},
     formatter::StreamingMessageFormatter,
+    options::{ImmutableColorScheme, ImmutableCustomFormatRule, ImmutableFormatOptions},
 };
 
 /// Deprecated alias for `ImmutableMessageContent` - use `ImmutableMessageContent` instead for zero-allocation streaming

@@ -1,11 +1,11 @@
 //! Memory item definitions for working and long-term memory storage
 
+use crate::domain::util::unix_timestamp_nanos;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
-use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use crate::domain::util::unix_timestamp_nanos;
 
 /// Working memory item for lock-free queue operations
 #[derive(Debug, Clone, Serialize, Deserialize)]

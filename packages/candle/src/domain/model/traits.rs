@@ -93,7 +93,9 @@ pub trait CandleModel: Send + Sync + std::fmt::Debug + 'static {
         &self,
         repo_key: &str,
         filename: &str,
-    ) -> impl std::future::Future<Output = Result<std::path::PathBuf, Box<dyn std::error::Error + Send + Sync>>> + Send
+    ) -> impl std::future::Future<
+        Output = Result<std::path::PathBuf, Box<dyn std::error::Error + Send + Sync>>,
+    > + Send
     where
         Self: Sized,
     {
@@ -110,31 +112,32 @@ pub trait CandleModel: Send + Sync + std::fmt::Debug + 'static {
             // Check cache first (file might be ready if we waited for lock)
             let cache = Cache::from_env();
             let cache_repo = cache.model(repo_key.to_string());
-            
+
             if let Some(cached_path) = cache_repo.get(filename) {
                 // Verify file exists and is not empty or corrupted
                 if let Ok(metadata) = std::fs::metadata(&cached_path)
-                    && metadata.len() > 0 {
-                        log::info!("✅ Using cached file (available after lock wait): {filename}");
-                        return Ok(cached_path);
-                    }
+                    && metadata.len() > 0
+                {
+                    log::info!("✅ Using cached file (available after lock wait): {filename}");
+                    return Ok(cached_path);
+                }
             }
-            
+
             // We hold lock and file not cached - proceed with download
             log::info!("⬇️  Starting download: {filename} from {repo_key}");
-            
+
             let mut builder = ApiBuilder::from_env();
-            
+
             if let Ok(token) = std::env::var("HF_TOKEN") {
                 builder = builder.with_token(Some(token));
             }
-            
+
             let api = builder.build()?;
             let repo = api.model(repo_key.to_string());
             let path = repo.get(filename).await?;
 
             log::info!("✅ Download complete: {filename}");
-            
+
             Ok(path)
             // Lock released here when _guard drops
         }

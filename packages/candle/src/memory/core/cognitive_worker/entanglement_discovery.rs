@@ -275,7 +275,8 @@ pub(crate) async fn process_entanglement_discovery(
             };
 
             if let Some(temporal_dist) = temporal_distance_ms
-                && let Ok(source_uuid) = uuid::Uuid::parse_str(&memory.id) {
+                && let Ok(source_uuid) = uuid::Uuid::parse_str(&memory.id)
+            {
                 let causal_link = CausalLink::new(
                     source_uuid,
                     related_id_uuid,
@@ -325,11 +326,13 @@ pub(crate) async fn process_entanglement_discovery(
                 }
             }
 
-            let bond_created = state_a.add_quantum_entanglement_bond(
-                related_id_uuid,
-                entanglement_strength,
-                entanglement_type,
-            ).await;
+            let bond_created = state_a
+                .add_quantum_entanglement_bond(
+                    related_id_uuid,
+                    entanglement_strength,
+                    entanglement_type,
+                )
+                .await;
 
             if bond_created {
                 log::info!(
@@ -365,7 +368,9 @@ pub(crate) async fn process_entanglement_discovery(
                         entanglement_type
                     );
 
-                    if let Err(e) = manager.update_quantum_signature(&memory.id, state_a.clone()).await
+                    if let Err(e) = manager
+                        .update_quantum_signature(&memory.id, state_a.clone())
+                        .await
                     {
                         log::error!(
                             "Failed to persist quantum signature for {}: {:?}",
@@ -393,7 +398,10 @@ pub(crate) async fn process_entanglement_discovery(
     }
 
     if entangled_count > 0 {
-        if let Err(e) = manager.update_quantum_signature(&memory_id, state_a.clone()).await {
+        if let Err(e) = manager
+            .update_quantum_signature(&memory_id, state_a.clone())
+            .await
+        {
             log::error!(
                 "Failed to persist final quantum signature for {}: {:?}",
                 memory_id,

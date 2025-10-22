@@ -1,11 +1,14 @@
 //! Error statistics and aggregation
 
-use std::sync::{LazyLock, atomic::{AtomicU64, Ordering}};
-use std::time::{Duration, Instant};
-use super::types::ErrorCategory;
+use super::breaker::{ErrorCircuitBreaker, ErrorCounter};
 use super::core::ZeroAllocError;
-use super::breaker::{ErrorCounter, ErrorCircuitBreaker};
+use super::types::ErrorCategory;
 use crate::domain::util::duration_to_nanos_u64;
+use std::sync::{
+    LazyLock,
+    atomic::{AtomicU64, Ordering},
+};
+use std::time::{Duration, Instant};
 
 /// Global error aggregator with lock-free statistics
 #[derive(Debug)]

@@ -1,8 +1,8 @@
 //! Model enum definitions and CandleModel trait implementations
 
-use std::sync::Arc;
 use crate::domain::model::CandleModelInfo;
 use crate::domain::model::traits::CandleModel;
+use std::sync::Arc;
 
 // Import all model types
 use crate::capability::image_embedding::ClipVisionEmbeddingModel;

@@ -83,7 +83,10 @@ impl std::fmt::Debug for StreamingMessageFormatter {
 }
 
 /// Type alias for formatter with streaming result
-pub type FormatterWithStream = (StreamingMessageFormatter, Pin<Box<dyn Stream<Item = FormattingEvent> + Send>>);
+pub type FormatterWithStream = (
+    StreamingMessageFormatter,
+    Pin<Box<dyn Stream<Item = FormattingEvent> + Send>>,
+);
 
 impl StreamingMessageFormatter {
     /// Create new streaming message formatter
@@ -111,9 +114,7 @@ impl StreamingMessageFormatter {
     ///
     /// Returns `FormatError::ConfigurationError` if options validation fails
     #[inline]
-    pub fn with_streaming(
-        options: ImmutableFormatOptions,
-    ) -> FormatResult<FormatterWithStream> {
+    pub fn with_streaming(options: ImmutableFormatOptions) -> FormatResult<FormatterWithStream> {
         options.validate()?;
         let stream = Box::pin(crate::async_stream::spawn_stream(|_sender| async move {
             // Stream is created but not used directly

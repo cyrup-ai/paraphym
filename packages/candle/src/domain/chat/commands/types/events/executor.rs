@@ -4,10 +4,10 @@
 
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
-use super::event_types::CommandEvent;
-use super::stats::CommandExecutorStats;
 use super::super::commands::{CommandExecutionResult, ImmutableChatCommand, OutputType};
 use super::super::metadata::ResourceUsage;
+use super::event_types::CommandEvent;
+use super::stats::CommandExecutorStats;
 
 /// Streaming command executor with atomic state tracking for zero allocation
 pub struct StreamingCommandExecutor {
@@ -43,7 +43,9 @@ impl StreamingCommandExecutor {
     /// Create with event sender for streaming events
     #[inline]
     #[must_use]
-    pub fn with_event_sender(event_sender: tokio::sync::mpsc::UnboundedSender<CommandEvent>) -> Self {
+    pub fn with_event_sender(
+        event_sender: tokio::sync::mpsc::UnboundedSender<CommandEvent>,
+    ) -> Self {
         Self {
             execution_counter: AtomicU64::new(0),
             active_executions: AtomicUsize::new(0),

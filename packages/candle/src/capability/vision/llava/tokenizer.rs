@@ -31,10 +31,7 @@ pub(crate) async fn tokenize_image_prompt_static(
         let mut input_ids = Vec::new();
         let mut offset = 0;
 
-        if !chunks.is_empty()
-            && !chunks[0].is_empty()
-            && chunks[0][0] == bos_token_id
-        {
+        if !chunks.is_empty() && !chunks[0].is_empty() && chunks[0][0] == bos_token_id {
             offset = 1;
             input_ids.push(chunks[0][0]);
         }

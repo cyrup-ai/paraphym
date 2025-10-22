@@ -1,17 +1,15 @@
 //! DocumentBuilder trait definition - public API contract
 
 use crate::domain::context::{
-    CandleContentFormat as ContentFormat,
-    CandleDocumentMediaType as DocumentMediaType,
-    CandleDocument as Document,
-    CandleDocumentChunk as DocumentChunk,
+    CandleContentFormat as ContentFormat, CandleDocument as Document,
+    CandleDocumentChunk as DocumentChunk, CandleDocumentMediaType as DocumentMediaType,
 };
 use cyrup_sugars::ZeroOneOrMany;
-use tokio_stream::Stream;
-use std::pin::Pin;
-use std::future::Future;
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::future::Future;
+use std::pin::Pin;
+use tokio_stream::Stream;
 
 /// Document builder trait - elegant zero-allocation builder pattern
 pub trait DocumentBuilder: Sized {

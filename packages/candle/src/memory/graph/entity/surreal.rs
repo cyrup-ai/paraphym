@@ -6,10 +6,12 @@ use std::sync::Arc;
 use surrealdb::Value;
 use tokio::sync::oneshot;
 
-use crate::memory::graph::graph_db::{GraphDatabase, GraphError, GraphQueryOptions};
-use super::futures::{PendingEntity, PendingEntityOption, PendingEntityList, PendingEntityCount, PendingUnit};
-use super::types::{Entity, EntityValidatorFn};
+use super::futures::{
+    PendingEntity, PendingEntityCount, PendingEntityList, PendingEntityOption, PendingUnit,
+};
 use super::repository::EntityRepository;
+use super::types::{Entity, EntityValidatorFn};
+use crate::memory::graph::graph_db::{GraphDatabase, GraphError, GraphQueryOptions};
 
 /// SurrealDB-backed entity repository implementation
 pub struct SurrealEntityRepository<E: Entity + Clone + 'static> {

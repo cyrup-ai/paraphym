@@ -1,8 +1,8 @@
 //! Error types and result enums
 
-use std::time::Duration;
-use serde::{Deserialize, Serialize};
 use cyrup_sugars::prelude::MessageChunk;
+use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 /// Result of macro action execution
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

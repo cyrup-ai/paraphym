@@ -5,8 +5,8 @@
 
 use std::sync::Arc;
 
-use surrealdb::engine::any::Any;
 use surrealdb::Surreal;
+use surrealdb::engine::any::Any;
 
 use crate::capability::registry::TextEmbeddingModel;
 use crate::memory::migration::{
@@ -17,8 +17,8 @@ use crate::memory::schema::memory_schema::MemoryNodeSchema;
 use crate::memory::utils::error::Error;
 use std::path::Path;
 
-use super::types::ExportData;
 use super::Result;
+use super::types::ExportData;
 
 /// SurrealDB-backed memory manager implementation
 #[derive(Debug)]
@@ -102,7 +102,9 @@ impl SurrealDBMemoryManager {
                 ",
             )
             .await
-            .map_err(|e| Error::Database(format!("Failed to define relationship table: {:?}", e)))?;
+            .map_err(|e| {
+                Error::Database(format!("Failed to define relationship table: {:?}", e))
+            })?;
 
         // Define quantum signature table
         self.db
@@ -134,9 +136,7 @@ impl SurrealDBMemoryManager {
                 ",
             )
             .await
-            .map_err(|e| {
-                Error::Database(format!("Failed to define MTREE index: {:?}", e))
-            })?;
+            .map_err(|e| Error::Database(format!("Failed to define MTREE index: {:?}", e)))?;
 
         // Define entanglement edges (graph relations)
         self.db
@@ -164,9 +164,7 @@ impl SurrealDBMemoryManager {
                 ",
             )
             .await
-            .map_err(|e| {
-                Error::Database(format!("Failed to define causal edges: {:?}", e))
-            })?;
+            .map_err(|e| Error::Database(format!("Failed to define causal edges: {:?}", e)))?;
 
         Ok(())
     }
@@ -202,18 +200,18 @@ impl SurrealDBMemoryManager {
         let mut migration_mgr = MigrationManager::new(db_arc)
             .await
             .map_err(|e| Error::Database(format!("Migration manager creation failed: {:?}", e)))?;
-        
+
         // Add all built-in migrations to the manager
         for migration in BuiltinMigrations::all() {
             migration_mgr.add_migration(migration);
         }
-        
+
         // Execute all pending migrations
         migration_mgr
             .migrate()
             .await
             .map_err(|e| Error::Database(format!("Migration failed: {:?}", e)))?;
-        
+
         Ok(())
     }
 
@@ -231,10 +229,7 @@ impl SurrealDBMemoryManager {
             .take(0)
             .map_err(|e| Error::Database(format!("Failed to parse memories: {:?}", e)))?;
 
-        let memories: Vec<MemoryNode> = memory_schemas
-            .into_iter()
-            .map(Self::from_schema)
-            .collect();
+        let memories: Vec<MemoryNode> = memory_schemas.into_iter().map(Self::from_schema).collect();
 
         // Fetch all relationships
         let query = "SELECT * FROM relationship";
@@ -266,7 +261,7 @@ impl SurrealDBMemoryManager {
     pub async fn import_memories(&self, path: &Path, format: ImportFormat) -> Result<()> {
         // Use DataImporter for format-aware import
         let importer = DataImporter::new();
-        
+
         // Import based on format
         let import_data_vec: Vec<ExportData> = match format {
             ImportFormat::Json => importer
@@ -278,7 +273,7 @@ impl SurrealDBMemoryManager {
                 .await
                 .map_err(|e| Error::Other(format!("CSV import failed: {:?}", e)))?,
         };
-        
+
         let import_data = import_data_vec
             .into_iter()
             .next()
@@ -377,8 +372,8 @@ impl SurrealDBMemoryManager {
 
     /// Convert SurrealDB schema to domain MemoryNode
     pub(super) fn from_schema(schema: MemoryNodeSchema) -> MemoryNode {
-        use crate::memory::core::primitives::types::MemoryContent;
         use crate::memory::core::primitives::metadata::MemoryMetadata;
+        use crate::memory::core::primitives::types::MemoryContent;
         use crate::memory::monitoring::operations::OperationStatus;
 
         let id_str = format!("memory:{}", schema.id);

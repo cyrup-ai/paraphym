@@ -13,14 +13,20 @@ pub trait TemplateStore: Send + Sync {
     /// # Errors
     ///
     /// Returns `TemplateError` if template cannot be stored
-    fn store(&self, template: &ChatTemplate) -> impl std::future::Future<Output = TemplateResult<()>> + Send;
+    fn store(
+        &self,
+        template: &ChatTemplate,
+    ) -> impl std::future::Future<Output = TemplateResult<()>> + Send;
 
     /// Retrieve a template by name
     ///
     /// # Errors
     ///
     /// Returns `TemplateError` if template retrieval fails
-    fn get(&self, name: &str) -> impl std::future::Future<Output = TemplateResult<Option<ChatTemplate>>> + Send;
+    fn get(
+        &self,
+        name: &str,
+    ) -> impl std::future::Future<Output = TemplateResult<Option<ChatTemplate>>> + Send;
 
     /// Delete a template
     ///

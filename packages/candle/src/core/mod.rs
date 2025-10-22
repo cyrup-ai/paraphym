@@ -3,11 +3,11 @@
 use std::sync::atomic::AtomicUsize;
 use std::time::Duration;
 
+use crate::async_stream;
 use arc_swap::ArcSwap;
 use cyrup_sugars::prelude::MessageChunk;
 use once_cell::sync::Lazy;
 use tokio_stream::Stream;
-use crate::async_stream;
 
 use crate::domain::memory::MemoryError;
 

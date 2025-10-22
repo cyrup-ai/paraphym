@@ -4,57 +4,35 @@
 //! circuit breaker patterns, and lock-free error aggregation for blazing-fast performance.
 
 // Module declarations
-mod types;
-mod circuit_breaker;
-mod core;
 mod breaker;
-mod stats;
+mod circuit_breaker;
 mod conversions;
+mod core;
+mod stats;
+mod types;
 
 // Re-export fundamental types
 pub use types::{
-    MAX_ERROR_MESSAGE_LEN,
-    ErrorCategory,
-    ErrorSeverity,
-    ErrorRecoverability,
+    ErrorCategory, ErrorMessage, ErrorRecoverability, ErrorSeverity, MAX_ERROR_MESSAGE_LEN,
     ZeroAllocMessage,
-    ErrorMessage,
 };
 
 // Re-export circuit breaker
-pub use circuit_breaker::{
-    CircuitBreakerState,
-    CircuitBreaker,
-    CircuitBreakerError,
-};
+pub use circuit_breaker::{CircuitBreaker, CircuitBreakerError, CircuitBreakerState};
 
 // Re-export core error type
-pub use core::{
-    ZeroAllocError,
-    ZeroAllocResult,
-};
+pub use core::{ZeroAllocError, ZeroAllocResult};
 
 // Re-export error circuit breaker and counter
-pub use breaker::{
-    ErrorCircuitBreaker,
-    ErrorCounter,
-};
+pub use breaker::{ErrorCircuitBreaker, ErrorCounter};
 
 // Re-export statistics
 pub use stats::{
-    ErrorAggregator,
-    record_error,
-    error_stats,
-    error_breaker,
-    total_errors,
-    reset_error_stats,
+    ErrorAggregator, error_breaker, error_stats, record_error, reset_error_stats, total_errors,
 };
 
 // Re-export conversion traits
-pub use conversions::{
-    IntoZeroAllocError,
-    ZeroAllocResultExt,
-};
+pub use conversions::{IntoZeroAllocError, ZeroAllocResultExt};
 
 // Convenience macros for creating errors with location
 
@@ -62,8 +40,14 @@ pub use conversions::{
 #[macro_export]
 macro_rules! error {
     ($category:expr, $severity:expr, $recoverability:expr, $message:expr, $code:expr) => {
-        $crate::domain::error::ZeroAllocError::new($category, $severity, $recoverability, $message, $code)
-            .with_location(file!(), line!())
+        $crate::domain::error::ZeroAllocError::new(
+            $category,
+            $severity,
+            $recoverability,
+            $message,
+            $code,
+        )
+        .with_location(file!(), line!())
     };
 }
 

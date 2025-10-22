@@ -7,8 +7,8 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use cyrup_sugars::prelude::MessageChunk;
-use thiserror::Error;
 use std::pin::Pin;
+use thiserror::Error;
 use tokio_stream::Stream;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
@@ -220,7 +220,10 @@ impl CandleStreamingConversation {
     /// Create Candle conversation with event streaming
     #[inline]
     #[must_use]
-    pub fn with_streaming() -> (Self, Pin<Box<dyn Stream<Item = CandleConversationEvent> + Send>>) {
+    pub fn with_streaming() -> (
+        Self,
+        Pin<Box<dyn Stream<Item = CandleConversationEvent> + Send>>,
+    ) {
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
 
         let conversation = Self {
@@ -228,7 +231,10 @@ impl CandleStreamingConversation {
             ..Self::new()
         };
 
-        (conversation, Box::pin(UnboundedReceiverStream::new(receiver)))
+        (
+            conversation,
+            Box::pin(UnboundedReceiverStream::new(receiver)),
+        )
     }
 
     /// Add Candle user message (creates new immutable message)

@@ -1,7 +1,7 @@
 //! Generic circuit breaker implementation for fault tolerance
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use crate::domain::util::duration_to_millis_u64;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Circuit breaker state for error handling
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

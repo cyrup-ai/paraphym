@@ -24,8 +24,9 @@ pub(crate) type FinalResult = (String, Vec<f32>, f32, Option<HashMap<String, Val
 ///
 /// This function type represents a synchronous keyword search operation.
 /// For concurrent execution, wrap the function call in a thread.
-pub type KeywordSearchFn =
-    Arc<dyn Fn(&str, Option<super::options::SearchOptions>) -> Result<Vec<SearchResult>> + Send + Sync>;
+pub type KeywordSearchFn = Arc<
+    dyn Fn(&str, Option<super::options::SearchOptions>) -> Result<Vec<SearchResult>> + Send + Sync,
+>;
 
 /// Search result with comprehensive metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]

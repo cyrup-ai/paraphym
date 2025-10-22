@@ -72,7 +72,10 @@ pub struct CandlePassthroughStep;
 
 impl CandleWorkflowStep<WorkflowDataChunk, WorkflowDataChunk> for CandlePassthroughStep {
     #[inline]
-    fn execute(&self, input: WorkflowDataChunk) -> Pin<Box<dyn Stream<Item = WorkflowDataChunk> + Send>> {
+    fn execute(
+        &self,
+        input: WorkflowDataChunk,
+    ) -> Pin<Box<dyn Stream<Item = WorkflowDataChunk> + Send>> {
         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Send input through stream
             let _ = tx.send(input);
@@ -116,7 +119,10 @@ where
     /// - NO Result<T,E> wrapping inside streams
     /// - Error handling via stream patterns
     #[inline]
-    pub fn execute(&self, input: WorkflowDataChunk) -> Pin<Box<dyn Stream<Item = WorkflowDataChunk> + Send>> {
+    pub fn execute(
+        &self,
+        input: WorkflowDataChunk,
+    ) -> Pin<Box<dyn Stream<Item = WorkflowDataChunk> + Send>> {
         self.step.execute(input)
     }
 
@@ -158,7 +164,10 @@ where
     A: CandleWorkflowStep<WorkflowDataChunk, WorkflowDataChunk> + Clone,
     B: CandleWorkflowStep<WorkflowDataChunk, WorkflowDataChunk> + Clone,
 {
-    fn execute(&self, input: WorkflowDataChunk) -> Pin<Box<dyn Stream<Item = WorkflowDataChunk> + Send>> {
+    fn execute(
+        &self,
+        input: WorkflowDataChunk,
+    ) -> Pin<Box<dyn Stream<Item = WorkflowDataChunk> + Send>> {
         // Clone to avoid lifetime issues in the closure
         let second_clone = self.second.clone();
 

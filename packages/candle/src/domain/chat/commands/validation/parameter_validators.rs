@@ -75,24 +75,26 @@ impl ValidationConfig {
         max: Option<i64>,
     ) -> Result<(), ValidationError> {
         if let Some(min_val) = min
-            && value < min_val {
-                return Err(ValidationError::ParameterOutOfRange {
-                    parameter: name.to_string(),
-                    value: value.to_string(),
-                    min: Some(min_val.to_string()),
-                    max: max.map(|m| m.to_string()),
-                });
-            }
+            && value < min_val
+        {
+            return Err(ValidationError::ParameterOutOfRange {
+                parameter: name.to_string(),
+                value: value.to_string(),
+                min: Some(min_val.to_string()),
+                max: max.map(|m| m.to_string()),
+            });
+        }
 
         if let Some(max_val) = max
-            && value > max_val {
-                return Err(ValidationError::ParameterOutOfRange {
-                    parameter: name.to_string(),
-                    value: value.to_string(),
-                    min: min.map(|m| m.to_string()),
-                    max: Some(max_val.to_string()),
-                });
-            }
+            && value > max_val
+        {
+            return Err(ValidationError::ParameterOutOfRange {
+                parameter: name.to_string(),
+                value: value.to_string(),
+                min: min.map(|m| m.to_string()),
+                max: Some(max_val.to_string()),
+            });
+        }
 
         Ok(())
     }

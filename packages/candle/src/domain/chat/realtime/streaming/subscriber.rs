@@ -1,10 +1,10 @@
 //! Stream subscriber with filtering and statistics
 
+use super::types::{LiveUpdateMessage, MessagePriority};
+use crate::domain::util::unix_timestamp_nanos;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::mpsc;
-use super::types::{LiveUpdateMessage, MessagePriority};
-use crate::domain::util::unix_timestamp_nanos;
 
 /// Stream subscriber with atomic statistics
 #[derive(Debug)]

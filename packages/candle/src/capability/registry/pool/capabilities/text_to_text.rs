@@ -1,23 +1,24 @@
 use once_cell::sync::Lazy;
-use tokio::sync::{mpsc, oneshot};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio::sync::{mpsc, oneshot};
 use tokio_stream::Stream;
 
+use crate::capability::registry::pool::core::memory_governor::AllocationGuard;
+use crate::capability::registry::pool::core::types::{
+    HealthPing, HealthPong, select_worker_power_of_two,
+};
+use crate::capability::registry::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
 use crate::capability::traits::TextToTextCapable;
 use crate::domain::completion::CandleCompletionParams;
 use crate::domain::context::chunks::CandleCompletionChunk;
 use crate::domain::prompt::CandlePrompt;
-use crate::capability::registry::pool::core::memory_governor::AllocationGuard;
-use crate::capability::registry::pool::core::types::{HealthPing, HealthPong, select_worker_power_of_two};
-use crate::capability::registry::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
 
 /// Type alias for text completion streaming response sender
-type CompletionResponse = oneshot::Sender<
-    Result<Pin<Box<dyn Stream<Item = CandleCompletionChunk> + Send>>, PoolError>
->;
+type CompletionResponse =
+    oneshot::Sender<Result<Pin<Box<dyn Stream<Item = CandleCompletionChunk> + Send>>, PoolError>>;
 
 /// Request for prompt() operation (streaming response)
 pub struct PromptRequest {
@@ -250,7 +251,8 @@ impl Pool<TextToTextWorkerHandle> {
                     registry_key: registry_key_clone.clone(),
                     state: Arc::clone(&state_clone),
                 },
-            ).await;
+            )
+            .await;
 
             // Transition: Ready → Dead (when worker loop exits)
             state_clone.store(
@@ -301,9 +303,12 @@ impl Pool<TextToTextWorkerHandle> {
         prompt: CandlePrompt,
         params: CandleCompletionParams,
     ) -> Pin<Box<dyn Stream<Item = CandleCompletionChunk> + Send>> {
-        log::info!(">>> TextToTextPool::prompt() called for registry_key={}, prompt_len={}", 
-            registry_key, prompt.content.len());
-        
+        log::info!(
+            ">>> TextToTextPool::prompt() called for registry_key={}, prompt_len={}",
+            registry_key,
+            prompt.content.len()
+        );
+
         // Clone for move into closure
         let registry_key = registry_key.to_string();
         let is_shutting_down = self.is_shutting_down();
@@ -313,7 +318,9 @@ impl Pool<TextToTextWorkerHandle> {
             log::info!(">>> Pool stream spawned for {}", registry_key);
             // Check shutdown
             if is_shutting_down {
-                let _ = tx.send(CandleCompletionChunk::Error("Pool shutting down".to_string()));
+                let _ = tx.send(CandleCompletionChunk::Error(
+                    "Pool shutting down".to_string(),
+                ));
                 return;
             }
 
@@ -337,13 +344,18 @@ impl Pool<TextToTextWorkerHandle> {
             let workers = match pool.workers().get(&registry_key) {
                 Some(w) => w,
                 None => {
-                    let _ = tx.send(CandleCompletionChunk::Error(format!("No workers for {}", registry_key)));
+                    let _ = tx.send(CandleCompletionChunk::Error(format!(
+                        "No workers for {}",
+                        registry_key
+                    )));
                     return;
                 }
             };
 
             if workers.is_empty() {
-                let _ = tx.send(CandleCompletionChunk::Error("No workers available".to_string()));
+                let _ = tx.send(CandleCompletionChunk::Error(
+                    "No workers available".to_string(),
+                ));
                 return;
             }
 
@@ -372,7 +384,10 @@ impl Pool<TextToTextWorkerHandle> {
                 params,
                 response: response_tx,
             }) {
-                let _ = tx.send(CandleCompletionChunk::Error(format!("Failed to send request: {}", e)));
+                let _ = tx.send(CandleCompletionChunk::Error(format!(
+                    "Failed to send request: {}",
+                    e
+                )));
                 worker.core.pending_requests.fetch_sub(1, Ordering::Release);
                 return;
             }
@@ -399,7 +414,9 @@ impl Pool<TextToTextWorkerHandle> {
                     circuit.record_failure();
                     pool.metrics().total_errors.fetch_add(1, Ordering::Relaxed);
 
-                    let _ = tx.send(CandleCompletionChunk::Error("Response channel closed".to_string()));
+                    let _ = tx.send(CandleCompletionChunk::Error(
+                        "Response channel closed".to_string(),
+                    ));
                     worker.core.pending_requests.fetch_sub(1, Ordering::Release);
                     return;
                 }

@@ -1,8 +1,8 @@
 //! Real-time chat system implementation
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::broadcast;
 use std::pin::Pin;
+use tokio::sync::broadcast;
 use tokio_stream::Stream;
 
 use super::{
@@ -70,7 +70,9 @@ impl RealtimeChat {
     }
 
     /// Start the real-time chat system
-    pub fn start(&mut self) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunks::CandleUnitChunk> + Send>> {
+    pub fn start(
+        &mut self,
+    ) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunks::CandleUnitChunk> + Send>> {
         if self.is_running {
             return Box::pin(crate::async_stream::spawn_stream(|tx| async move {
                 // Already running - send success immediately

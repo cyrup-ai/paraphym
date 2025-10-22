@@ -11,7 +11,7 @@ use candle_nn::VarBuilder;
 use candle_transformers::models::clip::{ClipConfig, ClipModel};
 use std::sync::Arc;
 
-use super::config::{get_configs_for_dimension, CLIP_VISION_BASE_INFO, CLIP_VISION_LARGE_INFO};
+use super::config::{CLIP_VISION_BASE_INFO, CLIP_VISION_LARGE_INFO, get_configs_for_dimension};
 
 /// CLIP vision provider for image embeddings (lazy loading pattern)
 ///

@@ -36,7 +36,7 @@ impl CandleEnhancedHistoryManager {
         let tagger = Arc::new(super::tagger::CandleConversationTagger::new());
         let mut search_index = super::index::ChatSearchIndex::new();
         search_index.tagger = Some(Arc::clone(&tagger));
-        
+
         Self {
             search_index: Arc::new(search_index),
             tagger,
@@ -58,7 +58,7 @@ impl CandleEnhancedHistoryManager {
         let messages = Arc::clone(&self.messages);
         let message_timestamps = Arc::clone(&self.message_timestamps);
         let search_index: Arc<super::index::ChatSearchIndex> = Arc::clone(&self.search_index);
-        
+
         // Clone tagger for auto-tagging
         let tagger = Arc::clone(&self.tagger);
         let message_content = message.message.content.clone();
@@ -74,7 +74,7 @@ impl CandleEnhancedHistoryManager {
                     let ts_i64 = ts_u64 as i64;
                     message_timestamps.insert(ts_i64, id.clone());
                 }
-                
+
                 // Auto-tag the message
                 tagger.auto_tag_message(&id, &message_content);
             }
@@ -114,11 +114,13 @@ impl CandleEnhancedHistoryManager {
     #[must_use]
     pub fn search_by_tag(&self, tag: &str) -> Vec<CandleSearchChatMessage> {
         // Find tag ID by name
-        let tag_id: Option<String> = self.tagger.tags
+        let tag_id: Option<String> = self
+            .tagger
+            .tags
             .iter()
             .find(|e| e.value().name == tag)
             .map(|e| e.key().clone());
-        
+
         if let Some(tid) = tag_id {
             let message_ids = self.tagger.get_messages_by_tag(&tid);
             message_ids
@@ -136,11 +138,7 @@ impl CandleEnhancedHistoryManager {
         let tag_ids = self.tagger.get_tags(message_id);
         tag_ids
             .iter()
-            .filter_map(|tag_id| {
-                self.tagger.tags
-                    .get(tag_id)
-                    .map(|e| e.value().name.clone())
-            })
+            .filter_map(|tag_id| self.tagger.tags.get(tag_id).map(|e| e.value().name.clone()))
             .collect()
     }
 

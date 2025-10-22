@@ -1,14 +1,14 @@
 //! Execution context and metadata structures
 
+use super::types::MacroAction;
+use crate::domain::chat::conversation::CandleStreamingConversation;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
-use chrono::{DateTime, Utc};
 use uuid::Uuid;
-use serde::{Deserialize, Serialize};
-use crate::domain::chat::conversation::CandleStreamingConversation;
-use super::types::MacroAction;
 
 /// Macro execution context with variable substitution
 #[derive(Debug, Clone)]

@@ -1,7 +1,7 @@
 //! Request types for LLaVA model thread communication
 
-use tokio::sync::mpsc;
 use super::config::VisionConfig;
+use tokio::sync::mpsc;
 
 /// Request types for LLaVA model thread communication
 pub(crate) enum LLaVARequest {

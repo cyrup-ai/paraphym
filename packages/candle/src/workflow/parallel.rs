@@ -1,7 +1,7 @@
 //! N-way concurrent execution with tokio task-based parallelism for blazing-fast performance
 //!
 //! This module provides parallel execution for arbitrary numbers of operations using
-//! tokio async tasks for concurrent execution. Results stream in completion order 
+//! tokio async tasks for concurrent execution. Results stream in completion order
 //! for maximum throughput and minimum latency.
 //!
 //! ## Performance Characteristics
@@ -217,7 +217,8 @@ where
 
         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Use tokio async tasks for concurrent execution
-            let (result_tx, mut result_rx) = tokio::sync::mpsc::unbounded_channel::<ParallelResult<Out>>();
+            let (result_tx, mut result_rx) =
+                tokio::sync::mpsc::unbounded_channel::<ParallelResult<Out>>();
 
             // Spawn each operation in separate async task
             for (op_index, operation) in operations.into_iter().enumerate() {

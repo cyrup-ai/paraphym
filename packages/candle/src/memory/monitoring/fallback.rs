@@ -341,9 +341,7 @@ pub(crate) fn create_emergency_counter_vec() -> CounterVec {
     )
     .unwrap_or_else(|_| {
         // Final fallback - create a minimal counter that works
-        error!(
-            "FATAL: Unable to create any Prometheus CounterVec. Metrics completely disabled."
-        );
+        error!("FATAL: Unable to create any Prometheus CounterVec. Metrics completely disabled.");
         CounterVec::new(
             prometheus::Opts {
                 namespace: String::new(),
@@ -498,9 +496,8 @@ pub(crate) fn create_bulletproof_gauge(base_name: &str) -> Gauge {
     }
 
     // Final fallback
-    Gauge::new("emergency_gauge", "").unwrap_or_else(|_| {
-        panic!("Critical system failure: Cannot create basic Prometheus Gauge")
-    })
+    Gauge::new("emergency_gauge", "")
+        .unwrap_or_else(|_| panic!("Critical system failure: Cannot create basic Prometheus Gauge"))
 }
 
 /// Create a Histogram with bulletproof fallback strategy - NEVER panics
@@ -527,10 +524,9 @@ pub(crate) fn create_bulletproof_histogram(base_name: &str) -> Histogram {
     }
 
     // Final fallback
-    Histogram::with_opts(prometheus::HistogramOpts::new("emergency_histogram", ""))
-        .unwrap_or_else(|_| {
-            panic!("Critical system failure: Cannot create basic Prometheus Histogram")
-        })
+    Histogram::with_opts(prometheus::HistogramOpts::new("emergency_histogram", "")).unwrap_or_else(
+        |_| panic!("Critical system failure: Cannot create basic Prometheus Histogram"),
+    )
 }
 
 /// Create a GaugeVec with bulletproof fallback strategy - NEVER panics
@@ -574,15 +570,13 @@ pub(crate) fn create_bulletproof_histogram_vec(base_name: &str) -> HistogramVec 
     }
 
     // Level 2: Try requested name without description
-    if let Ok(histogram) = HistogramVec::new(prometheus::HistogramOpts::new(base_name, ""), &[])
-    {
+    if let Ok(histogram) = HistogramVec::new(prometheus::HistogramOpts::new(base_name, ""), &[]) {
         return histogram;
     }
 
     // Level 3: Try static fallback names
     for &name in HISTOGRAM_FALLBACK_NAMES {
-        if let Ok(histogram) = HistogramVec::new(prometheus::HistogramOpts::new(name, ""), &[])
-        {
+        if let Ok(histogram) = HistogramVec::new(prometheus::HistogramOpts::new(name, ""), &[]) {
             return histogram;
         }
     }

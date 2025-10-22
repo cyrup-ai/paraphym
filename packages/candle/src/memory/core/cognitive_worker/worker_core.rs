@@ -8,7 +8,9 @@ use tokio::sync::RwLock;
 
 use crate::domain::memory::cognitive::types::{CognitiveMemory, CognitiveMemoryConfig};
 use crate::memory::cognitive::committee::ModelCommitteeEvaluator;
-use crate::memory::core::cognitive_queue::{CognitiveProcessingQueue, CognitiveTask, CognitiveTaskType};
+use crate::memory::core::cognitive_queue::{
+    CognitiveProcessingQueue, CognitiveTask, CognitiveTaskType,
+};
 use crate::memory::core::manager::surreal::SurrealDBMemoryManager;
 use crate::memory::monitoring::operations::OperationTracker;
 

@@ -3,10 +3,10 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
-use crate::memory::utils::error::Result;
-use super::types::{SearchResult, KeywordSearchFn};
-use super::options::SearchOptions;
 use super::core::VectorSearch;
+use super::options::SearchOptions;
+use super::types::{KeywordSearchFn, SearchResult};
+use crate::memory::utils::error::Result;
 
 /// Hybrid search combining vector and keyword search strategies
 ///
@@ -61,7 +61,11 @@ impl HybridSearch {
     ///
     /// # Returns
     /// Result containing merged and ranked search results
-    pub async fn search(&self, text: &str, options: Option<SearchOptions>) -> Result<Vec<SearchResult>> {
+    pub async fn search(
+        &self,
+        text: &str,
+        options: Option<SearchOptions>,
+    ) -> Result<Vec<SearchResult>> {
         if text.is_empty() {
             return Ok(Vec::new());
         }
@@ -72,7 +76,9 @@ impl HybridSearch {
         let options_for_vector = options.clone();
 
         let vector_handle = tokio::spawn(async move {
-            vector_search.search_by_text(&text_for_vector, options_for_vector).await
+            vector_search
+                .search_by_text(&text_for_vector, options_for_vector)
+                .await
         });
 
         // Keyword search
@@ -85,11 +91,13 @@ impl HybridSearch {
         });
 
         // Wait for both results
-        let vector_results = vector_handle.await
-            .map_err(|e| crate::memory::utils::error::Error::Other(format!("Vector search task failed: {}", e)))??;
-        
-        let keyword_results = keyword_handle.await
-            .map_err(|e| crate::memory::utils::error::Error::Other(format!("Keyword search task failed: {}", e)))??;
+        let vector_results = vector_handle.await.map_err(|e| {
+            crate::memory::utils::error::Error::Other(format!("Vector search task failed: {}", e))
+        })??;
+
+        let keyword_results = keyword_handle.await.map_err(|e| {
+            crate::memory::utils::error::Error::Other(format!("Keyword search task failed: {}", e))
+        })??;
 
         // Combine and rank results
         let combined_results = self.combine_results(vector_results, keyword_results, options);

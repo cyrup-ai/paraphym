@@ -37,7 +37,7 @@ static DOWNLOAD_LOCKS: LazyLock<DashMap<String, Arc<Mutex<()>>>> = LazyLock::new
 /// ```
 pub async fn acquire_download_lock(repo: &str, filename: &str) -> Arc<Mutex<()>> {
     let key = format!("{repo}/{filename}");
-    
+
     DOWNLOAD_LOCKS
         .entry(key)
         .or_insert_with(|| Arc::new(Mutex::new(())))

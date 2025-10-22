@@ -19,34 +19,26 @@ use std::sync::Arc;
 use axum::Router;
 
 #[cfg(feature = "api")]
-use crate::memory::MemoryManager;
+use crate::memory::SurrealMemoryManager;
 #[cfg(feature = "api")]
 use crate::memory::utils::config::APIConfig;
 
 /// API server for the memory system
 #[cfg(feature = "api")]
-pub struct APIServer<M>
-where
-    M: MemoryManager + 'static,
-{
-    /// Memory manager (TODO: Use in routes implementation)
-    _memory_manager: Arc<M>,
+pub struct APIServer {
+    /// Memory manager used by route handlers
+    _memory_manager: Arc<SurrealMemoryManager>,
     /// API configuration
     config: APIConfig,
-    /// Router
+    /// Router with all memory API endpoints
     router: Router,
 }
 
 #[cfg(feature = "api")]
-impl<M> APIServer<M>
-where
-    M: MemoryManager + 'static,
-{
+impl APIServer {
     /// Create a new API server
-    pub fn new(memory_manager: Arc<M>, config: APIConfig) -> Self {
-        // TODO: Implement routes module
-        // let router = routes::create_router(memory_manager.clone(), &config);
-        let router = Router::new();
+    pub fn new(memory_manager: Arc<SurrealMemoryManager>, config: APIConfig) -> Self {
+        let router = routes::create_router(memory_manager.clone());
 
         Self {
             _memory_manager: memory_manager,

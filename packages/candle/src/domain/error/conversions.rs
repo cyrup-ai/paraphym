@@ -1,8 +1,8 @@
 //! Error conversion traits and Result extensions
 
 use super::core::{ZeroAllocError, ZeroAllocResult};
-use super::types::{ErrorCategory, ErrorSeverity, ErrorRecoverability};
 use super::stats::record_error;
+use super::types::{ErrorCategory, ErrorRecoverability, ErrorSeverity};
 
 /// Trait for converting errors to zero-allocation errors
 pub trait IntoZeroAllocError {

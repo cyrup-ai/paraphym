@@ -88,7 +88,8 @@ where
         for worker_idx in 0..workers_to_spawn {
             // Allocate with guard - will auto-release on panic/error
             let allocation_guard = governor
-                .try_allocate(per_worker_mb).await
+                .try_allocate(per_worker_mb)
+                .await
                 .map_err(|e| PoolError::MemoryExhausted(e.to_string()))?;
 
             spawn_fn(worker_idx, allocation_guard)?;
@@ -107,7 +108,8 @@ where
         // Another thread is spawning - wait for it to complete
         // 6 hour timeout allows for large model downloads (e.g., Llama 70B ~40GB)
         // on slow connections without premature failures
-        pool.wait_for_workers(registry_key, Duration::from_secs(6 * 3600)).await
+        pool.wait_for_workers(registry_key, Duration::from_secs(6 * 3600))
+            .await
     }
 }
 
@@ -176,7 +178,8 @@ where
             // Spawn N workers with allocation guards
             for worker_idx in 0..workers_to_spawn {
                 let allocation_guard = governor
-                    .try_allocate(per_worker_mb).await
+                    .try_allocate(per_worker_mb)
+                    .await
                     .map_err(|e| PoolError::MemoryExhausted(e.to_string()))?;
 
                 spawn_fn(worker_idx, allocation_guard)?;
@@ -184,16 +187,22 @@ where
 
             info!(
                 workers_spawned = workers_to_spawn,
-                "Workers spawned successfully for {}",
-                registry_key
+                "Workers spawned successfully for {}", registry_key
             );
 
             // Wait for at least one worker to be ready before returning
             // This prevents race condition where prompt request arrives before workers finish loading
-            debug!("Waiting for {} workers to become ready...", workers_to_spawn);
-            return pool.wait_for_workers(registry_key, Duration::from_secs(30)).await;
+            debug!(
+                "Waiting for {} workers to become ready...",
+                workers_to_spawn
+            );
+            return pool
+                .wait_for_workers(registry_key, Duration::from_secs(30))
+                .await;
         } else {
-            return pool.wait_for_workers(registry_key, Duration::from_secs(30)).await;
+            return pool
+                .wait_for_workers(registry_key, Duration::from_secs(30))
+                .await;
         }
     }
 
@@ -247,7 +256,11 @@ pub trait MemoryGovernorAccess {
 /// Trait for pools that support spawn locking
 pub trait SpawnLock {
     fn try_acquire_spawn_lock(&self, registry_key: &str) -> Option<SpawnGuard>;
-    fn wait_for_workers(&self, registry_key: &str, timeout: Duration) -> impl std::future::Future<Output = Result<(), PoolError>> + Send;
+    fn wait_for_workers(
+        &self,
+        registry_key: &str,
+        timeout: Duration,
+    ) -> impl std::future::Future<Output = Result<(), PoolError>> + Send;
 }
 
 /// Trait for pools that provide worker metrics
@@ -274,7 +287,11 @@ impl<W: super::types::PoolWorkerHandle> SpawnLock for Pool<W> {
         Pool::try_acquire_spawn_lock(self, registry_key)
     }
 
-    async fn wait_for_workers(&self, registry_key: &str, timeout: Duration) -> Result<(), PoolError> {
+    async fn wait_for_workers(
+        &self,
+        registry_key: &str,
+        timeout: Duration,
+    ) -> Result<(), PoolError> {
         Pool::wait_for_workers(self, registry_key, timeout).await
     }
 }

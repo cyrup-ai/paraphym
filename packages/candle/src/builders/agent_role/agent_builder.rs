@@ -2,13 +2,8 @@
 
 use super::*;
 use crate::domain::chat::config::{
-    CandleModelConfig, 
-    CandleChatConfig,
-    CandlePersonalityConfig,
-    CandleBehaviorConfig,
-    CandleUIConfig,
-    CandleModelRetryConfig,
-    CandleModelPerformanceConfig,
+    CandleBehaviorConfig, CandleChatConfig, CandleModelConfig, CandleModelPerformanceConfig,
+    CandleModelRetryConfig, CandlePersonalityConfig, CandleUIConfig,
 };
 use crate::domain::model::traits::CandleModel;
 use std::time::Duration;
@@ -169,7 +164,10 @@ impl CandleAgentRoleBuilder for CandleAgentBuilderImpl {
         F: Fn(CandleMessageChunk) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = CandleMessageChunk> + Send + 'static,
     {
-        let wrapped = move |chunk: CandleMessageChunk| Box::pin(handler(chunk)) as Pin<Box<dyn std::future::Future<Output = CandleMessageChunk> + Send>>;
+        let wrapped = move |chunk: CandleMessageChunk| {
+            Box::pin(handler(chunk))
+                as Pin<Box<dyn std::future::Future<Output = CandleMessageChunk> + Send>>
+        };
         self.on_chunk_handler = Some(Arc::new(wrapped));
         self
     }
@@ -179,7 +177,9 @@ impl CandleAgentRoleBuilder for CandleAgentBuilderImpl {
         F: Fn(&[String]) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = ()> + Send + 'static,
     {
-        let wrapped = move |results: &[String]| Box::pin(handler(results)) as Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
+        let wrapped = move |results: &[String]| {
+            Box::pin(handler(results)) as Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+        };
         self.on_tool_result_handler = Some(Arc::new(wrapped));
         self
     }
@@ -188,11 +188,21 @@ impl CandleAgentRoleBuilder for CandleAgentBuilderImpl {
     fn on_conversation_turn<F, Fut>(mut self, handler: F) -> impl CandleAgentRoleBuilder
     where
         F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> Fut + Send + Sync + 'static,
-        Fut: std::future::Future<Output = Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>> + Send + 'static,
+        Fut: std::future::Future<Output = Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>>
+            + Send
+            + 'static,
     {
         // Wrap the async handler to match the type alias
-        let wrapped_handler = move |conv: &CandleAgentConversation, agent: &CandleAgentRoleAgent| {
-            Box::pin(handler(conv, agent)) as Pin<Box<dyn std::future::Future<Output = Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>> + Send>>
+        let wrapped_handler = move |conv: &CandleAgentConversation,
+                                    agent: &CandleAgentRoleAgent| {
+            Box::pin(handler(conv, agent))
+                as Pin<
+                    Box<
+                        dyn std::future::Future<
+                                Output = Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>,
+                            > + Send,
+                    >,
+                >
         };
         self.on_conversation_turn_handler = Some(Arc::new(wrapped_handler));
         self
@@ -207,29 +217,36 @@ impl CandleAgentRoleBuilder for CandleAgentBuilderImpl {
     }
 
     /// Chat with async closure - EXACT syntax: .chat(|conversation| async { ChatLoop })
-    fn chat<F, Fut>(self, _handler: F) -> Result<Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>, AgentError>
+    fn chat<F, Fut>(
+        self,
+        _handler: F,
+    ) -> Result<Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>, AgentError>
     where
         F: Fn(&CandleAgentConversation) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = CandleChatLoop> + Send + 'static,
     {
-        Ok(Box::pin(crate::async_stream::spawn_stream(|sender| async move {
-            let _ = sender.send(CandleMessageChunk::Text("Hello from Candle!".to_string()));
-        })))
+        Ok(Box::pin(crate::async_stream::spawn_stream(
+            |sender| async move {
+                let _ = sender.send(CandleMessageChunk::Text("Hello from Candle!".to_string()));
+            },
+        )))
     }
 
-    fn chat_with_message(self, message: impl Into<String>) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>> {
+    fn chat_with_message(
+        self,
+        message: impl Into<String>,
+    ) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>> {
         let msg = message.into();
         // Use CandleAgentRoleBuilder::chat explicitly to avoid ambiguity
         CandleAgentRoleBuilder::chat(self, move |_| {
             let msg = msg.clone();
             async move { CandleChatLoop::UserPrompt(msg) }
-        }).unwrap_or_else(
-            |_| {
-                Box::pin(crate::async_stream::spawn_stream(|sender| async move {
-                    let _ = sender.send(CandleMessageChunk::Error("Chat failed".to_string()));
-                }))
-            },
-        )
+        })
+        .unwrap_or_else(|_| {
+            Box::pin(crate::async_stream::spawn_stream(|sender| async move {
+                let _ = sender.send(CandleMessageChunk::Error("Chat failed".to_string()));
+            }))
+        })
     }
 
     fn into_agent(self) -> impl CandleAgentBuilder {
@@ -242,52 +259,54 @@ impl CandleAgentBuilderImpl {
     pub(crate) fn build_model_config(&self) -> CandleModelConfig {
         // Get model info which contains defaults
         let model_info = self.text_to_text_model.info();
-        
+
         CandleModelConfig {
             // Provider and model identification
             provider: model_info.provider.as_str().to_string(),
             registry_key: model_info.registry_key.to_string(),
             model_version: model_info.real_name.as_ref().map(|s| s.to_string()),
-            
+
             // Temperature: builder override > model default > fallback 0.7
             temperature: self.temperature as f32,
-            
+
             // Max tokens: builder value > model max_output_tokens > fallback 2048
             max_tokens: Some(self.max_tokens as u32),
-            
+
             // Sampling parameters (not in builder, use model defaults or standard)
             top_p: model_info.default_top_p.map(|p| p as f32).or(Some(1.0)),
             top_k: model_info.default_top_k,
             frequency_penalty: Some(0.0),
             presence_penalty: Some(0.0),
-            
+
             stop_sequences: self.stop_sequences.clone(),
-            
+
             // System prompt from builder
             system_prompt: if self.system_prompt.is_empty() {
                 model_info.system_prompt_prefix.clone()
             } else {
                 Some(self.system_prompt.clone())
             },
-            
+
             // Function calling: enabled if tools present OR model supports it
             enable_functions: !self.tools.is_empty() || model_info.supports_function_calling,
-            function_mode: if !self.tools.is_empty() { 
-                "required".to_string() 
+            function_mode: if !self.tools.is_empty() {
+                "required".to_string()
             } else if model_info.supports_function_calling {
                 "auto".to_string()
             } else {
                 "none".to_string()
             },
-            
+
             // Custom parameters from builder's additional_params
-            custom_parameters: self.additional_params.iter()
+            custom_parameters: self
+                .additional_params
+                .iter()
                 .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
                 .collect(),
-            
+
             // Timeout from memory_read_timeout
             timeout_ms: self.memory_read_timeout,
-            
+
             // Retry configuration with reasonable defaults
             retry_config: CandleModelRetryConfig {
                 max_retries: 3,
@@ -296,7 +315,7 @@ impl CandleAgentBuilderImpl {
                 backoff_multiplier: 2.0,
                 enable_jitter: true,
             },
-            
+
             // Performance configuration based on model capabilities
             performance: CandleModelPerformanceConfig {
                 enable_caching: model_info.supports_kv_cache,
@@ -315,11 +334,11 @@ impl CandleAgentBuilderImpl {
     pub(crate) fn build_chat_config(&self) -> CandleChatConfig {
         CandleChatConfig {
             // Message configuration
-            max_message_length: 100_000,  // 100KB reasonable limit
+            max_message_length: 100_000, // 100KB reasonable limit
             enable_history: !self.conversation_history.is_empty(),
             history_retention: Duration::from_secs(86400), // 24 hours
-            enable_streaming: true, // Always enable for this architecture
-            
+            enable_streaming: true,                        // Always enable for this architecture
+
             // Personality configuration with neutral defaults
             personality: CandlePersonalityConfig {
                 personality_type: "assistant".to_string(),
@@ -334,7 +353,7 @@ impl CandleAgentBuilderImpl {
                 verbosity: "moderate".to_string(),
                 traits: vec!["helpful".to_string(), "accurate".to_string()],
             },
-            
+
             // Behavior configuration
             behavior: CandleBehaviorConfig {
                 auto_response: false,
@@ -347,7 +366,7 @@ impl CandleAgentBuilderImpl {
                 follow_up_behavior: "contextual".to_string(),
                 error_handling: "graceful".to_string(),
             },
-            
+
             // UI configuration (use existing structure)
             ui: CandleUIConfig {
                 theme: "default".to_string(),

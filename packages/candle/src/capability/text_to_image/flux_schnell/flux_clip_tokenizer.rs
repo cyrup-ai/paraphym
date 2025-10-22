@@ -5,8 +5,8 @@
 //!
 //! This enables architecture-compliant file downloads using `CandleModel.huggingface_file()`.
 
-use crate::domain::model::{CandleModelInfo, CandleProvider};
 use crate::domain::model::traits::CandleModel;
+use crate::domain::model::{CandleModelInfo, CandleProvider};
 
 /// CLIP tokenizer and model download helper for FLUX
 ///

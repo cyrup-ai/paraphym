@@ -280,12 +280,17 @@ impl<W: PoolWorkerHandle> Pool<W> {
     /// - Workers become available (success)
     /// - Spawning thread releases lock without creating workers (spawn failed)
     /// - Timeout exceeded (spawn timeout)
-    pub async fn wait_for_workers(&self, registry_key: &str, timeout: Duration) -> Result<(), PoolError> {
+    pub async fn wait_for_workers(
+        &self,
+        registry_key: &str,
+        timeout: Duration,
+    ) -> Result<(), PoolError> {
         let start = Instant::now();
 
         loop {
             // Check if at least one worker is in Ready/Idle state (not just spawned, but actually ready)
-            let has_ready_worker = self.workers
+            let has_ready_worker = self
+                .workers
                 .get(registry_key)
                 .map(|workers| {
                     workers.iter().any(|w| {

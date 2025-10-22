@@ -4,10 +4,12 @@ use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{mpsc, oneshot};
 
-use crate::capability::traits::ImageEmbeddingCapable;
 use crate::capability::registry::pool::core::memory_governor::AllocationGuard;
-use crate::capability::registry::pool::core::types::{HealthPing, HealthPong, select_worker_power_of_two};
+use crate::capability::registry::pool::core::types::{
+    HealthPing, HealthPong, select_worker_power_of_two,
+};
 use crate::capability::registry::pool::core::{Pool, PoolConfig, PoolError, WorkerHandle};
+use crate::capability::traits::ImageEmbeddingCapable;
 
 /// Request for embed_image() operation
 pub struct EmbedImageRequest {
@@ -45,7 +47,9 @@ pub struct ImageEmbeddingWorkerHandle {
     pub registry_key: String, // Added to enable cleanup on drop
 }
 
-impl crate::capability::registry::pool::core::types::PoolWorkerHandle for ImageEmbeddingWorkerHandle {
+impl crate::capability::registry::pool::core::types::PoolWorkerHandle
+    for ImageEmbeddingWorkerHandle
+{
     fn core(&self) -> &crate::capability::registry::pool::core::WorkerHandle {
         &self.core
     }
@@ -312,7 +316,8 @@ impl Pool<ImageEmbeddingWorkerHandle> {
                     worker_id,
                     state: Arc::clone(&state_clone),
                 },
-            ).await;
+            )
+            .await;
 
             // Transition: Ready → Dead (when worker loop exits)
             state_clone.store(
@@ -360,7 +365,11 @@ impl Pool<ImageEmbeddingWorkerHandle> {
     }
 
     /// Embed image using pooled worker
-    pub async fn embed_image(&self, registry_key: &str, image_path: &str) -> Result<Vec<f32>, PoolError> {
+    pub async fn embed_image(
+        &self,
+        registry_key: &str,
+        image_path: &str,
+    ) -> Result<Vec<f32>, PoolError> {
         // Check shutdown
         if self.is_shutting_down() {
             return Err(PoolError::ShuttingDown("Pool shutting down".to_string()));
@@ -437,7 +446,11 @@ impl Pool<ImageEmbeddingWorkerHandle> {
     }
 
     /// Embed image from URL using pooled worker
-    pub async fn embed_image_url(&self, registry_key: &str, url: &str) -> Result<Vec<f32>, PoolError> {
+    pub async fn embed_image_url(
+        &self,
+        registry_key: &str,
+        url: &str,
+    ) -> Result<Vec<f32>, PoolError> {
         // Check shutdown
         if self.is_shutting_down() {
             return Err(PoolError::ShuttingDown("Pool shutting down".to_string()));

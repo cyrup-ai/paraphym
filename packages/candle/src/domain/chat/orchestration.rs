@@ -187,7 +187,9 @@ pub fn get_selected_tool_schemas(
 /// Helper to collect `AsyncStream` into String
 #[must_use]
 pub async fn collect_stream_to_string(
-    mut stream: Pin<Box<dyn Stream<Item = crate::domain::context::chunks::CandleStringChunk> + Send>>,
+    mut stream: Pin<
+        Box<dyn Stream<Item = crate::domain::context::chunks::CandleStringChunk> + Send>,
+    >,
 ) -> String {
     let mut result = String::new();
     while let Some(chunk) = stream.next().await {

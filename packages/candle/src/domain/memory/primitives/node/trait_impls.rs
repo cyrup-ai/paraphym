@@ -1,5 +1,5 @@
-use super::MemoryNode;
 use super::super::types::{MemoryContent, MemoryTypeEnum};
+use super::MemoryNode;
 
 impl PartialEq for MemoryNode {
     #[inline]

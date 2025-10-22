@@ -14,16 +14,16 @@
 //! - `processor`: `MacroProcessor` implementation (advanced features)
 //! - `errors`: Result and error types
 
-pub mod types;
-pub mod parser;
 pub mod context;
-pub mod system;
-pub mod processor;
 pub mod errors;
+pub mod parser;
+pub mod processor;
+pub mod system;
+pub mod types;
 
 // Re-export all public items to preserve API
-pub use types::*;
 pub use context::*;
-pub use system::*;
-pub use processor::*;
 pub use errors::*;
+pub use processor::*;
+pub use system::*;
+pub use types::*;

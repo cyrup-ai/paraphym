@@ -59,7 +59,10 @@ impl ChatSearcher {
 
     /// Search messages with SIMD optimization (streaming individual results)
     #[must_use]
-    pub fn search_stream(&self, query: SearchQuery) -> Pin<Box<dyn Stream<Item = SearchResult> + Send>> {
+    pub fn search_stream(
+        &self,
+        query: SearchQuery,
+    ) -> Pin<Box<dyn Stream<Item = SearchResult> + Send>> {
         let self_clone = self.clone();
         let query_terms = query.terms.clone();
         let query_operator = query.operator.clone();
@@ -112,9 +115,11 @@ impl ChatSearcher {
                     vec
                 }
                 QueryOperator::Proximity { distance } => {
-                    let stream = self_clone
-                        .index
-                        .search_proximity_stream(&query_terms, distance, query_fuzzy_matching);
+                    let stream = self_clone.index.search_proximity_stream(
+                        &query_terms,
+                        distance,
+                        query_fuzzy_matching,
+                    );
                     tokio::pin!(stream);
                     let mut vec = Vec::new();
                     while let Some(result) = stream.next().await {

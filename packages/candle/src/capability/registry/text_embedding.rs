@@ -1,9 +1,9 @@
 //! TextEmbeddingCapable trait implementation for TextEmbeddingModel
 
+use super::pool::capabilities::text_embedding_pool;
+use super::pool::core::{PoolError, ensure_workers_spawned_adaptive};
 use crate::capability::traits::TextEmbeddingCapable;
 use crate::domain::model::traits::CandleModel;
-use super::pool::capabilities::text_embedding_pool;
-use super::pool::core::{ensure_workers_spawned_adaptive, PoolError};
 use std::sync::Arc;
 
 // LoadedModel imports
@@ -91,7 +91,7 @@ macro_rules! impl_text_embedding_spawn {
             let registry_key = model.info().registry_key;
             let per_worker_mb = model.info().est_memory_allocation_mb;
             let pool = text_embedding_pool();
-            
+
             ensure_workers_spawned_adaptive(
                 pool,
                 registry_key,
@@ -127,7 +127,7 @@ macro_rules! impl_text_embedding_spawn {
             let registry_key = model.info().registry_key;
             let per_worker_mb = model.info().est_memory_allocation_mb;
             let pool = text_embedding_pool();
-            
+
             ensure_workers_spawned_adaptive(
                 pool,
                 registry_key,
@@ -158,8 +158,33 @@ macro_rules! impl_text_embedding_spawn {
 }
 
 // Generate functions for each model type
-impl_text_embedding_spawn!(spawn_embed_gte_qwen, spawn_batch_embed_gte_qwen, crate::capability::text_embedding::gte_qwen::CandleGteQwenEmbeddingModel, LoadedGteQwenModel);
-impl_text_embedding_spawn!(spawn_embed_jina_bert, spawn_batch_embed_jina_bert, crate::capability::text_embedding::jina_bert::CandleJinaBertEmbeddingModel, LoadedJinaBertModel);
-impl_text_embedding_spawn!(spawn_embed_nvembed, spawn_batch_embed_nvembed, crate::capability::text_embedding::nvembed::CandleNvEmbedEmbeddingModel, LoadedNvEmbedModel);
-impl_text_embedding_spawn!(spawn_embed_stella, spawn_batch_embed_stella, crate::capability::text_embedding::stella::StellaEmbeddingModel, LoadedStellaModel);
-impl_text_embedding_spawn!(spawn_embed_bert, spawn_batch_embed_bert, crate::capability::text_embedding::bert::CandleBertEmbeddingModel, LoadedBertModel);
+impl_text_embedding_spawn!(
+    spawn_embed_gte_qwen,
+    spawn_batch_embed_gte_qwen,
+    crate::capability::text_embedding::gte_qwen::CandleGteQwenEmbeddingModel,
+    LoadedGteQwenModel
+);
+impl_text_embedding_spawn!(
+    spawn_embed_jina_bert,
+    spawn_batch_embed_jina_bert,
+    crate::capability::text_embedding::jina_bert::CandleJinaBertEmbeddingModel,
+    LoadedJinaBertModel
+);
+impl_text_embedding_spawn!(
+    spawn_embed_nvembed,
+    spawn_batch_embed_nvembed,
+    crate::capability::text_embedding::nvembed::CandleNvEmbedEmbeddingModel,
+    LoadedNvEmbedModel
+);
+impl_text_embedding_spawn!(
+    spawn_embed_stella,
+    spawn_batch_embed_stella,
+    crate::capability::text_embedding::stella::StellaEmbeddingModel,
+    LoadedStellaModel
+);
+impl_text_embedding_spawn!(
+    spawn_embed_bert,
+    spawn_batch_embed_bert,
+    crate::capability::text_embedding::bert::CandleBertEmbeddingModel,
+    LoadedBertModel
+);

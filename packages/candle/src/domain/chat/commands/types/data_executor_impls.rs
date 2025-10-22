@@ -7,15 +7,21 @@ use std::pin::Pin;
 use tokio_stream::Stream;
 
 use super::{
+    CommandExecutionContext, CommandExecutionResult, CommandInfo, ImmutableChatCommand,
+    ValidationResult,
+    executor_defs::{
+        DomainConfigExecutor, DomainExportExecutor, DomainImportExecutor, DomainLoadExecutor,
+        DomainSaveExecutor, DomainSettingsExecutor,
+    },
     executor_trait::DomainCommandExecutor,
-    executor_defs::{DomainExportExecutor, DomainImportExecutor, DomainSaveExecutor, DomainLoadExecutor, DomainConfigExecutor, DomainSettingsExecutor},
-    CommandExecutionContext, CommandExecutionResult, CommandInfo,
-    ImmutableChatCommand, ValidationResult,
 };
 
 impl DomainCommandExecutor for DomainExportExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+    fn execute(
+        &self,
+        _context: &CommandExecutionContext,
+    ) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
         Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             // Export domain data with zero-allocation streaming pattern
             let result = CommandExecutionResult::Data(serde_json::json!({
@@ -48,7 +54,10 @@ impl DomainCommandExecutor for DomainExportExecutor {
 
 impl DomainCommandExecutor for DomainImportExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+    fn execute(
+        &self,
+        _context: &CommandExecutionContext,
+    ) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
         Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result =
                 CommandExecutionResult::Success("Domain data imported successfully".to_string());
@@ -74,7 +83,10 @@ impl DomainCommandExecutor for DomainImportExecutor {
 
 impl DomainCommandExecutor for DomainSaveExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+    fn execute(
+        &self,
+        _context: &CommandExecutionContext,
+    ) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
         Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result =
                 CommandExecutionResult::Success("Domain data saved successfully".to_string());
@@ -100,7 +112,10 @@ impl DomainCommandExecutor for DomainSaveExecutor {
 
 impl DomainCommandExecutor for DomainLoadExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+    fn execute(
+        &self,
+        _context: &CommandExecutionContext,
+    ) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
         Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result =
                 CommandExecutionResult::Success("Domain data loaded successfully".to_string());
@@ -126,7 +141,10 @@ impl DomainCommandExecutor for DomainLoadExecutor {
 
 impl DomainCommandExecutor for DomainConfigExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+    fn execute(
+        &self,
+        _context: &CommandExecutionContext,
+    ) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
         Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Success(
                 "Domain configuration updated successfully".to_string(),
@@ -153,7 +171,10 @@ impl DomainCommandExecutor for DomainConfigExecutor {
 
 impl DomainCommandExecutor for DomainSettingsExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+    fn execute(
+        &self,
+        _context: &CommandExecutionContext,
+    ) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
         Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Data(serde_json::json!({
                 "settings": {},

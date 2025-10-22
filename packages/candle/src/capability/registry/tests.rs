@@ -17,7 +17,10 @@ async fn test_runtime_registration_makes_model_visible() {
     let model = TextToTextModel::KimiK2(Arc::new(CandleKimiK2Model::default()));
 
     // Verify model doesn't exist before registration
-    assert!(!has_model(&test_key), "Model should not exist before registration");
+    assert!(
+        !has_model(&test_key),
+        "Model should not exist before registration"
+    );
 
     // Register the model
     let result = register_text_to_text(&test_key, model.clone()).await;
@@ -25,18 +28,30 @@ async fn test_runtime_registration_makes_model_visible() {
 
     // Verify model is accessible via get<T>()
     let retrieved: Option<TextToTextModel> = get(&test_key);
-    assert!(retrieved.is_some(), "Model should be accessible via get<T>()");
+    assert!(
+        retrieved.is_some(),
+        "Model should be accessible via get<T>()"
+    );
 
     // Verify model is accessible via get_text_to_text()
     let retrieved_specific = get_text_to_text(&test_key);
-    assert!(retrieved_specific.is_some(), "Model should be accessible via get_text_to_text()");
+    assert!(
+        retrieved_specific.is_some(),
+        "Model should be accessible via get_text_to_text()"
+    );
 
     // Verify has_model() returns true
-    assert!(has_model(&test_key), "has_model() should return true after registration");
+    assert!(
+        has_model(&test_key),
+        "has_model() should return true after registration"
+    );
 
     // Verify all_registry_keys() includes the key
     let all_keys = all_registry_keys();
-    assert!(all_keys.contains(&test_key), "all_registry_keys() should include the test key");
+    assert!(
+        all_keys.contains(&test_key),
+        "all_registry_keys() should include the test key"
+    );
 
     // Register a second model to verify multi-model support
     let test_key_2 = format!("test-runtime-2-{}", uuid::Uuid::new_v4());
@@ -45,9 +60,15 @@ async fn test_runtime_registration_makes_model_visible() {
     assert!(result_2.is_ok(), "Second registration should succeed");
 
     // Verify both models exist (reliable check without global count dependency)
-    assert!(has_model(&test_key), "First model should still be registered");
+    assert!(
+        has_model(&test_key),
+        "First model should still be registered"
+    );
     assert!(has_model(&test_key_2), "Second model should be registered");
-    assert!(get::<TextToTextModel>(&test_key_2).is_some(), "Second model should be retrievable");
+    assert!(
+        get::<TextToTextModel>(&test_key_2).is_some(),
+        "Second model should be retrievable"
+    );
 
     // Clean up
     let _ = unregister_text_to_text(&test_key).await;
@@ -152,12 +173,18 @@ async fn test_cross_capability_duplicate_prevention() {
     assert!(result_1.is_ok(), "First registration should succeed");
 
     // Verify has_model() finds the key across capabilities
-    assert!(has_model(&test_key), "Key should be found in any capability");
+    assert!(
+        has_model(&test_key),
+        "Key should be found in any capability"
+    );
 
     // Verify all_registry_keys() doesn't have duplicates
     let all_keys = all_registry_keys();
     let count = all_keys.iter().filter(|k| *k == &test_key).count();
-    assert_eq!(count, 1, "Key should appear exactly once in all_registry_keys()");
+    assert_eq!(
+        count, 1,
+        "Key should appear exactly once in all_registry_keys()"
+    );
 
     // Clean up
     let _ = unregister_text_to_text(&test_key).await;
@@ -172,45 +199,87 @@ async fn test_unregister_removes_model() {
 
     // Register the model
     let _ = register_text_to_text(&test_key, model).await;
-    
+
     // Verify it exists
-    assert!(has_model(&test_key), "Model should exist after registration");
-    assert!(get::<TextToTextModel>(&test_key).is_some(), "get() should return Some after registration");
+    assert!(
+        has_model(&test_key),
+        "Model should exist after registration"
+    );
+    assert!(
+        get::<TextToTextModel>(&test_key).is_some(),
+        "get() should return Some after registration"
+    );
 
     // Unregister it
     let removed = unregister_text_to_text(&test_key).await;
-    assert!(removed.is_some(), "Unregister should return the removed model");
+    assert!(
+        removed.is_some(),
+        "Unregister should return the removed model"
+    );
 
     // Verify has_model() returns false
-    assert!(!has_model(&test_key), "has_model() should return false after unregistration");
+    assert!(
+        !has_model(&test_key),
+        "has_model() should return false after unregistration"
+    );
 
     // Verify get() returns None
     let retrieved: Option<TextToTextModel> = get(&test_key);
-    assert!(retrieved.is_none(), "get() should return None after unregistration");
+    assert!(
+        retrieved.is_none(),
+        "get() should return None after unregistration"
+    );
 
     // Verify the key is not in all_registry_keys()
     let all_keys = all_registry_keys();
-    assert!(!all_keys.contains(&test_key), "all_registry_keys() should not contain key after unregistration");
+    assert!(
+        !all_keys.contains(&test_key),
+        "all_registry_keys() should not contain key after unregistration"
+    );
 }
 
 /// Test 6: Static models are accessible (regression test)
 #[test]
 fn test_static_models_accessible() {
     // Verify all static models from storage.rs are accessible
-    
+
     // Text-to-text models
-    assert!(has_model("unsloth/Kimi-K2-Instruct-GGUF"), "Kimi K2 should be accessible");
-    assert!(has_model("unsloth/phi-4-reasoning"), "Phi4 Reasoning should be accessible");
-    
+    assert!(
+        has_model("unsloth/Kimi-K2-Instruct-GGUF"),
+        "Kimi K2 should be accessible"
+    );
+    assert!(
+        has_model("unsloth/phi-4-reasoning"),
+        "Phi4 Reasoning should be accessible"
+    );
+
     // Text embedding models - use actual registry keys from storage.rs
-    assert!(has_model("dunzhang/stella_en_400M_v5"), "Stella should be accessible");
-    assert!(has_model("sentence-transformers/all-MiniLM-L6-v2"), "BERT should be accessible");
-    assert!(has_model("Alibaba-NLP/gte-Qwen2-1.5B-instruct"), "GteQwen should be accessible");
-    assert!(has_model("jinaai/jina-embeddings-v2-base-en"), "JinaBert should be accessible");
-    assert!(has_model("nvidia/NV-Embed-v2"), "NvEmbed should be accessible");
-    
+    assert!(
+        has_model("dunzhang/stella_en_400M_v5"),
+        "Stella should be accessible"
+    );
+    assert!(
+        has_model("sentence-transformers/all-MiniLM-L6-v2"),
+        "BERT should be accessible"
+    );
+    assert!(
+        has_model("Alibaba-NLP/gte-Qwen2-1.5B-instruct"),
+        "GteQwen should be accessible"
+    );
+    assert!(
+        has_model("jinaai/jina-embeddings-v2-base-en"),
+        "JinaBert should be accessible"
+    );
+    assert!(
+        has_model("nvidia/NV-Embed-v2"),
+        "NvEmbed should be accessible"
+    );
+
     // Vision models
-    assert!(has_model("llava-hf/llava-1.5-7b-hf"), "LLaVA should be accessible");
+    assert!(
+        has_model("llava-hf/llava-1.5-7b-hf"),
+        "LLaVA should be accessible"
+    );
 
     // Verify we can get the models using get<T>()
     assert!(get::<TextToTextModel>("unsloth/Kimi-K2-Instruct-GGUF").is_some());
@@ -222,19 +291,25 @@ fn test_static_models_accessible() {
 #[test]
 fn test_empty_registry_behavior() {
     // IMAGE_EMBEDDING_UNIFIED starts empty, so test that empty registries don't cause panics
-    
+
     // all_registry_keys() should not panic on empty registries
     let all_keys = all_registry_keys();
     // Should include keys from non-empty registries
-    assert!(!all_keys.is_empty(), "Should have keys from non-empty registries");
-    
+    assert!(
+        !all_keys.is_empty(),
+        "Should have keys from non-empty registries"
+    );
+
     // model_count() should handle empty registries
     let count = model_count();
     assert!(count > 0, "Should count models from non-empty registries");
-    
+
     // has_model() should work with non-existent keys
-    assert!(!has_model("non-existent-key-12345"), "Should return false for non-existent key");
-    
+    assert!(
+        !has_model("non-existent-key-12345"),
+        "Should return false for non-existent key"
+    );
+
     // get() should return None for non-existent keys
     let result: Option<ImageEmbeddingModel> = get("non-existent-key-12345");
     assert!(result.is_none(), "Should return None for non-existent key");
@@ -245,21 +320,25 @@ fn test_empty_registry_behavior() {
 async fn test_all_registry_keys_deduplication() {
     // Get all keys
     let all_keys = all_registry_keys();
-    
+
     // Convert to a set and check if sizes match
     use std::collections::HashSet;
     let unique_keys: HashSet<String> = all_keys.iter().cloned().collect();
-    
+
     assert_eq!(
         all_keys.len(),
         unique_keys.len(),
         "all_registry_keys() should not contain duplicates"
     );
-    
+
     // Verify no key appears more than once
     for key in &all_keys {
         let count = all_keys.iter().filter(|k| *k == key).count();
-        assert_eq!(count, 1, "Key '{}' should appear exactly once, found {} times", key, count);
+        assert_eq!(
+            count, 1,
+            "Key '{}' should appear exactly once, found {} times",
+            key, count
+        );
     }
 }
 
@@ -268,14 +347,17 @@ async fn test_all_registry_keys_deduplication() {
 async fn test_cannot_overwrite_static_models() {
     // Try to register a model with a static model's key
     let static_key = "unsloth/Kimi-K2-Instruct-GGUF";
-    
+
     let model = TextToTextModel::KimiK2(Arc::new(CandleKimiK2Model::default()));
-    
+
     // This should fail because the key already exists
     let result = register_text_to_text(static_key, model).await;
-    
-    assert!(result.is_err(), "Should not be able to overwrite static model");
-    
+
+    assert!(
+        result.is_err(),
+        "Should not be able to overwrite static model"
+    );
+
     match result {
         Err(RegistrationError::KeyAlreadyExists(key)) => {
             assert_eq!(key, static_key, "Error should contain the static key");

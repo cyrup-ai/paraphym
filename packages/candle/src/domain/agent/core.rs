@@ -1,10 +1,13 @@
 //! Core agent data structures with automatic memory tool injection
 
-use std::sync::{Arc, atomic::{AtomicU64, AtomicUsize, Ordering}};
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, AtomicUsize, Ordering},
+};
 
 use serde_json::Value;
-use sweet_mcp_type::ToolInfo;
 use std::pin::Pin;
+use sweet_mcp_type::ToolInfo;
 use tokio_stream::Stream;
 
 use crate::core::EngineError;
@@ -89,15 +92,19 @@ impl AgentStatistics {
     #[inline]
     pub fn record_completion(&self, token_count: u64, duration_us: u64) {
         self.completions_total.inc();
-        self.tokens_total.value.fetch_add(token_count, Ordering::Relaxed);
+        self.tokens_total
+            .value
+            .fetch_add(token_count, Ordering::Relaxed);
 
         // Update average duration using atomic operations
         let current_avg = self.avg_completion_time_us.load(Ordering::Relaxed);
         let total_completions = self.completions_total.get();
 
         if total_completions > 0 {
-            let new_avg = ((current_avg * (total_completions - 1)) + duration_us) / total_completions;
-            self.avg_completion_time_us.store(new_avg, Ordering::Relaxed);
+            let new_avg =
+                ((current_avg * (total_completions - 1)) + duration_us) / total_completions;
+            self.avg_completion_time_us
+                .store(new_avg, Ordering::Relaxed);
         }
     }
 }
@@ -225,44 +232,44 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
     pub fn new(
         model: M,
         system_prompt: impl Into<String>,
-    ) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunks::CandleResult<Self, AgentError>> + Send>> {
+    ) -> Pin<
+        Box<
+            dyn Stream<Item = crate::domain::context::chunks::CandleResult<Self, AgentError>>
+                + Send,
+        >,
+    > {
         let system_prompt = system_prompt.into();
         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Initialize memory system with cognitive settings optimized for performance
             let comprehensive_config = ComprehensiveMemoryConfig::default();
 
             // Initialize the memory system asynchronously
-            let memory_manager =
-                match crate::memory::initialize(&crate::memory::MemoryConfig {
-                    database: crate::memory::utils::config::DatabaseConfig {
-                        db_type: crate::memory::utils::config::DatabaseType::SurrealDB,
-                        connection_string: comprehensive_config
-                            .database
-                            .connection_string
-                            .clone(),
-                        namespace: "test".to_string(),
-                        database: "memory".to_string(),
-                        username: None,
-                        password: None,
-                        pool_size: None,
-                        options: None,
-                    },
-                    vector_store: crate::memory::utils::config::VectorStoreConfig::default(
-                    ),
-                    api: None,
-                    cache: crate::memory::utils::config::CacheConfig::default(),
-                    logging: crate::memory::utils::config::LoggingConfig::default(),
-                })
-                .await
-                {
-                    Ok(manager) => manager,
-                    Err(e) => {
-                        let _ = tx.send(crate::domain::context::chunks::CandleResult {
-                            result: Err(AgentError::MemoryInitializationFailed(e.to_string())),
-                        });
-                        return;
-                    }
-                };
+            let memory_manager = match crate::memory::initialize(&crate::memory::MemoryConfig {
+                database: crate::memory::utils::config::DatabaseConfig {
+                    db_type: crate::memory::utils::config::DatabaseType::SurrealDB,
+                    connection_string: comprehensive_config.database.connection_string.clone(),
+                    namespace: "test".to_string(),
+                    database: "memory".to_string(),
+                    username: None,
+                    password: None,
+                    pool_size: None,
+                    options: None,
+                },
+                vector_store: crate::memory::utils::config::VectorStoreConfig::default(),
+                api: None,
+                cache: crate::memory::utils::config::CacheConfig::default(),
+                logging: crate::memory::utils::config::LoggingConfig::default(),
+            })
+            .await
+            {
+                Ok(manager) => manager,
+                Err(e) => {
+                    let _ = tx.send(crate::domain::context::chunks::CandleResult {
+                        result: Err(AgentError::MemoryInitializationFailed(e.to_string())),
+                    });
+                    return;
+                }
+            };
 
             // Create memory tool with the initialized manager
             let memory_manager_arc = Arc::new(memory_manager);
@@ -307,7 +314,12 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
         model: M,
         system_prompt: impl Into<String>,
         memory_config: ComprehensiveMemoryConfig,
-    ) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunks::CandleResult<Self, AgentError>> + Send>> {
+    ) -> Pin<
+        Box<
+            dyn Stream<Item = crate::domain::context::chunks::CandleResult<Self, AgentError>>
+                + Send,
+        >,
+    > {
         let system_prompt = system_prompt.into();
         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Convert comprehensive config to Memory::new() format
@@ -320,60 +332,55 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
                     username: None,
                     password: None,
                     pool_config: crate::domain::memory::config::database::PoolConfig::default(),
-                    timeout_config:
-                        crate::domain::memory::config::database::TimeoutConfig::default(),
+                    timeout_config: crate::domain::memory::config::database::TimeoutConfig::default(
+                    ),
                     health_check_config:
                         crate::domain::memory::config::database::HealthCheckConfig::default(),
                     options: None,
                 },
-                vector_store: crate::domain::memory::config::vector::VectorStoreConfig::default(
-                ),
+                vector_store: crate::domain::memory::config::vector::VectorStoreConfig::default(),
                 provider_model: crate::domain::chat::config::CandleModelConfig::default(),
-                cognitive:
-                    crate::domain::memory::cognitive::types::CognitiveMemoryConfig::default(),
+                cognitive: crate::domain::memory::cognitive::types::CognitiveMemoryConfig::default(
+                ),
                 cognitive_processor:
                     crate::domain::memory::cognitive::types::CognitiveProcessorConfig::default(),
                 performance:
                     crate::domain::memory::config::memory::MemoryPerformanceConfig::default(),
-                retention:
-                    crate::domain::memory::config::memory::MemoryRetentionConfig::default(),
-                security: crate::domain::memory::config::memory::MemorySecurityConfig::default(
+                retention: crate::domain::memory::config::memory::MemoryRetentionConfig::default(),
+                security: crate::domain::memory::config::memory::MemorySecurityConfig::default(),
+                monitoring: crate::domain::memory::config::memory::MemoryMonitoringConfig::default(
                 ),
-                monitoring:
-                    crate::domain::memory::config::memory::MemoryMonitoringConfig::default(),
             };
 
             // Initialize the memory system asynchronously
-            let memory_manager =
-                match crate::memory::initialize(&crate::memory::MemoryConfig {
-                    database: crate::memory::utils::config::DatabaseConfig {
-                        db_type: crate::memory::utils::config::DatabaseType::SurrealDB,
-                        connection_string: memory_cfg.database.connection_string.clone(),
-                        namespace: "test".to_string(),
-                        database: "memory".to_string(),
-                        username: None,
-                        password: None,
-                        pool_size: None,
-                        options: None,
-                    },
-                    vector_store: crate::memory::utils::config::VectorStoreConfig::default(
-                    ),
-                    api: None,
-                    cache: crate::memory::utils::config::CacheConfig::default(),
-                    logging: crate::memory::utils::config::LoggingConfig::default(),
-                })
-                .await
-                {
-                    Ok(manager) => manager,
-                    Err(e) => {
-                        let _ = tx.send(crate::domain::context::chunks::CandleResult {
-                            result: Err(AgentError::Config(format!(
-                                "Failed to initialize memory: {e}"
-                            ))),
-                        });
-                        return;
-                    }
-                };
+            let memory_manager = match crate::memory::initialize(&crate::memory::MemoryConfig {
+                database: crate::memory::utils::config::DatabaseConfig {
+                    db_type: crate::memory::utils::config::DatabaseType::SurrealDB,
+                    connection_string: memory_cfg.database.connection_string.clone(),
+                    namespace: "test".to_string(),
+                    database: "memory".to_string(),
+                    username: None,
+                    password: None,
+                    pool_size: None,
+                    options: None,
+                },
+                vector_store: crate::memory::utils::config::VectorStoreConfig::default(),
+                api: None,
+                cache: crate::memory::utils::config::CacheConfig::default(),
+                logging: crate::memory::utils::config::LoggingConfig::default(),
+            })
+            .await
+            {
+                Ok(manager) => manager,
+                Err(e) => {
+                    let _ = tx.send(crate::domain::context::chunks::CandleResult {
+                        result: Err(AgentError::Config(format!(
+                            "Failed to initialize memory: {e}"
+                        ))),
+                    });
+                    return;
+                }
+            };
 
             // Create memory tool with the initialized manager
             let memory_manager_arc = Arc::new(memory_manager);
@@ -418,7 +425,12 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
         model: M,
         system_prompt: impl Into<String>,
         memory: Arc<SurrealDBMemoryManager>,
-    ) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunks::CandleResult<Self, AgentError>> + Send>> {
+    ) -> Pin<
+        Box<
+            dyn Stream<Item = crate::domain::context::chunks::CandleResult<Self, AgentError>>
+                + Send,
+        >,
+    > {
         let system_prompt = system_prompt.into();
         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {
             // Create memory tool with zero-allocation initialization
@@ -440,8 +452,7 @@ impl<M: Model + Clone + Send + 'static + Default> Agent<M> {
             // Record agent creation in statistics
             AGENT_STATS.record_agent_created();
 
-            let _ =
-                tx.send(crate::domain::context::chunks::CandleResult { result: Ok(agent) });
+            let _ = tx.send(crate::domain::context::chunks::CandleResult { result: Ok(agent) });
         }))
     }
 

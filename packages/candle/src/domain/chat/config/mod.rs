@@ -4,52 +4,33 @@
 //! validation, persistence, and change notifications using zero-allocation patterns and
 //! lock-free operations for blazing-fast performance.
 
-mod model;
-mod types;
-mod validation;
 mod manager;
+mod model;
 mod persistence;
 mod streaming;
+mod types;
+mod validation;
 
 // Re-export public API - maintain exact same public interface
-pub use model::{
-    CandleModelConfig,
-    CandleModelRetryConfig,
-    CandleModelPerformanceConfig,
-};
+pub use model::{CandleModelConfig, CandleModelPerformanceConfig, CandleModelRetryConfig};
 
-pub use types::{
-    CandleChatConfig,
-    CandlePersonalityConfig,
-    CandleBehaviorConfig,
-    CandleUIConfig,
-};
+pub use types::{CandleBehaviorConfig, CandleChatConfig, CandlePersonalityConfig, CandleUIConfig};
 
 pub use validation::{
-    CandleConfigurationValidator,
-    CandleConfigurationValidationError,
-    CandleConfigurationValidationResult,
-    CandlePersonalityValidator,
-    CandleBehaviorValidator,
+    CandleBehaviorValidator, CandleConfigurationValidationError,
+    CandleConfigurationValidationResult, CandleConfigurationValidator, CandlePersonalityValidator,
     CandleUIValidator,
 };
 
 pub use manager::{
-    CandleConfigurationManager,
+    CandleConfigurationChangeEvent, CandleConfigurationChangeType, CandleConfigurationManager,
     CandleConfigurationStatistics,
-    CandleConfigurationChangeEvent,
-    CandleConfigurationChangeType,
 };
 
 pub use persistence::{
-    CandleConfigurationPersistence,
-    CandlePersistenceEvent,
-    CandlePersistenceType,
+    CandleConfigurationPersistence, CandlePersistenceEvent, CandlePersistenceType,
 };
 
 pub use streaming::{
-    CandleModelConfigChunk,
-    CandleModelConfigData,
-    CandleConfigUpdate,
-    CandleConfigUpdateType,
+    CandleConfigUpdate, CandleConfigUpdateType, CandleModelConfigChunk, CandleModelConfigData,
 };

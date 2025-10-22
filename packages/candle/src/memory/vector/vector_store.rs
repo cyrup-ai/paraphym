@@ -17,16 +17,16 @@ pub type VectorSearchResult = (String, Vec<f32>, f32, Option<VectorMetadata>);
 pub struct IndexStats {
     /// Total number of entries
     pub entry_count: u64,
-    
+
     /// Vector dimensions (None if empty)
     pub dimensions: Option<u32>,
-    
+
     /// Quality score (0.0-100.0)
     pub quality_score: f32,
-    
+
     /// Total memory usage in bytes
     pub memory_bytes: u64,
-    
+
     /// Fragmentation ratio (0.0-1.0, 0.0 = no fragmentation)
     pub fragmentation_ratio: f32,
 }

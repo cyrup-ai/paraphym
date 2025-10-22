@@ -7,8 +7,8 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 // Re-export commonly used tokio_stream types
-pub use tokio_stream::{Stream, StreamExt};
 pub use tokio_stream::wrappers::ReceiverStream;
+pub use tokio_stream::{Stream, StreamExt};
 
 /// Create a stream from a spawned async task
 ///

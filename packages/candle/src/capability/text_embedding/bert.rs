@@ -232,87 +232,93 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleBertEmbeddingMode
         let text = text.to_string();
         Box::pin(async move {
             self.validate_input(&text)?;
-        let _ = task; // BERT doesn't use task-specific instructions
+            let _ = task; // BERT doesn't use task-specific instructions
 
-        // Get configuration from ModelInfo
-        let max_length = self
-            .info()
-            .max_input_tokens
-            .ok_or("max_input_tokens missing in ModelInfo")?
-            .get() as usize;
+            // Get configuration from ModelInfo
+            let max_length = self
+                .info()
+                .max_input_tokens
+                .ok_or("max_input_tokens missing in ModelInfo")?
+                .get() as usize;
 
-        // Auto-detect device
-        let device = crate::core::device_util::detect_best_device().unwrap_or_else(|e| {
-            log::warn!("Device detection failed: {}. Using CPU.", e);
-            Device::Cpu
-        });
+            // Auto-detect device
+            let device = crate::core::device_util::detect_best_device().unwrap_or_else(|e| {
+                log::warn!("Device detection failed: {}. Using CPU.", e);
+                Device::Cpu
+            });
 
-        // Auto-detect dtype based on device
-        let dtype = if device.is_cuda() {
-            DType::F16
-        } else {
-            DType::F32
-        };
-
-        // Get file paths via huggingface_file
-        let model_weights_path =
-            self.huggingface_file(self.info().registry_key, "model.safetensors").await?;
-        let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json").await?;
-        let config_path = self.huggingface_file(self.info().registry_key, "config.json").await?;
-
-        // Load tokenizer
-        let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
-            .map_err(|e| format!("Failed to load tokenizer: {}", e))?;
-
-        // Configure tokenizer for padding and truncation
-        if let Some(pad_token) = tokenizer.get_vocab(true).get("[PAD]").copied() {
-            let padding_params = PaddingParams {
-                strategy: tokenizers::PaddingStrategy::BatchLongest,
-                direction: tokenizers::PaddingDirection::Right,
-                pad_to_multiple_of: None,
-                pad_id: pad_token,
-                pad_type_id: 0,
-                pad_token: "[PAD]".to_string(),
+            // Auto-detect dtype based on device
+            let dtype = if device.is_cuda() {
+                DType::F16
+            } else {
+                DType::F32
             };
-            tokenizer.with_padding(Some(padding_params));
-        }
 
-        if tokenizer.get_truncation().is_none() {
-            let truncation_params = TruncationParams {
-                max_length,
-                strategy: tokenizers::TruncationStrategy::LongestFirst,
-                stride: 0,
-                direction: tokenizers::TruncationDirection::Right,
+            // Get file paths via huggingface_file
+            let model_weights_path = self
+                .huggingface_file(self.info().registry_key, "model.safetensors")
+                .await?;
+            let tokenizer_path = self
+                .huggingface_file(self.info().registry_key, "tokenizer.json")
+                .await?;
+            let config_path = self
+                .huggingface_file(self.info().registry_key, "config.json")
+                .await?;
+
+            // Load tokenizer
+            let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
+                .map_err(|e| format!("Failed to load tokenizer: {}", e))?;
+
+            // Configure tokenizer for padding and truncation
+            if let Some(pad_token) = tokenizer.get_vocab(true).get("[PAD]").copied() {
+                let padding_params = PaddingParams {
+                    strategy: tokenizers::PaddingStrategy::BatchLongest,
+                    direction: tokenizers::PaddingDirection::Right,
+                    pad_to_multiple_of: None,
+                    pad_id: pad_token,
+                    pad_type_id: 0,
+                    pad_token: "[PAD]".to_string(),
+                };
+                tokenizer.with_padding(Some(padding_params));
+            }
+
+            if tokenizer.get_truncation().is_none() {
+                let truncation_params = TruncationParams {
+                    max_length,
+                    strategy: tokenizers::TruncationStrategy::LongestFirst,
+                    stride: 0,
+                    direction: tokenizers::TruncationDirection::Right,
+                };
+                tokenizer
+                    .with_truncation(Some(truncation_params))
+                    .map_err(|e| format!("Failed to set tokenizer truncation: {}", e))?;
+            }
+
+            // Load BERT model configuration
+            let config_json = tokio::fs::read_to_string(&config_path)
+                .await
+                .map_err(|e| format!("Failed to read config.json: {}", e))?;
+            let bert_config: Config = serde_json::from_str(&config_json)
+                .map_err(|e| format!("Failed to parse config.json: {}", e))?;
+
+            // Load model weights
+            let vb = unsafe {
+                VarBuilder::from_mmaped_safetensors(&[model_weights_path], dtype, &device)
+                    .map_err(|e| format!("Failed to load model weights: {}", e))?
             };
-            tokenizer
-                .with_truncation(Some(truncation_params))
-                .map_err(|e| format!("Failed to set tokenizer truncation: {}", e))?;
-        }
 
-        // Load BERT model configuration
-        let config_json = tokio::fs::read_to_string(&config_path).await
-            .map_err(|e| format!("Failed to read config.json: {}", e))?;
-        let bert_config: Config = serde_json::from_str(&config_json)
-            .map_err(|e| format!("Failed to parse config.json: {}", e))?;
+            // Create BERT model
+            let model = BertModel::load(vb, &bert_config)
+                .map_err(|e| format!("Failed to create BERT model: {}", e))?;
 
-        // Load model weights
-        let vb = unsafe {
-            VarBuilder::from_mmaped_safetensors(&[model_weights_path], dtype, &device)
-                .map_err(|e| format!("Failed to load model weights: {}", e))?
-        };
+            // Run inference
+            let embeddings = Self::forward_pass(&tokenizer, &model, &device, &[&text])
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
-        // Create BERT model
-        let model = BertModel::load(vb, &bert_config)
-            .map_err(|e| format!("Failed to create BERT model: {}", e))?;
-
-        // Run inference
-        let embeddings = Self::forward_pass(&tokenizer, &model, &device, &[&text])
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
-
-        embeddings
-            .into_iter()
-            .next()
-            .ok_or_else(|| "No embeddings generated".into())
+            embeddings
+                .into_iter()
+                .next()
+                .ok_or_else(|| "No embeddings generated".into())
         })
     }
 
@@ -334,83 +340,89 @@ impl crate::capability::traits::TextEmbeddingCapable for CandleBertEmbeddingMode
         let texts = texts.to_vec();
         Box::pin(async move {
             self.validate_batch(&texts)?;
-        let _ = task; // BERT doesn't use task-specific instructions
+            let _ = task; // BERT doesn't use task-specific instructions
 
-        // Get configuration from ModelInfo
-        let max_length = self
-            .info()
-            .max_input_tokens
-            .ok_or("max_input_tokens missing in ModelInfo")?
-            .get() as usize;
+            // Get configuration from ModelInfo
+            let max_length = self
+                .info()
+                .max_input_tokens
+                .ok_or("max_input_tokens missing in ModelInfo")?
+                .get() as usize;
 
-        // Auto-detect device
-        let device = crate::core::device_util::detect_best_device().unwrap_or_else(|e| {
-            log::warn!("Device detection failed: {}. Using CPU.", e);
-            Device::Cpu
-        });
+            // Auto-detect device
+            let device = crate::core::device_util::detect_best_device().unwrap_or_else(|e| {
+                log::warn!("Device detection failed: {}. Using CPU.", e);
+                Device::Cpu
+            });
 
-        // Auto-detect dtype based on device
-        let dtype = if device.is_cuda() {
-            DType::F16
-        } else {
-            DType::F32
-        };
-
-        // Get file paths via huggingface_file
-        let model_weights_path =
-            self.huggingface_file(self.info().registry_key, "model.safetensors").await?;
-        let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json").await?;
-        let config_path = self.huggingface_file(self.info().registry_key, "config.json").await?;
-
-        // Load tokenizer
-        let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
-            .map_err(|e| format!("Failed to load tokenizer: {}", e))?;
-
-        // Configure tokenizer for padding and truncation
-        if let Some(pad_token) = tokenizer.get_vocab(true).get("[PAD]").copied() {
-            let padding_params = PaddingParams {
-                strategy: tokenizers::PaddingStrategy::BatchLongest,
-                direction: tokenizers::PaddingDirection::Right,
-                pad_to_multiple_of: None,
-                pad_id: pad_token,
-                pad_type_id: 0,
-                pad_token: "[PAD]".to_string(),
+            // Auto-detect dtype based on device
+            let dtype = if device.is_cuda() {
+                DType::F16
+            } else {
+                DType::F32
             };
-            tokenizer.with_padding(Some(padding_params));
-        }
 
-        if tokenizer.get_truncation().is_none() {
-            let truncation_params = TruncationParams {
-                max_length,
-                strategy: tokenizers::TruncationStrategy::LongestFirst,
-                stride: 0,
-                direction: tokenizers::TruncationDirection::Right,
+            // Get file paths via huggingface_file
+            let model_weights_path = self
+                .huggingface_file(self.info().registry_key, "model.safetensors")
+                .await?;
+            let tokenizer_path = self
+                .huggingface_file(self.info().registry_key, "tokenizer.json")
+                .await?;
+            let config_path = self
+                .huggingface_file(self.info().registry_key, "config.json")
+                .await?;
+
+            // Load tokenizer
+            let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
+                .map_err(|e| format!("Failed to load tokenizer: {}", e))?;
+
+            // Configure tokenizer for padding and truncation
+            if let Some(pad_token) = tokenizer.get_vocab(true).get("[PAD]").copied() {
+                let padding_params = PaddingParams {
+                    strategy: tokenizers::PaddingStrategy::BatchLongest,
+                    direction: tokenizers::PaddingDirection::Right,
+                    pad_to_multiple_of: None,
+                    pad_id: pad_token,
+                    pad_type_id: 0,
+                    pad_token: "[PAD]".to_string(),
+                };
+                tokenizer.with_padding(Some(padding_params));
+            }
+
+            if tokenizer.get_truncation().is_none() {
+                let truncation_params = TruncationParams {
+                    max_length,
+                    strategy: tokenizers::TruncationStrategy::LongestFirst,
+                    stride: 0,
+                    direction: tokenizers::TruncationDirection::Right,
+                };
+                tokenizer
+                    .with_truncation(Some(truncation_params))
+                    .map_err(|e| format!("Failed to set tokenizer truncation: {}", e))?;
+            }
+
+            // Load BERT model configuration
+            let config_json = tokio::fs::read_to_string(&config_path)
+                .await
+                .map_err(|e| format!("Failed to read config.json: {}", e))?;
+            let bert_config: Config = serde_json::from_str(&config_json)
+                .map_err(|e| format!("Failed to parse config.json: {}", e))?;
+
+            // Load model weights
+            let vb = unsafe {
+                VarBuilder::from_mmaped_safetensors(&[model_weights_path], dtype, &device)
+                    .map_err(|e| format!("Failed to load model weights: {}", e))?
             };
-            tokenizer
-                .with_truncation(Some(truncation_params))
-                .map_err(|e| format!("Failed to set tokenizer truncation: {}", e))?;
-        }
 
-        // Load BERT model configuration
-        let config_json = tokio::fs::read_to_string(&config_path).await
-            .map_err(|e| format!("Failed to read config.json: {}", e))?;
-        let bert_config: Config = serde_json::from_str(&config_json)
-            .map_err(|e| format!("Failed to parse config.json: {}", e))?;
+            // Create BERT model
+            let model = BertModel::load(vb, &bert_config)
+                .map_err(|e| format!("Failed to create BERT model: {}", e))?;
 
-        // Load model weights
-        let vb = unsafe {
-            VarBuilder::from_mmaped_safetensors(&[model_weights_path], dtype, &device)
-                .map_err(|e| format!("Failed to load model weights: {}", e))?
-        };
-
-        // Create BERT model
-        let model = BertModel::load(vb, &bert_config)
-            .map_err(|e| format!("Failed to create BERT model: {}", e))?;
-
-        // Run inference
-        let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
-        Self::forward_pass(&tokenizer, &model, &device, &text_refs)
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            // Run inference
+            let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+            Self::forward_pass(&tokenizer, &model, &device, &text_refs)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
         })
     }
 
@@ -505,12 +517,15 @@ impl LoadedBertModel {
         };
 
         // Get file paths via huggingface_file
-        let model_weights_path =
-            base_model.huggingface_file(base_model.info().registry_key, "model.safetensors").await?;
-        let tokenizer_path =
-            base_model.huggingface_file(base_model.info().registry_key, "tokenizer.json").await?;
-        let config_path =
-            base_model.huggingface_file(base_model.info().registry_key, "config.json").await?;
+        let model_weights_path = base_model
+            .huggingface_file(base_model.info().registry_key, "model.safetensors")
+            .await?;
+        let tokenizer_path = base_model
+            .huggingface_file(base_model.info().registry_key, "tokenizer.json")
+            .await?;
+        let config_path = base_model
+            .huggingface_file(base_model.info().registry_key, "config.json")
+            .await?;
 
         // Load tokenizer
         let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
@@ -542,7 +557,8 @@ impl LoadedBertModel {
         }
 
         // Load BERT model configuration
-        let config_json = tokio::fs::read_to_string(&config_path).await
+        let config_json = tokio::fs::read_to_string(&config_path)
+            .await
             .map_err(|e| format!("Failed to read config.json: {}", e))?;
         let bert_config: Config = serde_json::from_str(&config_json)
             .map_err(|e| format!("Failed to parse config.json: {}", e))?;
@@ -586,25 +602,21 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedBertModel {
         let tokenizer = self.tokenizer.clone();
         let model = self.model.clone();
         let device = self.device.clone();
-        
+
         Box::pin(async move {
             // BERT doesn't use task-specific instructions, ignore task parameter
-            
+
             // Wrap CPU-intensive operations in spawn_blocking to avoid blocking async runtime
             // This includes: tokenization (I/O), model forward pass (CPU), and tensor ops (CPU)
             let embeddings = tokio::task::spawn_blocking(move || {
-                CandleBertEmbeddingModel::forward_pass(
-                    &tokenizer,
-                    &model,
-                    &device,
-                    &[&text],
-                )
+                CandleBertEmbeddingModel::forward_pass(&tokenizer, &model, &device, &[&text])
             })
             .await
             .map_err(|e| {
-                Box::new(std::io::Error::other(
-                    format!("Spawn blocking failed: {}", e),
-                )) as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(format!(
+                    "Spawn blocking failed: {}",
+                    e
+                ))) as Box<dyn std::error::Error + Send + Sync>
             })?
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
@@ -635,25 +647,21 @@ impl crate::capability::traits::TextEmbeddingCapable for LoadedBertModel {
         let tokenizer = self.tokenizer.clone();
         let model = self.model.clone();
         let device = self.device.clone();
-        
+
         Box::pin(async move {
             // Wrap CPU-intensive operations in spawn_blocking to avoid blocking async runtime
             // This includes: tokenization (I/O), model forward pass (CPU), and tensor ops (CPU)
             let embeddings = tokio::task::spawn_blocking(move || {
                 let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
-                
-                CandleBertEmbeddingModel::forward_pass(
-                    &tokenizer,
-                    &model,
-                    &device,
-                    &text_refs,
-                )
+
+                CandleBertEmbeddingModel::forward_pass(&tokenizer, &model, &device, &text_refs)
             })
             .await
             .map_err(|e| {
-                Box::new(std::io::Error::other(
-                    format!("Spawn blocking failed: {}", e),
-                )) as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(format!(
+                    "Spawn blocking failed: {}",
+                    e
+                ))) as Box<dyn std::error::Error + Send + Sync>
             })?
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 

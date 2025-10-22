@@ -3,20 +3,22 @@
 //\! This module contains the ``CandleStreamingContextProcessor`` which handles
 //! file loading, format detection, and document creation with streaming operations.
 
-use std::collections::HashMap;
-use std::path::Path;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::time::{Duration, SystemTime};
-use std::pin::Pin;
-use tokio_stream::Stream;
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use base64::{Engine as _, engine::general_purpose};
 use mime_guess;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::Path;
+use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::time::{Duration, SystemTime};
+use tokio_stream::Stream;
+use uuid::Uuid;
 
+use super::types::{
+    CandleContextError, CandleContextEvent, CandleImmutableFileContext, CandleValidationError,
+};
 use crate::domain::context::CandleDocument as Document;
 use cyrup_sugars::prelude::MessageChunk;
-use super::types::{CandleContextEvent, CandleImmutableFileContext, CandleContextError, CandleValidationError};
 
 /// Streaming context processor with atomic state tracking for Candle
 pub struct CandleStreamingContextProcessor {
@@ -119,7 +121,9 @@ impl CandleStreamingContextProcessor {
     /// Create processor with event streaming
     #[inline]
     #[must_use]
-    pub fn with_streaming(processor_id: String) -> (Self, Pin<Box<dyn Stream<Item = CandleContextEvent> + Send>>) {
+    pub fn with_streaming(
+        processor_id: String,
+    ) -> (Self, Pin<Box<dyn Stream<Item = CandleContextEvent> + Send>>) {
         let stream = Box::pin(crate::async_stream::spawn_stream(|_tx| async move {
             // Stream created for event processing
         }));

@@ -14,20 +14,20 @@
 //! - `processor`: High-level processing system
 
 pub mod activation;
+pub mod atomics;
 pub mod attention;
 pub mod memory_items;
-pub mod temporal;
-pub mod quantum;
-pub mod atomics;
-pub mod state;
 pub mod processor;
+pub mod quantum;
+pub mod state;
+pub mod temporal;
 
 // Re-export all public items to maintain API compatibility
 pub use activation::*;
+pub use atomics::*;
 pub use attention::*;
 pub use memory_items::*;
-pub use temporal::*;
-pub use quantum::*;
-pub use atomics::*;
-pub use state::*;
 pub use processor::*;
+pub use quantum::*;
+pub use state::*;
+pub use temporal::*;

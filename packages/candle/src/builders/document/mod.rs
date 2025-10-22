@@ -9,16 +9,16 @@
 //!
 //! All loading operations support streaming, chunking, error handling, and retry logic.
 
-mod types;
-mod trait_def;
 mod api;
 mod builder_impl;
-mod loaders;
 mod detection;
+mod loaders;
+mod trait_def;
+mod types;
 
 // Re-export public API
-pub use trait_def::DocumentBuilder;
 pub use api::document;
+pub use trait_def::DocumentBuilder;
 
 // Note: The impl Document blocks in api.rs are automatically available
 // when this module is used, extending the Document domain type

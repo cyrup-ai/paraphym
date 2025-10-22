@@ -12,5 +12,5 @@ pub mod image;
 
 // Re-export main builder types for public API
 pub use agent_role::{CandleAgentBuilder, CandleAgentRoleBuilder, CandleFluentAi};
-pub use extractor::{extractor, ExtractorBuilder};
+pub use extractor::{ExtractorBuilder, extractor};
 pub use image::ResizeFilter;

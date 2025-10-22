@@ -19,9 +19,9 @@ pub struct DecayWorkerConfig {
 impl Default for DecayWorkerConfig {
     fn default() -> Self {
         Self {
-            cycle_interval_secs: 3600,  // 1 hour between cycles
-            batch_size: 500,             // Process 500 memories per batch
-            min_age_hours: 1,            // Apply decay to memories older than 1 hour
+            cycle_interval_secs: 3600, // 1 hour between cycles
+            batch_size: 500,           // Process 500 memories per batch
+            min_age_hours: 1,          // Apply decay to memories older than 1 hour
         }
     }
 }

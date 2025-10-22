@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use super::super::core::{TemplateAst, TemplateError, TemplateResult};
-use super::utils::BlockTagResult;
 use super::TemplateParser;
+use super::utils::BlockTagResult;
 
 impl TemplateParser {
     /// Parse a block tag like {% if %}, {% for %}, etc.
@@ -77,7 +77,10 @@ impl TemplateParser {
                 }
                 brace_count -= 1;
                 expr_end += 1;
-            } else if expr_end + 1 < chars.len() && chars[expr_end] == '{' && chars[expr_end + 1] == '{' {
+            } else if expr_end + 1 < chars.len()
+                && chars[expr_end] == '{'
+                && chars[expr_end + 1] == '{'
+            {
                 brace_count += 1;
                 expr_end += 1;
             }
@@ -300,7 +303,8 @@ impl TemplateParser {
 
                     // Check if this is an end tag
                     for end_tag in end_tags {
-                        if (tag_content == *end_tag || tag_content.starts_with(&format!("{end_tag} ")))
+                        if (tag_content == *end_tag
+                            || tag_content.starts_with(&format!("{end_tag} ")))
                             && depth == 0
                         {
                             // Found the matching end tag

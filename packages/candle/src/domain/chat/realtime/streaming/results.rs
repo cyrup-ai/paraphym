@@ -1,8 +1,8 @@
 //! Streaming operation results and events
 
-use serde::{Deserialize, Serialize};
-use cyrup_sugars::prelude::MessageChunk;
 use super::types::MessagePriority;
+use cyrup_sugars::prelude::MessageChunk;
+use serde::{Deserialize, Serialize};
 
 /// Streaming operation results
 #[derive(Debug, Clone, Serialize, Deserialize)]

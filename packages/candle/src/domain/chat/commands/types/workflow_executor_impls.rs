@@ -7,15 +7,21 @@ use std::pin::Pin;
 use tokio_stream::Stream;
 
 use super::{
+    CommandExecutionContext, CommandExecutionResult, CommandInfo, ImmutableChatCommand,
+    ValidationResult,
+    executor_defs::{
+        DomainBranchExecutor, DomainMacroExecutor, DomainSearchExecutor, DomainSessionExecutor,
+        DomainTemplateExecutor,
+    },
     executor_trait::DomainCommandExecutor,
-    executor_defs::{DomainTemplateExecutor, DomainMacroExecutor, DomainBranchExecutor, DomainSessionExecutor, DomainSearchExecutor},
-    CommandExecutionContext, CommandExecutionResult, CommandInfo,
-    ImmutableChatCommand, ValidationResult,
 };
 
 impl DomainCommandExecutor for DomainTemplateExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+    fn execute(
+        &self,
+        _context: &CommandExecutionContext,
+    ) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
         Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Success(
                 "Domain template processed successfully".to_string(),
@@ -42,7 +48,10 @@ impl DomainCommandExecutor for DomainTemplateExecutor {
 
 impl DomainCommandExecutor for DomainMacroExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+    fn execute(
+        &self,
+        _context: &CommandExecutionContext,
+    ) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
         Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result =
                 CommandExecutionResult::Success("Domain macro executed successfully".to_string());
@@ -68,7 +77,10 @@ impl DomainCommandExecutor for DomainMacroExecutor {
 
 impl DomainCommandExecutor for DomainBranchExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+    fn execute(
+        &self,
+        _context: &CommandExecutionContext,
+    ) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
         Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Success(
                 "Domain branch operation completed successfully".to_string(),
@@ -95,7 +107,10 @@ impl DomainCommandExecutor for DomainBranchExecutor {
 
 impl DomainCommandExecutor for DomainSessionExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+    fn execute(
+        &self,
+        _context: &CommandExecutionContext,
+    ) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
         Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Data(serde_json::json!({
                 "session_type": "domain",
@@ -124,7 +139,10 @@ impl DomainCommandExecutor for DomainSessionExecutor {
 
 impl DomainCommandExecutor for DomainSearchExecutor {
     #[inline]
-    fn execute(&self, _context: &CommandExecutionContext) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
+    fn execute(
+        &self,
+        _context: &CommandExecutionContext,
+    ) -> Pin<Box<dyn Stream<Item = CommandExecutionResult> + Send>> {
         Box::pin(crate::async_stream::spawn_stream(|sender| async move {
             let result = CommandExecutionResult::Data(serde_json::json!({
                 "search_type": "domain",

@@ -12,7 +12,11 @@ impl TemplateParser {
     /// - Function calls are not allowed in config
     /// - Maximum parsing depth is exceeded
     /// - Function call syntax is invalid
-    pub(crate) fn parse_function_call(&self, content: &str, depth: usize) -> TemplateResult<TemplateAst> {
+    pub(crate) fn parse_function_call(
+        &self,
+        content: &str,
+        depth: usize,
+    ) -> TemplateResult<TemplateAst> {
         if !self.config.allow_functions {
             return Err(TemplateError::ParseError {
                 message: "Function calls not allowed".to_string(),

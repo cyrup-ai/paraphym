@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use tokio_stream::Stream;
 
 use crate::domain::memory::serialization::content_hash;
@@ -29,7 +29,10 @@ pub trait EmbeddingService: Send + Sync {
     fn get_embedding(&self, content: &str) -> Pin<Box<dyn Stream<Item = Option<Vec<f32>>> + Send>>;
 
     /// Get or compute embedding with zero-allocation caching
-    fn get_or_compute_embedding(&self, content: &str) -> Pin<Box<dyn Stream<Item = Vec<f32>> + Send>>;
+    fn get_or_compute_embedding(
+        &self,
+        content: &str,
+    ) -> Pin<Box<dyn Stream<Item = Vec<f32>> + Send>>;
 
     /// Precompute embeddings for batch content
     fn precompute_batch(&self, content: &[&str]) -> Pin<Box<dyn Stream<Item = ()> + Send>>;
@@ -54,7 +57,7 @@ impl EmbeddingPool {
     #[must_use]
     pub fn new(dimension: usize, capacity: usize) -> Self {
         let (sender, receiver) = mpsc::unbounded_channel();
-        
+
         // Pre-allocate vectors to avoid allocations during runtime
         for _ in 0..capacity {
             let vec = vec![0.0; dimension];
@@ -74,7 +77,9 @@ impl EmbeddingPool {
     #[must_use]
     pub async fn acquire(&self) -> Vec<f32> {
         let mut receiver = self.receiver.lock().await;
-        receiver.try_recv().unwrap_or_else(|_| vec![0.0; self.dimension])
+        receiver
+            .try_recv()
+            .unwrap_or_else(|_| vec![0.0; self.dimension])
     }
 
     /// Return vector to pool for reuse
@@ -148,7 +153,11 @@ impl InMemoryEmbeddingCache {
     ///
     /// Returns `VectorStoreError::OperationFailed` if the embedding dimension does not match the cache dimension.
     #[inline]
-    pub async fn try_store(&self, content: String, embedding: Vec<f32>) -> Result<(), VectorStoreError> {
+    pub async fn try_store(
+        &self,
+        content: String,
+        embedding: Vec<f32>,
+    ) -> Result<(), VectorStoreError> {
         // Validate embedding dimension matches cache dimension
         if embedding.len() != self.dimension {
             return Err(VectorStoreError::OperationFailed(format!(
@@ -181,7 +190,8 @@ impl InMemoryEmbeddingCache {
         let hash = content_hash(content);
         for (i, val) in embedding.iter_mut().enumerate() {
             #[allow(clippy::cast_precision_loss)]
-            let hash_val = ((hash + i64::try_from(i).unwrap_or(i64::MAX)) as f32) / (i64::MAX as f32);
+            let hash_val =
+                ((hash + i64::try_from(i).unwrap_or(i64::MAX)) as f32) / (i64::MAX as f32);
             *val = hash_val;
         }
         embedding
@@ -206,9 +216,9 @@ impl InMemoryEmbeddingCache {
     pub async fn clear_invalid_entries(&self) -> usize {
         let mut cache = self.cache.write().await;
         let initial_count = cache.len();
-        
+
         cache.retain(|_, (_, cached_dimension)| *cached_dimension == self.dimension);
-        
+
         initial_count - cache.len()
     }
 
@@ -222,19 +232,26 @@ impl InMemoryEmbeddingCache {
 
 /// Concrete implementation of `EmbeddingService` using a capability model and cache
 #[derive(Clone)]
-pub struct EmbeddingServiceImpl<M: crate::capability::traits::TextEmbeddingCapable + Clone + Send + Sync + 'static> {
+pub struct EmbeddingServiceImpl<
+    M: crate::capability::traits::TextEmbeddingCapable + Clone + Send + Sync + 'static,
+> {
     model: std::sync::Arc<M>,
     cache: std::sync::Arc<InMemoryEmbeddingCache>,
 }
 
-impl<M: crate::capability::traits::TextEmbeddingCapable + Clone + Send + Sync + 'static> EmbeddingServiceImpl<M> {
+impl<M: crate::capability::traits::TextEmbeddingCapable + Clone + Send + Sync + 'static>
+    EmbeddingServiceImpl<M>
+{
     /// Create new embedding service with model and cache
     #[must_use]
     pub fn new(model: M) -> Self {
         let dimension = model.embedding_dimension();
         let cache = InMemoryEmbeddingCache::new(dimension);
-        
-        Self { model: std::sync::Arc::new(model), cache: std::sync::Arc::new(cache) }
+
+        Self {
+            model: std::sync::Arc::new(model),
+            cache: std::sync::Arc::new(cache),
+        }
     }
 
     /// Get the underlying model
@@ -257,21 +274,23 @@ impl<M: crate::capability::traits::TextEmbeddingCapable + Clone + Send + Sync + 
     }
 }
 
-impl<M: crate::capability::traits::TextEmbeddingCapable + Clone + Send + Sync + 'static> EmbeddingService for EmbeddingServiceImpl<M> {
+impl<M: crate::capability::traits::TextEmbeddingCapable + Clone + Send + Sync + 'static>
+    EmbeddingService for EmbeddingServiceImpl<M>
+{
     fn get_embedding(&self, content: &str) -> Pin<Box<dyn Stream<Item = Option<Vec<f32>>> + Send>> {
         let content = content.to_string();
         let key = self.cache_key(&content);
         let key_store = key.clone();
         let model = std::sync::Arc::clone(&self.model);
         let cache = std::sync::Arc::clone(&self.cache);
-        
+
         Box::pin(async_stream::stream! {
             // Try cache first
             if let Some(embedding) = cache.get_cached(&key).await {
                 yield Some(embedding);
                 return;
             }
-            
+
             // Generate embedding
             match model.embed(&content, None).await {
                 Ok(embedding) => {
@@ -286,20 +305,23 @@ impl<M: crate::capability::traits::TextEmbeddingCapable + Clone + Send + Sync + 
         })
     }
 
-    fn get_or_compute_embedding(&self, content: &str) -> Pin<Box<dyn Stream<Item = Vec<f32>> + Send>> {
+    fn get_or_compute_embedding(
+        &self,
+        content: &str,
+    ) -> Pin<Box<dyn Stream<Item = Vec<f32>> + Send>> {
         let content = content.to_string();
         let key = self.cache_key(&content);
         let key_store = key.clone();
         let model = std::sync::Arc::clone(&self.model);
         let cache = std::sync::Arc::clone(&self.cache);
-        
+
         Box::pin(async_stream::stream! {
             // Try cache first
             if let Some(embedding) = cache.get_cached(&key).await {
                 yield embedding;
                 return;
             }
-            
+
             // Generate embedding
             match model.embed(&content, None).await {
                 Ok(embedding) => {
@@ -320,7 +342,7 @@ impl<M: crate::capability::traits::TextEmbeddingCapable + Clone + Send + Sync + 
         let content: Vec<String> = content.iter().map(|s| (*s).to_string()).collect();
         let model = std::sync::Arc::clone(&self.model);
         let cache = std::sync::Arc::clone(&self.cache);
-        
+
         Box::pin(async_stream::stream! {
             // Process in batches using model's batch capability
             if let Ok(embeddings) = model.batch_embed(&content, None).await {

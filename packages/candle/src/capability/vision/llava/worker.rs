@@ -9,10 +9,10 @@ use candle_nn::VarBuilder;
 use candle_transformers::models::llava::{LLaVA, config::LLaVAConfig as CandleLLaVAConfig};
 use tokenizers::Tokenizer;
 
-use crate::domain::model::traits::CandleModel;
-use super::config::{ImageProcessingConfig, GenerationConfig};
+use super::config::{GenerationConfig, ImageProcessingConfig};
+use super::inference::{LLaVAConfigs, LLaVAModelRefs, process_ask, process_ask_url};
 use super::request::LLaVARequest;
-use super::inference::{process_ask, process_ask_url, LLaVAModelRefs, LLaVAConfigs};
+use crate::domain::model::traits::CandleModel;
 
 /// Configuration for LLaVA model
 pub(crate) struct LLaVAModelConfig {
@@ -46,7 +46,7 @@ impl LLaVAModelCore {
         // Check if thread already spawned (quick check without holding lock across await)
         {
             let tx_guard = self.request_tx.lock().await;
-            
+
             if let Some(sender) = tx_guard.as_ref() {
                 return Ok(sender.clone());
             }
@@ -56,13 +56,21 @@ impl LLaVAModelCore {
 
         // Step 1: Get model files via huggingface_file() BEFORE spawning
         // This downloads files if needed and returns cached paths
-        let tokenizer_path = model_info.huggingface_file(model_info.info().registry_key, "tokenizer.json").await?;
-        let weights_path = model_info.huggingface_file(model_info.info().registry_key, "model.safetensors").await?;
-        let config_path = model_info.huggingface_file(model_info.info().registry_key, "config.json").await?;
+        let tokenizer_path = model_info
+            .huggingface_file(model_info.info().registry_key, "tokenizer.json")
+            .await?;
+        let weights_path = model_info
+            .huggingface_file(model_info.info().registry_key, "model.safetensors")
+            .await?;
+        let config_path = model_info
+            .huggingface_file(model_info.info().registry_key, "config.json")
+            .await?;
 
         // Step 2: Load LLaVA config (CandleLLaVAConfig, not our deleted LLaVAConfig!)
         let llava_config: CandleLLaVAConfig = serde_json::from_slice(
-            &tokio::fs::read(&config_path).await.map_err(|e| format!("Failed to read config: {}", e))?,
+            &tokio::fs::read(&config_path)
+                .await
+                .map_err(|e| format!("Failed to read config: {}", e))?,
         )
         .map_err(|e| format!("Failed to parse config: {}", e))?;
 
@@ -83,7 +91,10 @@ impl LLaVAModelCore {
             .info()
             .image_mean
             .ok_or("image_mean not in ModelInfo")?;
-        let image_std = model_info.info().image_std.ok_or("image_std not in ModelInfo")?;
+        let image_std = model_info
+            .info()
+            .image_std
+            .ok_or("image_std not in ModelInfo")?;
         let temperature = model_info
             .info()
             .default_temperature
@@ -112,41 +123,41 @@ impl LLaVAModelCore {
                     return;
                 }
             };
-            
+
             let local = tokio::task::LocalSet::new();
             rt.block_on(local.run_until(async move {
                 // Load tokenizer
-            let tokenizer = match Tokenizer::from_file(&tokenizer_path) {
-                Ok(t) => t,
-                Err(e) => {
-                    let _ = init_tx.send(Err(format!("Tokenizer load failed: {}", e)));
-                    return;
-                }
-            };
+                let tokenizer = match Tokenizer::from_file(&tokenizer_path) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        let _ = init_tx.send(Err(format!("Tokenizer load failed: {}", e)));
+                        return;
+                    }
+                };
 
-            // Load model weights INSIDE thread
-            let vb = match unsafe {
-                VarBuilder::from_mmaped_safetensors(
-                    &[weights_path],
-                    candle_core::DType::F16,
-                    &device,
-                )
-            } {
-                Ok(vb) => vb,
-                Err(e) => {
-                    let _ = init_tx.send(Err(format!("VarBuilder failed: {}", e)));
-                    return;
-                }
-            };
+                // Load model weights INSIDE thread
+                let vb = match unsafe {
+                    VarBuilder::from_mmaped_safetensors(
+                        &[weights_path],
+                        candle_core::DType::F16,
+                        &device,
+                    )
+                } {
+                    Ok(vb) => vb,
+                    Err(e) => {
+                        let _ = init_tx.send(Err(format!("VarBuilder failed: {}", e)));
+                        return;
+                    }
+                };
 
-            // Load LLaVA model INSIDE thread (this is the non-Send part!)
-            let model = match LLaVA::load(vb, &llava_config, None) {
-                Ok(m) => m,
-                Err(e) => {
-                    let _ = init_tx.send(Err(format!("Model load failed: {}", e)));
-                    return;
-                }
-            };
+                // Load LLaVA model INSIDE thread (this is the non-Send part!)
+                let model = match LLaVA::load(vb, &llava_config, None) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        let _ = init_tx.send(Err(format!("Model load failed: {}", e)));
+                        return;
+                    }
+                };
 
                 // Signal successful initialization
                 let _ = init_tx.send(Ok(()));
@@ -171,8 +182,11 @@ impl LLaVAModelCore {
                             },
                         },
                         request_rx,
-                    ).await;
-                }).await.ok();
+                    )
+                    .await;
+                })
+                .await
+                .ok();
             }));
         });
 

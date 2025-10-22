@@ -1,7 +1,7 @@
 //! Configuration options for message formatting
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::domain::chat::formatting::error::{FormatError, FormatResult};
 

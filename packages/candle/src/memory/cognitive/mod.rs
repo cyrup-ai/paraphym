@@ -52,8 +52,7 @@ impl LocalCognitiveManager {
             new_metadata.importance = enhanced_importance;
             // Create new memory with updated metadata
             let mut updated_memory = enhanced_memory.clone();
-            updated_memory.metadata =
-                std::sync::Arc::new(new_metadata);
+            updated_memory.metadata = std::sync::Arc::new(new_metadata);
             Ok(updated_memory)
         } else {
             // Return original memory without modification

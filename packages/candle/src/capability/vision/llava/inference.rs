@@ -5,11 +5,11 @@ use candle_transformers::models::llama::Cache;
 use candle_transformers::models::llava::{LLaVA, config::LLaVAConfig as CandleLLaVAConfig};
 use tokenizers::Tokenizer;
 
+use super::config::{GenerationConfig, ImageProcessingConfig};
+use super::sampler::sample_token_static;
+use super::tokenizer::tokenize_image_prompt_static;
 use crate::builders::image::{ImageBuilder, ResizeFilter};
 use crate::domain::image::Image;
-use super::config::{ImageProcessingConfig, GenerationConfig};
-use super::tokenizer::tokenize_image_prompt_static;
-use super::sampler::sample_token_static;
 
 /// References to LLaVA model components
 pub(crate) struct LLaVAModelRefs<'a> {
@@ -66,8 +66,13 @@ pub(crate) async fn process_ask(
     let prompt = format!("USER: <image>\n{}\nASSISTANT:", question);
 
     // 3. Tokenize prompt (handles <image> token)
-    let input_ids =
-        tokenize_image_prompt_static(tokenizer.clone(), llava_config, device.clone(), prompt.clone()).await?;
+    let input_ids = tokenize_image_prompt_static(
+        tokenizer.clone(),
+        llava_config,
+        device.clone(),
+        prompt.clone(),
+    )
+    .await?;
 
     // 4. Prepare multimodal embeddings (vision + text fusion)
     let image_batch = image_tensor
@@ -195,8 +200,13 @@ pub(crate) async fn process_ask_url(
     let prompt = format!("USER: <image>\n{}\nASSISTANT:", question);
 
     // 3. Tokenize prompt (handles <image> token)
-    let input_ids =
-        tokenize_image_prompt_static(tokenizer.clone(), llava_config, device.clone(), prompt.clone()).await?;
+    let input_ids = tokenize_image_prompt_static(
+        tokenizer.clone(),
+        llava_config,
+        device.clone(),
+        prompt.clone(),
+    )
+    .await?;
 
     // 4. Prepare multimodal embeddings (vision + text fusion)
     let image_batch = image_tensor

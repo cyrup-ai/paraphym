@@ -1,6 +1,6 @@
 use super::primitives::{MemoryContent, MemoryNode, MemoryTypeEnum as MemoryType};
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 
 /// Memory node pool for zero-allocation `MemoryNode` reuse
 pub struct MemoryNodePool {
@@ -217,7 +217,8 @@ pub fn initialize_memory_node_pool(capacity: usize, embedding_dimension: usize) 
 
 /// Get a node from the global pool
 #[inline]
-pub async fn acquire_pooled_node() -> Option<Result<PooledMemoryNode<'static>, super::primitives::MemoryError>> {
+pub async fn acquire_pooled_node()
+-> Option<Result<PooledMemoryNode<'static>, super::primitives::MemoryError>> {
     match MEMORY_NODE_POOL.get() {
         Some(pool) => Some(pool.acquire().await),
         None => None,

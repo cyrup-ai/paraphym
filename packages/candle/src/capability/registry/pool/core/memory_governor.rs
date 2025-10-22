@@ -1,11 +1,11 @@
 // memory_governor.rs - System-wide memory management and pressure handling
 
-use tokio::sync::RwLock;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use sysinfo::System;
+use tokio::sync::RwLock;
 
 /// Eviction candidate for emergency memory recovery
 #[derive(Debug, Clone)]
@@ -93,7 +93,7 @@ impl Drop for AllocationGuard {
         // Runtime-aware cleanup to handle both async and sync contexts
         let governor = self.governor.clone();
         let size_mb = self.size_mb;
-        
+
         // Try to detect if we're in a tokio runtime
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             // In tokio runtime - spawn async cleanup
@@ -212,7 +212,7 @@ impl MemoryGovernor {
         // Initialize memory pools if enabled (runtime-aware)
         if config.enable_memory_pools {
             let governor_clone = governor.clone();
-            
+
             // Try to detect if we're in a tokio runtime
             if let Ok(handle) = tokio::runtime::Handle::try_current() {
                 // In tokio runtime - spawn async initialization
@@ -222,7 +222,9 @@ impl MemoryGovernor {
             } else {
                 // Not in tokio runtime - skip pool initialization
                 // Pools will remain empty but won't cause panics
-                log::warn!("MemoryGovernor created outside tokio runtime - memory pooling disabled");
+                log::warn!(
+                    "MemoryGovernor created outside tokio runtime - memory pooling disabled"
+                );
             }
         }
 
@@ -361,10 +363,15 @@ impl MemoryGovernor {
     }
 
     /// Register model allocation
-    pub async fn register_model_allocation(&self, model_name: &str, worker_id: u64, size_mb: usize) {
+    pub async fn register_model_allocation(
+        &self,
+        model_name: &str,
+        worker_id: u64,
+        size_mb: usize,
+    ) {
         // Get NUMA node before acquiring lock to avoid holding lock across await
         let numa_node = self.get_numa_node().await;
-        
+
         let mut allocations = self.allocations.write().await;
 
         let allocation = AllocationInfo {

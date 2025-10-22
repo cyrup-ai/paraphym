@@ -76,8 +76,6 @@ impl TemplateEngine for CompiledEngine {
     }
 }
 
-
-
 /// Template engine registry
 pub struct EngineRegistry {
     engines: Vec<Box<dyn TemplateEngine>>,

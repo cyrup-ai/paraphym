@@ -1,7 +1,7 @@
 //! Template value types and conversions
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Template value type for variables
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

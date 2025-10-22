@@ -7,8 +7,8 @@
 pub mod context;
 pub mod event_types;
 pub mod executor;
-pub mod stats;
 pub mod impls;
+pub mod stats;
 
 // Re-export all public types for backward compatibility
 pub use context::CommandExecutionContext;

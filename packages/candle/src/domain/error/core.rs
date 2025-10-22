@@ -1,8 +1,8 @@
 //! Core error type with zero-allocation and comprehensive metadata
 
+use super::types::{ErrorCategory, ErrorMessage, ErrorRecoverability, ErrorSeverity};
 use std::fmt;
 use std::time::{Duration, Instant};
-use super::types::{ErrorCategory, ErrorSeverity, ErrorRecoverability, ErrorMessage};
 
 /// Zero-allocation error with comprehensive metadata
 #[derive(Debug, Clone)]

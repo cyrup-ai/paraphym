@@ -95,7 +95,7 @@ impl CandleAgent {
             config: AgentConfig {
                 name: name.into(),
                 system_prompt: None,
-                temperature: 0.0,  // Greedy sampling for agents - deterministic output
+                temperature: 0.0, // Greedy sampling for agents - deterministic output
                 max_tokens: None,
             },
             conversation: AgentConversation::new(),

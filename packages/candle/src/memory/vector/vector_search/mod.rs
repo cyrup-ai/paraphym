@@ -7,15 +7,15 @@
 //! - Zero-allocation search result processing
 //! - Advanced filtering and ranking algorithms
 
-mod helpers;
-mod types;
-mod options;
 mod cognitive;
 mod core;
+mod helpers;
 mod hybrid;
+mod options;
+mod types;
 
 // Re-export public API (maintains backward compatibility)
-pub use types::{SearchResult, KeywordSearchFn, RequestInfoCallback};
-pub use options::SearchOptions;
 pub use core::VectorSearch;
 pub use hybrid::HybridSearch;
+pub use options::SearchOptions;
+pub use types::{KeywordSearchFn, RequestInfoCallback, SearchResult};

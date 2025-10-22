@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use surrealdb::Value;
 
-use crate::memory::utils::error::Result;
 use super::types::RequestInfoCallback;
+use crate::memory::utils::error::Result;
 
 /// Search options for fine-tuning search behavior
 #[derive(Clone, Serialize, Deserialize)]

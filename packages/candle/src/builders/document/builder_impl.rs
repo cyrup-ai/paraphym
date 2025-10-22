@@ -1,21 +1,19 @@
 //! DocumentBuilder trait implementation for DocumentBuilderImpl
 
-use super::types::{DocumentBuilderData, DocumentBuilderImpl};
 use super::trait_def::DocumentBuilder;
+use super::types::{DocumentBuilderData, DocumentBuilderImpl};
+use crate::async_stream;
 use crate::domain::context::{
-    CandleContentFormat as ContentFormat,
-    CandleDocumentMediaType as DocumentMediaType,
-    CandleDocument as Document,
-    CandleDocumentChunk as DocumentChunk,
+    CandleContentFormat as ContentFormat, CandleDocument as Document,
+    CandleDocumentChunk as DocumentChunk, CandleDocumentMediaType as DocumentMediaType,
 };
 use cyrup_sugars::ZeroOneOrMany;
-use tokio_stream::{Stream, StreamExt};
-use crate::async_stream;
-use std::pin::Pin;
-use std::future::Future;
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::future::Future;
 use std::marker::PhantomData;
+use std::pin::Pin;
+use tokio_stream::{Stream, StreamExt};
 
 impl<F1, F2> DocumentBuilder for DocumentBuilderImpl<F1, F2>
 where

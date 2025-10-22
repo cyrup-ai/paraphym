@@ -51,11 +51,12 @@ impl CompiledTemplate {
             TemplateAst::Text(text) => Ok(text.clone()),
             TemplateAst::Variable(name) => {
                 // Get variable from context
-                let value = context
-                    .get_variable(name)
-                    .ok_or_else(|| TemplateError::VariableError {
-                        message: format!("Variable '{name}' not found"),
-                    })?;
+                let value =
+                    context
+                        .get_variable(name)
+                        .ok_or_else(|| TemplateError::VariableError {
+                            message: format!("Variable '{name}' not found"),
+                        })?;
 
                 // Convert value to string
                 match value {
@@ -101,9 +102,8 @@ impl CompiledTemplate {
         let condition_value = Self::render_ast(condition, context)?;
 
         // Check if condition is true (non-empty, not "false", not "0")
-        let condition_met = !condition_value.is_empty()
-            && condition_value != "false"
-            && condition_value != "0";
+        let condition_met =
+            !condition_value.is_empty() && condition_value != "false" && condition_value != "0";
 
         if condition_met {
             Self::render_ast(if_true, context)
@@ -138,30 +138,42 @@ impl CompiledTemplate {
                 }
             }
             "-" => {
-                let l = left.parse::<f64>().map_err(|_| TemplateError::RenderError {
-                    message: format!("Cannot parse '{left}' as number for subtraction"),
-                })?;
-                let r = right.parse::<f64>().map_err(|_| TemplateError::RenderError {
-                    message: format!("Cannot parse '{right}' as number for subtraction"),
-                })?;
+                let l = left
+                    .parse::<f64>()
+                    .map_err(|_| TemplateError::RenderError {
+                        message: format!("Cannot parse '{left}' as number for subtraction"),
+                    })?;
+                let r = right
+                    .parse::<f64>()
+                    .map_err(|_| TemplateError::RenderError {
+                        message: format!("Cannot parse '{right}' as number for subtraction"),
+                    })?;
                 Ok((l - r).to_string())
             }
             "*" => {
-                let l = left.parse::<f64>().map_err(|_| TemplateError::RenderError {
-                    message: format!("Cannot parse '{left}' as number for multiplication"),
-                })?;
-                let r = right.parse::<f64>().map_err(|_| TemplateError::RenderError {
-                    message: format!("Cannot parse '{right}' as number for multiplication"),
-                })?;
+                let l = left
+                    .parse::<f64>()
+                    .map_err(|_| TemplateError::RenderError {
+                        message: format!("Cannot parse '{left}' as number for multiplication"),
+                    })?;
+                let r = right
+                    .parse::<f64>()
+                    .map_err(|_| TemplateError::RenderError {
+                        message: format!("Cannot parse '{right}' as number for multiplication"),
+                    })?;
                 Ok((l * r).to_string())
             }
             "/" => {
-                let l = left.parse::<f64>().map_err(|_| TemplateError::RenderError {
-                    message: format!("Cannot parse '{left}' as number for division"),
-                })?;
-                let r = right.parse::<f64>().map_err(|_| TemplateError::RenderError {
-                    message: format!("Cannot parse '{right}' as number for division"),
-                })?;
+                let l = left
+                    .parse::<f64>()
+                    .map_err(|_| TemplateError::RenderError {
+                        message: format!("Cannot parse '{left}' as number for division"),
+                    })?;
+                let r = right
+                    .parse::<f64>()
+                    .map_err(|_| TemplateError::RenderError {
+                        message: format!("Cannot parse '{right}' as number for division"),
+                    })?;
                 if r == 0.0 {
                     return Err(TemplateError::RenderError {
                         message: "Division by zero".to_string(),

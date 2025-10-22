@@ -20,8 +20,8 @@ use crate::memory::utils::error::{Error as MemoryError, Result};
 /// - Pre-loaded: Model loaded once and reused (via loaded_model) for better performance
 #[derive(Clone)]
 pub struct ClipVisionEmbeddingModel {
-    provider: Arc<ClipVisionModel>,        // Lazy loading fallback
-    loaded_model: Option<Arc<LoadedClipVisionModel>>,  // Pre-loaded for performance
+    provider: Arc<ClipVisionModel>, // Lazy loading fallback
+    loaded_model: Option<Arc<LoadedClipVisionModel>>, // Pre-loaded for performance
     dimension: usize,
 }
 
@@ -90,7 +90,7 @@ impl ClipVisionEmbeddingModel {
 
         Ok(Self {
             provider: Arc::new(provider),
-            loaded_model: None,  // Will lazy-load on first use
+            loaded_model: None, // Will lazy-load on first use
             dimension,
         })
     }

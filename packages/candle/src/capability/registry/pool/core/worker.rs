@@ -29,8 +29,8 @@
 //! - MODEL_POOL.md Scenario 4: Memory footprint calculation
 //! - MODEL_POOL.md Scenario 5: Worker lifecycle
 
-use crate::domain::model::traits::CandleModel;
 use super::PoolError;
+use crate::domain::model::traits::CandleModel;
 use std::thread;
 
 /// Spawn worker thread with model loader closure

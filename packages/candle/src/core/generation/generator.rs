@@ -3,10 +3,10 @@
 //! This module contains the TextGenerator implementation with tokio stream token streaming,
 //! SIMD-optimized sampling methods, and pure SIMD delegation without scalar fallbacks.
 
+use crate::async_stream;
 use candle_core::{Device, Tensor};
 use tokenizers::Tokenizer;
 use tokio_stream::Stream;
-use crate::async_stream;
 
 use crate::domain::context::chunks::{CandleStringChunk, GenerationStats};
 use cyrup_simd::logits::LogitsProcessor as LogitsProcessorTrait;
@@ -94,8 +94,12 @@ impl TextGenerator {
             tokens_per_sec: self.stats.tokens_per_second(),
         };
 
-        log::debug!("Generation complete: {} tokens in {:.2}s ({:.2} tokens/sec)",
-            stats.tokens_generated, stats.elapsed_secs, stats.tokens_per_sec);
+        log::debug!(
+            "Generation complete: {} tokens in {:.2}s ({:.2} tokens/sec)",
+            stats.tokens_generated,
+            stats.elapsed_secs,
+            stats.tokens_per_sec
+        );
 
         let _ = tx.send(CandleStringChunk::final_with_stats(stats));
     }
@@ -108,8 +112,12 @@ impl TextGenerator {
         special_tokens: SpecialTokens,
     ) -> impl Stream<Item = crate::domain::context::chunks::CandleStringChunk> {
         async_stream::spawn_stream(move |tx| async move {
-            log::info!(">>> GENERATE STARTED: max_tokens={}, prompt_len={}, eos={:?}", 
-                max_tokens, prompt.len(), special_tokens.eos_token_id);
+            log::info!(
+                ">>> GENERATE STARTED: max_tokens={}, prompt_len={}, eos={:?}",
+                max_tokens,
+                prompt.len(),
+                special_tokens.eos_token_id
+            );
             self.stats.start_generation();
 
             // Encode prompt to tokens using tokenizer (fast CPU operation)
@@ -119,7 +127,7 @@ impl TextGenerator {
                     let ids = encoded.get_ids().to_vec();
                     log::info!(">>> Prompt encoded to {} tokens", ids.len());
                     ids
-                },
+                }
                 Err(e) => {
                     log::error!("Prompt encoding error: {}", e);
                     self.emit_final_stats(&tx);
@@ -138,7 +146,7 @@ impl TextGenerator {
                     Ok(unsqueezed) => {
                         log::info!(">>> Initial tensor created");
                         unsqueezed
-                    },
+                    }
                     Err(e) => {
                         log::error!("Initial tensor unsqueeze error: {}", e);
                         self.emit_final_stats(&tx);
@@ -160,14 +168,14 @@ impl TextGenerator {
                         Ok(squeezed) => {
                             log::info!(">>> Logits squeezed successfully");
                             squeezed
-                        },
+                        }
                         Err(e) => {
                             log::error!("Initial logits squeeze error: {}", e);
                             self.emit_final_stats(&tx);
                             return;
                         }
                     }
-                },
+                }
                 Err(e) => {
                     log::error!("Initial forward pass error: {}", e);
                     self.emit_final_stats(&tx);
@@ -182,7 +190,7 @@ impl TextGenerator {
                 Ok(v) => {
                     log::info!(">>> Logits converted, vocab_size={}", v.len());
                     v
-                },
+                }
                 Err(e) => {
                     log::error!("Converting initial logits to vector error: {}", e);
                     self.emit_final_stats(&tx);
@@ -194,7 +202,7 @@ impl TextGenerator {
                 Ok(token) => {
                     log::info!(">>> Sampled token: {}", token);
                     token
-                },
+                }
                 Err(e) => {
                     log::error!("Initial SIMD sampling error: {}", e);
                     self.emit_final_stats(&tx);
@@ -228,7 +236,10 @@ impl TextGenerator {
 
             // Check termination AFTER sending first token
             if self.should_stop(next_token, &special_tokens) {
-                log::info!("STOP: First token was EOS ({}), stopping generation", next_token);
+                log::info!(
+                    "STOP: First token was EOS ({}), stopping generation",
+                    next_token
+                );
                 self.emit_final_stats(&tx);
                 return; // Graceful EOS termination after at least one token sent
             }
@@ -414,7 +425,9 @@ impl TextGenerator {
             };
 
             Ok(token as u32)
-        }).await.map_err(|e| {
+        })
+        .await
+        .map_err(|e| {
             crate::domain::model::error::CandleModelError::Internal(
                 format!("SIMD sampling spawn_blocking failed: {}", e).into(),
             )

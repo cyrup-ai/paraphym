@@ -49,7 +49,8 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
             .unwrap_or(2000);
 
         // Get default embedding model from registry (if available)
-        let default_embedding_model = registry::get::<TextEmbeddingModel>("dunzhang/stella_en_400M_v5");
+        let default_embedding_model =
+            registry::get::<TextEmbeddingModel>("dunzhang/stella_en_400M_v5");
 
         CandleAgentBuilderImpl {
             name: self.name,
@@ -176,7 +177,10 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
         F: Fn(CandleMessageChunk) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = CandleMessageChunk> + Send + 'static,
     {
-        let wrapped = move |chunk: CandleMessageChunk| Box::pin(handler(chunk)) as Pin<Box<dyn std::future::Future<Output = CandleMessageChunk> + Send>>;
+        let wrapped = move |chunk: CandleMessageChunk| {
+            Box::pin(handler(chunk))
+                as Pin<Box<dyn std::future::Future<Output = CandleMessageChunk> + Send>>
+        };
         self.on_chunk_handler = Some(Arc::new(wrapped));
         self
     }
@@ -194,7 +198,9 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
     fn on_conversation_turn<F, Fut>(self, _handler: F) -> impl CandleAgentRoleBuilder
     where
         F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> Fut + Send + Sync + 'static,
-        Fut: std::future::Future<Output = Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>> + Send + 'static,
+        Fut: std::future::Future<Output = Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>>
+            + Send
+            + 'static,
     {
         // Cannot set handler without a model - return self unchanged
         self
@@ -209,26 +215,36 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
     }
 
     /// Chat with async closure - EXACT syntax: .chat(|conversation| async { ChatLoop })
-    fn chat<F, Fut>(self, _handler: F) -> Result<Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>, AgentError>
+    fn chat<F, Fut>(
+        self,
+        _handler: F,
+    ) -> Result<Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>, AgentError>
     where
         F: Fn(&CandleAgentConversation) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = CandleChatLoop> + Send + 'static,
     {
-        Ok(Box::pin(crate::async_stream::spawn_stream(|sender| async move {
-            let _ = sender.send(CandleMessageChunk::Error(
-                "No provider configured".to_string(),
-            ));
-        })))
+        Ok(Box::pin(crate::async_stream::spawn_stream(
+            |sender| async move {
+                let _ = sender.send(CandleMessageChunk::Error(
+                    "No provider configured".to_string(),
+                ));
+            },
+        )))
     }
 
-    fn chat_with_message(self, message: impl Into<String>) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>> {
+    fn chat_with_message(
+        self,
+        message: impl Into<String>,
+    ) -> Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>> {
         let msg = message.into();
-        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
-            let _ = sender.send(CandleMessageChunk::Error(format!(
-                "No provider configured for message: {}",
-                msg
-            )));
-        }))
+        Box::pin(crate::async_stream::spawn_stream(
+            move |sender| async move {
+                let _ = sender.send(CandleMessageChunk::Error(format!(
+                    "No provider configured for message: {}",
+                    msg
+                )));
+            },
+        ))
     }
 
     /// Convert to agent - EXACT syntax: .into_agent()
@@ -254,9 +270,9 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
             .unwrap_or(2000);
 
         // Get default embedding model from registry (if available)
-        let embedding_model = self.text_embedding_model.or_else(|| {
-            registry::get::<TextEmbeddingModel>("dunzhang/stella_en_400M_v5")
-        });
+        let embedding_model = self
+            .text_embedding_model
+            .or_else(|| registry::get::<TextEmbeddingModel>("dunzhang/stella_en_400M_v5"));
 
         CandleAgentBuilderImpl {
             name: self.name,
@@ -281,4 +297,3 @@ impl CandleAgentRoleBuilder for CandleAgentRoleBuilderImpl {
         }
     }
 }
-

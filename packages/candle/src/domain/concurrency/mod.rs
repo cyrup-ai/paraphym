@@ -3,11 +3,11 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+use crate::async_stream;
 use cyrup_sugars::prelude::MessageChunk;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio_stream::Stream;
-use crate::async_stream;
 
 /// Result type for channel operations that implements `MessageChunk`
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -229,5 +229,3 @@ impl<T> Default for OneshotChannel<T> {
         Self::new()
     }
 }
-
-

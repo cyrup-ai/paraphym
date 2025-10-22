@@ -1,14 +1,13 @@
 //! Document builder types and state
 
+use crate::domain::context::{
+    CandleContentFormat as ContentFormat, CandleDocumentChunk as DocumentChunk,
+    CandleDocumentMediaType as DocumentMediaType,
+};
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
 use std::path::PathBuf;
-use crate::domain::context::{
-    CandleContentFormat as ContentFormat,
-    CandleDocumentMediaType as DocumentMediaType,
-    CandleDocumentChunk as DocumentChunk,
-};
-use serde_json::Value;
 
 /// Document builder data enumeration for zero-allocation type tracking
 #[derive(Debug, Clone)]

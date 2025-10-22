@@ -3,6 +3,10 @@
 //! This module contains `CandleContext<T>` and all type-specific implementations
 //! for File, Files, Directory, and GitHub context operations.
 
+use gitgix::{
+    CloneOpts, FetchOpts, GitError as GitGixError, MergeOpts, clone_repo as gitgix_clone, fetch,
+    merge, open_repo,
+};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
@@ -10,14 +14,14 @@ use std::pin::Pin;
 use std::time::SystemTime;
 use tokio_stream::Stream;
 use uuid::Uuid;
-use gitgix::{
-    CloneOpts, FetchOpts, GitError as GitGixError, MergeOpts,
-    clone_repo as gitgix_clone, fetch, merge, open_repo,
-};
 
-use crate::domain::context::CandleDocument as Document;
-use super::types::{CandleImmutableFileContext, CandleImmutableFilesContext, CandleImmutableDirectoryContext, CandleImmutableGithubContext, CandleContextEvent, CandleFile, CandleFiles, CandleContextError, CandleDirectory, CandleGithub};
 use super::processor::CandleStreamingContextProcessor;
+use super::types::{
+    CandleContextError, CandleContextEvent, CandleDirectory, CandleFile, CandleFiles, CandleGithub,
+    CandleImmutableDirectoryContext, CandleImmutableFileContext, CandleImmutableFilesContext,
+    CandleImmutableGithubContext,
+};
+use crate::domain::context::CandleDocument as Document;
 
 /// Context wrapper with zero Arc usage
 #[derive(Debug)]
@@ -175,7 +179,9 @@ impl CandleContext<CandleFiles> {
                                 if let Ok(content) = tokio::fs::read_to_string(&entry).await {
                                     let document = Document {
                                         data: content,
-                                        format: Some(crate::domain::context::CandleContentFormat::Text),
+                                        format: Some(
+                                            crate::domain::context::CandleContentFormat::Text,
+                                        ),
                                         media_type: Some(
                                             crate::domain::context::CandleDocumentMediaType::TXT,
                                         ),
@@ -194,20 +200,29 @@ impl CandleContext<CandleFiles> {
                                                 ),
                                             );
                                             props
-                                        }};
+                                        },
+                                    };
                                     let _ = tx.send(document);
                                 }
                             }
                         }
                         Err(e) => {
-                            log::error!("Streaming error in {}: {:?}", "Glob pattern error", CandleContextError::ContextNotFound(format!(
+                            log::error!(
+                                "Streaming error in {}: {:?}",
+                                "Glob pattern error",
+                                CandleContextError::ContextNotFound(format!(
                                     "Glob pattern error: {e}"
-                                )));
+                                ))
+                            );
                         }
                     }
                 }
                 _ => {
-                    log::error!("Streaming error in {}: {:?}", "Invalid context type for files loading", CandleContextError::ContextNotFound("Invalid context type".to_string()));
+                    log::error!(
+                        "Streaming error in {}: {:?}",
+                        "Invalid context type for files loading",
+                        CandleContextError::ContextNotFound("Invalid context type".to_string())
+                    );
                 }
             }
         }))
@@ -493,9 +508,13 @@ impl CandleContext<CandleGithub> {
                 CandleContextSourceType::Github(github_context) => {
                     // Validate repository URL
                     if github_context.repository_url.is_empty() {
-                        log::error!("Streaming error in {}: {:?}", "GitHub repository URL missing", CandleContextError::ContextNotFound(
+                        log::error!(
+                            "Streaming error in {}: {:?}",
+                            "GitHub repository URL missing",
+                            CandleContextError::ContextNotFound(
                                 "GitHub repository URL is required".to_string()
-                            ));
+                            )
+                        );
                         return;
                     }
 
@@ -521,7 +540,8 @@ impl CandleContext<CandleGithub> {
                                 Ok(paths) => {
                                     for entry in paths.flatten() {
                                         // Read file content
-                                        if let Ok(content) = tokio::fs::read_to_string(&entry).await {
+                                        if let Ok(content) = tokio::fs::read_to_string(&entry).await
+                                        {
                                             let relative_path = entry
                                                 .strip_prefix(&repo_path)
                                                 .unwrap_or(&entry)
@@ -540,23 +560,35 @@ impl CandleContext<CandleGithub> {
                                     }
                                 }
                                 Err(e) => {
-                                    log::error!("Streaming error in {}: {:?}", "Glob pattern expansion failed", CandleContextError::PatternError(format!(
+                                    log::error!(
+                                        "Streaming error in {}: {:?}",
+                                        "Glob pattern expansion failed",
+                                        CandleContextError::PatternError(format!(
                                             "Glob pattern error for '{}': {}",
                                             github_context.pattern, e
-                                        )));
+                                        ))
+                                    );
                                 }
                             }
                         }
                         Err(e) => {
-                            log::error!("Streaming error in {}: {:?}", "GitHub repository access failed", CandleContextError::ProviderUnavailable(format!(
+                            log::error!(
+                                "Streaming error in {}: {:?}",
+                                "GitHub repository access failed",
+                                CandleContextError::ProviderUnavailable(format!(
                                     "Failed to clone/update repository '{}': {}",
                                     github_context.repository_url, e
-                                )));
+                                ))
+                            );
                         }
                     }
                 }
                 _ => {
-                    log::error!("Streaming error in {}: {:?}", "Invalid context type for GitHub loading", CandleContextError::ContextNotFound("Invalid context type".to_string()));
+                    log::error!(
+                        "Streaming error in {}: {:?}",
+                        "Invalid context type for GitHub loading",
+                        CandleContextError::ContextNotFound("Invalid context type".to_string())
+                    );
                 }
             }
         }))

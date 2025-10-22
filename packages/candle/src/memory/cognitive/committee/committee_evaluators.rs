@@ -4,7 +4,8 @@
 
 use crate::capability::traits::TextToTextCapable;
 use crate::domain::{
-    completion::CandleCompletionParams, context::chunks::CandleCompletionChunk, prompt::CandlePrompt,
+    completion::CandleCompletionParams, context::chunks::CandleCompletionChunk,
+    prompt::CandlePrompt,
 };
 use crate::memory::cognitive::committee::committee_types::{Committee, CommitteeConfig};
 use crate::memory::cognitive::types::CognitiveError;

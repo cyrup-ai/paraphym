@@ -7,10 +7,17 @@ use std::pin::Pin;
 use tokio_stream::Stream;
 
 use super::{
+    CommandExecutionContext, CommandExecutionResult, CommandInfo, ImmutableChatCommand,
+    ValidationResult,
+    executor_defs::{
+        DomainBranchExecutor, DomainChatExecutor, DomainClearExecutor, DomainConfigExecutor,
+        DomainCopyExecutor, DomainCustomExecutor, DomainDebugExecutor, DomainExportExecutor,
+        DomainHelpExecutor, DomainHistoryExecutor, DomainImportExecutor, DomainLoadExecutor,
+        DomainMacroExecutor, DomainRetryExecutor, DomainSaveExecutor, DomainSearchExecutor,
+        DomainSessionExecutor, DomainSettingsExecutor, DomainStatsExecutor, DomainTemplateExecutor,
+        DomainThemeExecutor, DomainToolExecutor, DomainUndoExecutor,
+    },
     executor_trait::DomainCommandExecutor,
-    executor_defs::{DomainHelpExecutor, DomainClearExecutor, DomainExportExecutor, DomainConfigExecutor, DomainTemplateExecutor, DomainMacroExecutor, DomainSearchExecutor, DomainBranchExecutor, DomainSessionExecutor, DomainToolExecutor, DomainStatsExecutor, DomainThemeExecutor, DomainDebugExecutor, DomainHistoryExecutor, DomainSaveExecutor, DomainLoadExecutor, DomainImportExecutor, DomainSettingsExecutor, DomainCustomExecutor, DomainCopyExecutor, DomainRetryExecutor, DomainUndoExecutor, DomainChatExecutor},
-    CommandExecutionContext, CommandExecutionResult, CommandInfo,
-    ImmutableChatCommand, ValidationResult,
 };
 
 /// Domain command executor enum for zero-allocation dispatch

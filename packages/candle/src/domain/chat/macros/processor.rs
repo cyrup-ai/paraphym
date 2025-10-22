@@ -1,22 +1,22 @@
 //\! `MacroProcessor` implementation with advanced features
 
-use std::pin::Pin;
+use super::context::{ChatMacro, LoopContext, MacroExecutionContext, send_message_to_conversation};
+use super::errors::{ActionExecutionResult, MacroSystemError};
+use super::parser::{CondParser, tokenize_condition};
+use super::types::MacroAction;
+use crate::domain::chat::commands::{CommandEvent, ImmutableChatCommand, execute_candle_command};
+use crate::domain::chat::conversation::CandleStreamingConversation;
+use crossbeam_skiplist::SkipMap;
+use log::{error, warn};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::future::Future;
 use tokio::sync::RwLock;
-use crossbeam_skiplist::SkipMap;
-use uuid::Uuid;
-use serde::{Deserialize, Serialize};
-use log::{error, warn};
 use tokio_stream::StreamExt;
-use super::types::MacroAction;
-use super::context::{ChatMacro, MacroExecutionContext, send_message_to_conversation, LoopContext};
-use super::parser::{tokenize_condition, CondParser};
-use super::errors::{MacroSystemError, ActionExecutionResult};
-use crate::domain::chat::commands::{CommandEvent, execute_candle_command, ImmutableChatCommand};
-use crate::domain::chat::conversation::CandleStreamingConversation;
+use uuid::Uuid;
 
 /// Macro processor for executing and managing chat macros
 ///
@@ -224,7 +224,10 @@ impl MacroProcessor {
     /// List all registered macros
     #[must_use]
     pub fn list_macros(&self) -> Vec<ChatMacro> {
-        self.macros.iter().map(|entry| entry.value().clone()).collect()
+        self.macros
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
     }
 
     /// Execute a macro with given context variables
@@ -264,7 +267,7 @@ impl MacroProcessor {
         // Create execution context
         let execution_id = Uuid::new_v4();
         let started_at = chrono::Utc::now();
-        
+
         let stats = Arc::clone(&self.stats);
         stats.total_executions.fetch_add(1, Ordering::Relaxed);
         stats.active_executions.fetch_add(1, Ordering::Relaxed);
@@ -282,14 +285,13 @@ impl MacroProcessor {
             };
 
             let mut performance = MacroPerformanceMetrics::default();
-            let (success, actions_executed, error_message) = Self::execute_macro_impl(
-                &macro_def,
-                &mut context,
-                &mut performance,
-            ).await;
+            let (success, actions_executed, error_message) =
+                Self::execute_macro_impl(&macro_def, &mut context, &mut performance).await;
 
             let completed_at = chrono::Utc::now();
-            let duration_ms = (completed_at - started_at).num_milliseconds().cast_unsigned();
+            let duration_ms = (completed_at - started_at)
+                .num_milliseconds()
+                .cast_unsigned();
 
             if success {
                 stats.successful_executions.fetch_add(1, Ordering::Relaxed);
@@ -298,7 +300,7 @@ impl MacroProcessor {
             }
             stats.total_execution_time_us.fetch_add(
                 usize::try_from(duration_ms * 1000).unwrap_or(usize::MAX),
-                Ordering::Relaxed
+                Ordering::Relaxed,
             );
             stats.active_executions.fetch_sub(1, Ordering::Relaxed);
 
@@ -352,13 +354,15 @@ impl MacroProcessor {
                         MacroAction::Conditional { .. } => performance.conditionals_evaluated += 1,
                         MacroAction::Loop { .. } => performance.loops_executed += 1,
                         MacroAction::Wait { duration, .. } => {
-                            performance.total_wait_ms += u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
+                            performance.total_wait_ms +=
+                                u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
                         }
                     }
                 }
                 Ok(ActionExecutionResult::Wait(duration)) => {
                     tokio::time::sleep(duration).await;
-                    performance.total_wait_ms += u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
+                    performance.total_wait_ms +=
+                        u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
                 }
                 Ok(ActionExecutionResult::SkipToAction(index)) => {
                     context.current_action = index;
@@ -445,7 +449,11 @@ impl MacroProcessor {
     /// # Errors
     ///
     /// Returns `MacroSystemError` if lock on variables cannot be acquired
-    pub async fn set_global_variable(&self, name: String, value: String) -> Result<(), MacroSystemError> {
+    pub async fn set_global_variable(
+        &self,
+        name: String,
+        value: String,
+    ) -> Result<(), MacroSystemError> {
         let mut vars = self.variables.write().await;
         vars.insert(name, value);
         Ok(())
@@ -490,24 +498,27 @@ pub(crate) fn execute_action_sync<'a>(
 ) -> Pin<Box<dyn Future<Output = Result<ActionExecutionResult, MacroSystemError>> + Send + 'a>> {
     Box::pin(async move {
         match action {
-            MacroAction::SendMessage { content, message_type, .. } => {
-                execute_send_message(content, message_type, context).await
-            }
-            MacroAction::ExecuteCommand { command, .. } => {
-                execute_command_action(command).await
-            }
-            MacroAction::Wait { duration, .. } => {
-                Ok(ActionExecutionResult::Wait(*duration))
-            }
+            MacroAction::SendMessage {
+                content,
+                message_type,
+                ..
+            } => execute_send_message(content, message_type, context).await,
+            MacroAction::ExecuteCommand { command, .. } => execute_command_action(command).await,
+            MacroAction::Wait { duration, .. } => Ok(ActionExecutionResult::Wait(*duration)),
             MacroAction::SetVariable { name, value, .. } => {
                 Ok(execute_set_variable(name, value, context))
             }
-            MacroAction::Conditional { condition, then_actions, else_actions, .. } => {
-                execute_conditional(condition, then_actions, else_actions.as_ref(), context).await
-            }
-            MacroAction::Loop { iterations, actions, .. } => {
-                execute_loop(*iterations, actions, context).await
-            }
+            MacroAction::Conditional {
+                condition,
+                then_actions,
+                else_actions,
+                ..
+            } => execute_conditional(condition, then_actions, else_actions.as_ref(), context).await,
+            MacroAction::Loop {
+                iterations,
+                actions,
+                ..
+            } => execute_loop(*iterations, actions, context).await,
         }
     })
 }
@@ -521,9 +532,13 @@ async fn execute_send_message(
     let resolved_content = resolve_variables_sync(msg_content, &exec_context.variables);
 
     if let Some(ref conversation) = exec_context.conversation {
-        match send_message_to_conversation(conversation, resolved_content.clone(), message_type).await {
+        match send_message_to_conversation(conversation, resolved_content.clone(), message_type)
+            .await
+        {
             Ok(()) => Ok(ActionExecutionResult::Success),
-            Err(e) => Ok(ActionExecutionResult::Error(format!("Message send failed: {e}"))),
+            Err(e) => Ok(ActionExecutionResult::Error(format!(
+                "Message send failed: {e}"
+            ))),
         }
     } else {
         warn!("No conversation available for SendMessage action. Message: {resolved_content}");

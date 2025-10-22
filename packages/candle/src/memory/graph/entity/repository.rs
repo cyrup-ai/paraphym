@@ -4,7 +4,9 @@
 
 use surrealdb::Value;
 
-use super::futures::{PendingEntity, PendingEntityOption, PendingEntityList, PendingEntityCount, PendingUnit};
+use super::futures::{
+    PendingEntity, PendingEntityCount, PendingEntityList, PendingEntityOption, PendingUnit,
+};
 use super::types::Entity;
 
 /// Thread-safe entity repository trait - Returns Futures

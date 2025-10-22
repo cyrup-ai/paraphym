@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use super::super::core::{TemplateAst, TemplateError, TemplateResult};
-use super::utils::{extract_operator, find_operator};
 use super::TemplateParser;
+use super::utils::{extract_operator, find_operator};
 
 impl TemplateParser {
     /// Parse an expression (could be variable, binary operation, comparison, or function call)
@@ -12,7 +12,11 @@ impl TemplateParser {
     /// # Errors
     ///
     /// Returns `TemplateError` if expression parsing fails
-    pub(crate) fn parse_expression(&self, content: &str, depth: usize) -> TemplateResult<TemplateAst> {
+    pub(crate) fn parse_expression(
+        &self,
+        content: &str,
+        depth: usize,
+    ) -> TemplateResult<TemplateAst> {
         if depth > self.config.max_depth {
             return Err(TemplateError::ParseError {
                 message: "Maximum parsing depth exceeded".to_string(),
@@ -102,21 +106,20 @@ impl TemplateParser {
         }
 
         // Handle array access (e.g., items[0])
-        if content.contains('[') && content.contains(']')
-            && let Some(bracket_pos) = content.find('[') {
-                let array_name = content[..bracket_pos].trim();
-                if let Some(close_bracket) = content.rfind(']') {
-                    let index_str = content[bracket_pos + 1..close_bracket].trim();
-                    let index = self.parse_expression(index_str, depth + 1)?;
-                    return Ok(TemplateAst::Expression {
-                        operator: "[]".to_string(),
-                        operands: Arc::new([
-                            TemplateAst::Variable(array_name.to_string()),
-                            index,
-                        ]),
-                    });
-                }
+        if content.contains('[')
+            && content.contains(']')
+            && let Some(bracket_pos) = content.find('[')
+        {
+            let array_name = content[..bracket_pos].trim();
+            if let Some(close_bracket) = content.rfind(']') {
+                let index_str = content[bracket_pos + 1..close_bracket].trim();
+                let index = self.parse_expression(index_str, depth + 1)?;
+                return Ok(TemplateAst::Expression {
+                    operator: "[]".to_string(),
+                    operands: Arc::new([TemplateAst::Variable(array_name.to_string()), index]),
+                });
             }
+        }
 
         // Simple variable
         if content.chars().all(|c| c.is_alphanumeric() || c == '_') {

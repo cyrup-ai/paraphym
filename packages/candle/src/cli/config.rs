@@ -33,7 +33,7 @@ impl Default for CliConfig {
         Self {
             last_model: None,
             default_system_prompt: Some("You are a helpful AI assistant.".to_string()),
-            default_temperature: 0.0,  // Greedy sampling for CLI - deterministic output
+            default_temperature: 0.0, // Greedy sampling for CLI - deterministic output
             default_max_tokens: 2000,
             history: Vec::new(),
             max_history: 100,

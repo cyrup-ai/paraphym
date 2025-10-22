@@ -112,7 +112,6 @@ impl MessageChunk for MemoryEnhancedChatResponse {
     }
 }
 
-
 /// Candle-specific chat error types
 #[derive(Error, Debug)]
 pub enum CandleChatError {

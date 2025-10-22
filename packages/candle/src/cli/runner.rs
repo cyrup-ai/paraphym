@@ -49,7 +49,7 @@ impl CliRunner {
     /// Run the CLI application using fluent API
     pub async fn run(&mut self) -> Result<()> {
         use tokio_stream::StreamExt;
-        
+
         // Initialize pool maintenance thread (lazy init)
         crate::capability::registry::pool::init_maintenance();
 
@@ -235,10 +235,7 @@ You are a master at refactoring code, remembering to check for code that ALREADY
                 CandleMessageChunk::Text(_) => {
                     // Text already printed via on_chunk handler
                 }
-                CandleMessageChunk::Complete {
-                    text,
-                    ..
-                } => {
+                CandleMessageChunk::Complete { text, .. } => {
                     if !text.is_empty() {
                         print!("{}", text);
                     }

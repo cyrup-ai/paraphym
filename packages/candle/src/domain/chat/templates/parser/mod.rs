@@ -8,11 +8,11 @@ use std::collections::HashMap;
 use super::core::{TemplateAst, TemplateError, TemplateResult, TemplateVariable, VariableType};
 
 // Declare internal modules
-mod config;
-mod utils;
-mod functions;
-mod expressions;
 mod blocks;
+mod config;
+mod expressions;
+mod functions;
+mod utils;
 
 // Re-export public API
 pub use config::ParserConfig;
@@ -63,7 +63,10 @@ impl TemplateParser {
 
         match nodes.len() {
             0 => Ok(TemplateAst::Text(String::new())),
-            1 => Ok(nodes.into_iter().next().unwrap_or(TemplateAst::Text(String::new()))),
+            1 => Ok(nodes
+                .into_iter()
+                .next()
+                .unwrap_or(TemplateAst::Text(String::new()))),
             _ => Ok(TemplateAst::Block(nodes.into())),
         }
     }

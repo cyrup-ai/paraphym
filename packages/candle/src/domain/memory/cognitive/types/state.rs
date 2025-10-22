@@ -1,18 +1,18 @@
 //! Core cognitive state implementation with atomic operations and lock-free queues
 
+use crossbeam_skiplist::SkipMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
-use tokio::sync::{mpsc, Mutex};
-use crossbeam_skiplist::SkipMap;
+use tokio::sync::{Mutex, mpsc};
 use uuid::Uuid;
 
 use super::activation::AlignedActivationPattern;
-use super::attention::AtomicAttentionWeights;
-use super::memory_items::{WorkingMemoryItem, CognitiveMemoryEntry, CognitiveStats};
-use super::temporal::TemporalContext;
-use super::quantum::{QuantumSignature, EntanglementType};
 use super::atomics::AtomicF32;
+use super::attention::AtomicAttentionWeights;
+use super::memory_items::{CognitiveMemoryEntry, CognitiveStats, WorkingMemoryItem};
+use super::quantum::{EntanglementType, QuantumSignature};
+use super::temporal::TemporalContext;
 
 /// Quantum-inspired cognitive state with atomic operations and lock-free queues
 ///
@@ -35,7 +35,10 @@ pub struct CognitiveState {
     attention_weights: Arc<AtomicAttentionWeights>,
 
     /// Working memory queue
-    working_memory: Arc<(mpsc::UnboundedSender<WorkingMemoryItem>, Mutex<mpsc::UnboundedReceiver<WorkingMemoryItem>>)>,
+    working_memory: Arc<(
+        mpsc::UnboundedSender<WorkingMemoryItem>,
+        Mutex<mpsc::UnboundedReceiver<WorkingMemoryItem>>,
+    )>,
 
     /// Long-term memory skip-list for O(log n) access
     long_term_memory: Arc<SkipMap<Uuid, CognitiveMemoryEntry>>,
@@ -67,7 +70,10 @@ fn default_attention_weights() -> Arc<AtomicAttentionWeights> {
 }
 
 #[allow(dead_code)] // TODO: Implement working memory defaults
-fn default_working_memory() -> Arc<(mpsc::UnboundedSender<WorkingMemoryItem>, Mutex<mpsc::UnboundedReceiver<WorkingMemoryItem>>)> {
+fn default_working_memory() -> Arc<(
+    mpsc::UnboundedSender<WorkingMemoryItem>,
+    Mutex<mpsc::UnboundedReceiver<WorkingMemoryItem>>,
+)> {
     let (sender, receiver) = mpsc::unbounded_channel();
     Arc::new((sender, Mutex::new(receiver)))
 }
@@ -310,11 +316,11 @@ impl CognitiveState {
         }
 
         // Create the actual entanglement bond in quantum signature
-        if let Err(e) = self.quantum_signature.create_entanglement_bond(
-            target_id,
-            bond_strength,
-            entanglement_type,
-        ).await {
+        if let Err(e) = self
+            .quantum_signature
+            .create_entanglement_bond(target_id, bond_strength, entanglement_type)
+            .await
+        {
             log::error!("Failed to create entanglement bond: {e}");
             return false;
         }
@@ -333,10 +339,7 @@ impl CognitiveState {
     #[inline]
     #[must_use]
     pub async fn quantum_entanglement_bond_count(&self) -> usize {
-        self.quantum_signature
-            .entanglement_bonds()
-            .await
-            .len()
+        self.quantum_signature.entanglement_bonds().await.len()
     }
 
     /// Create cognitive state with custom quantum coherence
@@ -350,7 +353,6 @@ impl CognitiveState {
         phases: Vec<f32>,
     ) -> Result<Self, CognitiveError> {
         let quantum_signature = Arc::new(QuantumSignature::with_coherence(amplitudes, phases)?);
-
 
         Ok(Self {
             activation_pattern: AlignedActivationPattern::default(),

@@ -1,12 +1,12 @@
 //! Message types and priorities for streaming
 
-use serde::{Deserialize, Serialize};
-use cyrup_sugars::prelude::MessageChunk;
+use super::super::events::RealTimeEvent;
 use crate::domain::chat::message::types::{
     CandleMessage as Message, CandleMessageRole as MessageRole,
 };
 use crate::domain::util::unix_timestamp_nanos;
-use super::super::events::RealTimeEvent;
+use cyrup_sugars::prelude::MessageChunk;
+use serde::{Deserialize, Serialize};
 
 /// Live update message with zero-allocation string handling
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

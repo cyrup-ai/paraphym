@@ -38,14 +38,17 @@ impl MemoryCoordinator {
         // Create enhanced query for routing
         let enhanced_query = crate::memory::cognitive::quantum::types::EnhancedQuery {
             query: query.to_string(),
-            routing_strategy: crate::memory::cognitive::quantum::types::RoutingStrategy::Hybrid(vec![]),
+            routing_strategy: crate::memory::cognitive::quantum::types::RoutingStrategy::Hybrid(
+                vec![],
+            ),
             temporal_context: crate::memory::cognitive::quantum::types::TemporalContext::default(),
             coherence_threshold: 0.7,
         };
 
         // Get routing decision from quantum router
         let cognitive_state_guard = self.cognitive_state.read().await;
-        let routing_decision = self.quantum_router
+        let routing_decision = self
+            .quantum_router
             .route(enhanced_query, Some(&*cognitive_state_guard))
             .await
             .unwrap_or_default();
@@ -66,7 +69,8 @@ impl MemoryCoordinator {
             crate::memory::cognitive::quantum::types::RoutingStrategy::Quantum => {
                 // Pure vector similarity search
                 let query_embedding = self.generate_embedding(query).await?;
-                self.surreal_manager.search_by_vector(query_embedding, top_k * 2)
+                self.surreal_manager
+                    .search_by_vector(query_embedding, top_k * 2)
             }
             crate::memory::cognitive::quantum::types::RoutingStrategy::Emergent => {
                 // Emergent pattern search: vector seeds + entanglement graph expansion
@@ -74,7 +78,7 @@ impl MemoryCoordinator {
                 self.surreal_manager.search_with_entanglement(
                     query_embedding,
                     top_k * 2,
-                    3  // 3-hop graph expansion for pattern discovery
+                    3, // 3-hop graph expansion for pattern discovery
                 )
             }
             crate::memory::cognitive::quantum::types::RoutingStrategy::Causal => {
@@ -83,7 +87,7 @@ impl MemoryCoordinator {
                 self.surreal_manager.search_with_causal_expansion(
                     query_embedding,
                     top_k * 2,
-                    2  // 2-hop causal chain expansion
+                    2, // 2-hop causal chain expansion
                 )
             }
             crate::memory::cognitive::quantum::types::RoutingStrategy::Hybrid(ref strategies) => {
@@ -99,19 +103,25 @@ impl MemoryCoordinator {
                         crate::memory::cognitive::quantum::types::RoutingStrategy::Attention => {
                             self.surreal_manager.search_by_content(query)
                         }
-                        crate::memory::cognitive::quantum::types::RoutingStrategy::Quantum => {
-                            self.surreal_manager.search_by_vector(query_embedding.clone(), top_k)
-                        }
-                        crate::memory::cognitive::quantum::types::RoutingStrategy::Emergent => {
-                            self.surreal_manager.search_with_entanglement(query_embedding.clone(), top_k, 3)
-                        }
-                        crate::memory::cognitive::quantum::types::RoutingStrategy::Causal => {
-                            self.surreal_manager.search_with_causal_expansion(query_embedding.clone(), top_k, 2)
-                        }
+                        crate::memory::cognitive::quantum::types::RoutingStrategy::Quantum => self
+                            .surreal_manager
+                            .search_by_vector(query_embedding.clone(), top_k),
+                        crate::memory::cognitive::quantum::types::RoutingStrategy::Emergent => self
+                            .surreal_manager
+                            .search_with_entanglement(query_embedding.clone(), top_k, 3),
+                        crate::memory::cognitive::quantum::types::RoutingStrategy::Causal => self
+                            .surreal_manager
+                            .search_with_causal_expansion(query_embedding.clone(), top_k, 2),
                         crate::memory::cognitive::quantum::types::RoutingStrategy::Hybrid(_) => {
                             // Nested Hybrid not supported - use deep entanglement search
-                            log::warn!("Nested Hybrid strategy encountered, using entanglement search");
-                            self.surreal_manager.search_with_entanglement(query_embedding.clone(), top_k, 4)
+                            log::warn!(
+                                "Nested Hybrid strategy encountered, using entanglement search"
+                            );
+                            self.surreal_manager.search_with_entanglement(
+                                query_embedding.clone(),
+                                top_k,
+                                4,
+                            )
                         }
                     };
 
@@ -312,7 +322,7 @@ impl MemoryCoordinator {
             cognitive_state_guard.add_working_memory(
                 query.to_string(),
                 routing_decision.confidence as f32,
-                std::time::Duration::from_secs(300) // 5 minute TTL
+                std::time::Duration::from_secs(300), // 5 minute TTL
             );
 
             // Update attention weights based on routing strategy effectiveness
@@ -322,14 +332,14 @@ impl MemoryCoordinator {
 
             // Boost primary attention proportional to confidence, reduce secondary/background
             // Example: confidence=0.9 -> primary gets +18% from secondary/background pool
-            let boost = (confidence - 0.5).max(0.0) * 0.2;  // 0-10% boost
+            let boost = (confidence - 0.5).max(0.0) * 0.2; // 0-10% boost
             let reduction_factor = 1.0 - boost;
 
             cognitive_state_guard.update_attention(
                 (primary + boost).min(1.0),
                 secondary * reduction_factor,
                 background * reduction_factor,
-                meta  // Meta attention unchanged
+                meta, // Meta attention unchanged
             );
 
             log::debug!(

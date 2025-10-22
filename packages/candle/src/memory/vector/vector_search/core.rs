@@ -7,17 +7,17 @@ use tokio::sync::mpsc;
 
 use crate::capability::registry::TextEmbeddingModel;
 use crate::capability::traits::TextEmbeddingCapable;
-use crate::memory::constants::SEARCH_TASK;
-use crate::memory::utils::error::Result;
-use crate::memory::vector::vector_store::VectorStore;
 use crate::domain::memory::cognitive::types::{
     CognitiveProcessor, CognitiveProcessorConfig, DecisionOutcome,
 };
+use crate::memory::constants::SEARCH_TASK;
+use crate::memory::utils::error::Result;
+use crate::memory::vector::vector_store::VectorStore;
 
-use super::types::SearchResult;
-use super::options::SearchOptions;
 use super::cognitive::{CognitiveSearchState, process_deferred_results};
 use super::helpers::task_string;
+use super::options::SearchOptions;
+use super::types::SearchResult;
 
 /// High-performance vector search implementation
 ///
@@ -105,7 +105,10 @@ impl VectorSearch {
         }
 
         // Generate embedding for the text (asynchronous)
-        let embedding = self.embedding_model.embed(text, task_string(SEARCH_TASK)).await?;
+        let embedding = self
+            .embedding_model
+            .embed(text, task_string(SEARCH_TASK))
+            .await?;
 
         // Search by embedding
         self.search_by_embedding(&embedding, options)
@@ -288,13 +291,17 @@ impl VectorSearch {
                 (true, true) => Ordering::Equal,
                 (true, false) => Ordering::Greater, // NaN goes to end
                 (false, true) => Ordering::Less,    // NaN goes to end
-                (false, false) => b.similarity.partial_cmp(&a.similarity).unwrap_or(Ordering::Equal),
+                (false, false) => b
+                    .similarity
+                    .partial_cmp(&a.similarity)
+                    .unwrap_or(Ordering::Equal),
             }
         });
 
         // Apply final limit
         if let Some(limit) = options.limit
-            && search_results.len() > limit {
+            && search_results.len() > limit
+        {
             search_results.truncate(limit);
         }
 

@@ -75,12 +75,12 @@
 //! - **`ZeroAllocError`**: Zero-allocation error type for high-performance error handling
 //! - **`CircuitBreakerState`**: Shared state enumeration for consistency across circuit breaker implementations
 
+use super::core::ZeroAllocError;
+use super::types::{ErrorCategory, ErrorRecoverability, ErrorSeverity};
+use crate::domain::util::{duration_to_millis_u64, duration_to_nanos_u64};
+use atomic_counter::{AtomicCounter, RelaxedCounter};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
-use atomic_counter::{AtomicCounter, RelaxedCounter};
-use super::core::ZeroAllocError;
-use super::types::{ErrorCategory, ErrorSeverity, ErrorRecoverability};
-use crate::domain::util::{duration_to_millis_u64, duration_to_nanos_u64};
 
 /// Lock-free error counter for statistics
 #[derive(Debug)]
@@ -269,7 +269,8 @@ impl ErrorCircuitBreaker {
     #[inline]
     pub fn should_allow_request(&self) -> bool {
         match self.state.load(Ordering::Relaxed) {
-            1 => { // Open
+            1 => {
+                // Open
                 let now = duration_to_millis_u64(
                     SystemTime::now()
                         .duration_since(SystemTime::UNIX_EPOCH)

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use futures_util::stream::StreamExt;
-use tokio::sync::{oneshot, RwLock};
+use tokio::sync::{RwLock, oneshot};
 
 use crate::domain::memory::cognitive::types::CognitiveState;
 use crate::memory::filter::MemoryFilter;
@@ -58,7 +58,11 @@ impl<V: VectorStore + Send + Sync + 'static> RetrievalStrategy for SemanticRetri
                 // Update cognitive state with query embedding as stimulus
                 if let Some(ref cognitive_state) = cognitive_state {
                     let stimulus = query_embedding.clone();
-                    match cognitive_state.write().await.update_activation_from_stimulus(stimulus) {
+                    match cognitive_state
+                        .write()
+                        .await
+                        .update_activation_from_stimulus(stimulus)
+                    {
                         Ok(()) => {
                             log::trace!("Updated cognitive activation from query embedding");
                         }

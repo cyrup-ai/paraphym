@@ -1,7 +1,7 @@
 //! Atomic attention weight management for concurrent cognitive updates
 
-use std::sync::atomic::Ordering;
 use super::atomics::AtomicF32;
+use std::sync::atomic::Ordering;
 
 /// Atomic attention weights for concurrent cognitive updates
 #[derive(Debug)]

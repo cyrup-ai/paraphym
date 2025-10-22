@@ -1,5 +1,5 @@
 //! Future and Stream wrapper types for async memory operations.
-//! 
+//!
 //! This module provides async primitives that wrap tokio channels for
 //! memory operations, implementing the Future and Stream traits.
 

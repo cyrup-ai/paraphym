@@ -15,10 +15,10 @@
 //! - `traits`: ImageEmbeddingCapable trait implementations
 
 mod config;
-mod models;
-mod preprocessing;
 mod encoding;
 mod loaded_encoding;
+mod models;
+mod preprocessing;
 mod traits_lazy;
 mod traits_loaded;
 

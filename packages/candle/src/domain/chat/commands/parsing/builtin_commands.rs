@@ -15,12 +15,12 @@ pub(super) fn register_builtin_commands(
                     aliases: &mut HashMap<String, String>,
                     info: CommandInfo| {
         let name = info.name.clone();
-        
+
         // Register aliases
         for alias in &info.aliases {
             aliases.insert(alias.clone(), name.clone());
         }
-        
+
         // Register main command
         commands.insert(name, info);
     };
@@ -339,7 +339,11 @@ pub(super) fn register_builtin_commands(
             ],
             version: "1.0.0".to_string(),
             author: Some("Fluent AI Team".to_string()),
-            tags: vec!["search".to_string(), "find".to_string(), "query".to_string()],
+            tags: vec![
+                "search".to_string(),
+                "find".to_string(),
+                "query".to_string(),
+            ],
             required_permissions: vec![],
             deprecated: false,
             deprecation_message: None,

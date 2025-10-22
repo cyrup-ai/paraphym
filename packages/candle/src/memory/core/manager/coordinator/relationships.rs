@@ -2,9 +2,9 @@
 
 use futures_util::StreamExt;
 
+use crate::memory::MemoryRelationship;
 use crate::memory::core::manager::surreal::trait_def::MemoryManager;
 use crate::memory::utils::{Error, Result};
-use crate::memory::MemoryRelationship;
 
 use super::lifecycle::MemoryCoordinator;
 

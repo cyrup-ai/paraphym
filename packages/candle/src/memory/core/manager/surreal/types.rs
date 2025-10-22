@@ -1,13 +1,13 @@
 //! Type definitions for SurrealDB memory manager.
-//! 
+//!
 //! This module contains data structures used for creating and managing
 //! memory nodes and relationships in the SurrealDB backend.
 
 use serde::{Deserialize, Serialize};
 
-use crate::memory::primitives::types::MemoryTypeEnum;
 use crate::memory::primitives::MemoryNode;
 use crate::memory::primitives::MemoryRelationship;
+use crate::memory::primitives::types::MemoryTypeEnum;
 use crate::memory::schema::memory_schema::MemoryMetadataSchema;
 
 /// Content structure for creating/updating memory nodes (without ID)

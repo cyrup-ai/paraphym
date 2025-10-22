@@ -1,5 +1,5 @@
 //! MemoryManager trait definition for memory operations.
-//! 
+//!
 //! This module defines the core trait for memory management systems,
 //! providing a unified interface for CRUD operations, search, and
 //! quantum entanglement features.
@@ -37,7 +37,10 @@ pub trait MemoryManager: Send + Sync {
     fn search_by_content(&self, text: &str) -> MemoryStream;
 
     /// Query memories by type
-    fn query_by_type(&self, memory_type: crate::memory::primitives::types::MemoryTypeEnum) -> MemoryStream;
+    fn query_by_type(
+        &self,
+        memory_type: crate::memory::primitives::types::MemoryTypeEnum,
+    ) -> MemoryStream;
 
     /// List all memories with pagination support
     fn list_all_memories(&self, limit: usize, offset: usize) -> MemoryStream;
@@ -120,18 +123,10 @@ pub trait MemoryManager: Send + Sync {
     fn get_causal_successors(&self, memory_id: &str) -> MemoryStream;
 
     /// Traverse causal chain forward from a memory
-    fn trace_causal_chain_forward(
-        &self,
-        start_memory_id: &str,
-        max_depth: usize,
-    ) -> MemoryStream;
+    fn trace_causal_chain_forward(&self, start_memory_id: &str, max_depth: usize) -> MemoryStream;
 
     /// Traverse causal chain backward to find root causes
-    fn trace_causal_chain_backward(
-        &self,
-        start_memory_id: &str,
-        max_depth: usize,
-    ) -> MemoryStream;
+    fn trace_causal_chain_backward(&self, start_memory_id: &str, max_depth: usize) -> MemoryStream;
 }
 
 // Blanket implementation for Arc<T> to enable trait methods on Arc-wrapped managers
@@ -160,7 +155,10 @@ impl<T: MemoryManager + ?Sized> MemoryManager for std::sync::Arc<T> {
         (**self).search_by_content(text)
     }
 
-    fn query_by_type(&self, memory_type: crate::memory::primitives::types::MemoryTypeEnum) -> MemoryStream {
+    fn query_by_type(
+        &self,
+        memory_type: crate::memory::primitives::types::MemoryTypeEnum,
+    ) -> MemoryStream {
         (**self).query_by_type(memory_type)
     }
 
@@ -250,19 +248,11 @@ impl<T: MemoryManager + ?Sized> MemoryManager for std::sync::Arc<T> {
         (**self).get_causal_successors(memory_id)
     }
 
-    fn trace_causal_chain_forward(
-        &self,
-        start_memory_id: &str,
-        max_depth: usize,
-    ) -> MemoryStream {
+    fn trace_causal_chain_forward(&self, start_memory_id: &str, max_depth: usize) -> MemoryStream {
         (**self).trace_causal_chain_forward(start_memory_id, max_depth)
     }
 
-    fn trace_causal_chain_backward(
-        &self,
-        start_memory_id: &str,
-        max_depth: usize,
-    ) -> MemoryStream {
+    fn trace_causal_chain_backward(&self, start_memory_id: &str, max_depth: usize) -> MemoryStream {
         (**self).trace_causal_chain_backward(start_memory_id, max_depth)
     }
 }

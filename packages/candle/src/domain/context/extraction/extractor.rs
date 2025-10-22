@@ -1,10 +1,10 @@
 use std::fmt;
 use std::marker::PhantomData;
 
+use crate::async_stream;
 use cyrup_sugars::prelude::MessageChunk;
 use serde::de::DeserializeOwned;
 use tokio_stream::{Stream, StreamExt};
-use crate::async_stream;
 
 use super::error::{_ExtractionResult as ExtractionResult, ExtractionError};
 use crate::builders::completion::CompletionRequestBuilder;

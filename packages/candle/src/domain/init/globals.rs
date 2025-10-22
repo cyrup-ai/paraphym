@@ -81,9 +81,9 @@
 
 use std::sync::{Arc, LazyLock, atomic::AtomicUsize};
 
-use tokio::sync::{mpsc, Mutex};
 use arc_swap::ArcSwap;
 use atomic_counter::RelaxedCounter;
+use tokio::sync::{Mutex, mpsc};
 
 use crate::domain::error::CircuitBreaker;
 // Temporarily disabled to break circular dependency
@@ -105,23 +105,20 @@ pub static CONFIG_CACHE: LazyLock<ArcSwap<MemoryConfig>> =
     LazyLock::new(|| ArcSwap::new(Arc::new(create_default_config())));
 
 /// Connection pool for zero-allocation connection management
-pub static CONNECTION_POOL: LazyLock<MemoryManagerPool> =
-    LazyLock::new(|| {
-        let (sender, receiver) = mpsc::unbounded_channel();
-        (sender, Arc::new(Mutex::new(receiver)))
-    });
+pub static CONNECTION_POOL: LazyLock<MemoryManagerPool> = LazyLock::new(|| {
+    let (sender, receiver) = mpsc::unbounded_channel();
+    (sender, Arc::new(Mutex::new(receiver)))
+});
 
 /// Circuit breaker for error recovery with exponential backoff
 pub static CIRCUIT_BREAKER: LazyLock<CircuitBreaker> =
     LazyLock::new(|| CircuitBreaker::new(5, 30000)); // 30 seconds in milliseconds
 
 /// Global initialization statistics for monitoring
-pub static INIT_STATS: LazyLock<RelaxedCounter> =
-    LazyLock::new(|| RelaxedCounter::new(0));
+pub static INIT_STATS: LazyLock<RelaxedCounter> = LazyLock::new(|| RelaxedCounter::new(0));
 
 /// Pool statistics for monitoring
-pub static POOL_STATS: LazyLock<AtomicUsize> =
-    LazyLock::new(|| AtomicUsize::new(0));
+pub static POOL_STATS: LazyLock<AtomicUsize> = LazyLock::new(|| AtomicUsize::new(0));
 
 /// Circuit breaker reset statistics
 pub static CIRCUIT_BREAKER_RESET_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -274,7 +271,7 @@ fn load_config_file() -> Option<MemoryConfig> {
 
     // Use std::fs for genuine static initialization (not a bridge)
     let content = std::fs::read_to_string(&config_path).ok()?;
-    
+
     match toml::from_str::<MemoryConfig>(&content) {
         Ok(config) => {
             log::info!("Configuration loaded from: {config_path}");

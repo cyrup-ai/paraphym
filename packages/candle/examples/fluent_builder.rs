@@ -21,7 +21,10 @@ use std::io::{self, Write};
 #[command(author, version, about = "Candle Fluent Builder Example")]
 struct Args {
     /// User query to process
-    #[arg(long, default_value = "Solve this step by step: If x + 5 = 12, what is x?")]
+    #[arg(
+        long,
+        default_value = "Solve this step by step: If x + 5 = 12, what is x?"
+    )]
     query: String,
 
     /// Temperature (0.0-2.0)
@@ -68,17 +71,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .into_agent()
         .chat(move |_conversation| {
             let query = query.clone();
-            async move {
-                CandleChatLoop::UserPrompt(query)
-            }
+            async move { CandleChatLoop::UserPrompt(query) }
         })?;
 
     // Consume the stream
     use tokio_stream::StreamExt;
     while let Some(chunk) = stream.next().await {
-        if let CandleMessageChunk::Complete { token_count, elapsed_secs, tokens_per_sec, .. } = chunk {
+        if let CandleMessageChunk::Complete {
+            token_count,
+            elapsed_secs,
+            tokens_per_sec,
+            ..
+        } = chunk
+        {
             println!("\n");
-            if let (Some(tokens), Some(elapsed), Some(tps)) = (token_count, elapsed_secs, tokens_per_sec) {
+            if let (Some(tokens), Some(elapsed), Some(tps)) =
+                (token_count, elapsed_secs, tokens_per_sec)
+            {
                 println!("✅ Generation complete!");
                 println!("   Tokens: {}", tokens);
                 println!("   Time: {:.2}s", elapsed);
@@ -92,7 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("📝 Example 2: Interactive Chat Loop\n");
 
     let mut stream = CandleFluentAi::agent_role("math-tutor")
-        .temperature(0.3)  // Lower temperature for more focused responses
+        .temperature(0.3) // Lower temperature for more focused responses
         .max_tokens(1024)
         .system_prompt("You are a patient math tutor. Explain concepts clearly and show your work.")
         .on_chunk(|chunk| async move {

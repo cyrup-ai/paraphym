@@ -12,7 +12,7 @@ use surrealdb::Surreal;
 use surrealdb::engine::any::Any;
 use tokio::sync::{RwLock, oneshot};
 
-use crate::memory::vector::vector_store::{VectorStore, IndexStats};
+use crate::memory::vector::vector_store::{IndexStats, VectorStore};
 
 /// Health status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -464,10 +464,14 @@ impl ComponentChecker for VectorStoreHealthChecker {
                     // Set health status based on quality thresholds
                     if index_quality < 60.0 {
                         health.status = HealthStatus::Unhealthy;
-                        health.message = Some(format!("Index quality critically low: {:.1}%", index_quality));
+                        health.message = Some(format!(
+                            "Index quality critically low: {:.1}%",
+                            index_quality
+                        ));
                     } else if index_quality < 80.0 {
                         health.status = HealthStatus::Degraded;
-                        health.message = Some(format!("Index quality degraded: {:.1}%", index_quality));
+                        health.message =
+                            Some(format!("Index quality degraded: {:.1}%", index_quality));
                     }
 
                     // Check for dimension mismatch

@@ -5,8 +5,8 @@
 use super::config::GTE_QWEN_MODEL_INFO;
 use super::instruction;
 use crate::capability::traits::TextEmbeddingCapable;
-use crate::domain::model::traits::CandleModel;
 use crate::domain::model::CandleModelInfo;
+use crate::domain::model::traits::CandleModel;
 use candle_core::{DType, Device};
 use candle_nn::VarBuilder;
 use candle_transformers::models::qwen2::{Config, Model};
@@ -33,10 +33,8 @@ impl CandleGteQwenEmbeddingModel {
     /// Helper method to eliminate duplication between embed() and batch_embed()
     async fn load_model_and_tokenizer(
         &self,
-    ) -> std::result::Result<
-        (Tokenizer, Model, Device),
-        Box<dyn std::error::Error + Send + Sync>,
-    > {
+    ) -> std::result::Result<(Tokenizer, Model, Device), Box<dyn std::error::Error + Send + Sync>>
+    {
         // Get configuration from ModelInfo
         let max_length = self
             .info()
@@ -58,10 +56,15 @@ impl CandleGteQwenEmbeddingModel {
         };
 
         // Get file paths via huggingface_file
-        let tokenizer_path = self.huggingface_file(self.info().registry_key, "tokenizer.json").await?;
-        let config_path = self.huggingface_file(self.info().registry_key, "config.json").await?;
-        let index_path =
-            self.huggingface_file(self.info().registry_key, "model.safetensors.index.json").await?;
+        let tokenizer_path = self
+            .huggingface_file(self.info().registry_key, "tokenizer.json")
+            .await?;
+        let config_path = self
+            .huggingface_file(self.info().registry_key, "config.json")
+            .await?;
+        let index_path = self
+            .huggingface_file(self.info().registry_key, "model.safetensors.index.json")
+            .await?;
 
         // Load tokenizer
         let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
@@ -95,7 +98,8 @@ impl CandleGteQwenEmbeddingModel {
             .map_err(|e| format!("Failed to set truncation: {}", e))?;
 
         // Load config.json
-        let config_str = tokio::fs::read_to_string(&config_path).await
+        let config_str = tokio::fs::read_to_string(&config_path)
+            .await
             .map_err(|e| format!("Failed to read config: {}", e))?;
         let qwen_config: Config = serde_json::from_str(&config_str)
             .map_err(|e| format!("Failed to parse config: {}", e))?;
@@ -103,7 +107,8 @@ impl CandleGteQwenEmbeddingModel {
         // Load model weights from index
         let model_dir = index_path.parent().ok_or("Failed to get model directory")?;
 
-        let index_content = tokio::fs::read_to_string(&index_path).await
+        let index_content = tokio::fs::read_to_string(&index_path)
+            .await
             .map_err(|e| format!("Failed to read index: {}", e))?;
         let index: serde_json::Value = serde_json::from_str(&index_content)
             .map_err(|e| format!("Failed to parse index: {}", e))?;
@@ -198,11 +203,11 @@ impl TextEmbeddingCapable for CandleGteQwenEmbeddingModel {
 
             let (tokenizer, model, device) = self.load_model_and_tokenizer().await?;
 
-            let (_model, embeddings) = 
+            let (_model, embeddings) =
                 instruction::forward_pass_with_task(tokenizer, model, device, texts, task)
                     .await
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
-            
+
             Ok(embeddings)
         })
     }

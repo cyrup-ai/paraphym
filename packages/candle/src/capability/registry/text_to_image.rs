@@ -1,13 +1,13 @@
 //! TextToImageCapable trait implementation for TextToImageModel
 
-use std::pin::Pin;
-use tokio_stream::Stream;
-use candle_core::Device;
-use crate::domain::image_generation::{ImageGenerationChunk, ImageGenerationConfig};
-use crate::capability::traits::TextToImageCapable;
-use crate::domain::model::traits::CandleModel;
 use super::pool::capabilities::text_to_image_pool;
 use super::pool::core::ensure_workers_spawned_adaptive;
+use crate::capability::traits::TextToImageCapable;
+use crate::domain::image_generation::{ImageGenerationChunk, ImageGenerationConfig};
+use crate::domain::model::traits::CandleModel;
+use candle_core::Device;
+use std::pin::Pin;
+use tokio_stream::Stream;
 
 use super::enums::TextToImageModel;
 
@@ -44,7 +44,9 @@ impl TextToImageCapable for TextToImageModel {
                                 allocation_guard,
                             )
                         },
-                    ).await {
+                    )
+                    .await
+                    {
                         let _ = tx.send(ImageGenerationChunk::Error(e.to_string()));
                         return;
                     }
@@ -84,7 +86,9 @@ impl TextToImageCapable for TextToImageModel {
                                 allocation_guard,
                             )
                         },
-                    ).await {
+                    )
+                    .await
+                    {
                         let _ = tx.send(ImageGenerationChunk::Error(e.to_string()));
                         return;
                     }

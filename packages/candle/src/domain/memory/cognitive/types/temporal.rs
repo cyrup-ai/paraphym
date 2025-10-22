@@ -1,7 +1,7 @@
 //! Temporal context and causal dependency tracking for time-aware memory operations
 
-use std::time::SystemTime;
 use serde::{Deserialize, Serialize};
+use std::time::SystemTime;
 use uuid::Uuid;
 
 /// Temporal context for time-aware memory operations
@@ -24,8 +24,7 @@ impl TemporalContext {
     #[must_use]
     pub fn new(window_duration_secs: u64) -> Self {
         let window_start = SystemTime::now();
-        let window_end = window_start
-            + std::time::Duration::from_secs(window_duration_secs);
+        let window_end = window_start + std::time::Duration::from_secs(window_duration_secs);
         Self {
             window_start,
             window_end,

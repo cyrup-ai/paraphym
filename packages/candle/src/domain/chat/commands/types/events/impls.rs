@@ -6,10 +6,10 @@ use std::sync::atomic::Ordering;
 
 use cyrup_sugars::prelude::MessageChunk;
 
-use super::event_types::CommandEvent;
-use super::executor::StreamingCommandExecutor;
 use super::super::commands::ImmutableChatCommand;
 use super::super::metadata::ResourceUsage;
+use super::event_types::CommandEvent;
+use super::executor::StreamingCommandExecutor;
 use crate::domain::util::unix_timestamp_micros;
 
 impl std::fmt::Debug for StreamingCommandExecutor {

@@ -51,13 +51,16 @@ impl ChatSearchIndex {
                         // Get tags from tagger
                         let tags = if let Some(ref tagger) = self_clone.tagger {
                             let tag_ids = tagger.get_tags(&doc_id);
-                            tag_ids.iter()
-                                .filter_map(|tid| tagger.tags.get(tid).map(|e| e.value().name.clone()))
+                            tag_ids
+                                .iter()
+                                .filter_map(|tid| {
+                                    tagger.tags.get(tid).map(|e| e.value().name.clone())
+                                })
                                 .collect()
                         } else {
                             Vec::new()
                         };
-                        
+
                         let result = SearchResult {
                             message: message.value().clone(),
                             relevance_score: self_clone
@@ -121,7 +124,8 @@ impl ChatSearchIndex {
                     // Get tags from tagger
                     let tags = if let Some(ref tagger) = self_clone.tagger {
                         let tag_ids = tagger.get_tags(&doc_id);
-                        tag_ids.iter()
+                        tag_ids
+                            .iter()
                             .filter_map(|tid| tagger.tags.get(tid).map(|e| e.value().name.clone()))
                             .collect()
                     } else {
@@ -227,13 +231,14 @@ impl ChatSearchIndex {
                     // Get tags from tagger
                     let tags = if let Some(ref tagger) = self_clone.tagger {
                         let tag_ids = tagger.get_tags(&doc_id);
-                        tag_ids.iter()
+                        tag_ids
+                            .iter()
                             .filter_map(|tid| tagger.tags.get(tid).map(|e| e.value().name.clone()))
                             .collect()
                     } else {
                         Vec::new()
                     };
-                    
+
                     let result = SearchResult {
                         message: entry.value().clone(),
                         relevance_score: 1.0, // All non-matching documents have equal relevance
@@ -285,13 +290,14 @@ impl ChatSearchIndex {
                     // Get tags from tagger
                     let tags = if let Some(ref tagger) = self_clone.tagger {
                         let tag_ids = tagger.get_tags(doc_id);
-                        tag_ids.iter()
+                        tag_ids
+                            .iter()
                             .filter_map(|tid| tagger.tags.get(tid).map(|e| e.value().name.clone()))
                             .collect()
                     } else {
                         Vec::new()
                     };
-                    
+
                     let result = SearchResult {
                         message: message.clone(),
                         relevance_score: 1.0, // Exact phrase matches have high relevance
@@ -339,13 +345,14 @@ impl ChatSearchIndex {
                     // Get tags from tagger
                     let tags = if let Some(ref tagger) = self_clone.tagger {
                         let tag_ids = tagger.get_tags(doc_id);
-                        tag_ids.iter()
+                        tag_ids
+                            .iter()
                             .filter_map(|tid| tagger.tags.get(tid).map(|e| e.value().name.clone()))
                             .collect()
                     } else {
                         Vec::new()
                     };
-                    
+
                     let result = SearchResult {
                         message: message.clone(),
                         relevance_score: Self::calculate_proximity_score(

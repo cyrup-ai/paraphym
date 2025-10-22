@@ -3,8 +3,8 @@
 use super::config::{STELLA_MODEL_INFO, detect_variant, embed_dim};
 use super::instruction::format_with_instruction;
 use crate::capability::traits::TextEmbeddingCapable;
-use crate::domain::model::traits::CandleModel;
 use crate::domain::model::CandleModelInfo;
+use crate::domain::model::traits::CandleModel;
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::stella_en_v5::{Config, EmbeddingModel, ModelVariant};
@@ -88,14 +88,18 @@ impl LoadedStellaModel {
         };
 
         // Load files from HuggingFace
-        let base_weights =
-            base_model.huggingface_file(base_model.info().registry_key, "model.safetensors").await?;
-        let projection_head = base_model.huggingface_file(
-            base_model.info().registry_key,
-            &format!("2_Dense_{}/model.safetensors", dimension),
-        ).await?;
-        let tokenizer_path =
-            base_model.huggingface_file(base_model.info().registry_key, "tokenizer.json").await?;
+        let base_weights = base_model
+            .huggingface_file(base_model.info().registry_key, "model.safetensors")
+            .await?;
+        let projection_head = base_model
+            .huggingface_file(
+                base_model.info().registry_key,
+                &format!("2_Dense_{}/model.safetensors", dimension),
+            )
+            .await?;
+        let tokenizer_path = base_model
+            .huggingface_file(base_model.info().registry_key, "tokenizer.json")
+            .await?;
 
         // Load tokenizer with variant-specific padding
         let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
@@ -222,16 +226,12 @@ impl TextEmbeddingCapable for LoadedStellaModel {
         let tokenizer = self.tokenizer.clone();
         let model = self.model.clone();
         let device = self.device.clone();
-        
+
         Box::pin(async move {
             // Wrap CPU-intensive operations in spawn_blocking to avoid blocking async runtime
             let embedding_vec = tokio::task::spawn_blocking(move || {
                 // Format with instruction prefix
-                let formatted_text = format_with_instruction(
-                    &[&text],
-                    task.as_deref(),
-                )[0]
-                .clone();
+                let formatted_text = format_with_instruction(&[&text], task.as_deref())[0].clone();
 
                 // Tokenize
                 let tokens = tokenizer
@@ -272,11 +272,14 @@ impl TextEmbeddingCapable for LoadedStellaModel {
             })
             .await
             .map_err(|e| {
-                Box::new(std::io::Error::other(
-                    format!("Spawn blocking failed: {}", e),
-                )) as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(format!(
+                    "Spawn blocking failed: {}",
+                    e
+                ))) as Box<dyn std::error::Error + Send + Sync>
             })?
-            .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>)?;
+            .map_err(|e| {
+                Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>
+            })?;
 
             Ok(embedding_vec)
         })
@@ -302,17 +305,14 @@ impl TextEmbeddingCapable for LoadedStellaModel {
         let tokenizer = self.tokenizer.clone();
         let model = self.model.clone();
         let device = self.device.clone();
-        
+
         Box::pin(async move {
             // Wrap CPU-intensive operations in spawn_blocking to avoid blocking async runtime
             let embeddings_vec = tokio::task::spawn_blocking(move || {
                 let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
 
                 // Format with instruction prefix
-                let formatted_texts = format_with_instruction(
-                    &text_refs,
-                    task.as_deref(),
-                );
+                let formatted_texts = format_with_instruction(&text_refs, task.as_deref());
 
                 // Tokenize batch
                 let encodings = tokenizer
@@ -320,7 +320,8 @@ impl TextEmbeddingCapable for LoadedStellaModel {
                     .map_err(|e| format!("Batch tokenization failed: {}", e))?;
 
                 // Create batch tensors
-                let ids_vecs: Vec<Vec<u32>> = encodings.iter().map(|e| e.get_ids().to_vec()).collect();
+                let ids_vecs: Vec<Vec<u32>> =
+                    encodings.iter().map(|e| e.get_ids().to_vec()).collect();
                 let mask_vecs: Vec<Vec<u32>> = encodings
                     .iter()
                     .map(|e| e.get_attention_mask().to_vec())
@@ -348,11 +349,14 @@ impl TextEmbeddingCapable for LoadedStellaModel {
             })
             .await
             .map_err(|e| {
-                Box::new(std::io::Error::other(
-                    format!("Spawn blocking failed: {}", e),
-                )) as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(format!(
+                    "Spawn blocking failed: {}",
+                    e
+                ))) as Box<dyn std::error::Error + Send + Sync>
             })?
-            .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>)?;
+            .map_err(|e| {
+                Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>
+            })?;
 
             Ok(embeddings_vec)
         })

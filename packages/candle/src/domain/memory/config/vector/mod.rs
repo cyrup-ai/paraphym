@@ -14,27 +14,15 @@
 //! - [`PerformanceConfig`] - Performance tuning options
 //! - [`MemoryConfig`] - Memory usage tracking and limits
 
-mod types;
-mod simd;
+mod config;
 mod index;
 mod performance;
-mod config;
+mod simd;
+mod types;
 
 // Re-export all public types
-pub use types::{
-    AllocationStrategy,
-    DistanceMetric,
-    IndexType,
-    VectorStoreType,
-};
-pub use simd::{
-    SimdConfig,
-    SimdInstructionSet,
-};
-pub use index::IndexConfig;
-pub use performance::{
-    MemoryConfig,
-    PerformanceConfig,
-    VectorConnectionConfig,
-};
 pub use config::VectorStoreConfig;
+pub use index::IndexConfig;
+pub use performance::{MemoryConfig, PerformanceConfig, VectorConnectionConfig};
+pub use simd::{SimdConfig, SimdInstructionSet};
+pub use types::{AllocationStrategy, DistanceMetric, IndexType, VectorStoreType};

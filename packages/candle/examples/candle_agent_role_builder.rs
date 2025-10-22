@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_tokens(2048)
         .system_prompt(
             "You are a helpful Rust programming assistant. \
-             Provide clear, concise answers with code examples when appropriate."
+             Provide clear, concise answers with code examples when appropriate.",
         )
         .on_chunk(|chunk| async move {
             if let CandleMessageChunk::Text(ref text) = chunk {
@@ -40,14 +40,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .into_agent()
         .chat(|_conversation| async move {
             CandleChatLoop::UserPrompt(
-                "What are the key differences between &str and String in Rust?".to_string()
+                "What are the key differences between &str and String in Rust?".to_string(),
             )
         })?;
 
     while let Some(chunk) = stream.next().await {
-        if let CandleMessageChunk::Complete { token_count, elapsed_secs, tokens_per_sec, .. } = chunk {
+        if let CandleMessageChunk::Complete {
+            token_count,
+            elapsed_secs,
+            tokens_per_sec,
+            ..
+        } = chunk
+        {
             println!("\n");
-            if let (Some(tokens), Some(elapsed), Some(tps)) = (token_count, elapsed_secs, tokens_per_sec) {
+            if let (Some(tokens), Some(elapsed), Some(tps)) =
+                (token_count, elapsed_secs, tokens_per_sec)
+            {
                 println!("✅ Generation complete!");
                 println!("   Tokens: {}", tokens);
                 println!("   Time: {:.2}s", elapsed);
@@ -110,9 +118,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             chunk
         })
         .into_agent()
-        .chat(|_conversation| async move {
-            CandleChatLoop::UserPrompt("What is 7 * 8?".to_string())
-        })?;
+        .chat(
+            |_conversation| async move { CandleChatLoop::UserPrompt("What is 7 * 8?".to_string()) },
+        )?;
 
     while let Some(_chunk) = stream.next().await {}
 
@@ -170,7 +178,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
              1. Break down the problem\n\
              2. Show your reasoning\n\
              3. Provide a clear answer\n\
-             Use <think> tags for your internal reasoning."
+             Use <think> tags for your internal reasoning.",
         )
         .on_chunk(|chunk| async move {
             if let CandleMessageChunk::Text(ref text) = chunk {
@@ -182,7 +190,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .into_agent()
         .chat(|_conversation| async move {
             CandleChatLoop::UserPrompt(
-                "How would you optimize a Rust Vec that frequently inserts at the beginning?".to_string()
+                "How would you optimize a Rust Vec that frequently inserts at the beginning?"
+                    .to_string(),
             )
         })?;
 

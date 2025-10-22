@@ -1,7 +1,7 @@
 //! Chat configuration types including personality, behavior, and UI settings
 
-use std::time::Duration;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::time::Duration;
 
 /// Duration serialization helper
 pub(super) mod duration_secs {

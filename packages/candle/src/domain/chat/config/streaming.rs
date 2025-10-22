@@ -1,10 +1,10 @@
 //! Streaming pattern implementations for configuration types
 
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
-use cyrup_sugars::prelude::MessageChunk;
-use super::model::{CandleModelConfig, CandleModelRetryConfig, CandleModelPerformanceConfig};
+use super::model::{CandleModelConfig, CandleModelPerformanceConfig, CandleModelRetryConfig};
 use super::persistence::{CandlePersistenceEvent, CandlePersistenceType};
+use cyrup_sugars::prelude::MessageChunk;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Candle configuration update event for streaming operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -135,7 +135,7 @@ impl Default for CandleModelConfigData {
             provider: String::new(),
             registry_key: String::new(),
             model_version: None,
-            temperature: 0.0,  // Greedy sampling for chat - deterministic output
+            temperature: 0.0, // Greedy sampling for chat - deterministic output
             max_tokens: None,
             top_p: None,
             top_k: None,

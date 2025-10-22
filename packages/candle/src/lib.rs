@@ -114,12 +114,7 @@ pub mod prelude {
 pub use tokio_stream::{Stream, StreamExt};
 
 // Re-export our stream utilities
-pub use crate::async_stream::{
-    spawn_stream,
-    from_iter,
-    once,
-    empty,
-};
+pub use crate::async_stream::{empty, from_iter, once, spawn_stream};
 // SIMD operations from cyrup-simd for high-performance ML workloads
 pub use cyrup_simd;
 pub use prelude::*;
@@ -135,7 +130,7 @@ mod tests {
     fn test_architecture_md_syntax_works() {
         // Test that ARCHITECTURE.md builder pattern still works after all fixes
         let _agent = CandleFluentAi::agent_role("test-agent")
-            .temperature(0.0)  // Greedy sampling example - deterministic output
+            .temperature(0.0) // Greedy sampling example - deterministic output
             .max_tokens(1000)
             .system_prompt("You are a helpful assistant")
             .into_agent();

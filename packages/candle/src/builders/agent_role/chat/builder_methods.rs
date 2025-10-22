@@ -92,10 +92,7 @@ pub(super) fn set_context(
     builder
 }
 
-pub(super) fn set_tools<T>(
-    mut builder: CandleAgentBuilderImpl,
-    tools: T,
-) -> CandleAgentBuilderImpl
+pub(super) fn set_tools<T>(mut builder: CandleAgentBuilderImpl, tools: T) -> CandleAgentBuilderImpl
 where
     T: Into<ZeroOneOrMany<ToolInfo>>,
 {

@@ -323,28 +323,27 @@ impl VectorStore for InMemoryVectorStore {
         if self.vectors.is_empty() {
             return Ok(100.0); // Empty store is "healthy"
         }
-        
+
         // Check dimension consistency
         let first_dim = self.vectors.values().next().map(|v| v.len());
-        let dimension_consistent = first_dim.is_none_or(|expected_dim| {
-            self.vectors.values().all(|v| v.len() == expected_dim)
-        });
-        
+        let dimension_consistent = first_dim
+            .is_none_or(|expected_dim| self.vectors.values().all(|v| v.len() == expected_dim));
+
         if !dimension_consistent {
             return Ok(0.0); // Critical error: dimension mismatch
         }
-        
+
         // Calculate memory efficiency
         let (vector_bytes, metadata_bytes) = self.memory_usage();
         let total_bytes = vector_bytes + metadata_bytes;
         let capacity_bytes = self.capacity() * 64; // Rough estimate
-        
+
         let efficiency = if capacity_bytes > 0 {
             (total_bytes as f32 / capacity_bytes as f32).min(1.0)
         } else {
             1.0
         };
-        
+
         // Quality score: 100 if efficient, scales down with waste
         // Efficiency < 0.3 means lots of wasted capacity
         let quality = if efficiency < 0.3 {
@@ -352,13 +351,13 @@ impl VectorStore for InMemoryVectorStore {
         } else {
             100.0
         };
-        
+
         Ok(quality)
     }
 
     fn get_index_stats(&self) -> Result<super::vector_store::IndexStats> {
         let (vector_bytes, metadata_bytes) = self.memory_usage();
-        
+
         Ok(super::vector_store::IndexStats {
             entry_count: self.count()? as u64,
             dimensions: self.get_dimensions()?,

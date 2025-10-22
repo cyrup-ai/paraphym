@@ -1,20 +1,20 @@
 //! Live message streamer with lock-free queuing
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, AtomicUsize, AtomicBool, Ordering};
 use atomic_counter::{AtomicCounter, ConsistentCounter};
 use crossbeam_skiplist::SkipMap;
-use tokio::sync::{broadcast, mpsc};
 use std::pin::Pin;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use tokio::sync::{broadcast, mpsc};
 use tokio_stream::Stream;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
-use super::types::LiveUpdateMessage;
-use super::subscriber::StreamSubscriber;
-use super::results::{StreamingResult, UnsubscribeResult, ProcessingEvent};
-use super::stats::StreamingStatistics;
-use super::processing;
 use super::super::events::RealTimeEvent;
+use super::processing;
+use super::results::{ProcessingEvent, StreamingResult, UnsubscribeResult};
+use super::stats::StreamingStatistics;
+use super::subscriber::StreamSubscriber;
+use super::types::LiveUpdateMessage;
 use crate::domain::util::unix_timestamp_nanos;
 
 /// Live message streamer with lock-free queuing and atomic statistics
@@ -199,11 +199,13 @@ impl LiveMessageStreamer {
     /// Subscribe to message stream with optional filters
     #[inline]
     #[must_use]
-    pub fn subscribe(&self, subscriber: StreamSubscriber) 
-        -> Pin<Box<dyn Stream<Item = LiveUpdateMessage> + Send>> {
+    pub fn subscribe(
+        &self,
+        subscriber: StreamSubscriber,
+    ) -> Pin<Box<dyn Stream<Item = LiveUpdateMessage> + Send>> {
         // Create channel for this subscriber
         let (message_tx, message_rx) = mpsc::unbounded_channel();
-        
+
         // Create subscriber with channel (preserve filters from input)
         let subscriber_with_channel = StreamSubscriber {
             id: subscriber.id.clone(),
@@ -216,21 +218,23 @@ impl LiveMessageStreamer {
             last_message_at: Arc::new(AtomicU64::new(unix_timestamp_nanos())),
             message_tx,
         };
-        
+
         let subscriber_arc = Arc::new(subscriber_with_channel);
         let subscriber_id = subscriber_arc.id.clone();
-        
+
         self.subscribers.insert(subscriber_id, subscriber_arc);
         self.subscriber_counter.inc();
-        
+
         // Return stream of messages for this subscriber
         Box::pin(UnboundedReceiverStream::new(message_rx))
     }
 
     /// Unsubscribe from message stream
     #[must_use]
-    pub fn unsubscribe(&self, subscriber_id: &str) 
-        -> Pin<Box<dyn Stream<Item = UnsubscribeResult> + Send>> {
+    pub fn unsubscribe(
+        &self,
+        subscriber_id: &str,
+    ) -> Pin<Box<dyn Stream<Item = UnsubscribeResult> + Send>> {
         let subscribers = self.subscribers.clone();
         let subscriber_counter = self.subscriber_counter.clone();
         let id = subscriber_id.to_string();

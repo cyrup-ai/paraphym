@@ -69,7 +69,11 @@ pub trait CandleMemory: Send + Sync + 'static {
     ///
     /// # Returns
     /// tokio Stream of memory nodes ranked by similarity
-    fn search_memory(&self, query: &str, limit: usize) -> Pin<Box<dyn Stream<Item = MemoryNode> + Send>>;
+    fn search_memory(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Pin<Box<dyn Stream<Item = MemoryNode> + Send>>;
 
     /// Get memory node by ID
     ///
@@ -90,7 +94,9 @@ pub trait CandleMemory: Send + Sync + 'static {
     fn delete_memory(
         &self,
         id: &str,
-    ) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunks::CandleMemoryOperationResult> + Send>>;
+    ) -> Pin<
+        Box<dyn Stream<Item = crate::domain::context::chunks::CandleMemoryOperationResult> + Send>,
+    >;
 
     /// Get memory statistics
     ///

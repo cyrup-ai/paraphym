@@ -6,8 +6,8 @@
 use super::config::NVEMBED_MODEL_INFO;
 use super::instruction;
 use crate::capability::traits::TextEmbeddingCapable;
-use crate::domain::model::traits::CandleModel;
 use crate::domain::model::CandleModelInfo;
+use crate::domain::model::traits::CandleModel;
 use candle_core::{DType, Device};
 use candle_nn::VarBuilder;
 use candle_transformers::models::nvembed_v2::model::Model as NvEmbedModel;
@@ -131,23 +131,24 @@ impl CandleNvEmbedEmbeddingModel {
         let index_content = tokio::fs::read_to_string(&index_path)
             .await
             .map_err(|e| format!("Failed to read index: {}", e))?;
-        let index: serde_json::Value =
-            serde_json::from_str(&index_content).map_err(|e| format!("Failed to parse index: {}", e))?;
+        let index: serde_json::Value = serde_json::from_str(&index_content)
+            .map_err(|e| format!("Failed to parse index: {}", e))?;
 
         let weight_map = index["weight_map"]
             .as_object()
             .ok_or("Missing weight_map in index")?;
 
-        let mut unique_files: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
+        let mut unique_files: std::collections::HashSet<String> = std::collections::HashSet::new();
         for filename in weight_map.values() {
             if let Some(filename_str) = filename.as_str() {
                 unique_files.insert(filename_str.to_string());
             }
         }
 
-        let weight_files: Vec<std::path::PathBuf> =
-            unique_files.into_iter().map(|f| model_dir.join(f)).collect();
+        let weight_files: Vec<std::path::PathBuf> = unique_files
+            .into_iter()
+            .map(|f| model_dir.join(f))
+            .collect();
 
         let vb = unsafe {
             VarBuilder::from_mmaped_safetensors(&weight_files, dtype, &device)
@@ -199,10 +200,14 @@ impl TextEmbeddingCapable for CandleNvEmbedEmbeddingModel {
             })
             .await
             .map_err(|e| {
-                Box::new(std::io::Error::other(format!("Spawn blocking failed: {}", e)))
-                    as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(format!(
+                    "Spawn blocking failed: {}",
+                    e
+                ))) as Box<dyn std::error::Error + Send + Sync>
             })?
-            .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>)?;
+            .map_err(|e| {
+                Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>
+            })?;
 
             embeddings
                 .into_iter()
@@ -234,19 +239,19 @@ impl TextEmbeddingCapable for CandleNvEmbedEmbeddingModel {
                 let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
                 let task_ref = task.as_deref();
                 instruction::forward_pass_with_instruction(
-                    &tokenizer,
-                    &mut model,
-                    &device,
-                    &text_refs,
-                    task_ref,
+                    &tokenizer, &mut model, &device, &text_refs, task_ref,
                 )
             })
             .await
             .map_err(|e| {
-                Box::new(std::io::Error::other(format!("Spawn blocking failed: {}", e)))
-                    as Box<dyn std::error::Error + Send + Sync>
+                Box::new(std::io::Error::other(format!(
+                    "Spawn blocking failed: {}",
+                    e
+                ))) as Box<dyn std::error::Error + Send + Sync>
             })?
-            .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>)
+            .map_err(|e| {
+                Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>
+            })
         })
     }
 

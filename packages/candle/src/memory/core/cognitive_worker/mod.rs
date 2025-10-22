@@ -9,10 +9,10 @@
 //! The worker processes tasks asynchronously from a queue, delegating to specialized
 //! handlers for different cognitive operations.
 
-mod worker_core;
 mod committee_evaluation;
 mod entanglement_discovery;
 mod temporal_maintenance;
+mod worker_core;
 
 // Re-export public API
 pub use worker_core::CognitiveWorker;

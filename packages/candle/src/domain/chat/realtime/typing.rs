@@ -12,8 +12,8 @@ use atomic_counter::{AtomicCounter, ConsistentCounter};
 use crossbeam_skiplist::SkipMap;
 use cyrup_sugars::prelude::MessageChunk;
 use serde::{Deserialize, Serialize};
-use tokio::sync::broadcast;
 use std::pin::Pin;
+use tokio::sync::broadcast;
 use tokio_stream::Stream;
 
 use crate::domain::context::chunks::CandleCollectionChunk;
@@ -215,7 +215,11 @@ impl TypingIndicator {
 
     /// Start typing indicator with zero-allocation key generation
     #[must_use]
-    pub fn start_typing(&self, user_id: String, session_id: String) -> Pin<Box<dyn Stream<Item = RealTimeEvent> + Send>> {
+    pub fn start_typing(
+        &self,
+        user_id: String,
+        session_id: String,
+    ) -> Pin<Box<dyn Stream<Item = RealTimeEvent> + Send>> {
         let key = format!("{user_id}:{session_id}");
         let typing_states = self.typing_states.clone();
         let event_broadcaster = self.event_broadcaster.clone();
@@ -246,7 +250,11 @@ impl TypingIndicator {
 
     /// Stop typing indicator with event emission
     #[must_use]
-    pub fn stop_typing(&self, user_id: String, session_id: String) -> Pin<Box<dyn Stream<Item = RealTimeEvent> + Send>> {
+    pub fn stop_typing(
+        &self,
+        user_id: String,
+        session_id: String,
+    ) -> Pin<Box<dyn Stream<Item = RealTimeEvent> + Send>> {
         let key = format!("{user_id}:{session_id}");
         let typing_states = self.typing_states.clone();
         let event_broadcaster = self.event_broadcaster.clone();

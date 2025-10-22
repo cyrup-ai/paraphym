@@ -3,9 +3,9 @@
 use std::pin::Pin;
 use tokio_stream::Stream;
 
-use crate::domain::context::CandleStringChunk;
-use super::config::VisionConfig;
 use super::LLaVAModel;
+use super::config::VisionConfig;
+use crate::domain::context::CandleStringChunk;
 
 /// Builder for vision model queries with configurable parameters
 ///
@@ -58,13 +58,11 @@ impl VisionQueryBuilder {
     pub async fn describe_image(
         self,
         image_path: &str,
-        query: &str
+        query: &str,
     ) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
-        self.model.describe_image_internal(
-            image_path,
-            query,
-            self.config
-        ).await
+        self.model
+            .describe_image_internal(image_path, query, self.config)
+            .await
     }
 
     /// Describe image from URL with query using configured parameters
@@ -73,12 +71,10 @@ impl VisionQueryBuilder {
     pub async fn describe_url(
         self,
         url: &str,
-        query: &str
+        query: &str,
     ) -> Pin<Box<dyn Stream<Item = CandleStringChunk> + Send>> {
-        self.model.describe_url_internal(
-            url,
-            query,
-            self.config
-        ).await
+        self.model
+            .describe_url_internal(url, query, self.config)
+            .await
     }
 }

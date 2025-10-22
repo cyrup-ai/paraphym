@@ -1,20 +1,23 @@
 //! Configuration manager with atomic updates and lock-free operations
 
+use arc_swap::ArcSwap;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
-use std::pin::Pin;
-use tokio::sync::{RwLock, Mutex, broadcast};
+use tokio::sync::{Mutex, RwLock, broadcast};
 use tokio_stream::Stream;
-use arc_swap::ArcSwap;
 use uuid::Uuid;
-use serde::{Deserialize, Serialize};
 
-use super::types::{CandleChatConfig, duration_secs};
-use super::validation::{CandleConfigurationValidator, CandlePersonalityValidator, CandleBehaviorValidator, CandleUIValidator};
 use super::persistence::CandleConfigurationPersistence;
 use super::streaming::{CandleConfigUpdate, CandleConfigUpdateType};
+use super::types::{CandleChatConfig, duration_secs};
+use super::validation::{
+    CandleBehaviorValidator, CandleConfigurationValidator, CandlePersonalityValidator,
+    CandleUIValidator,
+};
 use crate::domain::util::unix_timestamp_nanos;
 
 /// Candle configuration change event with zero-allocation patterns
@@ -183,7 +186,11 @@ impl CandleConfigurationManager {
             };
 
             // Queue change event
-            manager.change_events.lock().await.push(change_event.clone());
+            manager
+                .change_events
+                .lock()
+                .await
+                .push(change_event.clone());
             manager.change_counter.fetch_add(1, Ordering::Relaxed);
             manager.version_counter.fetch_add(1, Ordering::Relaxed);
 
@@ -241,7 +248,11 @@ impl CandleConfigurationManager {
             };
 
             // Queue change event
-            manager.change_events.lock().await.push(change_event.clone());
+            manager
+                .change_events
+                .lock()
+                .await
+                .push(change_event.clone());
             manager.change_counter.fetch_add(1, Ordering::Relaxed);
             manager.version_counter.fetch_add(1, Ordering::Relaxed);
 
@@ -268,7 +279,8 @@ impl CandleConfigurationManager {
         _config: CandleChatConfig,
     ) -> std::pin::Pin<Box<dyn tokio_stream::Stream<Item = CandleConfigUpdate> + Send>> {
         let _manager = self.clone();
-        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
+        Box::pin(crate::async_stream::spawn_stream(
+            move |sender| async move {
                 // Create validation update
                 let now_nanos = unix_timestamp_nanos();
 
@@ -292,7 +304,8 @@ impl CandleConfigurationManager {
                 };
 
                 let _ = sender.send(completion_update);
-        }))
+            },
+        ))
     }
 
     /// Register a configuration validator using streaming pattern
@@ -303,7 +316,8 @@ impl CandleConfigurationManager {
         let _manager = self.clone();
         let validator_name: String = String::from(validator.name());
 
-        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
+        Box::pin(crate::async_stream::spawn_stream(
+            move |sender| async move {
                 let now_nanos = unix_timestamp_nanos();
 
                 // Create validator registration update
@@ -316,13 +330,19 @@ impl CandleConfigurationManager {
                 };
 
                 let _ = sender.send(registration_update);
-        }))
+            },
+        ))
     }
 
     /// Create persistence event stream for lock-free tracking
-    pub fn create_persistence_event_stream(&self) -> std::pin::Pin<Box<dyn tokio_stream::Stream<Item = super::persistence::CandlePersistenceEvent> + Send>> {
+    pub fn create_persistence_event_stream(
+        &self,
+    ) -> std::pin::Pin<
+        Box<dyn tokio_stream::Stream<Item = super::persistence::CandlePersistenceEvent> + Send>,
+    > {
         let manager = self.clone();
-        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
+        Box::pin(crate::async_stream::spawn_stream(
+            move |sender| async move {
                 // Update persistence timestamp atomically
                 let now_nanos = unix_timestamp_nanos();
 
@@ -337,13 +357,17 @@ impl CandleConfigurationManager {
                 };
 
                 let _ = sender.send(event);
-        }))
+            },
+        ))
     }
 
     /// Check if auto-save is needed using lock-free atomic operations with streaming pattern
-    pub fn check_auto_save_stream(&self) -> std::pin::Pin<Box<dyn tokio_stream::Stream<Item = CandleConfigUpdate> + Send>> {
+    pub fn check_auto_save_stream(
+        &self,
+    ) -> std::pin::Pin<Box<dyn tokio_stream::Stream<Item = CandleConfigUpdate> + Send>> {
         let manager = self.clone();
-        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
+        Box::pin(crate::async_stream::spawn_stream(
+            move |sender| async move {
                 let now_nanos = unix_timestamp_nanos();
 
                 // Emit check initiated update
@@ -361,9 +385,7 @@ impl CandleConfigurationManager {
                 let elapsed_secs = (now_nanos - last_save_nanos) / 1_000_000_000;
 
                 // Access persistence to get actual auto_save_interval
-                let persistence = manager
-                    .persistence
-                    .read().await;
+                let persistence = manager.persistence.read().await;
                 let auto_save_interval = persistence.auto_save_interval;
 
                 if elapsed_secs >= auto_save_interval {
@@ -381,13 +403,17 @@ impl CandleConfigurationManager {
 
                     let _ = sender.send(autosave_update);
                 }
-        }))
+            },
+        ))
     }
 
     /// Save configuration to file using streaming pattern
-    pub fn save_to_file_stream(&self) -> std::pin::Pin<Box<dyn tokio_stream::Stream<Item = CandleConfigUpdate> + Send>> {
+    pub fn save_to_file_stream(
+        &self,
+    ) -> std::pin::Pin<Box<dyn tokio_stream::Stream<Item = CandleConfigUpdate> + Send>> {
         let manager = self.clone();
-        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
+        Box::pin(crate::async_stream::spawn_stream(
+            move |sender| async move {
                 let now_nanos = unix_timestamp_nanos();
 
                 // Emit save initiated update
@@ -418,7 +444,8 @@ impl CandleConfigurationManager {
                 };
 
                 let _ = sender.send(save_complete);
-        }))
+            },
+        ))
     }
 
     /// Asynchronous implementation of `save_to_file` for streams-only architecture
@@ -427,9 +454,7 @@ impl CandleConfigurationManager {
 
         // Access persistence configuration synchronously and clone needed values
         let (format, compression, config_file_path) = {
-            let persistence = self
-                .persistence
-                .read().await;
+            let persistence = self.persistence.read().await;
 
             (
                 persistence.format.clone(),
@@ -463,47 +488,47 @@ impl CandleConfigurationManager {
     /// Load configuration from file using streaming pattern
     pub fn load_from_file_stream(&self) -> Pin<Box<dyn Stream<Item = CandleConfigUpdate> + Send>> {
         let manager = self.clone();
-        Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
-            let now_nanos = unix_timestamp_nanos();
+        Box::pin(crate::async_stream::spawn_stream(
+            move |sender| async move {
+                let now_nanos = unix_timestamp_nanos();
 
-            // Emit load initiated update
-            let load_start = CandleConfigUpdate {
-                timestamp_nanos: now_nanos,
-                update_type: CandleConfigUpdateType::LoadedFromFile,
-                section: None,
-                success: false,
-                description: Some("File load initiated".to_string()),
-            };
+                // Emit load initiated update
+                let load_start = CandleConfigUpdate {
+                    timestamp_nanos: now_nanos,
+                    update_type: CandleConfigUpdateType::LoadedFromFile,
+                    section: None,
+                    success: false,
+                    description: Some("File load initiated".to_string()),
+                };
 
-            let _ = sender.send(load_start);
+                let _ = sender.send(load_start);
 
-            // Perform file load using sync implementation
-            let success = manager.load_from_file_sync().await.is_ok();
+                // Perform file load using sync implementation
+                let success = manager.load_from_file_sync().await.is_ok();
 
-            // Emit load completion update
-            let load_complete = CandleConfigUpdate {
-                timestamp_nanos: now_nanos,
-                update_type: CandleConfigUpdateType::LoadedFromFile,
-                section: None,
-                success,
-                description: Some(if success {
-                    "File load completed successfully".to_string()
-                } else {
-                    "File load failed".to_string()
-                }),
-            };
+                // Emit load completion update
+                let load_complete = CandleConfigUpdate {
+                    timestamp_nanos: now_nanos,
+                    update_type: CandleConfigUpdateType::LoadedFromFile,
+                    section: None,
+                    success,
+                    description: Some(if success {
+                        "File load completed successfully".to_string()
+                    } else {
+                        "File load failed".to_string()
+                    }),
+                };
 
-            let _ = sender.send(load_complete);
-        }))
+                let _ = sender.send(load_complete);
+            },
+        ))
     }
 
     /// Asynchronous implementation of `load_from_file` for streams-only architecture
     async fn load_from_file_sync(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Access persistence configuration and clone needed values
         let (format, compression, config_file_path) = {
-            let persistence = self
-                .persistence
-                .read().await;
+            let persistence = self.persistence.read().await;
 
             (
                 persistence.format.clone(),

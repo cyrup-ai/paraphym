@@ -5,16 +5,16 @@
 
 use crate::domain::image_generation::{ImageGenerationChunk, ImageGenerationConfig};
 use crate::domain::model::CandleModelInfo;
-use candle_core::{DType, Device, IndexOp, Tensor, D};
+use candle_core::{D, DType, Device, IndexOp, Tensor};
 use candle_nn::{Module, VarBuilder};
 use candle_transformers::models::{
+    flux,
     mmdit::model::{Config as MMDiTConfig, MMDiT},
     stable_diffusion::{
         clip::{ClipTextTransformer, Config as ClipConfig},
         vae::AutoEncoderKL,
     },
     t5::{Config as T5Config, T5EncoderModel},
-    flux,
 };
 use std::path::{Path, PathBuf};
 use tokenizers::Tokenizer;
@@ -69,16 +69,17 @@ pub fn spawn_worker() -> mpsc::UnboundedSender<SD35WorkerRequest> {
         let rt = match tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .enable_all()
-            .build() {
-                Ok(runtime) => runtime,
-                Err(e) => {
-                    eprintln!("FATAL: Failed to create SD3.5 worker runtime: {}", e);
-                    panic!("Cannot initialize Stable Diffusion 3.5 model without tokio runtime");
-                }
-            };
+            .build()
+        {
+            Ok(runtime) => runtime,
+            Err(e) => {
+                eprintln!("FATAL: Failed to create SD3.5 worker runtime: {}", e);
+                panic!("Cannot initialize Stable Diffusion 3.5 model without tokio runtime");
+            }
+        };
 
         let local = tokio::task::LocalSet::new();
-        
+
         rt.block_on(local.run_until(async move {
             // Process requests sequentially
             while let Some(req) = request_rx.recv().await {
@@ -112,7 +113,8 @@ async fn process_request(req: SD35WorkerRequest) -> Result<(), String> {
 
     // Set random seed
     if let Some(seed) = config.seed {
-        device.set_seed(seed)
+        device
+            .set_seed(seed)
             .map_err(|e| format!("Seed setting failed: {}", e))?;
     }
 
@@ -137,15 +139,13 @@ async fn process_request(req: SD35WorkerRequest) -> Result<(), String> {
         (
             Tensor::cat(&[&context, &ctx_uncond], 0)
                 .map_err(|e| format!("Context concat failed: {}", e))?,
-            Tensor::cat(&[&y, &y_uncond], 0)
-                .map_err(|e| format!("Y concat failed: {}", e))?,
+            Tensor::cat(&[&y, &y_uncond], 0).map_err(|e| format!("Y concat failed: {}", e))?,
         )
     } else {
         (
             Tensor::cat(&[&context, &context], 0)
                 .map_err(|e| format!("Context dup failed: {}", e))?,
-            Tensor::cat(&[&y, &y], 0)
-                .map_err(|e| format!("Y dup failed: {}", e))?,
+            Tensor::cat(&[&y, &y], 0).map_err(|e| format!("Y dup failed: {}", e))?,
         )
     };
 
@@ -177,11 +177,21 @@ async fn process_request(req: SD35WorkerRequest) -> Result<(), String> {
         .map_err(|e| format!("VAE creation failed: {}", e))?;
 
     // Get time_shift from model_info
-    let time_shift = model_info.time_shift
+    let time_shift = model_info
+        .time_shift
         .ok_or_else(|| "time_shift not configured".to_string())?;
 
     // Euler sampling - now safe because we're in LocalSet
-    let latent = euler_sample(&mmdit, &y, &context, &config, time_shift, &device, &response_tx).await?;
+    let latent = euler_sample(
+        &mmdit,
+        &y,
+        &context,
+        &config,
+        time_shift,
+        &device,
+        &response_tx,
+    )
+    .await?;
 
     // VAE decode - now safe because we're in LocalSet
     let image = decode_latent(&vae, &latent).await?;
@@ -299,10 +309,7 @@ struct TripleClipConfig<'a> {
 }
 
 impl TripleClipEncoder {
-    async fn load(
-        config: TripleClipConfig<'_>,
-        device: &Device,
-    ) -> Result<Self, String> {
+    async fn load(config: TripleClipConfig<'_>, device: &Device) -> Result<Self, String> {
         let clip_g_file = config.clip_g_file;
         let clip_l_file = config.clip_l_file;
         let t5xxl_file = config.t5xxl_file;
@@ -314,7 +321,9 @@ impl TripleClipEncoder {
             VarBuilder::from_mmaped_safetensors(&[clip_l_file], DType::F16, device)
                 .map_err(|e| format!("CLIP-L VarBuilder failed: {}", e))?
         };
-        let clip_l = ClipWithTokenizer::new(vb_clip_l, ClipConfig::sdxl(), clip_l_tokenizer_path, 77).await?;
+        let clip_l =
+            ClipWithTokenizer::new(vb_clip_l, ClipConfig::sdxl(), clip_l_tokenizer_path, 77)
+                .await?;
 
         let vb_clip_g = unsafe {
             VarBuilder::from_mmaped_safetensors(&[clip_g_file], DType::F16, device)
@@ -325,7 +334,8 @@ impl TripleClipEncoder {
             ClipConfig::sdxl2(),
             clip_g_tokenizer_path,
             77,
-        ).await?;
+        )
+        .await?;
 
         let clip_g_projection =
             candle_nn::linear_no_bias(1280, 1280, vb_clip_g.pp("text_projection"))
@@ -345,7 +355,11 @@ impl TripleClipEncoder {
         })
     }
 
-    async fn encode_prompt(&mut self, prompt: &str, device: &Device) -> Result<(Tensor, Tensor), String> {
+    async fn encode_prompt(
+        &mut self,
+        prompt: &str,
+        device: &Device,
+    ) -> Result<(Tensor, Tensor), String> {
         let (clip_l_emb, clip_l_pooled) = self.clip_l.encode(prompt, device).await?;
         let (clip_g_emb, clip_g_pooled) = self.clip_g.encode(prompt, device).await?;
 
@@ -372,7 +386,8 @@ impl TripleClipEncoder {
 
         let t5_emb = self
             .t5
-            .encode(prompt, device).await?
+            .encode(prompt, device)
+            .await?
             .to_dtype(DType::F16)
             .map_err(|e| format!("T5 dtype conversion failed: {}", e))?;
 
@@ -394,12 +409,11 @@ impl ClipWithTokenizer {
             .map_err(|e| format!("CLIP creation failed: {}", e))?;
 
         let tokenizer_path_owned = tokenizer_path.to_path_buf();
-        let tokenizer = tokio::task::spawn_blocking(move || {
-            Tokenizer::from_file(tokenizer_path_owned)
-        })
-        .await
-        .map_err(|e| format!("spawn_blocking failed: {}", e))?
-        .map_err(|e| format!("Tokenizer load failed: {}", e))?;
+        let tokenizer =
+            tokio::task::spawn_blocking(move || Tokenizer::from_file(tokenizer_path_owned))
+                .await
+                .map_err(|e| format!("spawn_blocking failed: {}", e))?
+                .map_err(|e| format!("Tokenizer load failed: {}", e))?;
 
         Ok(Self {
             clip,
@@ -442,7 +456,8 @@ impl ClipWithTokenizer {
             .unsqueeze(0)
             .map_err(|e| format!("Unsqueeze failed: {}", e))?;
 
-        let (emb, emb_penultimate) = self.clip
+        let (emb, emb_penultimate) = self
+            .clip
             .forward_until_encoder_layer(&tokens_tensor, usize::MAX, -2)
             .map_err(|e| format!("CLIP forward failed: {}", e))?;
 
@@ -461,7 +476,8 @@ impl T5WithTokenizer {
         tokenizer_path: &Path,
         max_tokens: usize,
     ) -> Result<Self, String> {
-        let config_str = tokio::fs::read_to_string(config_path).await
+        let config_str = tokio::fs::read_to_string(config_path)
+            .await
             .map_err(|e| format!("T5 config read failed: {}", e))?;
         let config: T5Config = serde_json::from_str(&config_str)
             .map_err(|e| format!("T5 config parse failed: {}", e))?;
@@ -470,12 +486,11 @@ impl T5WithTokenizer {
             .map_err(|e| format!("T5 model load failed: {}", e))?;
 
         let tokenizer_path_owned = tokenizer_path.to_path_buf();
-        let tokenizer = tokio::task::spawn_blocking(move || {
-            Tokenizer::from_file(tokenizer_path_owned)
-        })
-        .await
-        .map_err(|e| format!("spawn_blocking failed: {}", e))?
-        .map_err(|e| format!("T5 tokenizer load failed: {}", e))?;
+        let tokenizer =
+            tokio::task::spawn_blocking(move || Tokenizer::from_file(tokenizer_path_owned))
+                .await
+                .map_err(|e| format!("spawn_blocking failed: {}", e))?
+                .map_err(|e| format!("T5 tokenizer load failed: {}", e))?;
 
         Ok(Self {
             t5,
@@ -500,7 +515,8 @@ impl T5WithTokenizer {
             .unsqueeze(0)
             .map_err(|e| format!("T5 unsqueeze failed: {}", e))?;
 
-        self.t5.forward_dt(&tokens_tensor, Some(DType::F32))
+        self.t5
+            .forward_dt(&tokens_tensor, Some(DType::F32))
             .map_err(|e| format!("T5 forward failed: {}", e))
     }
 }

@@ -1,8 +1,8 @@
 //! Export functionality for memory data
 
+use std::fs::File;
 use std::path::Path;
-use tokio::io::AsyncWriteExt;
-use std::fs::File; // Used for synchronous CSV writing
+use tokio::io::AsyncWriteExt; // Used for synchronous CSV writing
 
 use serde::{Deserialize, Serialize};
 
@@ -357,7 +357,9 @@ impl DataExporter {
         let bytes = bincode::encode_to_vec(data, bincode::config::standard()).map_err(|e| {
             MigrationError::UnsupportedFormat(format!("Binary encoding failed: {e}"))
         })?;
-        tokio::fs::write(path, &bytes).await.map_err(MigrationError::IoError)?;
+        tokio::fs::write(path, &bytes)
+            .await
+            .map_err(MigrationError::IoError)?;
         Ok(())
     }
 }

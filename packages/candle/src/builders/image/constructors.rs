@@ -1,9 +1,9 @@
 //! Image constructor methods - entry points for creating ImageBuilder instances
 
-use crate::domain::context::CandleDocumentChunk as ImageChunk;
-use crate::domain::image::{ContentFormat, Image};
 use super::api::ImageBuilder;
 use super::builder_impl::ImageBuilderImpl;
+use crate::domain::context::CandleDocumentChunk as ImageChunk;
+use crate::domain::image::{ContentFormat, Image};
 
 impl Image {
     /// Semantic entry point - EXACT syntax: Image::from_base64(data)

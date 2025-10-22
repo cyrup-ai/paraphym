@@ -8,13 +8,14 @@ use std::num::NonZeroU32;
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
 
-use tokio_stream::Stream;
 use crate::async_stream;
+use tokio_stream::Stream;
 
 use crate::core::Engine;
 use crate::domain::model::{info::CandleModelInfo, traits::CandleModel};
 use crate::domain::{
-    completion::CandleCompletionParams, context::chunks::CandleCompletionChunk, prompt::CandlePrompt,
+    completion::CandleCompletionParams, context::chunks::CandleCompletionChunk,
+    prompt::CandlePrompt,
 };
 
 /// Chat template constant for Phi-4-reasoning
@@ -155,142 +156,155 @@ impl crate::capability::traits::TextToTextCapable for CandlePhi4ReasoningModel {
 
         // Use Engine's coordinate_generation for automatic metrics and stream conversion
         Box::pin(engine.coordinate_generation(move || {
-                use crate::core::generation::{
-                    SamplingConfig, generator::TextGenerator, models::CandleQuantizedPhiModel,
-                    tokens::SpecialTokens,
+            use crate::core::generation::{
+                SamplingConfig, generator::TextGenerator, models::CandleQuantizedPhiModel,
+                tokens::SpecialTokens,
+            };
+            use crate::domain::context::chunks::CandleStringChunk;
+            use candle_core::Device;
+            use tokenizers::Tokenizer;
+            use tokio_stream::StreamExt;
+
+            async_stream::spawn_stream(move |tx| async move {
+                // Load file paths asynchronously
+                let gguf_repo = match model_clone.info().quantization_url {
+                    Some(url) => url,
+                    None => {
+                        let _ = tx.send(CandleStringChunk::text(
+                            "ERROR: Model info missing quantization_url".to_string(),
+                        ));
+                        return;
+                    }
                 };
-                use crate::domain::context::chunks::CandleStringChunk;
-                use candle_core::Device;
-                use tokenizers::Tokenizer;
-                use tokio_stream::StreamExt;
-
-                async_stream::spawn_stream(move |tx| async move {
-                    // Load file paths asynchronously
-                    let gguf_repo = match model_clone.info().quantization_url {
-                        Some(url) => url,
-                        None => {
-                            let _ = tx.send(CandleStringChunk::text(
-                                "ERROR: Model info missing quantization_url".to_string()
-                            ));
-                            return;
-                        }
-                    };
-                    log::info!("Requesting GGUF from repo: '{}', file: 'phi-4-reasoning-Q4_K_M.gguf'", gguf_repo);
-                    let gguf_path = match model_clone.huggingface_file(
-                        gguf_repo,
-                        "phi-4-reasoning-Q4_K_M.gguf",
-                    ).await {
-                        Ok(path) => path,
-                        Err(e) => {
-                            let _ = tx.send(CandleStringChunk::text(format!(
-                                "ERROR: Failed to get GGUF file: {}",
-                                e
-                            )));
-                            return;
-                        }
-                    };
-
-                    let tokenizer_repo = model_clone.info().registry_key;
-                    log::info!("Requesting tokenizer from repo: '{}', file: 'tokenizer.json'", tokenizer_repo);
-                    let tokenizer_path = match model_clone.huggingface_file(tokenizer_repo, "tokenizer.json").await {
-                        Ok(path) => path,
-                        Err(e) => {
-                            let _ = tx.send(CandleStringChunk::text(format!(
-                                "ERROR: Failed to get tokenizer file: {}",
-                                e
-                            )));
-                            return;
-                        }
-                    };
-
-                    // Load device (prefer GPU if available)
-                    let device = crate::core::device_util::detect_best_device().unwrap_or_else(|e| {
-                        log::warn!("Device detection failed: {}. Using CPU.", e);
-                        Device::Cpu
-                    });
-
-                    // Load tokenizer - CRITICAL: Use spawn_blocking for sync I/O
-                    let tokenizer = match tokio::task::spawn_blocking(move || {
-                        Tokenizer::from_file(&tokenizer_path)
-                    }).await {
-                        Ok(Ok(t)) => t,
-                        Ok(Err(e)) => {
-                            let _ = tx.send(CandleStringChunk::text(format!(
-                                "ERROR: Failed to load tokenizer: {}",
-                                e
-                            )));
-                            return;
-                        }
-                        Err(e) => {
-                            let _ = tx.send(CandleStringChunk::text(format!(
-                                "ERROR: Failed to spawn blocking task: {}",
-                                e
-                            )));
-                            return;
-                        }
-                    };
-
-                    // Load the quantized Phi model
-                    let quantized_model =
-                        match CandleQuantizedPhiModel::from_gguf_path(&gguf_path, device.clone()).await {
-                            Ok(model) => model,
-                            Err(e) => {
-                                let _ = tx.send(CandleStringChunk::text(format!(
-                                    "ERROR: Failed to load quantized model: {}",
-                                    e
-                                )));
-                                return;
-                            }
-                        };
-
-                    // Build sampling config with extracted parameters
-                    let mut sampling_config = SamplingConfig::new(temperature as f32);
-
-                    if let Some(k) = top_k {
-                        sampling_config = sampling_config.with_top_k(k);
+                log::info!(
+                    "Requesting GGUF from repo: '{}', file: 'phi-4-reasoning-Q4_K_M.gguf'",
+                    gguf_repo
+                );
+                let gguf_path = match model_clone
+                    .huggingface_file(gguf_repo, "phi-4-reasoning-Q4_K_M.gguf")
+                    .await
+                {
+                    Ok(path) => path,
+                    Err(e) => {
+                        let _ = tx.send(CandleStringChunk::text(format!(
+                            "ERROR: Failed to get GGUF file: {}",
+                            e
+                        )));
+                        return;
                     }
-                    if let Some(p) = top_p {
-                        sampling_config = sampling_config.with_top_p(p);
+                };
+
+                let tokenizer_repo = model_clone.info().registry_key;
+                log::info!(
+                    "Requesting tokenizer from repo: '{}', file: 'tokenizer.json'",
+                    tokenizer_repo
+                );
+                let tokenizer_path = match model_clone
+                    .huggingface_file(tokenizer_repo, "tokenizer.json")
+                    .await
+                {
+                    Ok(path) => path,
+                    Err(e) => {
+                        let _ = tx.send(CandleStringChunk::text(format!(
+                            "ERROR: Failed to get tokenizer file: {}",
+                            e
+                        )));
+                        return;
                     }
+                };
 
-                    sampling_config = sampling_config
-                        .with_repetition_penalty(1.0)
-                        .with_frequency_penalty(0.0)
-                        .with_presence_penalty(0.0);
+                // Load device (prefer GPU if available)
+                let device = crate::core::device_util::detect_best_device().unwrap_or_else(|e| {
+                    log::warn!("Device detection failed: {}. Using CPU.", e);
+                    Device::Cpu
+                });
 
-                    // Create TextGenerator with real model
-                    let text_generator = TextGenerator::new(
-                        Box::new(quantized_model),
-                        tokenizer,
-                        device,
-                        sampling_config,
-                    );
-
-                    // Set up special tokens for Phi-4
-                    let special_tokens = SpecialTokens {
-                        bos_token_id: None, // Phi doesn't use BOS
-                        eos_token_id: Some(2),
-                        pad_token_id: None,
-                    };
-
-                    // Convert max_tokens to u32
-                    let max_tokens_u32 = max_tokens.try_into().unwrap_or_else(|_| {
-                        log::warn!(
-                            "max_tokens value {} exceeds u32::MAX, capping at {}",
-                            max_tokens,
-                            u32::MAX
-                        );
-                        u32::MAX
-                    });
-
-                    // Generate and forward text stream
-                    let mut stream = text_generator.generate(prompt_text, max_tokens_u32, special_tokens);
-                    while let Some(chunk) = stream.next().await {
-                        if tx.send(chunk).is_err() {
-                            break;
-                        }
-                    }
+                // Load tokenizer - CRITICAL: Use spawn_blocking for sync I/O
+                let tokenizer = match tokio::task::spawn_blocking(move || {
+                    Tokenizer::from_file(&tokenizer_path)
                 })
+                .await
+                {
+                    Ok(Ok(t)) => t,
+                    Ok(Err(e)) => {
+                        let _ = tx.send(CandleStringChunk::text(format!(
+                            "ERROR: Failed to load tokenizer: {}",
+                            e
+                        )));
+                        return;
+                    }
+                    Err(e) => {
+                        let _ = tx.send(CandleStringChunk::text(format!(
+                            "ERROR: Failed to spawn blocking task: {}",
+                            e
+                        )));
+                        return;
+                    }
+                };
+
+                // Load the quantized Phi model
+                let quantized_model =
+                    match CandleQuantizedPhiModel::from_gguf_path(&gguf_path, device.clone()).await
+                    {
+                        Ok(model) => model,
+                        Err(e) => {
+                            let _ = tx.send(CandleStringChunk::text(format!(
+                                "ERROR: Failed to load quantized model: {}",
+                                e
+                            )));
+                            return;
+                        }
+                    };
+
+                // Build sampling config with extracted parameters
+                let mut sampling_config = SamplingConfig::new(temperature as f32);
+
+                if let Some(k) = top_k {
+                    sampling_config = sampling_config.with_top_k(k);
+                }
+                if let Some(p) = top_p {
+                    sampling_config = sampling_config.with_top_p(p);
+                }
+
+                sampling_config = sampling_config
+                    .with_repetition_penalty(1.0)
+                    .with_frequency_penalty(0.0)
+                    .with_presence_penalty(0.0);
+
+                // Create TextGenerator with real model
+                let text_generator = TextGenerator::new(
+                    Box::new(quantized_model),
+                    tokenizer,
+                    device,
+                    sampling_config,
+                );
+
+                // Set up special tokens for Phi-4
+                let special_tokens = SpecialTokens {
+                    bos_token_id: None, // Phi doesn't use BOS
+                    eos_token_id: Some(2),
+                    pad_token_id: None,
+                };
+
+                // Convert max_tokens to u32
+                let max_tokens_u32 = max_tokens.try_into().unwrap_or_else(|_| {
+                    log::warn!(
+                        "max_tokens value {} exceeds u32::MAX, capping at {}",
+                        max_tokens,
+                        u32::MAX
+                    );
+                    u32::MAX
+                });
+
+                // Generate and forward text stream
+                let mut stream =
+                    text_generator.generate(prompt_text, max_tokens_u32, special_tokens);
+                while let Some(chunk) = stream.next().await {
+                    if tx.send(chunk).is_err() {
+                        break;
+                    }
+                }
+            })
         }))
     }
 }
@@ -323,7 +337,7 @@ pub static PHI4_REASONING_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     image_size: None,
     image_mean: None,
     image_std: None,
-    default_temperature: Some(0.0),  // REQUIRED for reasoning models - greedy sampling
+    default_temperature: Some(0.0), // REQUIRED for reasoning models - greedy sampling
     default_top_k: Some(50),
     default_top_p: Some(0.95),
     supports_kv_cache: true, // MixFormer uses internal KV cache
@@ -377,26 +391,24 @@ impl LoadedPhi4ReasoningModel {
         base: &CandlePhi4ReasoningModel,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         log::info!("🔄 LoadedPhi4ReasoningModel::load() - Loading model into memory ONCE");
-        
+
         // Get file paths
-        let quantization_url = base.info().quantization_url
-            .ok_or_else(|| {
-                Box::from("Model info missing quantization_url")
-                    as Box<dyn std::error::Error + Send + Sync>
-            })?;
-        
+        let quantization_url = base.info().quantization_url.ok_or_else(|| {
+            Box::from("Model info missing quantization_url")
+                as Box<dyn std::error::Error + Send + Sync>
+        })?;
+
         let gguf_file_path = base
-            .huggingface_file(
-                quantization_url,
-                "phi-4-reasoning-Q4_K_M.gguf",
-            ).await
+            .huggingface_file(quantization_url, "phi-4-reasoning-Q4_K_M.gguf")
+            .await
             .map_err(|e| {
                 Box::from(format!("Failed to get GGUF file: {}", e))
                     as Box<dyn std::error::Error + Send + Sync>
             })?;
 
         let tokenizer_path = base
-            .huggingface_file(base.info().registry_key, "tokenizer.json").await
+            .huggingface_file(base.info().registry_key, "tokenizer.json")
+            .await
             .map_err(|e| {
                 Box::from(format!("Failed to get tokenizer file: {}", e))
                     as Box<dyn std::error::Error + Send + Sync>
@@ -410,36 +422,43 @@ impl LoadedPhi4ReasoningModel {
 
         // Load tokenizer - CRITICAL: Use spawn_blocking for sync I/O
         log::info!("📝 Loading tokenizer from {}", tokenizer_path.display());
-        let tokenizer = tokio::task::spawn_blocking(move || {
-            tokenizers::Tokenizer::from_file(&tokenizer_path)
-        })
-        .await
-        .map_err(|e| {
-            Box::from(format!("Failed to spawn blocking task: {}", e))
-                as Box<dyn std::error::Error + Send + Sync>
-        })?
-        .map_err(|e| {
-            Box::from(format!("Failed to load tokenizer: {}", e))
-                as Box<dyn std::error::Error + Send + Sync>
-        })?;
+        let tokenizer =
+            tokio::task::spawn_blocking(move || tokenizers::Tokenizer::from_file(&tokenizer_path))
+                .await
+                .map_err(|e| {
+                    Box::from(format!("Failed to spawn blocking task: {}", e))
+                        as Box<dyn std::error::Error + Send + Sync>
+                })?
+                .map_err(|e| {
+                    Box::from(format!("Failed to load tokenizer: {}", e))
+                        as Box<dyn std::error::Error + Send + Sync>
+                })?;
 
         // CRITICAL: Load the model ONCE and cache it
-        log::info!("🔥 Loading 7.8GB model from {} - THIS HAPPENS ONCE", gguf_file_path.display());
+        log::info!(
+            "🔥 Loading 7.8GB model from {} - THIS HAPPENS ONCE",
+            gguf_file_path.display()
+        );
         let model = crate::core::generation::models::CandleQuantizedPhiModel::from_gguf_path(
             &gguf_file_path,
-            device.clone()
-        ).await.map_err(|e| {
+            device.clone(),
+        )
+        .await
+        .map_err(|e| {
             Box::from(format!("Failed to load model: {}", e))
                 as Box<dyn std::error::Error + Send + Sync>
         })?;
-        
+
         // Extract EOS token ID from the model
         let eos_token_id = model.eos_token_id();
-        log::info!("✅ Model loaded into memory! EOS token ID: {:?}", eos_token_id);
+        log::info!(
+            "✅ Model loaded into memory! EOS token ID: {:?}",
+            eos_token_id
+        );
         log::info!("All future requests will reuse this cached model.");
 
         Ok(Self {
-            model: Arc::new(tokio::sync::Mutex::new(model)),  // Cache the loaded model with Mutex for safe async access!
+            model: Arc::new(tokio::sync::Mutex::new(model)), // Cache the loaded model with Mutex for safe async access!
             tokenizer,
             device,
             engine: base.engine.clone(),
@@ -454,15 +473,18 @@ impl crate::capability::traits::TextToTextCapable for LoadedPhi4ReasoningModel {
         prompt: CandlePrompt,
         params: &CandleCompletionParams,
     ) -> Pin<Box<dyn Stream<Item = CandleCompletionChunk> + Send>> {
-        log::info!(">>> LoadedPhi4ReasoningModel::prompt() CALLED with prompt content length: {}", prompt.content.len());
-        
+        log::info!(
+            ">>> LoadedPhi4ReasoningModel::prompt() CALLED with prompt content length: {}",
+            prompt.content.len()
+        );
+
         // Clone pre-loaded resources for the generation closure
         let engine = self.engine.clone();
-        let model = self.model.clone();  // ✅ Use CACHED model
+        let model = self.model.clone(); // ✅ Use CACHED model
         let device = self.device.clone();
         let tokenizer = self.tokenizer.clone(); // ✅ Clone pre-loaded tokenizer
         let eos_token_id = self.eos_token_id; // Clone EOS token ID
-        
+
         log::info!("🚀 Using CACHED model from memory - no loading needed!");
 
         // Build sampling config
@@ -501,9 +523,8 @@ impl crate::capability::traits::TextToTextCapable for LoadedPhi4ReasoningModel {
         // Use Engine's coordinate_generation for automatic metrics and stream conversion
         Box::pin(engine.coordinate_generation(move || {
             use crate::core::generation::{
-                SamplingConfig, generator::TextGenerator,
+                SamplingConfig, generator::TextGenerator, models::CandleModel as CandleModelTrait,
                 tokens::SpecialTokens,
-                models::CandleModel as CandleModelTrait,
             };
             use tokio_stream::StreamExt;
 
@@ -541,12 +562,15 @@ impl crate::capability::traits::TextToTextCapable for LoadedPhi4ReasoningModel {
                     }
                     token_id
                 });
-                log::info!("🔑 Using EOS token ID: {:?} (for '<|im_end|>')", eos_token_id_final);
+                log::info!(
+                    "🔑 Using EOS token ID: {:?} (for '<|im_end|>')",
+                    eos_token_id_final
+                );
 
                 // Create TextGenerator with CACHED model and pre-loaded tokenizer
                 // Use SharedModel wrapper to share the Arc<Mutex<Model>> across generate() calls
                 let text_generator = TextGenerator::new(
-                    Box::new(SharedPhiModel { 
+                    Box::new(SharedPhiModel {
                         model: model.clone(),
                         device: device.clone(),
                         vocab_size,
@@ -572,8 +596,13 @@ impl crate::capability::traits::TextToTextCapable for LoadedPhi4ReasoningModel {
                 });
 
                 // Generate and forward text stream
-                log::info!("🎬 Starting generation with max_tokens={}, EOS={:?}", max_tokens_u32, eos_token_id_final);
-                let mut stream = text_generator.generate(prompt_text.clone(), max_tokens_u32, special_tokens);
+                log::info!(
+                    "🎬 Starting generation with max_tokens={}, EOS={:?}",
+                    max_tokens_u32,
+                    eos_token_id_final
+                );
+                let mut stream =
+                    text_generator.generate(prompt_text.clone(), max_tokens_u32, special_tokens);
                 let mut chunk_count = 0;
                 while let Some(chunk) = stream.next().await {
                     chunk_count += 1;
@@ -605,7 +634,21 @@ struct SharedPhiModel {
 }
 
 impl crate::core::generation::models::CandleModel for SharedPhiModel {
-    fn forward<'a>(&'a mut self, input: &'a candle_core::Tensor, index_pos: usize) -> Pin<Box<dyn Future<Output = Result<candle_core::Tensor, crate::domain::model::error::CandleModelError>> + Send + '_>> {
+    fn forward<'a>(
+        &'a mut self,
+        input: &'a candle_core::Tensor,
+        index_pos: usize,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        candle_core::Tensor,
+                        crate::domain::model::error::CandleModelError,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
         Box::pin(async move {
             // Lock the mutex to get mutable access to the model
             let mut model = self.model.lock().await;

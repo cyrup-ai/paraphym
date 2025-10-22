@@ -10,10 +10,10 @@ use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use crate::async_stream;
 use candle_core::DType;
 use candle_transformers::models::llama::LlamaConfig;
 use tokio_stream::Stream;
-use crate::async_stream;
 
 use serde::{Deserialize, Serialize};
 
@@ -21,8 +21,7 @@ use crate::core::{Engine, EngineConfig};
 
 use crate::domain::model::{info::CandleModelInfo, traits::CandleModel};
 use crate::domain::{
-    completion::CandleCompletionParams,
-    context::chunks::CandleCompletionChunk,
+    completion::CandleCompletionParams, context::chunks::CandleCompletionChunk,
     prompt::CandlePrompt,
 };
 
@@ -92,7 +91,10 @@ impl crate::capability::traits::TextToTextCapable for CandleKimiK2Model {
 
         Box::pin(async_stream::spawn_stream(move |tx| async move {
             // Get file paths inside async context
-            let gguf_file_path = match model.huggingface_file(model.info().registry_key, "*.gguf").await {
+            let gguf_file_path = match model
+                .huggingface_file(model.info().registry_key, "*.gguf")
+                .await
+            {
                 Ok(p) => p,
                 Err(e) => {
                     let _ = tx.send(CandleCompletionChunk::Error(format!(
@@ -103,7 +105,9 @@ impl crate::capability::traits::TextToTextCapable for CandleKimiK2Model {
                 }
             };
 
-            let tokenizer_path = match model.huggingface_file(model.info().registry_key, "tokenizer.json").await
+            let tokenizer_path = match model
+                .huggingface_file(model.info().registry_key, "tokenizer.json")
+                .await
             {
                 Ok(p) => p,
                 Err(e) => {
@@ -131,7 +135,7 @@ impl crate::capability::traits::TextToTextCapable for CandleKimiK2Model {
 
             // Clone engine Arc for the coordinate_generation call
             let engine = Arc::clone(&model.engine);
-            
+
             // Clone data needed for the generation closure
             let model_config = model.model_config.clone();
 
@@ -180,7 +184,7 @@ impl crate::capability::traits::TextToTextCapable for CandleKimiK2Model {
             // Format prompt
             let prompt_text = format!("User: {}\nAssistant: ", prompt);
             let max_tokens = params.max_tokens.map(|n| n.get()).unwrap_or(1000);
-            
+
             // Convert u64 to u32, capping at u32::MAX if necessary
             let max_tokens_u32 = max_tokens.try_into().unwrap_or_else(|_| {
                 log::warn!(
@@ -192,7 +196,7 @@ impl crate::capability::traits::TextToTextCapable for CandleKimiK2Model {
             });
 
             // Load device (prefer GPU if available)
-            use candle_core::{Device, DType};
+            use candle_core::{DType, Device};
             let device = crate::core::device_util::detect_best_device().unwrap_or_else(|e| {
                 log::warn!("Device detection failed: {}. Using CPU.", e);
                 Device::Cpu
@@ -205,19 +209,23 @@ impl crate::capability::traits::TextToTextCapable for CandleKimiK2Model {
             let tokenizer = match tokio::task::spawn_blocking(move || {
                 // Runs on dedicated blocking thread pool
                 Tokenizer::from_file(&tokenizer_path_clone)
-            }).await {
+            })
+            .await
+            {
                 // Double-Result pattern:
                 // Outer Ok/Err: Did the spawned task complete?
                 // Inner Ok/Err: Did the tokenizer load successfully?
-                Ok(Ok(t)) => t,  // Task completed + tokenizer loaded successfully
-                Ok(Err(e)) => {  // Task completed but tokenizer loading failed
+                Ok(Ok(t)) => t, // Task completed + tokenizer loaded successfully
+                Ok(Err(e)) => {
+                    // Task completed but tokenizer loading failed
                     let _ = tx.send(CandleCompletionChunk::Error(format!(
                         "Failed to load tokenizer: {}",
                         e
                     )));
                     return;
                 }
-                Err(e) => {  // Spawned task panicked or was cancelled
+                Err(e) => {
+                    // Spawned task panicked or was cancelled
                     let _ = tx.send(CandleCompletionChunk::Error(format!(
                         "Failed to spawn blocking task: {}",
                         e
@@ -266,7 +274,9 @@ impl crate::capability::traits::TextToTextCapable for CandleKimiK2Model {
                 &gguf_file_path,
                 device.clone(),
                 candle_model_config,
-            ).await {
+            )
+            .await
+            {
                 Ok(model) => model,
                 Err(e) => {
                     let _ = tx.send(CandleCompletionChunk::Error(format!(
@@ -340,7 +350,7 @@ pub static KIMI_K2_MODEL_INFO: CandleModelInfo = CandleModelInfo {
     image_size: None,
     image_mean: None,
     image_std: None,
-    default_temperature: Some(0.0),  // Greedy sampling for deterministic output
+    default_temperature: Some(0.0), // Greedy sampling for deterministic output
     default_top_k: Some(50),
     default_top_p: Some(0.9),
     supports_kv_cache: true,
@@ -416,7 +426,7 @@ impl LoadedKimiK2Model {
         base: &CandleKimiK2Model,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         log::info!("🔄 LoadedKimiK2Model::load() - Loading model into memory ONCE");
-        
+
         // Get file paths
         let gguf_file_path = base
             .huggingface_file(base.info().registry_key, "*.gguf")
@@ -451,18 +461,17 @@ impl LoadedKimiK2Model {
 
         // Load tokenizer - CRITICAL: Use spawn_blocking for sync I/O
         log::info!("📝 Loading tokenizer from {}", tokenizer_path.display());
-        let tokenizer = tokio::task::spawn_blocking(move || {
-            tokenizers::Tokenizer::from_file(&tokenizer_path)
-        })
-        .await
-        .map_err(|e| {
-            Box::from(format!("Failed to spawn blocking task: {}", e))
-                as Box<dyn std::error::Error + Send + Sync>
-        })?
-        .map_err(|e| {
-            Box::from(format!("Failed to load tokenizer: {}", e))
-                as Box<dyn std::error::Error + Send + Sync>
-        })?;
+        let tokenizer =
+            tokio::task::spawn_blocking(move || tokenizers::Tokenizer::from_file(&tokenizer_path))
+                .await
+                .map_err(|e| {
+                    Box::from(format!("Failed to spawn blocking task: {}", e))
+                        as Box<dyn std::error::Error + Send + Sync>
+                })?
+                .map_err(|e| {
+                    Box::from(format!("Failed to load tokenizer: {}", e))
+                        as Box<dyn std::error::Error + Send + Sync>
+                })?;
 
         let max_context = base
             .info()
@@ -471,37 +480,38 @@ impl LoadedKimiK2Model {
             .unwrap_or(131072);
 
         // CRITICAL: Load the model ONCE and cache it
-        log::info!("🔥 Loading Kimi K2 model from {} - THIS HAPPENS ONCE", gguf_file_path.display());
-        
+        log::info!(
+            "🔥 Loading Kimi K2 model from {} - THIS HAPPENS ONCE",
+            gguf_file_path.display()
+        );
+
         // Create model configuration for the quantized model
         use crate::core::ModelConfig as CandleConfig;
         let model_config = base.model_config.clone();
         let gguf_file_path_str = gguf_file_path.to_string_lossy().to_string();
-        
+
         let candle_model_config = Arc::new(
             CandleConfig::new(
                 &gguf_file_path_str,
                 format!("{}/tokenizer.json", model_path),
-                crate::core::ModelArchitecture::Llama(
-                    candle_transformers::models::llama::Config {
-                        hidden_size: model_config.hidden_size,
-                        intermediate_size: model_config.intermediate_size,
-                        vocab_size: model_config.vocab_size,
-                        num_hidden_layers: model_config.num_hidden_layers,
-                        num_attention_heads: model_config.num_attention_heads,
-                        num_key_value_heads: model_config
-                            .num_key_value_heads
-                            .unwrap_or(model_config.num_attention_heads),
-                        use_flash_attn: false,
-                        rms_norm_eps: model_config.rms_norm_eps,
-                        rope_theta: model_config.rope_theta,
-                        bos_token_id: model_config.bos_token_id,
-                        eos_token_id: model_config.eos_token_id.clone(),
-                        rope_scaling: model_config.rope_scaling.clone(),
-                        max_position_embeddings: model_config.max_position_embeddings,
-                        tie_word_embeddings: model_config.tie_word_embeddings.unwrap_or(false),
-                    },
-                ),
+                crate::core::ModelArchitecture::Llama(candle_transformers::models::llama::Config {
+                    hidden_size: model_config.hidden_size,
+                    intermediate_size: model_config.intermediate_size,
+                    vocab_size: model_config.vocab_size,
+                    num_hidden_layers: model_config.num_hidden_layers,
+                    num_attention_heads: model_config.num_attention_heads,
+                    num_key_value_heads: model_config
+                        .num_key_value_heads
+                        .unwrap_or(model_config.num_attention_heads),
+                    use_flash_attn: false,
+                    rms_norm_eps: model_config.rms_norm_eps,
+                    rope_theta: model_config.rope_theta,
+                    bos_token_id: model_config.bos_token_id,
+                    eos_token_id: model_config.eos_token_id.clone(),
+                    rope_scaling: model_config.rope_scaling.clone(),
+                    max_position_embeddings: model_config.max_position_embeddings,
+                    tie_word_embeddings: model_config.tie_word_embeddings.unwrap_or(false),
+                }),
                 "kimi-k2",
                 "kimi-k2",
             )
@@ -514,15 +524,19 @@ impl LoadedKimiK2Model {
             &gguf_file_path_str,
             device.clone(),
             candle_model_config,
-        ).await.map_err(|e| {
+        )
+        .await
+        .map_err(|e| {
             Box::from(format!("Failed to load model: {}", e))
                 as Box<dyn std::error::Error + Send + Sync>
         })?;
-        
-        log::info!("✅ Model loaded into memory! All future requests will reuse this cached model.");
+
+        log::info!(
+            "✅ Model loaded into memory! All future requests will reuse this cached model."
+        );
 
         Ok(Self {
-            model: Arc::new(tokio::sync::Mutex::new(model)),  // Cache the loaded model with Mutex for safe async access!
+            model: Arc::new(tokio::sync::Mutex::new(model)), // Cache the loaded model with Mutex for safe async access!
             tokenizer,
             device,
             engine: Arc::clone(&base.engine),
@@ -538,10 +552,10 @@ impl crate::capability::traits::TextToTextCapable for LoadedKimiK2Model {
     ) -> Pin<Box<dyn Stream<Item = CandleCompletionChunk> + Send>> {
         // Clone pre-loaded resources for the generation closure
         let engine = self.engine.clone();
-        let model = self.model.clone();  // ✅ Use CACHED model
+        let model = self.model.clone(); // ✅ Use CACHED model
         let device = self.device.clone();
         let tokenizer = self.tokenizer.clone(); // ✅ Clone pre-loaded tokenizer
-        
+
         log::info!("🚀 Using CACHED model from memory - no loading needed!");
 
         // Build sampling config
@@ -570,9 +584,8 @@ impl crate::capability::traits::TextToTextCapable for LoadedKimiK2Model {
         // Use Engine's coordinate_generation for automatic metrics and stream conversion
         Box::pin(engine.coordinate_generation(move || {
             use crate::core::generation::{
-                SamplingConfig, generator::TextGenerator,
+                SamplingConfig, generator::TextGenerator, models::CandleModel as CandleModelTrait,
                 tokens::SpecialTokens,
-                models::CandleModel as CandleModelTrait,
             };
             use tokio_stream::StreamExt;
 
@@ -604,7 +617,7 @@ impl crate::capability::traits::TextToTextCapable for LoadedKimiK2Model {
                 // Create TextGenerator with CACHED model and pre-loaded tokenizer
                 // Use SharedKimiModel wrapper to share the Arc<Mutex<Model>> across generate() calls
                 let text_generator = TextGenerator::new(
-                    Box::new(SharedKimiModel { 
+                    Box::new(SharedKimiModel {
                         model: model.clone(),
                         device: device.clone(),
                         vocab_size,
@@ -632,7 +645,8 @@ impl crate::capability::traits::TextToTextCapable for LoadedKimiK2Model {
                 });
 
                 // Generate and forward text stream
-                let mut stream = text_generator.generate(prompt_text, max_tokens_u32, special_tokens);
+                let mut stream =
+                    text_generator.generate(prompt_text, max_tokens_u32, special_tokens);
                 while let Some(chunk) = stream.next().await {
                     if tx.send(chunk).is_err() {
                         break;
@@ -652,7 +666,21 @@ struct SharedKimiModel {
 }
 
 impl crate::core::generation::models::CandleModel for SharedKimiModel {
-    fn forward<'a>(&'a mut self, input: &'a candle_core::Tensor, index_pos: usize) -> Pin<Box<dyn Future<Output = Result<candle_core::Tensor, crate::domain::model::error::CandleModelError>> + Send + '_>> {
+    fn forward<'a>(
+        &'a mut self,
+        input: &'a candle_core::Tensor,
+        index_pos: usize,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        candle_core::Tensor,
+                        crate::domain::model::error::CandleModelError,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
         Box::pin(async move {
             // Lock the mutex to get mutable access to the model
             let mut model = self.model.lock().await;

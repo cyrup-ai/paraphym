@@ -1,7 +1,7 @@
 //! SIMD-aligned activation patterns for vectorized neural processing
 
-use std::time::SystemTime;
 use serde::{Deserialize, Serialize};
+use std::time::SystemTime;
 
 /// SIMD-aligned activation pattern for vectorized operations
 #[derive(Debug, Clone, Serialize, Deserialize)]

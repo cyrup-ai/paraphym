@@ -65,10 +65,7 @@ pub(crate) fn create_instruction_mask(
                     tokenizer
                         .encode(formatted_text.as_str(), false)
                         .map_err(|e| {
-                            MemoryError::ModelError(format!(
-                                "Failed to tokenize full text: {}",
-                                e
-                            ))
+                            MemoryError::ModelError(format!("Failed to tokenize full text: {}", e))
                         })?;
 
                 let content_only = &formatted_text[content_start_pos..];
@@ -145,9 +142,8 @@ pub(crate) fn forward_pass_with_instruction(
         })
         .collect::<Result<Vec<_>>>()?;
 
-    let token_ids = Tensor::stack(&token_ids, 0).map_err(|e| {
-        MemoryError::ModelError(format!("Token IDs tensor stack failed: {}", e))
-    })?;
+    let token_ids = Tensor::stack(&token_ids, 0)
+        .map_err(|e| MemoryError::ModelError(format!("Token IDs tensor stack failed: {}", e)))?;
     let attention_mask = Tensor::stack(&attention_mask, 0).map_err(|e| {
         MemoryError::ModelError(format!("Attention mask tensor stack failed: {}", e))
     })?;
@@ -155,9 +151,8 @@ pub(crate) fn forward_pass_with_instruction(
     // Create instruction-aware pool_mask that excludes instruction tokens
     let instruction_mask =
         create_instruction_mask(tokenizer, &token_ids, &formatted_texts, texts, device)?;
-    let pool_mask = (&attention_mask * &instruction_mask).map_err(|e| {
-        MemoryError::ModelError(format!("Failed to apply instruction mask: {}", e))
-    })?;
+    let pool_mask = (&attention_mask * &instruction_mask)
+        .map_err(|e| MemoryError::ModelError(format!("Failed to apply instruction mask: {}", e)))?;
 
     // Forward pass using real NVEmbed API
     let embeddings = model

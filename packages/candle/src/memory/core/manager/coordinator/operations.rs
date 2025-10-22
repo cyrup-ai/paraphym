@@ -4,10 +4,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::domain::memory::primitives::node::MemoryNode;
+use crate::memory::MemoryMetadata;
 use crate::memory::core::cognitive_queue::{CognitiveTask, CognitiveTaskType};
 use crate::memory::core::manager::surreal::trait_def::MemoryManager;
 use crate::memory::utils::Result;
-use crate::memory::MemoryMetadata;
 
 use super::lifecycle::MemoryCoordinator;
 use super::types::LazyEvalStrategy;
@@ -61,7 +61,8 @@ impl MemoryCoordinator {
             // Update importance to reflect re-occurrence (boost by 10%)
             let current_importance = domain_memory.importance();
             let boosted_importance = (current_importance * 1.1).min(1.0);
-            domain_memory.set_importance(boosted_importance)
+            domain_memory
+                .set_importance(boosted_importance)
                 .map_err(|e| crate::memory::utils::Error::Internal(format!("{:?}", e)))?;
 
             // Convert back and persist the refresh
@@ -108,51 +109,80 @@ impl MemoryCoordinator {
             );
 
             // Apply metadata
-            domain_memory.metadata = Arc::new(crate::domain::memory::primitives::node::MemoryNodeMetadata {
-                importance: metadata.importance,
-                keywords: metadata.keywords.iter().map(|s| Arc::from(s.as_str())).collect(),
-                tags: metadata.tags.iter().map(|s| Arc::from(s.as_str())).collect(),
-                custom: custom_map,
-                version: 1,
-            });
+            domain_memory.metadata = Arc::new(
+                crate::domain::memory::primitives::node::MemoryNodeMetadata {
+                    importance: metadata.importance,
+                    keywords: metadata
+                        .keywords
+                        .iter()
+                        .map(|s| Arc::from(s.as_str()))
+                        .collect(),
+                    tags: metadata
+                        .tags
+                        .iter()
+                        .map(|s| Arc::from(s.as_str()))
+                        .collect(),
+                    custom: custom_map,
+                    version: 1,
+                },
+            );
         }
 
         // Generate embedding using BERT
         let embedding = self.generate_embedding(&content).await?;
         domain_memory.embedding =
-            Some(crate::domain::memory::primitives::node::AlignedEmbedding::new(
-                embedding,
-            ));
+            Some(crate::domain::memory::primitives::node::AlignedEmbedding::new(embedding));
 
         // Automatic image embedding if metadata contains image_path
         if let Some(metadata) = &metadata
             && let Some(image_path_value) = metadata.custom.get("image_path")
-            && let Some(image_path) = image_path_value.as_str() {
-                    use crate::capability::registry;
-                    use crate::capability::traits::ImageEmbeddingCapable;
+            && let Some(image_path) = image_path_value.as_str()
+        {
+            use crate::capability::registry;
+            use crate::capability::traits::ImageEmbeddingCapable;
 
-                    // Query registry for image embedding model (graceful degradation if unavailable)
-                    if let Some(vision_model) = registry::get::<crate::capability::registry::ImageEmbeddingModel>("openai/clip-vit-base-patch32") {
-                        match vision_model.embed_image(image_path).await {
-                            Ok(image_embedding) => {
-                                match self.cognitive_state.write().await
-                                    .update_activation_from_stimulus(image_embedding) {
-                                    Ok(()) => {
-                                        log::trace!("Updated cognitive activation from image: {}", image_path);
-                                    }
-                                    Err(e) => {
-                                        log::warn!("Failed to update cognitive activation from image: {}", e);
-                                    }
-                                }
+            // Query registry for image embedding model (graceful degradation if unavailable)
+            if let Some(vision_model) = registry::get::<
+                crate::capability::registry::ImageEmbeddingModel,
+            >("openai/clip-vit-base-patch32")
+            {
+                match vision_model.embed_image(image_path).await {
+                    Ok(image_embedding) => {
+                        match self
+                            .cognitive_state
+                            .write()
+                            .await
+                            .update_activation_from_stimulus(image_embedding)
+                        {
+                            Ok(()) => {
+                                log::trace!(
+                                    "Updated cognitive activation from image: {}",
+                                    image_path
+                                );
                             }
                             Err(e) => {
-                                log::warn!("Failed to generate image embedding for {}: {}", image_path, e);
+                                log::warn!(
+                                    "Failed to update cognitive activation from image: {}",
+                                    e
+                                );
                             }
                         }
-                    } else {
-                        log::debug!("Image embedding model not available in registry, skipping image processing for: {}", image_path);
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "Failed to generate image embedding for {}: {}",
+                            image_path,
+                            e
+                        );
                     }
                 }
+            } else {
+                log::debug!(
+                    "Image embedding model not available in registry, skipping image processing for: {}",
+                    image_path
+                );
+            }
+        }
 
         // Convert to core memory node for storage
         let memory_node = self.convert_domain_to_memory_node(&domain_memory);
@@ -172,7 +202,8 @@ impl MemoryCoordinator {
             CognitiveTaskType::CommitteeEvaluation,
             5, // Default priority
         );
-        self.cognitive_queue.enqueue(task)
+        self.cognitive_queue
+            .enqueue(task)
             .map_err(crate::memory::utils::Error::Internal)?;
 
         // Convert stored memory back to domain format for return
@@ -189,7 +220,11 @@ impl MemoryCoordinator {
     /// - `TriggerAndWait`: Bypasses queue and evaluates synchronously
     pub async fn get_memory(&self, memory_id: &str) -> Result<Option<MemoryNode>> {
         // Record long-term memory access
-        self.cognitive_state.read().await.stats().record_long_term_memory_access();
+        self.cognitive_state
+            .read()
+            .await
+            .stats()
+            .record_long_term_memory_access();
 
         // Retrieve from SurrealDB
         let memory_node = match self.surreal_manager.get_memory(memory_id).await? {
@@ -203,44 +238,72 @@ impl MemoryCoordinator {
         // Generate stimulus from memory embedding and update cognitive state
         if let Some(ref embedding) = domain_memory.embedding {
             let stimulus = embedding.data.clone();
-            match self.cognitive_state.write().await.update_activation_from_stimulus(stimulus) {
+            match self
+                .cognitive_state
+                .write()
+                .await
+                .update_activation_from_stimulus(stimulus)
+            {
                 Ok(()) => {
-                    log::trace!("Updated cognitive activation from memory retrieval: {}", memory_id);
+                    log::trace!(
+                        "Updated cognitive activation from memory retrieval: {}",
+                        memory_id
+                    );
                 }
                 Err(e) => {
-                    log::warn!("Failed to update cognitive activation from memory retrieval: {}", e);
+                    log::warn!(
+                        "Failed to update cognitive activation from memory retrieval: {}",
+                        e
+                    );
                 }
             }
         }
 
         // Automatic image embedding processing on retrieval
         if let Some(image_path_value) = domain_memory.metadata.custom.get("image_path")
-            && let Some(image_path) = image_path_value.as_ref().as_str() {
-                use crate::capability::registry;
-                use crate::capability::traits::ImageEmbeddingCapable;
+            && let Some(image_path) = image_path_value.as_ref().as_str()
+        {
+            use crate::capability::registry;
+            use crate::capability::traits::ImageEmbeddingCapable;
 
-                // Query registry for image embedding model (graceful degradation if unavailable)
-                if let Some(vision_model) = registry::get::<crate::capability::registry::ImageEmbeddingModel>("openai/clip-vit-base-patch32") {
-                    match vision_model.embed_image(image_path).await {
-                        Ok(image_embedding) => {
-                            match self.cognitive_state.write().await
-                                .update_activation_from_stimulus(image_embedding) {
-                                Ok(()) => {
-                                    log::trace!("Updated cognitive activation from retrieved image: {}", image_path);
-                                }
-                                Err(e) => {
-                                    log::warn!("Failed to update cognitive activation from retrieved image: {}", e);
-                                }
+            // Query registry for image embedding model (graceful degradation if unavailable)
+            if let Some(vision_model) = registry::get::<
+                crate::capability::registry::ImageEmbeddingModel,
+            >("openai/clip-vit-base-patch32")
+            {
+                match vision_model.embed_image(image_path).await {
+                    Ok(image_embedding) => {
+                        match self
+                            .cognitive_state
+                            .write()
+                            .await
+                            .update_activation_from_stimulus(image_embedding)
+                        {
+                            Ok(()) => {
+                                log::trace!(
+                                    "Updated cognitive activation from retrieved image: {}",
+                                    image_path
+                                );
+                            }
+                            Err(e) => {
+                                log::warn!(
+                                    "Failed to update cognitive activation from retrieved image: {}",
+                                    e
+                                );
                             }
                         }
-                        Err(e) => {
-                            log::warn!("Failed to generate image embedding on retrieval: {}", e);
-                        }
                     }
-                } else {
-                    log::debug!("Image embedding model not available in registry, skipping image processing for: {}", image_path);
+                    Err(e) => {
+                        log::warn!("Failed to generate image embedding on retrieval: {}", e);
+                    }
                 }
+            } else {
+                log::debug!(
+                    "Image embedding model not available in registry, skipping image processing for: {}",
+                    image_path
+                );
             }
+        }
 
         // NOTE: Temporal decay now applied by background DecayWorker
         // Removed lazy evaluation from read path for performance
@@ -264,14 +327,20 @@ impl MemoryCoordinator {
                     evaluation_status,
                     crate::memory::monitoring::operations::OperationStatus::Pending
                 ) {
-                    log::trace!("WaitForCompletion: Polling for memory {} evaluation", memory_id);
+                    log::trace!(
+                        "WaitForCompletion: Polling for memory {} evaluation",
+                        memory_id
+                    );
 
                     let start = Instant::now();
                     let timeout = Duration::from_secs(5);
 
                     loop {
                         if start.elapsed() > timeout {
-                            log::warn!("Evaluation timeout for memory {}, returning partial", memory_id);
+                            log::warn!(
+                                "Evaluation timeout for memory {}, returning partial",
+                                memory_id
+                            );
                             break;
                         }
 
@@ -294,7 +363,10 @@ impl MemoryCoordinator {
                     evaluation_status,
                     crate::memory::monitoring::operations::OperationStatus::Pending
                 ) {
-                    log::trace!("TriggerAndWait: Immediate evaluation for memory {}", memory_id);
+                    log::trace!(
+                        "TriggerAndWait: Immediate evaluation for memory {}",
+                        memory_id
+                    );
 
                     // Check cache first
                     if let Some(score) = self.evaluation_cache.get(memory_id) {
@@ -364,7 +436,9 @@ impl MemoryCoordinator {
     ///
     /// Returns atomic counters for cognitive operations. All counters are
     /// thread-safe and can be read without blocking.
-    pub async fn cognitive_stats(&self) -> Arc<crate::domain::memory::cognitive::types::CognitiveStats> {
+    pub async fn cognitive_stats(
+        &self,
+    ) -> Arc<crate::domain::memory::cognitive::types::CognitiveStats> {
         let state = self.cognitive_state.read().await;
         state.stats_arc()
     }

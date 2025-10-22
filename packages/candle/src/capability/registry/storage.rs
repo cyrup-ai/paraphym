@@ -1,8 +1,8 @@
 //! Registry storage - unified registries for all model types using parking_lot::RwLock
 
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
-use parking_lot::RwLock;
 
 use super::enums::*;
 use crate::capability::text_embedding::{

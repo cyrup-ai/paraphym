@@ -80,7 +80,10 @@ impl DecayWorker {
         let limit = self.config.batch_size;
 
         // Query batch of memories using pagination
-        let memory_stream = self.coordinator.surreal_manager.list_all_memories(limit, offset);
+        let memory_stream = self
+            .coordinator
+            .surreal_manager
+            .list_all_memories(limit, offset);
 
         let memories: Vec<_> = memory_stream.collect().await;
 
@@ -129,15 +132,27 @@ impl DecayWorker {
     }
 
     /// Process a single memory: apply decay to node and edges
-    async fn process_memory(&self, memory_node: &crate::memory::core::primitives::node::MemoryNode) -> Result<()> {
+    async fn process_memory(
+        &self,
+        memory_node: &crate::memory::core::primitives::node::MemoryNode,
+    ) -> Result<()> {
         // Step 1: Apply temporal decay to memory node
-        let mut domain_memory = self.coordinator.convert_memory_to_domain_node(memory_node)?;
+        let mut domain_memory = self
+            .coordinator
+            .convert_memory_to_domain_node(memory_node)?;
 
-        self.coordinator.apply_temporal_decay(&mut domain_memory).await?;
+        self.coordinator
+            .apply_temporal_decay(&mut domain_memory)
+            .await?;
 
         // Convert back and persist
-        let updated_memory = self.coordinator.convert_domain_to_memory_node(&domain_memory);
-        self.coordinator.surreal_manager.update_memory(updated_memory).await?;
+        let updated_memory = self
+            .coordinator
+            .convert_domain_to_memory_node(&domain_memory);
+        self.coordinator
+            .surreal_manager
+            .update_memory(updated_memory)
+            .await?;
 
         // Step 2: Apply decay to entanglement edges
         self.decay_entanglement_edges(&memory_node.id).await?;
@@ -149,9 +164,14 @@ impl DecayWorker {
     }
 
     /// Generic method to apply temporal decay to edge strengths (entangled or caused)
-    async fn decay_edges_generic(&self, memory_id: &str, table_name: &str, error_context: &str) -> Result<()> {
-        use surrealdb::RecordId;
+    async fn decay_edges_generic(
+        &self,
+        memory_id: &str,
+        table_name: &str,
+        error_context: &str,
+    ) -> Result<()> {
         use std::collections::HashMap;
+        use surrealdb::RecordId;
 
         // Query all edges for this memory
         let query = format!(
@@ -178,13 +198,18 @@ impl DecayWorker {
             created_at: u64,
         }
 
-        let edges: Vec<EdgeData> = response.take(0)
-            .map_err(|e| {
-                log::error!("Failed to parse edge data for {} edges (memory {}): {:?}", error_context, memory_id, e);
-                crate::memory::utils::Error::Database(format!(
-                    "Edge deserialization failed for {} edges: {:?}", error_context, e
-                ))
-            })?;
+        let edges: Vec<EdgeData> = response.take(0).map_err(|e| {
+            log::error!(
+                "Failed to parse edge data for {} edges (memory {}): {:?}",
+                error_context,
+                memory_id,
+                e
+            );
+            crate::memory::utils::Error::Database(format!(
+                "Edge deserialization failed for {} edges: {:?}",
+                error_context, e
+            ))
+        })?;
 
         if edges.is_empty() {
             return Ok(());
@@ -203,13 +228,19 @@ impl DecayWorker {
         let mut valid_idx = 0; // Separate counter for valid edges only
 
         for edge in edges.iter() {
-            let created_time = match chrono::DateTime::<Utc>::from_timestamp_millis(edge.created_at as i64) {
-                Some(time) => time,
-                None => {
-                    log::warn!("Invalid timestamp {} for {} edge {}, skipping", edge.created_at, error_context, edge.id);
-                    continue;  // Skip this edge
-                }
-            };
+            let created_time =
+                match chrono::DateTime::<Utc>::from_timestamp_millis(edge.created_at as i64) {
+                    Some(time) => time,
+                    None => {
+                        log::warn!(
+                            "Invalid timestamp {} for {} edge {}, skipping",
+                            edge.created_at,
+                            error_context,
+                            edge.id
+                        );
+                        continue; // Skip this edge
+                    }
+                };
 
             let age = now.signed_duration_since(created_time);
             let days_old = age.num_seconds() as f64 / 86400.0;
@@ -219,7 +250,10 @@ impl DecayWorker {
             let new_strength = (edge.strength as f64 * decay_factor).max(0.01) as f32;
 
             // Build UPDATE statement for this edge
-            update_statements.push(format!("UPDATE {} SET strength = $strength_{};", edge.id, valid_idx));
+            update_statements.push(format!(
+                "UPDATE {} SET strength = $strength_{};",
+                edge.id, valid_idx
+            ));
             new_strengths.push(new_strength);
             valid_edges.push(edge); // Store reference to valid edge
             valid_idx += 1; // Only increment for valid edges
@@ -233,18 +267,21 @@ impl DecayWorker {
             query_builder = query_builder.bind((format!("strength_{}", idx), strength));
         }
 
-        let mut response = query_builder
-            .await
-            .map_err(|e| crate::memory::utils::Error::Database(format!(
-                "Failed to batch update {} edges: {:?}", error_context, e
-            )))?;
+        let mut response = query_builder.await.map_err(|e| {
+            crate::memory::utils::Error::Database(format!(
+                "Failed to batch update {} edges: {:?}",
+                error_context, e
+            ))
+        })?;
 
         // Verify each UPDATE statement succeeded - CRITICAL for cache sync correctness
         for idx in 0..valid_idx {
-            response.take::<Vec<serde_json::Value>>(idx)
-                .map_err(|e| crate::memory::utils::Error::Database(format!(
-                    "UPDATE statement {} failed for {} edge: {:?}", idx, error_context, e
-                )))?;
+            response.take::<Vec<serde_json::Value>>(idx).map_err(|e| {
+                crate::memory::utils::Error::Database(format!(
+                    "UPDATE statement {} failed for {} edge: {:?}",
+                    idx, error_context, e
+                ))
+            })?;
         }
 
         // Batch UPDATE succeeded - now safe to track for cache synchronization
@@ -259,8 +296,10 @@ impl DecayWorker {
             let mut state = self.coordinator.quantum_state.write().await;
             for link in state.entanglement_links.iter_mut() {
                 // HashMap O(1) lookup - string clones are cheap (refcount increment)
-                if let Some(&new_strength) = edge_updates.get(&(link.node_a.clone(), link.node_b.clone()))
-                    .or_else(|| edge_updates.get(&(link.node_b.clone(), link.node_a.clone()))) {
+                if let Some(&new_strength) = edge_updates
+                    .get(&(link.node_a.clone(), link.node_b.clone()))
+                    .or_else(|| edge_updates.get(&(link.node_b.clone(), link.node_a.clone())))
+                {
                     link.entanglement_strength = new_strength;
                 }
             }
@@ -271,11 +310,13 @@ impl DecayWorker {
 
     /// Apply temporal decay to entanglement edge strengths
     async fn decay_entanglement_edges(&self, memory_id: &str) -> Result<()> {
-        self.decay_edges_generic(memory_id, "entangled", "entanglement").await
+        self.decay_edges_generic(memory_id, "entangled", "entanglement")
+            .await
     }
 
     /// Apply temporal decay to causal edge strengths
     async fn decay_causal_edges(&self, memory_id: &str) -> Result<()> {
-        self.decay_edges_generic(memory_id, "caused", "causal").await
+        self.decay_edges_generic(memory_id, "caused", "causal")
+            .await
     }
 }

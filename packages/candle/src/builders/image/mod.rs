@@ -10,9 +10,9 @@
 //! - `processing`: Image processing pipeline methods
 
 mod api;
-mod operations;
-mod constructors;
 mod builder_impl;
+mod constructors;
+mod operations;
 mod processing;
 
 // Re-export public API

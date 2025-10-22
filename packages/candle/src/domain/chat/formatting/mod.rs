@@ -5,40 +5,23 @@
 //! for blazing-fast performance with immutable formatting structures.
 
 // Declare submodules
+pub mod compat;
 pub mod content;
 pub mod error;
 pub mod events;
 pub mod formatter;
 pub mod options;
-pub mod compat;
 
 // Re-export all public types to maintain API compatibility
-pub use content::{
-    ImmutableMessageContent,
-    FormatStyle,
-    StyleType,
-};
+pub use content::{FormatStyle, ImmutableMessageContent, StyleType};
 
-pub use error::{
-    FormatError,
-    FormatResult,
-};
+pub use error::{FormatError, FormatResult};
 
-pub use events::{
-    FormattingEvent,
-};
+pub use events::FormattingEvent;
 
-pub use formatter::{
-    StreamingMessageFormatter,
-    FormatterStats,
-    FormatterWithStream,
-};
+pub use formatter::{FormatterStats, FormatterWithStream, StreamingMessageFormatter};
 
 pub use options::{
-    FormatFlags,
-    ImmutableFormatOptions,
-    SyntaxTheme,
-    ImmutableColorScheme,
-    OutputFormat,
-    ImmutableCustomFormatRule,
+    FormatFlags, ImmutableColorScheme, ImmutableCustomFormatRule, ImmutableFormatOptions,
+    OutputFormat, SyntaxTheme,
 };

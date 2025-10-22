@@ -1,17 +1,17 @@
 //! High-level cognitive processing system with pattern matching and decision making
 
+use crossbeam_skiplist::SkipMap;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::SystemTime;
-use tokio::sync::{mpsc, Mutex};
-use crossbeam_skiplist::SkipMap;
-use serde::{Deserialize, Serialize};
+use tokio::sync::{Mutex, mpsc};
 use uuid::Uuid;
 
 use cyrup_simd::similarity::cosine_similarity;
 
-use super::state::{CognitiveState, CognitiveError, CognitiveResult};
 use super::atomics::AtomicF32;
+use super::state::{CognitiveError, CognitiveResult, CognitiveState};
 use crate::domain::util::unix_timestamp_nanos;
 
 /// High-level cognitive memory system

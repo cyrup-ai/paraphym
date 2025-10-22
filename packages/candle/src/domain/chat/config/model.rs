@@ -1,8 +1,8 @@
 //! Model configuration types for chat interactions
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::pin::Pin;
-use serde::{Deserialize, Serialize};
 use tokio_stream::Stream;
 
 /// Candle model configuration for chat interactions
@@ -89,7 +89,7 @@ impl Default for CandleModelConfig {
             provider: String::from("openai"),
             registry_key: String::from("gpt-4"),
             model_version: None,
-            temperature: 0.0,  // Greedy sampling for chat - deterministic output
+            temperature: 0.0, // Greedy sampling for chat - deterministic output
             max_tokens: Some(2048),
             top_p: Some(1.0),
             top_k: None,
@@ -194,7 +194,9 @@ impl CandleModelConfig {
 
     /// Validate the model configuration
     #[must_use]
-    pub fn validate(&self) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunks::CandleUnit> + Send>> {
+    pub fn validate(
+        &self,
+    ) -> Pin<Box<dyn Stream<Item = crate::domain::context::chunks::CandleUnit> + Send>> {
         let _config = self.clone();
         // Use spawn_stream for streaming-only architecture - emit success immediately
         Box::pin(crate::async_stream::spawn_stream(move |tx| async move {

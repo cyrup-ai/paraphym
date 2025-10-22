@@ -14,8 +14,8 @@ pub mod validator;
 pub use errors::ValidationError;
 pub use validator::CommandValidator;
 
-use std::sync::LazyLock;
 use super::types::ImmutableChatCommand;
+use std::sync::LazyLock;
 
 /// Global validator instance
 static GLOBAL_VALIDATOR: LazyLock<CommandValidator> = LazyLock::new(CommandValidator::new);

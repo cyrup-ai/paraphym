@@ -1,16 +1,16 @@
 //! Message processing and distribution
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, AtomicUsize, AtomicBool, Ordering};
-use std::time::Duration;
-use std::pin::Pin;
 use crossbeam_skiplist::SkipMap;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_stream::Stream;
 
-use super::types::LiveUpdateMessage;
-use super::subscriber::StreamSubscriber;
 use super::results::ProcessingEvent;
+use super::subscriber::StreamSubscriber;
+use super::types::LiveUpdateMessage;
 
 /// Start the message processing stream
 #[allow(clippy::too_many_arguments)]
@@ -47,11 +47,13 @@ pub(crate) fn start_processing_stream(
                         _ => None,
                     }
                 };
-                
+
                 // If no priority message, check normal queue
                 if message.is_none() {
                     let mut rx = message_queue_rx.lock().await;
-                    if let Ok(Some(normal_msg)) = tokio::time::timeout(Duration::from_micros(100), rx.recv()).await {
+                    if let Ok(Some(normal_msg)) =
+                        tokio::time::timeout(Duration::from_micros(100), rx.recv()).await
+                    {
                         message_counter.fetch_sub(1, Ordering::AcqRel);
                         message = Some(normal_msg);
                     }
@@ -107,7 +109,8 @@ pub(crate) fn start_processing_stream(
                 if last_rate_check.elapsed() >= Duration::from_secs(10) {
                     let elapsed_secs = last_rate_check.elapsed().as_secs_f64();
                     // Use f64 for rate calculation - precision loss is acceptable for metrics
-                    let rate = f64::from(u32::try_from(messages_processed).unwrap_or(u32::MAX)) / elapsed_secs;
+                    let rate = f64::from(u32::try_from(messages_processed).unwrap_or(u32::MAX))
+                        / elapsed_secs;
 
                     let event = ProcessingEvent::RateReport {
                         messages_per_second: rate,

@@ -7,12 +7,10 @@
 //!   cargo run --example text_to_image_sd35 --features metal --release
 
 use candle_core::Device;
-use log::error;
-use cyrup_candle::{
-    ImageGenerationChunk, ImageGenerationConfig, tensor_to_image, StreamExt,
-};
 use cyrup_candle::capability::registry;
 use cyrup_candle::capability::traits::TextToImageCapable;
+use cyrup_candle::{ImageGenerationChunk, ImageGenerationConfig, StreamExt, tensor_to_image};
+use log::error;
 use std::io::Write;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 

@@ -1,8 +1,8 @@
 //! Core type definitions for macro actions and states
 
-use std::time::Duration;
-use serde::{Deserialize, Serialize};
 use crate::domain::chat::commands::ImmutableChatCommand;
+use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 /// Macro action representing a single recorded operation
 #[derive(Debug, Clone, Serialize, Deserialize)]

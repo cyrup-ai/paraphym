@@ -4,14 +4,14 @@
 //! maintainability while preserving the public API.
 
 // Declare submodules
-pub mod error;
-pub mod types;
-pub mod value;
-pub mod context;
 pub mod ast;
 pub mod compiled;
-pub mod template;
 pub mod config;
+pub mod context;
+pub mod error;
+pub mod template;
+pub mod types;
+pub mod value;
 
 // Re-export all public types to maintain backward compatibility
 // Error types

@@ -23,15 +23,9 @@ pub struct PreprocessingConfig {
 /// Gets image_size, image_mean, and image_std from ModelInfo,
 /// returning error if any required field is missing.
 pub fn extract_config(info: &CandleModelInfo) -> Result<PreprocessingConfig, String> {
-    let image_size = info
-        .image_size
-        .ok_or("image_size missing from ModelInfo")? as usize;
-    let image_mean = info
-        .image_mean
-        .ok_or("image_mean missing from ModelInfo")?;
-    let image_std = info
-        .image_std
-        .ok_or("image_std missing from ModelInfo")?;
+    let image_size = info.image_size.ok_or("image_size missing from ModelInfo")? as usize;
+    let image_mean = info.image_mean.ok_or("image_mean missing from ModelInfo")?;
+    let image_std = info.image_std.ok_or("image_std missing from ModelInfo")?;
 
     Ok(PreprocessingConfig {
         image_size,
@@ -41,7 +35,7 @@ pub fn extract_config(info: &CandleModelInfo) -> Result<PreprocessingConfig, Str
 }
 
 /// Generic image preprocessing pipeline (async version)
-/// 
+///
 /// This consolidates the duplicated preprocessing code from all encoding methods.
 /// The only variation is the image source (path/url/base64), which is provided
 /// as an ImageBuilder implementation.
@@ -63,10 +57,9 @@ pub async fn preprocess_image(
         .normalize_with(config.image_mean, config.image_std) // Step 2: (x - mean) / std
         .to_tensor(device)
         .await?;
-    
+
     // Add batch dimension: (C,H,W) → (1,C,H,W)
     image_tensor
         .unsqueeze(0)
         .map_err(|e| format!("Failed to add batch dimension: {}", e))
 }
-
