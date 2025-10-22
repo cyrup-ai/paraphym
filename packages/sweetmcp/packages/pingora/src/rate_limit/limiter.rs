@@ -252,13 +252,14 @@ impl AdvancedRateLimitManager {
     }
 
     /// Stop background cleanup task with graceful shutdown
-    pub async fn stop_cleanup_task(&mut self) {
+    pub fn stop_cleanup_task(&mut self) {
         if let Some(handle) = self.cleanup_handle.take() {
             self.operational.store(false, Ordering::Relaxed);
             handle.abort();
             info!("Rate limiter cleanup task stopped");
         }
     }
+
 
     /// Check if rate limiting is currently active with fast operational check
     pub fn is_rate_limiting_active(&self) -> bool {

@@ -1,0 +1,33 @@
+    Blocking waiting for file lock on package cache
+   Compiling sweetmcp-pingora v0.3.1 (/Volumes/samsung_t9/cyrup/packages/sweetmcp/packages/pingora)
+    Checking sweetmcp-daemon v0.2.0 (/Volumes/samsung_t9/cyrup/packages/sweetmcp/packages/daemon)
+error: function `normalize_to_jsonrpc` is never used
+  --> packages/sweetmcp/packages/pingora/src/normalize/mod.rs:27:8
+   |
+27 | pub fn normalize_to_jsonrpc(
+   |        ^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `-D dead-code` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(dead_code)]`
+
+error: function `denormalize_from_jsonrpc` is never used
+  --> packages/sweetmcp/packages/pingora/src/normalize/mod.rs:36:8
+   |
+36 | pub fn denormalize_from_jsonrpc(
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: function `quick_detect_protocol` is never used
+  --> packages/sweetmcp/packages/pingora/src/normalize/mod.rs:44:8
+   |
+44 | pub fn quick_detect_protocol(
+   |        ^^^^^^^^^^^^^^^^^^^^^
+
+error: function `test_context` is never used
+  --> packages/sweetmcp/packages/pingora/src/normalize/mod.rs:53:8
+   |
+53 | pub fn test_context(protocol: Proto) -> ProtocolContext {
+   |        ^^^^^^^^^^^^
+
+error: could not compile `sweetmcp-pingora` (bin "sweetmcp_server" test) due to 4 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `sweetmcp-pingora` (bin "sweetmcp_server") due to 4 previous errors

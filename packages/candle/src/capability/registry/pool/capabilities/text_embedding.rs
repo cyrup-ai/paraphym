@@ -366,7 +366,7 @@ impl Pool<TextEmbeddingWorkerHandle> {
         })?;
 
         // Send request
-        worker.core.pending_requests.fetch_add(1, Ordering::Release);
+        worker.core.pending_requests.fetch_add(1, Ordering::Relaxed);
         worker.core.touch();
 
         let (response_tx, response_rx) = oneshot::channel();
@@ -393,7 +393,7 @@ impl Pool<TextEmbeddingWorkerHandle> {
             })?
             .map_err(|_| PoolError::RecvError("Response channel closed".to_string()))?;
 
-        worker.core.pending_requests.fetch_sub(1, Ordering::Release);
+        worker.core.pending_requests.fetch_sub(1, Ordering::Relaxed);
 
         // Record success or failure based on result
         match &result {
@@ -450,7 +450,7 @@ impl Pool<TextEmbeddingWorkerHandle> {
         })?;
 
         // Send request
-        worker.core.pending_requests.fetch_add(1, Ordering::Release);
+        worker.core.pending_requests.fetch_add(1, Ordering::Relaxed);
         worker.core.touch();
 
         let (response_tx, response_rx) = oneshot::channel();
@@ -477,7 +477,7 @@ impl Pool<TextEmbeddingWorkerHandle> {
             })?
             .map_err(|_| PoolError::RecvError("Response channel closed".to_string()))?;
 
-        worker.core.pending_requests.fetch_sub(1, Ordering::Release);
+        worker.core.pending_requests.fetch_sub(1, Ordering::Relaxed);
 
         // Record success or failure based on result
         match &result {

@@ -1,6 +1,6 @@
 //! Loaded Stella model wrapper with thread-safe interior mutability
 
-use super::config::{STELLA_MODEL_INFO, detect_variant, embed_dim};
+use super::config::{STELLA_400M_MODEL_INFO, detect_variant, embed_dim, get_model_info};
 use super::instruction::format_with_instruction;
 use crate::capability::traits::TextEmbeddingCapable;
 use crate::domain::model::CandleModelInfo;
@@ -51,7 +51,10 @@ impl std::fmt::Debug for LoadedStellaModel {
 
 impl CandleModel for LoadedStellaModel {
     fn info(&self) -> &'static CandleModelInfo {
-        &STELLA_MODEL_INFO
+        // Default to 400M variant
+        // Note: This is only used for registry lookup. Actual variant is detected
+        // from registry_key during model loading.
+        &STELLA_400M_MODEL_INFO
     }
 }
 

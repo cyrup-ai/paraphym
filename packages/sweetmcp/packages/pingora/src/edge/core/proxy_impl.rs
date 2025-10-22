@@ -580,6 +580,8 @@ impl ProxyHttp for EdgeService {
                     0,
                 );
                 crate::metrics::decrement_active_requests(&_ctx.method, &_ctx.endpoint);
+                // Record rate limit rejection metrics for observability
+                crate::metrics::record_rate_limit_rejection(&_ctx.endpoint);
                 
                 session.respond_error(429).await?;
                 return Ok(true); // Response sent, stop here

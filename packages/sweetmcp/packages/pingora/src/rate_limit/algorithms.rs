@@ -2,7 +2,7 @@
 //!
 //! This module provides comprehensive rate limiting algorithms with zero allocation
 
-#![allow(dead_code)]
+
 //! fast paths and blazing-fast performance.
 
 

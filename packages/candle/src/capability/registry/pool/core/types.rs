@@ -21,7 +21,7 @@ pub struct HealthPong {
 /// Configuration for pool behavior
 #[derive(Debug, Clone)]
 pub struct PoolConfig {
-    pub request_timeout_secs: u64,      // Default: 30
+    pub request_timeout_secs: u64,      // Default: 21600 (6 hours)
     pub shutdown_timeout_secs: u64,     // Default: 5
     pub maintenance_interval_secs: u64, // Default: 60 (1 minute)
     pub cooldown_idle_minutes: u64,     // Default: 1
@@ -39,7 +39,9 @@ pub struct PoolConfig {
 impl Default for PoolConfig {
     fn default() -> Self {
         Self {
-            request_timeout_secs: 30,
+            // 6 hour timeout allows for large model downloads (e.g., Llama 70B ~40GB)
+            // on slow connections without premature failures. Matches worker spawn timeout.
+            request_timeout_secs: 6 * 3600, // 21600 seconds = 6 hours
             shutdown_timeout_secs: 5,
             maintenance_interval_secs: 60,
             cooldown_idle_minutes: 1,
@@ -359,9 +361,10 @@ impl WorkerHandle {
                     let last_check = self.last_used.load(std::sync::atomic::Ordering::Acquire);
                     let staleness_secs = now.saturating_sub(last_check);
 
-                    // Health check timeout: 30 seconds
-                    // If worker hasn't responded in 30s, consider it dead
-                    const HEALTH_TIMEOUT_SECS: u64 = 30;
+                    // Health check timeout: 6 hours (matches request timeout)
+                    // Allows for large model downloads on slow connections
+                    // If worker hasn't responded in 6 hours, consider it dead
+                    const HEALTH_TIMEOUT_SECS: u64 = 6 * 3600; // 21600 seconds
 
                     if staleness_secs > HEALTH_TIMEOUT_SECS {
                         // Worker is unresponsive - mark as dead
@@ -395,7 +398,8 @@ impl WorkerHandle {
             let last_check = self.last_used.load(std::sync::atomic::Ordering::Acquire);
             let staleness_secs = now.saturating_sub(last_check);
 
-            const HEALTH_TIMEOUT_SECS: u64 = 30;
+            // Health check timeout: 6 hours (matches request timeout)
+            const HEALTH_TIMEOUT_SECS: u64 = 6 * 3600; // 21600 seconds
 
             if staleness_secs > HEALTH_TIMEOUT_SECS {
                 self.set_state(super::worker_state::WorkerState::Dead);
@@ -479,10 +483,10 @@ where
             let core2 = get_core(w2);
             let load1 = core1
                 .pending_requests
-                .load(std::sync::atomic::Ordering::Acquire);
+                .load(std::sync::atomic::Ordering::Relaxed);
             let load2 = core2
                 .pending_requests
-                .load(std::sync::atomic::Ordering::Acquire);
+                .load(std::sync::atomic::Ordering::Relaxed);
 
             // Return least loaded
             if load1 <= load2 { Some(w1) } else { Some(w2) }

@@ -192,16 +192,17 @@ where
 
             // Wait for at least one worker to be ready before returning
             // This prevents race condition where prompt request arrives before workers finish loading
+            // 6 hour timeout allows for large model downloads on slow connections
             debug!(
                 "Waiting for {} workers to become ready...",
                 workers_to_spawn
             );
             return pool
-                .wait_for_workers(registry_key, Duration::from_secs(30))
+                .wait_for_workers(registry_key, Duration::from_secs(6 * 3600))
                 .await;
         } else {
             return pool
-                .wait_for_workers(registry_key, Duration::from_secs(30))
+                .wait_for_workers(registry_key, Duration::from_secs(6 * 3600))
                 .await;
         }
     }

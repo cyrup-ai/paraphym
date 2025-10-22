@@ -454,7 +454,17 @@ async fn retrieve_and_validate_messages(
 ) -> Option<Vec<CandleMessage>> {
     send_export_progress(sender, execution_id, 25.0, "Retrieving conversation messages...".to_string());
 
-    let mem = memory.as_ref()?;
+    let Some(mem) = memory.as_ref() else {
+        send_export_failure(
+            sender,
+            execution_id,
+            "Memory not available for export".to_string(),
+            4000,
+            start_time,
+        );
+        return None;
+    };
+
     let messages = match retrieve_conversation_messages(mem).await {
         Ok(msgs) => msgs,
         Err(e) => {

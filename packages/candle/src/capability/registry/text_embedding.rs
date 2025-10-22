@@ -92,6 +92,7 @@ macro_rules! impl_text_embedding_spawn {
             let per_worker_mb = model.info().est_memory_allocation_mb;
             let pool = text_embedding_pool();
 
+            log::info!(">>> About to ensure workers for {}", registry_key);
             ensure_workers_spawned_adaptive(
                 pool,
                 registry_key,
@@ -114,9 +115,12 @@ macro_rules! impl_text_embedding_spawn {
             .await
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
-            pool.embed_text(registry_key, text, task)
+            log::info!(">>> Workers ready, calling embed_text for {}", registry_key);
+            let result = pool.embed_text(registry_key, text, task)
                 .await
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>);
+            log::info!(">>> embed_text returned for {}", registry_key);
+            result
         }
 
         async fn $batch_fn_name(

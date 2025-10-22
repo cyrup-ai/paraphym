@@ -30,6 +30,17 @@ async fn test_hybrid_algorithm_integration() {
 
     let mut manager = AdvancedRateLimitManager::new(1.0, 5, 10);
     manager.update_config(rate_limit_config);
+    
+    // Exercise maintenance APIs to ensure full coverage of production features
+    assert!(manager.is_rate_limiting_active());
+    let stats = manager.get_stats();
+    let _ = (stats.success_rate(), stats.denial_rate());
+    manager.reset_stats();
+    manager.cleanup_unused_limiters();
+    let _cfg_ref: &RateLimitConfig = manager.get_config();
+    let _ = manager.check_rate_limit("endpoint", 1);
+    manager.start_cleanup_task();
+    manager.stop_cleanup_task();
 
     let endpoint = "test_endpoint";
     let peer_id = Some("test_peer");

@@ -14,10 +14,10 @@ mod load;
 mod mcp_bridge;
 mod mdns_discovery;
 mod metric_picker;
-mod metrics;
-mod normalize;
+pub use sweetmcp::metrics as metrics;
+pub use sweetmcp::normalize;
 mod peer_discovery;
-mod rate_limit;
+pub use sweetmcp::rate_limit;
 mod shutdown;
 mod tls;
 

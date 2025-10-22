@@ -2,7 +2,7 @@
 //!
 //! This module provides the EdgeServiceBuilder for flexible construction
 
-#![allow(dead_code)]
+
 //! of EdgeService instances with zero allocation patterns and blazing-fast
 //! performance.
 

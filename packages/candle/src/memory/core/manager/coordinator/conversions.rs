@@ -241,16 +241,16 @@ impl MemoryCoordinator {
         Ok(domain_node)
     }
 
-    /// Generate embedding for text content using BERT model
+    /// Generate embedding for text content using configured embedding model
     pub(super) async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>> {
         use crate::capability::traits::TextEmbeddingCapable;
 
-        // Use existing BERT embedding provider
+        // Use configured embedding provider (default: Stella 1024)
         let embedding = self
             .embedding_model
             .embed(text, None)
             .await
-            .map_err(|e| Error::Internal(format!("BERT embedding failed: {}", e)))?;
+            .map_err(|e| Error::Internal(format!("Embedding generation failed: {}", e)))?;
         Ok(embedding)
     }
 }

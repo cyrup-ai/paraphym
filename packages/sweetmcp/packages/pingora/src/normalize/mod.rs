@@ -6,7 +6,7 @@
 
 
 
-#![allow(dead_code)]
+
 
 pub mod conversion;
 pub mod parsers;
