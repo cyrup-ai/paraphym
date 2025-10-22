@@ -1,6 +1,6 @@
 //! Loaded Stella model wrapper with thread-safe interior mutability
 
-use super::config::{STELLA_400M_MODEL_INFO, detect_variant, embed_dim, get_model_info};
+use super::config::{STELLA_400M_MODEL_INFO, STELLA_1_5B_MODEL_INFO, detect_variant, embed_dim};
 use super::instruction::format_with_instruction;
 use super::utils::{
     configure_stella_tokenizer, create_stella_config,
@@ -10,9 +10,8 @@ use crate::capability::traits::TextEmbeddingCapable;
 use crate::domain::model::CandleModelInfo;
 use crate::domain::model::traits::CandleModel;
 use candle_core::{DType, Device, Tensor};
-use candle_nn::VarBuilder;
 use candle_transformers::models::stella_en_v5::{Config, EmbeddingModel, ModelVariant};
-use tokenizers::{PaddingDirection, PaddingParams, PaddingStrategy, Tokenizer, TruncationParams};
+use tokenizers::Tokenizer;
 
 /// Loaded Stella model that keeps model/tokenizer in memory.
 ///
@@ -29,14 +28,14 @@ use tokenizers::{PaddingDirection, PaddingParams, PaddingStrategy, Tokenizer, Tr
 /// ```
 ///
 /// ## Memory Layout
-/// - tokenizer: Tokenizer (configured with variant-specific padding)
+/// - tokenizer: Arc<Tokenizer> (shared, cheap to clone)
 /// - model: Arc<Mutex<EmbeddingModel>> (thread-safe interior mutability)
 /// - device: Device (CUDA or CPU)
 /// - config: Config (Stella model configuration)
 /// - variant: ModelVariant (Large=1.5B or Small=400M)
 #[derive(Clone)]
 pub struct LoadedStellaModel {
-    tokenizer: Tokenizer,
+    tokenizer: std::sync::Arc<Tokenizer>,
     model: std::sync::Arc<std::sync::Mutex<EmbeddingModel>>,
     device: Device,
     config: Config,
@@ -55,10 +54,12 @@ impl std::fmt::Debug for LoadedStellaModel {
 
 impl CandleModel for LoadedStellaModel {
     fn info(&self) -> &'static CandleModelInfo {
-        // Default to 400M variant
-        // Note: This is only used for registry lookup. Actual variant is detected
-        // from registry_key during model loading.
-        &STELLA_400M_MODEL_INFO
+        // Return the correct ModelInfo based on the loaded variant
+        // This ensures the memory governor gets accurate allocation sizes
+        match self.variant {
+            ModelVariant::Large => &STELLA_1_5B_MODEL_INFO,
+            ModelVariant::Small => &STELLA_400M_MODEL_INFO,
+        }
     }
 }
 
@@ -114,7 +115,7 @@ impl LoadedStellaModel {
             .map_err(|e| format!("Failed to create Stella model: {}", e))?;
 
         Ok(Self {
-            tokenizer,
+            tokenizer: std::sync::Arc::new(tokenizer),
             model: std::sync::Arc::new(std::sync::Mutex::new(model)),
             device,
             config: stella_config,
@@ -192,7 +193,11 @@ impl TextEmbeddingCapable for LoadedStellaModel {
                 // Forward pass - lock synchronous mutex in blocking context
                 let mut model_guard = model
                     .lock()
-                    .map_err(|_| "Failed to lock model mutex".to_string())?;
+                    .unwrap_or_else(|poisoned| {
+                        log::error!("Model mutex was poisoned, attempting recovery");
+                        log::error!("Poison error: {:?}", poisoned);
+                        poisoned.into_inner()
+                    });
                 let embeddings = model_guard
                     .forward_norm(
                         &input_ids
@@ -281,7 +286,11 @@ impl TextEmbeddingCapable for LoadedStellaModel {
                 // Forward pass - lock synchronous mutex in blocking context
                 let mut model_guard = model
                     .lock()
-                    .map_err(|_| "Failed to lock model mutex".to_string())?;
+                    .unwrap_or_else(|poisoned| {
+                        log::error!("Model mutex was poisoned, attempting recovery");
+                        log::error!("Poison error: {:?}", poisoned);
+                        poisoned.into_inner()
+                    });
                 let embeddings = model_guard
                     .forward_norm(&input_ids, &attention_mask)
                     .map_err(|e| format!("Stella batch forward pass failed: {}", e))?;
