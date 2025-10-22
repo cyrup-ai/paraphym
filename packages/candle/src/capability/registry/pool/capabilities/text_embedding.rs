@@ -270,7 +270,7 @@ impl Pool<TextEmbeddingWorkerHandle> {
                 TextEmbeddingWorkerContext {
                     worker_id,
                     registry_key: registry_key_clone.clone(),
-                    state: Arc::clone(&state_clone),
+                    state: Arc::clone(&state_for_task),
                 },
             )
             .await;
