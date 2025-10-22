@@ -129,19 +129,16 @@ impl CompiledTemplate {
         let right = Self::render_ast(&operands[1], context)?;
 
         match operator {
-            "+" => {
-                // Try numeric addition first, fall back to string concatenation
-                Self::op_add(&left, &right)
-            }
+            "+" => Ok(Self::op_add(&left, &right)),
             "-" => Self::op_numeric(&left, &right, "subtraction", |l, r| l - r),
             "*" => Self::op_numeric(&left, &right, "multiplication", |l, r| l * r),
             "/" => Self::op_divide(&left, &right),
             "==" => Ok((left == right).to_string()),
             "!=" => Ok((left != right).to_string()),
-            "<" => Self::op_compare(&left, &right, "<"),
-            ">" => Self::op_compare(&left, &right, ">"),
-            "<=" => Self::op_compare(&left, &right, "<="),
-            ">=" => Self::op_compare(&left, &right, ">="),
+            "<" => Ok(Self::op_compare(&left, &right, "<")),
+            ">" => Ok(Self::op_compare(&left, &right, ">")),
+            "<=" => Ok(Self::op_compare(&left, &right, "<=")),
+            ">=" => Ok(Self::op_compare(&left, &right, ">=")),
             "&&" | "and" => Ok((Self::truthy(&left) && Self::truthy(&right)).to_string()),
             "||" | "or" => Ok((Self::truthy(&left) || Self::truthy(&right)).to_string()),
             _ => Err(TemplateError::RenderError {
@@ -156,11 +153,11 @@ impl CompiledTemplate {
         })
     }
 
-    fn op_add(left: &str, right: &str) -> TemplateResult<String> {
+    fn op_add(left: &str, right: &str) -> String {
         if let (Ok(l), Ok(r)) = (left.parse::<f64>(), right.parse::<f64>()) {
-            Ok((l + r).to_string())
+            (l + r).to_string()
         } else {
-            Ok(format!("{left}{right}"))
+            format!("{left}{right}")
         }
     }
 
@@ -193,7 +190,7 @@ impl CompiledTemplate {
         }
     }
 
-    fn op_compare(left: &str, right: &str, op: &str) -> TemplateResult<String> {
+    fn op_compare(left: &str, right: &str, op: &str) -> String {
         if let Some((l, r)) = Self::try_parse_both(left, right) {
             let res = match op {
                 "<" => l < r,
@@ -202,7 +199,7 @@ impl CompiledTemplate {
                 ">=" => l >= r,
                 _ => unreachable!(),
             };
-            return Ok(res.to_string());
+            return res.to_string();
         }
 
         let res = match op {
@@ -212,7 +209,7 @@ impl CompiledTemplate {
             ">=" => left >= right,
             _ => unreachable!(),
         };
-        Ok(res.to_string())
+        res.to_string()
     }
 
     fn truthy(s: &str) -> bool {
@@ -293,79 +290,4 @@ impl CompiledTemplate {
             TemplateValue::Null => Ok(String::new()),
         }
     }
-}
-
-/// Parse both operands as f64 for arithmetic operations
-fn parse_numeric_operands(
-    left: &str,
-    right: &str,
-    operation: &str,
-) -> TemplateResult<(f64, f64)> {
-    let l = left.parse::<f64>().map_err(|_| TemplateError::RenderError {
-        message: format!("Cannot parse '{left}' as number for {operation}"),
-    })?;
-    let r = right
-        .parse::<f64>()
-        .map_err(|_| TemplateError::RenderError {
-            message: format!("Cannot parse '{right}' as number for {operation}"),
-        })?;
-    Ok((l, r))
-}
-
-/// Evaluate arithmetic operations (-, *, /)
-fn eval_arithmetic_op(operator: &str, left: &str, right: &str) -> TemplateResult<String> {
-    let (l, r) = parse_numeric_operands(left, right, operator)?;
-
-    match operator {
-        "-" => Ok((l - r).to_string()),
-        "*" => Ok((l * r).to_string()),
-        "/" => {
-            if r == 0.0 {
-                return Err(TemplateError::RenderError {
-                    message: "Division by zero".to_string(),
-                });
-            }
-            Ok((l / r).to_string())
-        }
-        _ => Err(TemplateError::RenderError {
-            message: format!("Unknown arithmetic operator: {operator}"),
-        }),
-    }
-}
-
-/// Evaluate comparison operations (<, >, <=, >=)
-fn eval_comparison_op(operator: &str, left: &str, right: &str) -> TemplateResult<String> {
-    // Try numeric comparison first, fall back to string comparison
-    if let (Ok(l), Ok(r)) = (left.parse::<f64>(), right.parse::<f64>()) {
-        let result = match operator {
-            "<" => l < r,
-            ">" => l > r,
-            "<=" => l <= r,
-            ">=" => l >= r,
-            _ => {
-                return Err(TemplateError::RenderError {
-                    message: format!("Unknown comparison operator: {operator}"),
-                })
-            }
-        };
-        Ok(result.to_string())
-    } else {
-        let result = match operator {
-            "<" => left < right,
-            ">" => left > right,
-            "<=" => left <= right,
-            ">=" => left >= right,
-            _ => {
-                return Err(TemplateError::RenderError {
-                    message: format!("Unknown comparison operator: {operator}"),
-                })
-            }
-        };
-        Ok(result.to_string())
-    }
-}
-
-/// Convert string to boolean for logical operations
-fn string_to_bool(s: &str) -> bool {
-    !s.is_empty() && s != "false" && s != "0"
 }

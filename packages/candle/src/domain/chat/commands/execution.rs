@@ -424,6 +424,112 @@ impl CommandExecutor {
     }
 }
 
+/// Send export started event
+fn send_export_started(
+    sender: &tokio::sync::mpsc::UnboundedSender<CommandEvent>,
+    execution_id: u64,
+    format: &str,
+    output: Option<&String>,
+    include_metadata: bool,
+    start_time: &Instant,
+) {
+    let _ = sender.send(CommandEvent::Started {
+        command: ImmutableChatCommand::Export {
+            format: format.to_string(),
+            output: output.cloned(),
+            include_metadata,
+        },
+        execution_id,
+        #[allow(clippy::cast_possible_truncation)]
+        timestamp_us: start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
+    });
+}
+
+/// Retrieve and validate messages from memory
+async fn retrieve_and_validate_messages(
+    sender: &tokio::sync::mpsc::UnboundedSender<CommandEvent>,
+    execution_id: u64,
+    memory: Option<Arc<MemoryCoordinator>>,
+    start_time: &Instant,
+) -> Option<Vec<CandleMessage>> {
+    send_export_progress(sender, execution_id, 25.0, "Retrieving conversation messages...".to_string());
+
+    let mem = memory.as_ref()?;
+    let messages = match retrieve_conversation_messages(mem).await {
+        Ok(msgs) => msgs,
+        Err(e) => {
+            send_export_failure(sender, execution_id, format!("Failed to retrieve messages: {e}"), 4001, start_time);
+            return None;
+        }
+    };
+
+    if messages.is_empty() {
+        send_export_failure(sender, execution_id, "No messages to export".to_string(), 4001, start_time);
+        return None;
+    }
+
+    Some(messages)
+}
+
+/// Prepare export configuration
+fn prepare_export_config(
+    sender: &tokio::sync::mpsc::UnboundedSender<CommandEvent>,
+    execution_id: u64,
+    format: &str,
+    include_metadata: bool,
+    output: Option<String>,
+    start_time: &Instant,
+) -> Option<ExportConfig> {
+    send_export_progress(sender, execution_id, 50.0, format!("Preparing {format} export..."));
+
+    let export_format = match parse_export_format(format) {
+        Ok(fmt) => fmt,
+        Err(e) => {
+            send_export_failure(sender, execution_id, e, 4002, start_time);
+            return None;
+        }
+    };
+
+    Some(create_export_config(export_format, include_metadata, output))
+}
+
+/// Export messages to data
+fn export_messages_to_data(
+    sender: &tokio::sync::mpsc::UnboundedSender<CommandEvent>,
+    execution_id: u64,
+    messages: &[CandleMessage],
+    config: ExportConfig,
+    start_time: &Instant,
+) -> Option<ExportData> {
+    send_export_progress(sender, execution_id, 75.0, "Exporting messages...".to_string());
+
+    match perform_message_export(messages, config) {
+        Ok(data) => Some(data),
+        Err(e) => {
+            send_export_failure(sender, execution_id, e, 4003, start_time);
+            None
+        }
+    }
+}
+
+/// Write export data to disk
+async fn write_export_to_disk(
+    sender: &tokio::sync::mpsc::UnboundedSender<CommandEvent>,
+    execution_id: u64,
+    export_data: &ExportData,
+    output_path: &str,
+    start_time: &Instant,
+) -> bool {
+    send_export_progress(sender, execution_id, 90.0, "Writing to file...".to_string());
+
+    if let Err(e) = tokio::fs::write(output_path, &export_data.content).await {
+        send_export_failure(sender, execution_id, format!("Failed to write file: {e}"), 4004, start_time);
+        return false;
+    }
+
+    true
+}
+
 /// Execute the export workflow with all steps
 async fn execute_export_workflow(
     sender: tokio::sync::mpsc::UnboundedSender<CommandEvent>,
@@ -434,28 +540,27 @@ async fn execute_export_workflow(
     memory: Option<Arc<MemoryCoordinator>>,
     start_time: Instant,
 ) {
-    send_export_started(&sender, execution_id, &format, &output, include_metadata, &start_time);
+    send_export_started(&sender, execution_id, &format, output.as_ref(), include_metadata, &start_time);
 
-    let messages = match retrieve_and_validate_messages(&sender, execution_id, memory, &start_time).await {
-        Some(msgs) => msgs,
-        None => return,
+    let Some(messages) = retrieve_and_validate_messages(&sender, execution_id, memory, &start_time).await else {
+        return;
     };
 
-    let config = match prepare_export_config(&sender, execution_id, &format, include_metadata, output.clone(), &start_time) {
-        Some(cfg) => cfg,
-        None => return,
+    let Some(config) = prepare_export_config(&sender, execution_id, &format, include_metadata, output.clone(), &start_time) else {
+        return;
     };
 
-    let export_data = match export_messages_to_data(&sender, execution_id, &messages, config, &start_time) {
-        Some(data) => data,
-        None => return,
+    let Some(export_data) = export_messages_to_data(&sender, execution_id, &messages, config, &start_time) else {
+        return;
     };
 
-    if !write_export_file(&sender, execution_id, &export_data, output, &start_time).await {
+    let output_path = determine_output_path(output, &export_data.file_extension);
+
+    if !write_export_to_disk(&sender, execution_id, &export_data, &output_path, &start_time).await {
         return;
     }
 
-    send_export_completion(&sender, execution_id, &export_data, &export_data.file_extension, &format, &start_time);
+    send_export_completion(&sender, execution_id, &export_data, &output_path, &format, &start_time);
 }
 
 /// Retrieve conversation messages from memory coordinator using public API
