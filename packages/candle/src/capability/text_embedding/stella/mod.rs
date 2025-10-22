@@ -10,6 +10,7 @@ mod base;
 mod config;
 mod instruction;
 mod loaded;
+mod utils;
 
 // Public API - maintain exact same exports as original stella.rs
 pub use base::StellaEmbeddingModel;

@@ -2,6 +2,10 @@
 
 use super::config::{STELLA_400M_MODEL_INFO, detect_variant, embed_dim, get_model_info};
 use super::instruction::format_with_instruction;
+use super::utils::{
+    configure_stella_tokenizer, create_stella_config,
+    detect_device_and_dtype, load_stella_weights,
+};
 use crate::capability::traits::TextEmbeddingCapable;
 use crate::domain::model::CandleModelInfo;
 use crate::domain::model::traits::CandleModel;
@@ -78,17 +82,8 @@ impl LoadedStellaModel {
         let variant = detect_variant(base_model.info().registry_key);
         let embed_dim = embed_dim(dimension as u32)?;
 
-        // Auto-detect device
-        let device = crate::core::device_util::detect_best_device().unwrap_or_else(|e| {
-            log::warn!("Device detection failed: {}. Using CPU.", e);
-            Device::Cpu
-        });
-
-        let dtype = if device.is_cuda() {
-            DType::F16
-        } else {
-            DType::F32
-        };
+        // Auto-detect device and dtype
+        let (device, dtype) = detect_device_and_dtype();
 
         // Load files from HuggingFace
         let base_weights = base_model
@@ -104,69 +99,15 @@ impl LoadedStellaModel {
             .huggingface_file(base_model.info().registry_key, "tokenizer.json")
             .await?;
 
-        // Load tokenizer with variant-specific padding
+        // Load tokenizer and configure padding/truncation
         let mut tokenizer = Tokenizer::from_file(&tokenizer_path)
             .map_err(|e| format!("Failed to load tokenizer: {}", e))?;
+        configure_stella_tokenizer(&mut tokenizer, variant, max_length)?;
 
-        match variant {
-            ModelVariant::Large => {
-                // 1.5B: Left padding with <|endoftext|>
-                let pad_id = tokenizer
-                    .token_to_id("<|endoftext|>")
-                    .ok_or("Tokenizer missing <|endoftext|> token")?;
-
-                let padding_params = PaddingParams {
-                    strategy: PaddingStrategy::BatchLongest,
-                    direction: PaddingDirection::Left,
-                    pad_to_multiple_of: None,
-                    pad_id,
-                    pad_type_id: 0,
-                    pad_token: "<|endoftext|>".to_string(),
-                };
-                tokenizer.with_padding(Some(padding_params));
-            }
-            ModelVariant::Small => {
-                // 400M: Right padding
-                tokenizer.with_padding(Some(PaddingParams {
-                    strategy: PaddingStrategy::BatchLongest,
-                    direction: PaddingDirection::Right,
-                    ..Default::default()
-                }));
-            }
-        }
-
-        // Set truncation
-        if tokenizer.get_truncation().is_none() {
-            tokenizer
-                .with_truncation(Some(TruncationParams {
-                    max_length,
-                    strategy: tokenizers::TruncationStrategy::LongestFirst,
-                    stride: 0,
-                    direction: tokenizers::TruncationDirection::Right,
-                }))
-                .map_err(|e| format!("Failed to set truncation: {}", e))?;
-        }
-
-        // Create Stella config from detected variant
-        let stella_config = match variant {
-            ModelVariant::Large => Config::new_1_5_b_v5(embed_dim),
-            ModelVariant::Small => Config::new_400_m_v5(embed_dim),
-        };
-
-        // Load model weights (base + projection head)
-        let base_vb = unsafe {
-            VarBuilder::from_mmaped_safetensors(&[base_weights], dtype, &device)
-                .map_err(|e| format!("Failed to load base model weights: {}", e))?
-        };
-
-        let embed_vb = unsafe {
-            VarBuilder::from_mmaped_safetensors(
-                &[projection_head],
-                DType::F32, // Projection heads always F32
-                &device,
-            )
-            .map_err(|e| format!("Failed to load projection head weights: {}", e))?
-        };
+        // Create config and load weights using shared utils
+        let stella_config = create_stella_config(variant, embed_dim);
+        let (base_vb, embed_vb) =
+            load_stella_weights(base_weights, projection_head, dtype, &device)?;
 
         // Create Stella model with MRL projection
         let model = EmbeddingModel::new(&stella_config, base_vb, embed_vb)

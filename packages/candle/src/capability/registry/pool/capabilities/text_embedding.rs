@@ -218,7 +218,7 @@ impl Pool<TextEmbeddingWorkerHandle> {
         // Create state before spawning thread so we can clone it
         use std::sync::atomic::AtomicU32;
         let state = Arc::new(AtomicU32::new(0)); // Spawning state
-        let state_clone = Arc::clone(&state);
+        let state_for_task = Arc::clone(&state);
 
         // Spawn worker task
         tokio::spawn(async move {
@@ -226,7 +226,7 @@ impl Pool<TextEmbeddingWorkerHandle> {
             let _memory_guard = allocation_guard;
 
             // Transition: Spawning → Loading
-            state_clone.store(
+            state_for_task.store(
                 WorkerState::Loading as u32,
                 std::sync::atomic::Ordering::Release,
             );
@@ -236,7 +236,7 @@ impl Pool<TextEmbeddingWorkerHandle> {
                 Ok(m) => {
                     log::info!("TextEmbedding worker {} ready", worker_id);
                     // Transition: Loading → Ready
-                    state_clone.store(
+                    state_for_task.store(
                         WorkerState::Ready as u32,
                         std::sync::atomic::Ordering::Release,
                     );
@@ -245,7 +245,7 @@ impl Pool<TextEmbeddingWorkerHandle> {
                 Err(e) => {
                     log::error!("TextEmbedding worker {} failed: {}", worker_id, e);
                     // Transition: Loading → Failed
-                    state_clone.store(
+                    state_for_task.store(
                         WorkerState::Failed as u32,
                         std::sync::atomic::Ordering::Release,
                     );
@@ -276,7 +276,7 @@ impl Pool<TextEmbeddingWorkerHandle> {
             .await;
 
             // Transition: Ready → Dead (when worker loop exits)
-            state_clone.store(
+            state_for_task.store(
                 WorkerState::Dead as u32,
                 std::sync::atomic::Ordering::Release,
             );
