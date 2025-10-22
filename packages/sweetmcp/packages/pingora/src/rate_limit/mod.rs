@@ -4,7 +4,7 @@
 //! logical modules for better maintainability and adherence to the 300-line limit.
 
 
-#![allow(dead_code)]
+
 
 use std::sync::Arc;
 

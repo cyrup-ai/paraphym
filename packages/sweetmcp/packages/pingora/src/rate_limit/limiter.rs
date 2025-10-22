@@ -4,7 +4,7 @@
 //! and zero allocation fast paths for blazing-fast performance.
 
 
-#![allow(dead_code)]
+
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
