@@ -1,5 +1,0 @@
-    Checking cyrup_candle v0.1.0 (/Volumes/samsung_t9/cyrup/packages/candle)
-   Compiling sweetmcp-pingora v0.3.1 (/Volumes/samsung_t9/cyrup/packages/sweetmcp/packages/pingora)
-    Checking sweetmcp-axum v0.1.0 (/Volumes/samsung_t9/cyrup/packages/sweetmcp/packages/axum)
-    Checking sweetmcp-daemon v0.2.0 (/Volumes/samsung_t9/cyrup/packages/sweetmcp/packages/daemon)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 22.35s
