@@ -27,38 +27,51 @@ pub struct DecayWorker {
     coordinator: Arc<MemoryCoordinator>,
     config: DecayWorkerConfig,
     cursor: Arc<AtomicUsize>,
+    shutdown_rx: tokio::sync::watch::Receiver<bool>,
 }
 
 impl DecayWorker {
     /// Create new decay worker
-    pub fn new(coordinator: Arc<MemoryCoordinator>, config: DecayWorkerConfig) -> Self {
+    pub fn new(
+        coordinator: Arc<MemoryCoordinator>,
+        config: DecayWorkerConfig,
+        shutdown_rx: tokio::sync::watch::Receiver<bool>,
+    ) -> Self {
         Self {
             coordinator,
             config,
             cursor: Arc::new(AtomicUsize::new(0)),
+            shutdown_rx,
         }
     }
 
     /// Run the decay worker loop
-    pub async fn run(self) {
+    pub async fn run(mut self) {
         let cycle_interval = Duration::from_secs(self.config.cycle_interval_secs);
 
         loop {
-            // Sleep first to allow system to stabilize on startup
-            tokio::time::sleep(cycle_interval).await;
+            tokio::select! {
+                _ = tokio::time::sleep(cycle_interval) => {
+                    log::debug!("Decay worker cycle starting");
 
-            log::debug!("Decay worker cycle starting");
-
-            // Process one batch
-            match self.process_batch().await {
-                Ok(processed_count) => {
-                    log::debug!("Decay worker processed {} memories", processed_count);
+                    // Process one batch
+                    match self.process_batch().await {
+                        Ok(processed_count) => {
+                            log::debug!("Decay worker processed {} memories", processed_count);
+                        }
+                        Err(e) => {
+                            log::error!("Decay worker batch processing failed: {}", e);
+                        }
+                    }
                 }
-                Err(e) => {
-                    log::error!("Decay worker batch processing failed: {}", e);
+                _ = self.shutdown_rx.changed() => {
+                    log::info!("Decay worker received shutdown signal");
+                    break;
                 }
             }
         }
+
+        log::info!("Decay worker stopped gracefully");
     }
 
     /// Process a single batch of memories
@@ -158,14 +171,20 @@ impl DecayWorker {
         struct EdgeData {
             id: RecordId,
             #[serde(rename = "in")]
-            source: serde_json::Value,
+            source: RecordId,
             #[serde(rename = "out")]
-            target: serde_json::Value,
+            target: RecordId,
             strength: f32,
             created_at: u64,
         }
 
-        let edges: Vec<EdgeData> = response.take(0).unwrap_or_default();
+        let edges: Vec<EdgeData> = response.take(0)
+            .map_err(|e| {
+                log::error!("Failed to parse edge data for {} edges (memory {}): {:?}", error_context, memory_id, e);
+                crate::memory::utils::Error::Database(format!(
+                    "Edge deserialization failed for {} edges: {:?}", error_context, e
+                ))
+            })?;
 
         if edges.is_empty() {
             return Ok(());
@@ -180,10 +199,17 @@ impl DecayWorker {
 
         let mut update_statements = Vec::new();
         let mut new_strengths = Vec::new();
+        let mut valid_edges: Vec<&EdgeData> = Vec::new(); // Track valid edge references
+        let mut valid_idx = 0; // Separate counter for valid edges only
 
-        for (idx, edge) in edges.iter().enumerate() {
-            let created_time = chrono::DateTime::<Utc>::from_timestamp_millis(edge.created_at as i64)
-                .unwrap_or_else(Utc::now);
+        for edge in edges.iter() {
+            let created_time = match chrono::DateTime::<Utc>::from_timestamp_millis(edge.created_at as i64) {
+                Some(time) => time,
+                None => {
+                    log::warn!("Invalid timestamp {} for {} edge {}, skipping", edge.created_at, error_context, edge.id);
+                    continue;  // Skip this edge
+                }
+            };
 
             let age = now.signed_duration_since(created_time);
             let days_old = age.num_seconds() as f64 / 86400.0;
@@ -193,8 +219,10 @@ impl DecayWorker {
             let new_strength = (edge.strength as f64 * decay_factor).max(0.01) as f32;
 
             // Build UPDATE statement for this edge
-            update_statements.push(format!("UPDATE {} SET strength = $strength_{};", edge.id, idx));
+            update_statements.push(format!("UPDATE {} SET strength = $strength_{};", edge.id, valid_idx));
             new_strengths.push(new_strength);
+            valid_edges.push(edge); // Store reference to valid edge
+            valid_idx += 1; // Only increment for valid edges
         }
 
         // Execute batch UPDATE query - GUARANTEE success
@@ -212,7 +240,7 @@ impl DecayWorker {
             )))?;
 
         // Verify each UPDATE statement succeeded - CRITICAL for cache sync correctness
-        for idx in 0..edges.len() {
+        for idx in 0..valid_idx {
             response.take::<Vec<serde_json::Value>>(idx)
                 .map_err(|e| crate::memory::utils::Error::Database(format!(
                     "UPDATE statement {} failed for {} edge: {:?}", idx, error_context, e
@@ -220,10 +248,10 @@ impl DecayWorker {
         }
 
         // Batch UPDATE succeeded - now safe to track for cache synchronization
-        for (edge, &new_strength) in edges.iter().zip(new_strengths.iter()) {
-            if let (Some(src), Some(tgt)) = (edge.source.as_str(), edge.target.as_str()) {
-                edge_updates.insert((src.to_string(), tgt.to_string()), new_strength as f64);
-            }
+        for (edge, &new_strength) in valid_edges.iter().zip(new_strengths.iter()) {
+            let src = edge.source.to_string();
+            let tgt = edge.target.to_string();
+            edge_updates.insert((src, tgt), new_strength as f64);
         }
 
         // Synchronize in-memory quantum state cache

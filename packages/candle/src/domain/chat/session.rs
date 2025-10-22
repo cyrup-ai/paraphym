@@ -25,10 +25,16 @@ use crate::domain::chat::{
     r#loop::CandleChatLoop,
 };
 use crate::domain::agent::role::CandleAgentConversation;
+use crate::builders::agent_role::CandleAgentRoleAgent;
 use crate::domain::agent::{
     role::convert_serde_to_sweet_json,
 };
 use crate::domain::agent::core::AGENT_STATS;
+use crate::domain::completion::CandleCompletionChunk;
+use crate::domain::prompt::CandlePrompt;
+use crate::domain::completion::CandleCompletionParams;
+use crate::domain::tool::SweetMcpRouter;
+use crate::domain::tool::router::PluginConfig;
 
 use crate::builders::agent_role::AgentBuilderState;
 use crate::capability::registry::TextToTextModel;
@@ -47,7 +53,7 @@ use cyrup_sugars::collections::ZeroOneOrMany;
 // Type aliases for complex callback types
 type OnChunkHandler = Arc<dyn Fn(CandleMessageChunk) -> BoxFuture<'static, CandleMessageChunk> + Send + Sync>;
 type OnToolResultHandler = Arc<dyn Fn(&[String]) -> BoxFuture<'static, ()> + Send + Sync>;
-type OnConversationTurnHandler = Arc<dyn Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> BoxFuture<'static, Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>> + Send + Sync>;
+type OnConversationTurnHandler = Arc<dyn Fn(&CandleAgentConversation, &crate::builders::agent_role::CandleAgentRoleAgent) -> BoxFuture<'static, Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>> + Send + Sync>;
 
 /// Configuration bundle for chat session execution
 pub struct ChatSessionConfig<S> {
@@ -355,11 +361,13 @@ async fn stream_and_process_chunks(
 
                 // Record completion statistics
                 if let Some(token_count) = token_count {
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                     let duration_us = (elapsed_secs.unwrap_or(0.0) * 1_000_000.0) as u64;
-                    AGENT_STATS.record_completion(token_count as u64, duration_us);
+                    AGENT_STATS.record_completion(u64::from(token_count), duration_us);
                 } else if let Some(usage) = usage {
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                     let duration_us = (elapsed_secs.unwrap_or(0.0) * 1_000_000.0) as u64;
-                    AGENT_STATS.record_completion(usage.total_tokens as u64, duration_us);
+                    AGENT_STATS.record_completion(u64::from(usage.total_tokens), duration_us);
                 }
 
                 CandleMessageChunk::Complete {
@@ -525,7 +533,7 @@ async fn invoke_turn_handler_if_configured(
         });
 
         let agent = CandleAgentRoleAgent::new(builder_state);
-        let handler_stream = handler(&conversation, &agent).await;
+        let handler_stream: Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>> = handler(&conversation, &agent).await;
         tokio::pin!(handler_stream);
         while let Some(chunk) = handler_stream.next().await {
             let _ = sender.send(chunk);

@@ -88,16 +88,18 @@ You are a master at refactoring code, remembering to check for code that ALREADY
             )
         };
 
-        // Build agent - use agent_role defaults, set properties, optionally override model
-        let agent_builder = CandleFluentAi::agent_role(&self.args.agent_role).into_agent();
+        // Use async closure with direct tokio stdin reading (prepare handler first)
+        let handler = std::sync::Arc::new(std::sync::Mutex::new(self.handler.clone()));
 
-        let agent = if let Some(registry_key) = &self.args.model {
+        // Build agent and compute stream directly in each branch to avoid opaque type mismatch
+        let stream = if let Some(registry_key) = &self.args.model {
             use crate::capability::registry::{self, TextToTextModel};
 
             let text_model = registry::get::<TextToTextModel>(registry_key)
                 .ok_or_else(|| anyhow::anyhow!("Model not found in registry: {}", registry_key))?;
 
-            agent_builder
+            CandleFluentAi::agent_role(&self.args.agent_role)
+                .into_agent()
                 .model(text_model)
                 .temperature(self.args.temperature)
                 .system_prompt(system_prompt.clone())
@@ -111,8 +113,57 @@ You are a master at refactoring code, remembering to check for code that ALREADY
                     }
                     chunk
                 })
+                .chat(move |_conversation| {
+                    let handler = handler.clone();
+                    async move {
+                        use tokio::io::{AsyncBufReadExt, BufReader};
+
+                        print!("\n> You: ");
+                        let _ = std::io::stdout().flush();
+
+                        let stdin = tokio::io::stdin();
+                        let mut reader = BufReader::new(stdin);
+                        let mut input = String::new();
+
+                        match reader.read_line(&mut input).await {
+                            Ok(0) => CandleChatLoop::Break, // EOF
+                            Ok(_) => {
+                                let input = input.trim();
+
+                                // Handle input via InputHandler
+                                let handler_result = match handler.lock() {
+                                    Ok(mut h) => h.handle(input),
+                                    Err(_) => InputHandlerResult::Exit,
+                                };
+
+                                match handler_result {
+                                    InputHandlerResult::Exit => {
+                                        println!("Goodbye!");
+                                        CandleChatLoop::Break
+                                    }
+                                    InputHandlerResult::Command(cmd_result) => {
+                                        let output = Self::format_command_result(&cmd_result);
+                                        println!("{}", output);
+                                        CandleChatLoop::Reprompt(String::new())
+                                    }
+                                    InputHandlerResult::None => {
+                                        CandleChatLoop::Reprompt(String::new())
+                                    }
+                                    InputHandlerResult::Chat(message) => {
+                                        CandleChatLoop::UserPrompt(message)
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Input error: {}", e);
+                                CandleChatLoop::Break
+                            }
+                        }
+                    }
+                })?
         } else {
-            agent_builder
+            CandleFluentAi::agent_role(&self.args.agent_role)
+                .into_agent()
                 .temperature(self.args.temperature)
                 .system_prompt(system_prompt.clone())
                 .memory_read_timeout(self.args.memory_read_timeout)
@@ -125,59 +176,55 @@ You are a master at refactoring code, remembering to check for code that ALREADY
                     }
                     chunk
                 })
-        };
+                .chat(move |_conversation| {
+                    let handler = handler.clone();
+                    async move {
+                        use tokio::io::{AsyncBufReadExt, BufReader};
 
-        // Use async closure with direct tokio stdin reading
-        let handler = std::sync::Arc::new(std::sync::Mutex::new(self.handler.clone()));
-        
-        let stream = agent.chat(move |_conversation| {
-            let handler = handler.clone();
-            async move {
-                use tokio::io::{AsyncBufReadExt, BufReader};
-                
-                print!("\n> You: ");
-                let _ = std::io::stdout().flush();
-                
-                let stdin = tokio::io::stdin();
-                let mut reader = BufReader::new(stdin);
-                let mut input = String::new();
-                
-                match reader.read_line(&mut input).await {
-                    Ok(0) => CandleChatLoop::Break, // EOF
-                    Ok(_) => {
-                        let input = input.trim();
-                        
-                        // Handle input via InputHandler
-                        let handler_result = match handler.lock() {
-                            Ok(mut h) => h.handle(input),
-                            Err(_) => InputHandlerResult::Exit,
-                        };
-                        
-                        match handler_result {
-                            InputHandlerResult::Exit => {
-                                println!("Goodbye!");
+                        print!("\n> You: ");
+                        let _ = std::io::stdout().flush();
+
+                        let stdin = tokio::io::stdin();
+                        let mut reader = BufReader::new(stdin);
+                        let mut input = String::new();
+
+                        match reader.read_line(&mut input).await {
+                            Ok(0) => CandleChatLoop::Break, // EOF
+                            Ok(_) => {
+                                let input = input.trim();
+
+                                // Handle input via InputHandler
+                                let handler_result = match handler.lock() {
+                                    Ok(mut h) => h.handle(input),
+                                    Err(_) => InputHandlerResult::Exit,
+                                };
+
+                                match handler_result {
+                                    InputHandlerResult::Exit => {
+                                        println!("Goodbye!");
+                                        CandleChatLoop::Break
+                                    }
+                                    InputHandlerResult::Command(cmd_result) => {
+                                        let output = Self::format_command_result(&cmd_result);
+                                        println!("{}", output);
+                                        CandleChatLoop::Reprompt(String::new())
+                                    }
+                                    InputHandlerResult::None => {
+                                        CandleChatLoop::Reprompt(String::new())
+                                    }
+                                    InputHandlerResult::Chat(message) => {
+                                        CandleChatLoop::UserPrompt(message)
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Input error: {}", e);
                                 CandleChatLoop::Break
-                            }
-                            InputHandlerResult::Command(cmd_result) => {
-                                let output = Self::format_command_result(&cmd_result);
-                                println!("{}", output);
-                                CandleChatLoop::Reprompt(String::new())
-                            }
-                            InputHandlerResult::None => {
-                                CandleChatLoop::Reprompt(String::new())
-                            }
-                            InputHandlerResult::Chat(message) => {
-                                CandleChatLoop::UserPrompt(message)
                             }
                         }
                     }
-                    Err(e) => {
-                        eprintln!("Input error: {}", e);
-                        CandleChatLoop::Break
-                    }
-                }
-            }
-        })?;
+                })?
+        };
         tokio::pin!(stream);
 
         // Consume stream

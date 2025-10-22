@@ -348,14 +348,61 @@ impl WorkerHandle {
                     true
                 }
                 Err(_) => {
-                    // Channel empty or closed - assume alive for now
-                    // (worker may not have responded yet)
-                    true
+                    // No pong received yet - check timestamp staleness
+                    use std::time::{SystemTime, UNIX_EPOCH};
+                    
+                    let now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    
+                    let last_check = self.last_used.load(std::sync::atomic::Ordering::Acquire);
+                    let staleness_secs = now.saturating_sub(last_check);
+                    
+                    // Health check timeout: 30 seconds
+                    // If worker hasn't responded in 30s, consider it dead
+                    const HEALTH_TIMEOUT_SECS: u64 = 30;
+                    
+                    if staleness_secs > HEALTH_TIMEOUT_SECS {
+                        // Worker is unresponsive - mark as dead
+                        self.set_state(super::worker_state::WorkerState::Dead);
+                        false
+                    } else {
+                        // Worker may be busy processing - give it time
+                        true
+                    }
                 }
             }
         } else {
-            // Lock contention - assume alive
-            true
+            // Lock contention - check staleness without lock
+            use std::time::{SystemTime, UNIX_EPOCH};
+            
+            // First check if state is already Dead/Failed
+            let current_state = self.get_state();
+            if matches!(
+                current_state,
+                super::worker_state::WorkerState::Dead | super::worker_state::WorkerState::Failed
+            ) {
+                return false;
+            }
+            
+            // Check timestamp staleness (atomic read, no lock needed)
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            
+            let last_check = self.last_used.load(std::sync::atomic::Ordering::Acquire);
+            let staleness_secs = now.saturating_sub(last_check);
+            
+            const HEALTH_TIMEOUT_SECS: u64 = 30;
+            
+            if staleness_secs > HEALTH_TIMEOUT_SECS {
+                self.set_state(super::worker_state::WorkerState::Dead);
+                false
+            } else {
+                true
+            }
         }
     }
 

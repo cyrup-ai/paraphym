@@ -39,6 +39,7 @@ pub struct MemoryCoordinator {
     pub(super) evaluation_cache: Cache<String, f64>,
     // TEMPORAL DECAY:
     pub(in crate::memory::core) decay_rate: f64,
+    pub(super) decay_shutdown_tx: Option<tokio::sync::watch::Sender<bool>>,
 }
 
 impl MemoryCoordinator {
@@ -107,6 +108,9 @@ impl MemoryCoordinator {
             measurement_count: 0,
         };
 
+        // Create shutdown channel for decay worker
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+
         let coordinator = Self {
             surreal_manager,
             repository: Arc::new(RwLock::new(MemoryRepository::new())),
@@ -123,20 +127,22 @@ impl MemoryCoordinator {
                 .time_to_live(Duration::from_secs(300))
                 .build(),
             decay_rate: 0.1,
+            decay_shutdown_tx: Some(shutdown_tx),
         };
 
         // Spawn decay worker for background temporal decay processing
         let coordinator_arc = Arc::new(coordinator);
         let decay_config = crate::memory::core::decay_worker::DecayWorkerConfig::default();
+
         let decay_worker = crate::memory::core::decay_worker::DecayWorker::new(
             coordinator_arc.clone(),
             decay_config,
+            shutdown_rx,
         );
 
         tokio::spawn(async move {
             log::info!("Decay worker started");
             decay_worker.run().await;
-            log::info!("Decay worker stopped");
         });
 
         // Return Arc-wrapped coordinator to match spawn pattern
@@ -176,6 +182,15 @@ impl MemoryCoordinator {
         // Flush any pending batches before shutdown
         if let Err(e) = self.cognitive_queue.flush_batches() {
             log::warn!("Failed to flush batches during shutdown: {}", e);
+        }
+
+        // Signal decay worker to shutdown
+        if let Some(shutdown_tx) = &self.decay_shutdown_tx {
+            if let Err(e) = shutdown_tx.send(true) {
+                log::warn!("Failed to send shutdown signal to decay worker: {}", e);
+            } else {
+                log::info!("Decay worker shutdown signal sent");
+            }
         }
 
         // Note: Tokio tasks will be cancelled when runtime shuts down

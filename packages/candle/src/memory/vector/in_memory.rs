@@ -326,7 +326,7 @@ impl VectorStore for InMemoryVectorStore {
         
         // Check dimension consistency
         let first_dim = self.vectors.values().next().map(|v| v.len());
-        let dimension_consistent = first_dim.map_or(true, |expected_dim| {
+        let dimension_consistent = first_dim.is_none_or(|expected_dim| {
             self.vectors.values().all(|v| v.len() == expected_dim)
         });
         

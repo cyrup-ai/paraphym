@@ -156,27 +156,26 @@ impl FromRegistry for VisionModel {
 
 impl FromRegistry for AnyModel {
     fn from_registry(registry_key: &str) -> Option<Self> {
-        // Lazy view pattern: Check each capability registry in order
-        // This avoids maintaining a separate synchronized MODEL_UNIFIED registry
+        // Delegate to specific FromRegistry implementations to trigger lazy loading
         
-        if let Some(model) = TEXT_TO_TEXT_UNIFIED.read().get(registry_key) {
-            return Some(AnyModel::TextToText(model.clone()));
+        if let Some(model) = TextToTextModel::from_registry(registry_key) {
+            return Some(AnyModel::TextToText(model));
         }
         
-        if let Some(model) = TEXT_EMBEDDING_UNIFIED.read().get(registry_key) {
-            return Some(AnyModel::TextEmbedding(model.clone()));
+        if let Some(model) = TextEmbeddingModel::from_registry(registry_key) {
+            return Some(AnyModel::TextEmbedding(model));
         }
         
-        if let Some(model) = IMAGE_EMBEDDING_UNIFIED.read().get(registry_key) {
-            return Some(AnyModel::ImageEmbedding(model.clone()));
+        if let Some(model) = ImageEmbeddingModel::from_registry(registry_key) {
+            return Some(AnyModel::ImageEmbedding(model));
         }
         
-        if let Some(model) = TEXT_TO_IMAGE_UNIFIED.read().get(registry_key) {
-            return Some(AnyModel::TextToImage(model.clone()));
+        if let Some(model) = TextToImageModel::from_registry(registry_key) {
+            return Some(AnyModel::TextToImage(model));
         }
         
-        if let Some(model) = VISION_UNIFIED.read().get(registry_key) {
-            return Some(AnyModel::Vision(model.clone()));
+        if let Some(model) = VisionModel::from_registry(registry_key) {
+            return Some(AnyModel::Vision(model));
         }
         
         None
@@ -211,14 +210,14 @@ pub fn get_text_embedding(registry_key: &str) -> Option<impl TextEmbeddingCapabl
 ///
 /// Returns an enum that implements both CandleModel and ImageEmbeddingCapable.
 pub fn get_image_embedding(registry_key: &str) -> Option<impl ImageEmbeddingCapable> {
-    IMAGE_EMBEDDING_UNIFIED.read().get(registry_key).cloned()
+    ImageEmbeddingModel::from_registry(registry_key)
 }
 
 /// Get a text-to-image model by registry_key
 ///
 /// Returns an enum that implements both CandleModel and TextToImageCapable.
 pub fn get_text_to_image(registry_key: &str) -> Option<impl TextToImageCapable> {
-    TEXT_TO_IMAGE_UNIFIED.read().get(registry_key).cloned()
+    TextToImageModel::from_registry(registry_key)
 }
 
 /// Get a vision model by registry_key

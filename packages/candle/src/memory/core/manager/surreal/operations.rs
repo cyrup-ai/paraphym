@@ -293,19 +293,26 @@ impl MemoryManager for SurrealDBMemoryManager {
         let db = self.db.clone();
 
         tokio::spawn(async move {
-            let query = format!(
-                "SELECT * FROM memory ORDER BY created_at DESC LIMIT {} START {}",
-                limit, offset
-            );
+            let query = "SELECT * FROM memory START $offset LIMIT $limit ORDER BY created_at DESC";
 
-            match db.query(&query).await {
+            match db.query(query)
+                .bind(("offset", offset))
+                .bind(("limit", limit))
+                .await
+            {
                 Ok(mut response) => {
-                    let results: Vec<MemoryNodeSchema> = response.take(0).unwrap_or_default();
-
-                    for schema in results {
-                        let memory = SurrealDBMemoryManager::from_schema(schema);
-                        if tx.send(Ok(memory)).await.is_err() {
-                            break;
+                    match response.take::<Vec<MemoryNodeSchema>>(0) {
+                        Ok(results) => {
+                            for schema in results {
+                                let memory = SurrealDBMemoryManager::from_schema(schema);
+                                if tx.send(Ok(memory)).await.is_err() {
+                                    break;
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            log::error!("Failed to parse memory batch (offset={}, limit={}): {:?}", offset, limit, e);
+                            let _ = tx.send(Err(Error::Database(format!("Memory batch parse failed: {:?}", e)))).await;
                         }
                     }
                 }

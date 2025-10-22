@@ -11,11 +11,7 @@
 //! # Usage
 //!
 //! ```bash
-//! # Run with default model (qwen-3)
 //! cargo run --example interactive_chat --release
-//!
-//! # Or with specific model
-//! cargo run --example interactive_chat --release -- --model phi-4
 //! ```
 
 use clap::Parser;
@@ -25,10 +21,6 @@ use std::io::{self, Write};
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Interactive Chat Example")]
 struct Args {
-    /// Model to use (optional, defaults to agent role's model)
-    #[arg(long)]
-    model: Option<String>,
-
     /// Temperature (0.0-2.0)
     #[arg(long, default_value_t = 0.7)]
     temperature: f64,
@@ -53,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("{}\n", "=".repeat(60));
 
     // Build agent with fluent API
-    let agent_builder = CandleFluentAi::agent_role("helpful-assistant")
+    let agent = CandleFluentAi::agent_role("helpful-assistant")
         .temperature(args.temperature)
         .max_tokens(args.max_tokens)
         .system_prompt("You are a helpful AI assistant. Be concise and friendly.")
@@ -66,18 +58,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             chunk
         })
         .into_agent();
-
-    // Optionally override model
-    let agent = if let Some(model_key) = args.model {
-        use cyrup_candle::capability::registry::{self, TextToTextModel};
-        
-        let text_model = registry::get::<TextToTextModel>(&model_key)
-            .ok_or_else(|| anyhow::anyhow!("Model not found: {}", model_key))?;
-        
-        agent_builder.model(text_model)
-    } else {
-        agent_builder
-    };
 
     // Start interactive chat loop
     let stream = agent.chat(|_conversation| async move {

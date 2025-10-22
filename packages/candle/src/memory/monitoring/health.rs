@@ -383,14 +383,14 @@ impl ComponentChecker for VectorStoreHealthChecker {
                     vs.get_index_stats()
                 })
                 .await
-                .unwrap_or_else(|_| Ok(IndexStats {
+                .unwrap_or(Ok(IndexStats {
                     entry_count: 0,
                     dimensions: None,
                     quality_score: 0.0,
                     memory_bytes: 0,
                     fragmentation_ratio: 0.0,
                 }))
-                .unwrap_or_else(|_| IndexStats {
+                .unwrap_or(IndexStats {
                     entry_count: 0,
                     dimensions: None,
                     quality_score: 0.0,

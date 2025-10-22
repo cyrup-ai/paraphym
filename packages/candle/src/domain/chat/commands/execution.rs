@@ -809,43 +809,37 @@ impl CommandExecutor {
     pub fn parse_and_execute(&self, input: &str) -> Pin<Box<dyn Stream<Item = CommandEvent> + Send>> {
         let execution_id = self.execution_counter.fetch_add(1, Ordering::AcqRel);
         let command_result = self.parser.parse_command(input);
+        
+        // Clone self for use in async closure
+        let self_clone = self.clone();
 
         Box::pin(crate::async_stream::spawn_stream(move |sender| async move {
+            let start_time = Instant::now();
+            
             match command_result {
                 Ok(command) => {
-                    // Emit Started event
-                    let _ = sender.send(CommandEvent::Started {
-                        command: command.clone(),
-                        execution_id,
-                        timestamp_us: current_timestamp_us(),
-                    });
-
-                    // Emit successful Output event
-                    let _ = sender.send(CommandEvent::Output {
-                        execution_id,
-                        content: "Command executed successfully".to_string(),
-                        output_type: OutputType::Text,
-                        timestamp_us: current_timestamp_us(),
-                    });
-
-                    // Emit Completed event
-                    let _ = sender.send(CommandEvent::Completed {
-                        execution_id,
-                        result: CommandExecutionResult::Success(
-                            "Command completed".to_string()
-                        ),
-                        duration_us: 0, // TODO: Calculate actual duration
-                        resource_usage: ResourceUsage::default(),
-                        timestamp_us: current_timestamp_us(),
-                    });
+                    use tokio_stream::StreamExt;
+                    
+                    // Delegate to execute_streaming which has full timing
+                    let execution_stream = self_clone.execute_streaming(execution_id, command);
+                    
+                    // Forward all events from execute_streaming
+                    tokio::pin!(execution_stream);
+                    while let Some(event) = execution_stream.next().await {
+                        let _ = sender.send(event);
+                    }
                 }
                 Err(e) => {
-                    // Emit Failed event for parse errors
+                    // Calculate elapsed time for parse error
+                    #[allow(clippy::cast_possible_truncation)]
+                    let duration_us = start_time.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
+                    
+                    // Emit Failed event with actual duration
                     let _ = sender.send(CommandEvent::Failed {
                         execution_id,
                         error: format!("Parse error: {e}"),
-                        error_code: 1001, // Parse error code
-                        duration_us: 0,
+                        error_code: 1001,
+                        duration_us,
                         resource_usage: ResourceUsage::default(),
                         timestamp_us: current_timestamp_us(),
                     });

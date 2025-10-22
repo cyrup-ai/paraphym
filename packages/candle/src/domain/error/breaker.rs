@@ -1,9 +1,83 @@
 //! Error-specific circuit breaker with statistics
+//!
+//! # Circuit Breaker Pattern
+//!
+//! The circuit breaker pattern prevents cascading failures in distributed systems by monitoring
+//! operation success and failure rates. When failures exceed a configured threshold, the circuit
+//! breaker temporarily halts requests to give the failing service time to recover, preventing
+//! resource exhaustion and allowing graceful degradation.
+//!
+//! # States
+//!
+//! The circuit breaker operates in three distinct states:
+//!
+//! - **Closed**: Normal operation mode. All requests are allowed through, and failures are counted.
+//!   When the failure count reaches the configured threshold, the circuit transitions to Open.
+//!
+//! - **Open**: Circuit is "tripped" and requests are blocked. The circuit breaker returns errors
+//!   immediately without executing operations. After the configured recovery timeout elapses,
+//!   the circuit transitions to Half-Open to test if the service has recovered.
+//!
+//! - **Half-Open**: Testing mode. Requests are allowed through to probe service health. A successful
+//!   request transitions the circuit back to Closed. A failed request immediately returns the circuit
+//!   to Open state.
+//!
+//! # State Transitions
+//!
+//! State transitions occur based on failure counts and timeouts:
+//!
+//! - **Closed → Open**: Triggered when `failure_count >= failure_threshold`
+//! - **Open → Half-Open**: Triggered when `recovery_timeout` has elapsed since the last failure
+//! - **Half-Open → Closed**: Triggered on successful request (via `record_success()`)
+//! - **Half-Open → Open**: Triggered on failed request (via `record_failure()`)
+//!
+//! # Usage Example
+//!
+//! ```rust
+//! use std::time::Duration;
+//! use cyrup_candle::domain::error::{ErrorCircuitBreaker, ZeroAllocError};
+//!
+//! // Create circuit breaker with 5 failure threshold and 30 second recovery timeout
+//! let breaker = ErrorCircuitBreaker::new(5, Duration::from_secs(30));
+//!
+//! // Execute operation with circuit breaker protection
+//! // The closure must return Result<T, E> where E: Into<ZeroAllocError>
+//! let result = breaker.execute(|| -> Result<i32, ZeroAllocError> {
+//!     // Your operation that might fail
+//!     Ok(42)
+//! });
+//!
+//! match result {
+//!     Ok(value) => println!("Operation succeeded: {:?}", value),
+//!     Err(error) => println!("Operation failed or circuit is open: {:?}", error),
+//! }
+//!
+//! // Check circuit state
+//! if breaker.is_open() {
+//!     println!("Circuit is open, requests are being blocked");
+//! }
+//! ```
+//!
+//! # Thread Safety
+//!
+//! The circuit breaker implementation is fully thread-safe and lock-free:
+//!
+//! - All state management uses atomic operations with `Ordering::Relaxed`
+//! - Lock-free design ensures high performance in concurrent scenarios
+//! - Safe to share across threads using `Arc<ErrorCircuitBreaker>`
+//! - No blocking operations or mutex contention
+//!
+//! # Integration
+//!
+//! The circuit breaker integrates with other error handling components:
+//!
+//! - **`ErrorCounter`**: Provides comprehensive failure statistics by category, severity, and recoverability
+//! - **`ZeroAllocError`**: Zero-allocation error type for high-performance error handling
+//! - **`CircuitBreakerState`**: Shared state enumeration for consistency across circuit breaker implementations
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
 use atomic_counter::{AtomicCounter, RelaxedCounter};
-use super::circuit_breaker::{CircuitBreaker, CircuitBreakerState, CircuitBreakerError};
 use super::core::ZeroAllocError;
 use super::types::{ErrorCategory, ErrorSeverity, ErrorRecoverability};
 use crate::domain::util::{duration_to_millis_u64, duration_to_nanos_u64};
@@ -131,8 +205,6 @@ impl Default for ErrorCounter {
 /// Circuit breaker for error recovery
 #[derive(Debug)]
 pub struct ErrorCircuitBreaker {
-    /// Circuit breaker instance
-    breaker: CircuitBreaker,
     /// Error counter for statistics
     counter: ErrorCounter,
     /// Failure threshold
@@ -154,13 +226,7 @@ impl ErrorCircuitBreaker {
     #[inline]
     #[must_use]
     pub fn new(failure_threshold: usize, recovery_timeout: Duration) -> Self {
-        let breaker = CircuitBreaker::new(
-            failure_threshold as u64,
-            duration_to_millis_u64(recovery_timeout),
-        );
-
         Self {
-            breaker,
             counter: ErrorCounter::new(),
             failure_threshold,
             recovery_timeout,
@@ -203,7 +269,6 @@ impl ErrorCircuitBreaker {
     #[inline]
     pub fn should_allow_request(&self) -> bool {
         match self.state.load(Ordering::Relaxed) {
-            0 => true, // Closed
             1 => { // Open
                 let now = duration_to_millis_u64(
                     SystemTime::now()
@@ -218,8 +283,7 @@ impl ErrorCircuitBreaker {
                     false
                 }
             }
-            2 => true, // HalfOpen
-            _ => true,
+            _ => true, // Closed, HalfOpen, or invalid state
         }
     }
 
@@ -234,17 +298,7 @@ impl ErrorCircuitBreaker {
         F: FnOnce() -> Result<T, E>,
         E: Into<ZeroAllocError>,
     {
-        if !self.should_allow_request() {
-            let error = ZeroAllocError::new(
-                ErrorCategory::System,
-                ErrorSeverity::Error,
-                ErrorRecoverability::RetriableWithBackoff,
-                "Circuit breaker is open",
-                500,
-            );
-            self.counter.record(&error);
-            Err(Box::new(error))
-        } else {
+        if self.should_allow_request() {
             match operation() {
                 Ok(result) => {
                     self.record_success();
@@ -257,6 +311,16 @@ impl ErrorCircuitBreaker {
                     Err(Box::new(error))
                 }
             }
+        } else {
+            let error = ZeroAllocError::new(
+                ErrorCategory::System,
+                ErrorSeverity::Error,
+                ErrorRecoverability::RetriableWithBackoff,
+                "Circuit breaker is open",
+                500,
+            );
+            self.counter.record(&error);
+            Err(Box::new(error))
         }
     }
 
@@ -286,5 +350,19 @@ impl ErrorCircuitBreaker {
         self.failure_count.store(0, Ordering::Relaxed);
         self.last_failure_time.store(0, Ordering::Relaxed);
         self.half_open_requests.store(0, Ordering::Relaxed);
+    }
+
+    /// Get configured failure threshold
+    #[inline]
+    #[must_use]
+    pub fn failure_threshold(&self) -> usize {
+        self.failure_threshold
+    }
+
+    /// Get configured recovery timeout
+    #[inline]
+    #[must_use]
+    pub fn recovery_timeout(&self) -> Duration {
+        self.recovery_timeout
     }
 }

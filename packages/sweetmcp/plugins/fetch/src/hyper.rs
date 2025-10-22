@@ -12,6 +12,13 @@ use hyper_util::rt::TokioIo;
 #[cfg(not(target_family = "wasm"))]
 use tokio_rustls::TlsConnector;
 
+#[cfg(target_family = "wasm")]
+use gloo_net::http::Request as GlooRequest;
+#[cfg(target_family = "wasm")]
+use gloo_timers::future::TimeoutFuture;
+#[cfg(target_family = "wasm")]
+use futures::{select, FutureExt};
+
 #[cfg(not(target_family = "wasm"))]
 pub use crate::chromiumoxide::{ContentFetcher, FetchResult};
 
@@ -206,11 +213,60 @@ impl HyperFetcher {
             .map_err(|e| FetchError::Other(format!("Invalid UTF-8: {}", e)))
     }
 
-    // WASM version: simplified HTTP-only fetch
+    // WASM version: uses browser's fetch API via gloo-net
+    // Supports both HTTP and HTTPS through the browser's native fetch implementation
+    // CORS restrictions apply as per browser security policies
+    // Timeout: 30 seconds (consistent with chromiumoxide pattern)
     #[cfg(target_family = "wasm")]
     pub async fn fetch(url: &str) -> Result<String, FetchError> {
-        // WASM: Return error for now as HTTPS without rustls is not straightforward
-        Err(FetchError::Other("HTTPS not available in WASM build. Use firecrawl backend.".to_string()))
+        // Validate URL scheme (browser enforces HTTPS for secure contexts)
+        let uri: Uri = url.parse()?;
+        let scheme = uri
+            .scheme_str()
+            .ok_or_else(|| FetchError::Other("URL must have a scheme".to_string()))?;
+        
+        // Browser fetch supports both HTTP and HTTPS
+        // Note: HTTPS pages cannot fetch HTTP resources (mixed content blocking)
+        if scheme != "http" && scheme != "https" {
+            return Err(FetchError::Other(format!(
+                "Unsupported scheme '{}'. Only HTTP and HTTPS are supported in WASM.",
+                scheme
+            )));
+        }
+
+        // Create fetch future and timeout future (30 seconds = 30,000 milliseconds)
+        let fetch_future = async {
+            // Create and send request using gloo-net (wraps browser fetch API)
+            let response = GlooRequest::get(url)
+                .send()
+                .await
+                .map_err(|e| FetchError::Other(format!("Failed to send request: {}", e)))?;
+
+            // Check response status
+            let status = response.status();
+            if status < 200 || status >= 300 {
+                return Err(FetchError::Other(format!(
+                    "HTTP {}: Request failed",
+                    status
+                )));
+            }
+
+            // Extract response body as text
+            response
+                .text()
+                .await
+                .map_err(|e| FetchError::Other(format!("Failed to read response body: {}", e)))
+        };
+
+        let timeout_future = TimeoutFuture::new(30_000);
+
+        // Race fetch against timeout
+        select! {
+            result = fetch_future.fuse() => result,
+            _ = timeout_future.fuse() => {
+                Err(FetchError::Other(format!("Request to {} timed out after 30 seconds", url)))
+            },
+        }
     }
 
     pub fn clean_html(html: &str) -> String {

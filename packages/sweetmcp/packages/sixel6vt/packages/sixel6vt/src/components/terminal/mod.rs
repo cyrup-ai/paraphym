@@ -45,6 +45,12 @@ pub struct TerminalPane<U: rio_backend::event::EventListener + Clone + Send + 's
     pub sugarloaf: Sugarloaf<'static>,
     parser: Processor, // Parser for processing terminal escape sequences and sixel data
     
+    // Configuration values needed for correct dimension calculations
+    font_size: f32,
+    line_height: f32,
+    padding_x: f32,
+    padding_y: [f32; 2],
+    
     // Thread management resources
     running: Arc<AtomicBool>,
     reader_thread: Option<JoinHandle<()>>,
@@ -185,13 +191,17 @@ impl<U: rio_backend::event::EventListener + Clone + Send + 'static> TerminalPane
         let width = width_u as f32;
         let height = height_u as f32;
 
-        // Calculate terminal dimensions manually
-        // Note: This is a simplified calculation. A real implementation
-        // might need to account for padding_x/padding_y more precisely
-        // depending on how Sugarloaf handles it internally.
-        let cols = (width / config.fonts.size).floor() as usize; // Use font size for width approximation
-        let lines = (height / (config.fonts.size * config.line_height)).floor() as usize; // Use font size * line_height for height
-        let terminal_size = (cols, lines); // Store as a tuple for now
+        // Calculate terminal dimensions accounting for padding
+        let padding_w = config.padding_x * 2.0; // left + right
+        let padding_h = config.padding_y[0] + config.padding_y[1]; // top + bottom
+        let avail_w = (width - padding_w).max(0.0);
+        let avail_h = (height - padding_h).max(0.0);
+
+        let cols = (avail_w / config.fonts.size).floor() as usize;
+        let lines = (avail_h / (config.fonts.size * config.line_height)).floor() as usize;
+        let cols = cols.max(1);
+        let lines = lines.max(1);
+        let terminal_size = (cols, lines);
 
         // Create CrosswordsSize for Terminal::new - This needs to implement Dimensions
         let cross_size = rio_backend::crosswords::CrosswordsSize::new_with_dimensions(cols, lines, width_u, height_u, 0, 0); // Assuming 0 for square width/height initially
@@ -481,6 +491,11 @@ impl<U: rio_backend::event::EventListener + Clone + Send + 'static> TerminalPane
             clipboard: Rc::new(RefCell::new(clipboard)),
             sugarloaf,
             parser: Processor::new(), // Initialize the parser for terminal byte processing
+            // Store config values for resize calculations
+            font_size: config.fonts.size,
+            line_height: config.line_height,
+            padding_x: config.padding_x,
+            padding_y: config.padding_y,
             // Store thread management resources
             running,
             reader_thread: Some(reader_thread),
@@ -625,30 +640,39 @@ impl<U: rio_backend::event::EventListener + Clone + Send + 'static> TerminalPane
         let dpr = self.window.scale_factor();
         let _scale = dpr as f32; // Keep but unused
         self.sugarloaf.resize(width, height);
-        // Resize the terminal - needs a type implementing Dimensions
-        // Calculate terminal dimensions based on window size
-        // Use configuration values from Rio for accurate calculations
-        // This avoids accessing private sugarloaf methods
-        let font_size = 12.0; // Default font size, should match config
-        let line_height = 1.2; // Default line height, should match config
-        
-        let cols = (width as f32 / font_size).floor() as usize;
-        let lines = (height as f32 / (font_size * line_height)).floor() as usize;
+
+        // Calculate terminal dimensions accounting for padding
+        let padding_w = self.padding_x * 2.0;
+        let padding_h = self.padding_y[0] + self.padding_y[1];
+        let avail_w = (width as f32 - padding_w).max(0.0);
+        let avail_h = (height as f32 - padding_h).max(0.0);
+
+        let cols = (avail_w / self.font_size).floor() as usize;
+        let lines = (avail_h / (self.font_size * self.line_height)).floor() as usize;
+
+        let cols = cols.max(1);
+        let lines = lines.max(1);
         
         let cross_size = rio_backend::crosswords::CrosswordsSize::new_with_dimensions(
-            cols, 
+            cols,
             lines,
-            width, height, 0, 0 // Assuming 0 for square width/height initially
+            width,
+            height,
+            0,
+            0
         );
         self.terminal.resize(cross_size);
-        // Create the resize command with window dimensions
-        // Store resize info to send in the channel
-        // Using the builder directly to keep all dimension data
+
+        // Create the resize command with window dimensions (guard casts)
+        let ws_cols = cols.min(u16::MAX as usize) as u16;
+        let ws_rows = lines.min(u16::MAX as usize) as u16;
+        let ws_w = width.min(u16::MAX as u32) as u16;
+        let ws_h = height.min(u16::MAX as u32) as u16;
         let resize_info = WinsizeBuilder { 
-            cols: cols as u16, 
-            rows: lines as u16, 
-            width: width as u16, 
-            height: height as u16 
+            cols: ws_cols, 
+            rows: ws_rows, 
+            width: ws_w, 
+            height: ws_h 
         };
         // Serialize the resize info and send to PTY
         let resize_sequence = format!(

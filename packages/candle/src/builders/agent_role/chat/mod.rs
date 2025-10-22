@@ -16,38 +16,46 @@ use tokio_stream::StreamExt;
 use std::sync::Arc;
 
 impl CandleAgentBuilder for CandleAgentBuilderImpl {
-    fn model(self, model: TextToTextModel) -> Self {
+    fn model(self, model: TextToTextModel) -> impl CandleAgentBuilder {
         builder_methods::set_model(self, model)
     }
 
-    fn embedding_model(self, model: TextEmbeddingModel) -> Self {
+    fn embedding_model(self, model: TextEmbeddingModel) -> impl CandleAgentBuilder {
         builder_methods::set_embedding_model(self, model)
     }
 
-    fn temperature(self, temp: f64) -> Self {
+    fn temperature(self, temp: f64) -> impl CandleAgentBuilder {
         builder_methods::set_temperature(self, temp)
     }
 
-    fn max_tokens(self, max: u64) -> Self {
+    fn max_tokens(self, max: u64) -> impl CandleAgentBuilder {
         builder_methods::set_max_tokens(self, max)
     }
 
-    fn memory_read_timeout(self, timeout_ms: u64) -> Self {
+    fn stop_sequences(self, sequences: Vec<String>) -> impl CandleAgentBuilder {
+        builder_methods::set_stop_sequences(self, sequences)
+    }
+
+    fn add_stop_sequence(self, sequence: impl Into<String>) -> impl CandleAgentBuilder {
+        builder_methods::add_stop_sequence_impl(self, sequence.into())
+    }
+
+    fn memory_read_timeout(self, timeout_ms: u64) -> impl CandleAgentBuilder {
         builder_methods::set_memory_read_timeout(self, timeout_ms)
     }
 
-    fn system_prompt(self, prompt: impl Into<String>) -> Self {
+    fn system_prompt(self, prompt: impl Into<String>) -> impl CandleAgentBuilder {
         builder_methods::set_system_prompt(self, prompt.into())
     }
 
-    fn additional_params<P2>(self, params: P2) -> Self
+    fn additional_params<P2>(self, params: P2) -> impl CandleAgentBuilder
     where
         P2: IntoIterator<Item = (&'static str, &'static str)>,
     {
         builder_methods::set_additional_params(self, params)
     }
 
-    fn metadata<Meta>(self, metadata: Meta) -> Self
+    fn metadata<Meta>(self, metadata: Meta) -> impl CandleAgentBuilder
     where
         Meta: IntoIterator<Item = (&'static str, &'static str)>,
     {
@@ -60,11 +68,11 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
         context2: CandleContext<CandleFiles>,
         context3: CandleContext<CandleDirectory>,
         context4: CandleContext<CandleGithub>,
-    ) -> Self {
+    ) -> impl CandleAgentBuilder {
         builder_methods::set_context(self, context1, context2, context3, context4)
     }
 
-    fn tools<T>(self, tools: T) -> Self
+    fn tools<T>(self, tools: T) -> impl CandleAgentBuilder
     where
         T: Into<ZeroOneOrMany<ToolInfo>>,
     {
@@ -81,11 +89,11 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
         }
     }
 
-    fn add_mcp_server_config(self, config: McpServerConfig) -> Self {
+    fn add_mcp_server_config(self, config: McpServerConfig) -> impl CandleAgentBuilder {
         builder_methods::add_mcp_server_config_impl(self, config)
     }
 
-    fn on_chunk<F, Fut>(mut self, handler: F) -> Self
+    fn on_chunk<F, Fut>(mut self, handler: F) -> impl CandleAgentBuilder
     where
         F: Fn(CandleMessageChunk) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = CandleMessageChunk> + Send + 'static,
@@ -94,7 +102,7 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
         self
     }
 
-    fn on_tool_result<F, Fut>(mut self, handler: F) -> Self
+    fn on_tool_result<F, Fut>(mut self, handler: F) -> impl CandleAgentBuilder
     where
         F: Fn(&[String]) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = ()> + Send + 'static,
@@ -103,7 +111,7 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
         self
     }
 
-    fn on_conversation_turn<F, Fut>(mut self, handler: F) -> Self
+    fn on_conversation_turn<F, Fut>(mut self, handler: F) -> impl CandleAgentBuilder
     where
         F: Fn(&CandleAgentConversation, &CandleAgentRoleAgent) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = Pin<Box<dyn Stream<Item = CandleMessageChunk> + Send>>> + Send + 'static,
@@ -112,7 +120,7 @@ impl CandleAgentBuilder for CandleAgentBuilderImpl {
         self
     }
 
-    fn conversation_history(self, _history: impl ConversationHistoryArgs) -> Self {
+    fn conversation_history(self, _history: impl ConversationHistoryArgs) -> impl CandleAgentBuilder {
         self
     }
 

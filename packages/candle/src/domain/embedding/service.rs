@@ -1,6 +1,6 @@
 //! Embedding Service Implementations and Caching Mechanisms
 //!
-//! This module provides production-ready embedding services with zero-allocation methods,
+//! This module provides production-ready embedding services with low-allocation methods,
 //! lock-free caching, and high-performance vector operations.
 
 use std::collections::HashMap;
@@ -95,14 +95,21 @@ impl EmbeddingPool {
     }
 }
 
-/// Production-ready in-memory embedding cache with zero-allocation operations
+/// Cache entry type: (embedding vector, dimension)
+type CacheEntry = (Vec<f32>, usize);
+
+/// Cache storage type
+type CacheStorage = Arc<tokio::sync::RwLock<HashMap<String, CacheEntry>>>;
+
+/// Production-ready in-memory embedding cache with low-allocation operations
 ///
 /// This cache validates embedding dimensions to prevent mixing incompatible embeddings
 /// from different models. All stored embeddings must match the cache's configured dimension.
 /// Dimension mismatches are treated as cache misses to ensure compatibility.
+#[derive(Clone)]
 pub struct InMemoryEmbeddingCache {
-    cache: tokio::sync::RwLock<HashMap<String, (Vec<f32>, usize)>>,
-    pool: EmbeddingPool,
+    cache: CacheStorage,
+    pool: Arc<EmbeddingPool>,
     dimension: usize,
 }
 impl InMemoryEmbeddingCache {
@@ -111,8 +118,8 @@ impl InMemoryEmbeddingCache {
     #[must_use]
     pub fn new(dimension: usize) -> Self {
         Self {
-            cache: tokio::sync::RwLock::new(HashMap::with_capacity(1000)),
-            pool: EmbeddingPool::new(dimension, 100),
+            cache: Arc::new(tokio::sync::RwLock::new(HashMap::with_capacity(1000))),
+            pool: Arc::new(EmbeddingPool::new(dimension, 100)),
             dimension,
         }
     }
@@ -120,19 +127,28 @@ impl InMemoryEmbeddingCache {
     /// Get cached embedding with zero-copy return and dimension validation
     #[inline]
     pub async fn get_cached(&self, content: &str) -> Option<Vec<f32>> {
-        let cache = self.cache.read().await;
-        cache.get(content).and_then(|(embedding, cached_dimension)| {
-            if *cached_dimension == self.dimension {
+        // Use a write lock to allow proactive invalidation of mismatched-dimension entries
+        let mut cache = self.cache.write().await;
+        match cache.get(content) {
+            Some((embedding, cached_dimension)) if *cached_dimension == self.dimension => {
                 Some(embedding.clone())
-            } else {
-                None // Dimension mismatch, treat as cache miss
             }
-        })
+            Some(_) => {
+                // Dimension mismatch: proactively invalidate stale entry
+                cache.remove(content);
+                None
+            }
+            None => None,
+        }
     }
 
-    /// Store embedding in cache with dimension validation
+    /// Store embedding in cache with dimension validation (checked)
+    ///
+    /// # Errors
+    ///
+    /// Returns `VectorStoreError::OperationFailed` if the embedding dimension does not match the cache dimension.
     #[inline]
-    pub async fn store(&self, content: String, embedding: Vec<f32>) -> Result<(), VectorStoreError> {
+    pub async fn try_store(&self, content: String, embedding: Vec<f32>) -> Result<(), VectorStoreError> {
         // Validate embedding dimension matches cache dimension
         if embedding.len() != self.dimension {
             return Err(VectorStoreError::OperationFailed(format!(
@@ -145,6 +161,12 @@ impl InMemoryEmbeddingCache {
         let mut cache = self.cache.write().await;
         cache.insert(content, (embedding, self.dimension));
         Ok(())
+    }
+
+    /// Backward-compatible store that ignores dimension errors
+    #[inline]
+    pub async fn store(&self, content: String, embedding: Vec<f32>) {
+        let _ = self.try_store(content, embedding).await;
     }
 
     /// Generate deterministic embedding based on content hash with correct dimension
@@ -172,6 +194,13 @@ impl InMemoryEmbeddingCache {
         embedding.len() == self.dimension
     }
 
+    /// Accessor for configured embedding dimension
+    #[inline]
+    #[must_use]
+    pub fn dimension(&self) -> usize {
+        self.dimension
+    }
+
     /// Clear cache entries with invalid dimensions
     #[inline]
     pub async fn clear_invalid_entries(&self) -> usize {
@@ -191,44 +220,54 @@ impl InMemoryEmbeddingCache {
     }
 }
 
-/// Concrete implementation of EmbeddingService using a capability model and cache
-pub struct EmbeddingServiceImpl<M: crate::capability::traits::TextEmbeddingCapable> {
-    model: M,
-    cache: InMemoryEmbeddingCache,
+/// Concrete implementation of `EmbeddingService` using a capability model and cache
+#[derive(Clone)]
+pub struct EmbeddingServiceImpl<M: crate::capability::traits::TextEmbeddingCapable + Clone + Send + Sync + 'static> {
+    model: std::sync::Arc<M>,
+    cache: std::sync::Arc<InMemoryEmbeddingCache>,
 }
 
-impl<M: crate::capability::traits::TextEmbeddingCapable> EmbeddingServiceImpl<M> {
+impl<M: crate::capability::traits::TextEmbeddingCapable + Clone + Send + Sync + 'static> EmbeddingServiceImpl<M> {
     /// Create new embedding service with model and cache
     #[must_use]
     pub fn new(model: M) -> Self {
         let dimension = model.embedding_dimension();
         let cache = InMemoryEmbeddingCache::new(dimension);
         
-        Self { model, cache }
+        Self { model: std::sync::Arc::new(model), cache: std::sync::Arc::new(cache) }
     }
 
     /// Get the underlying model
     #[must_use]
     pub fn model(&self) -> &M {
-        &self.model
+        self.model.as_ref()
     }
 
     /// Get the cache
     #[must_use]
     pub fn cache(&self) -> &InMemoryEmbeddingCache {
-        &self.cache
+        self.cache.as_ref()
+    }
+
+    /// Compute a namespaced cache key including model and dimension
+    #[inline]
+    fn cache_key(&self, content: &str) -> String {
+        let h = crate::domain::memory::serialization::content_hash(content);
+        format!("{}:{}:{}", self.model.name(), self.cache.dimension, h)
     }
 }
 
-impl<M: crate::capability::traits::TextEmbeddingCapable + Send + Sync> EmbeddingService for EmbeddingServiceImpl<M> {
+impl<M: crate::capability::traits::TextEmbeddingCapable + Clone + Send + Sync + 'static> EmbeddingService for EmbeddingServiceImpl<M> {
     fn get_embedding(&self, content: &str) -> Pin<Box<dyn Stream<Item = Option<Vec<f32>>> + Send>> {
         let content = content.to_string();
-        let model = self.model.clone();
-        let cache = self.cache.clone();
+        let key = self.cache_key(&content);
+        let key_store = key.clone();
+        let model = std::sync::Arc::clone(&self.model);
+        let cache = std::sync::Arc::clone(&self.cache);
         
         Box::pin(async_stream::stream! {
             // Try cache first
-            if let Some(embedding) = cache.get_cached(&content).await {
+            if let Some(embedding) = cache.get_cached(&key).await {
                 yield Some(embedding);
                 return;
             }
@@ -237,7 +276,7 @@ impl<M: crate::capability::traits::TextEmbeddingCapable + Send + Sync> Embedding
             match model.embed(&content, None).await {
                 Ok(embedding) => {
                     // Store in cache (ignore errors for streaming)
-                    let _ = cache.store(content, embedding.clone()).await;
+                    let _ = cache.try_store(key_store, embedding.clone()).await;
                     yield Some(embedding);
                 }
                 Err(_) => {
@@ -249,12 +288,14 @@ impl<M: crate::capability::traits::TextEmbeddingCapable + Send + Sync> Embedding
 
     fn get_or_compute_embedding(&self, content: &str) -> Pin<Box<dyn Stream<Item = Vec<f32>> + Send>> {
         let content = content.to_string();
-        let model = self.model.clone();
-        let cache = self.cache.clone();
+        let key = self.cache_key(&content);
+        let key_store = key.clone();
+        let model = std::sync::Arc::clone(&self.model);
+        let cache = std::sync::Arc::clone(&self.cache);
         
         Box::pin(async_stream::stream! {
             // Try cache first
-            if let Some(embedding) = cache.get_cached(&content).await {
+            if let Some(embedding) = cache.get_cached(&key).await {
                 yield embedding;
                 return;
             }
@@ -263,10 +304,10 @@ impl<M: crate::capability::traits::TextEmbeddingCapable + Send + Sync> Embedding
             match model.embed(&content, None).await {
                 Ok(embedding) => {
                     // Store in cache (ignore errors for streaming)
-                    let _ = cache.store(content, embedding.clone()).await;
+                    let _ = cache.try_store(key_store, embedding.clone()).await;
                     yield embedding;
                 }
-                Err(e) => {
+                Err(_) => {
                     // For get_or_compute, we yield a deterministic embedding on error
                     // This ensures the stream always produces a value
                     yield cache.generate_deterministic(&content).await;
@@ -276,16 +317,17 @@ impl<M: crate::capability::traits::TextEmbeddingCapable + Send + Sync> Embedding
     }
 
     fn precompute_batch(&self, content: &[&str]) -> Pin<Box<dyn Stream<Item = ()> + Send>> {
-        let content: Vec<String> = content.iter().map(|s| s.to_string()).collect();
-        let model = self.model.clone();
-        let cache = self.cache.clone();
+        let content: Vec<String> = content.iter().map(|s| (*s).to_string()).collect();
+        let model = std::sync::Arc::clone(&self.model);
+        let cache = std::sync::Arc::clone(&self.cache);
         
         Box::pin(async_stream::stream! {
             // Process in batches using model's batch capability
-            let content_refs: Vec<&str> = content.iter().map(|s| s.as_str()).collect();
-            if let Ok(embeddings) = model.batch_embed(&content_refs, None).await {
-                for (text, embedding) in content.iter().zip(embeddings.iter()) {
-                    let _ = cache.store(text.clone(), embedding.clone()).await;
+            if let Ok(embeddings) = model.batch_embed(&content, None).await {
+                for (text, embedding) in content.iter().zip(embeddings.into_iter()) {
+                    let h = crate::domain::memory::serialization::content_hash(text);
+                    let key = format!("{}:{}:{}", model.name(), cache.dimension(), h);
+                    let _ = cache.try_store(key, embedding).await;
                     yield ();
                 }
             }

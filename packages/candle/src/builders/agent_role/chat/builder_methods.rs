@@ -110,3 +110,19 @@ pub(super) fn add_mcp_server_config_impl(
     // MCP servers are handled through tools
     builder
 }
+
+pub(super) fn set_stop_sequences(
+    mut builder: CandleAgentBuilderImpl,
+    sequences: Vec<String>,
+) -> CandleAgentBuilderImpl {
+    builder.stop_sequences = sequences;
+    builder
+}
+
+pub(super) fn add_stop_sequence_impl(
+    mut builder: CandleAgentBuilderImpl,
+    sequence: String,
+) -> CandleAgentBuilderImpl {
+    builder.stop_sequences.push(sequence);
+    builder
+}

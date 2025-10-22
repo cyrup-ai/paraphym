@@ -37,13 +37,6 @@ impl MemoryCoordinator {
             .set_importance(new_importance)
             .map_err(|e| Error::Internal(format!("Failed to set decayed importance: {}", e)))?;
 
-        // Also decay quantum coherence if applicable
-        {
-            let mut quantum_state = self.quantum_state.write().await;
-            // Apply same decay to coherence level
-            quantum_state.coherence_level = (quantum_state.coherence_level * decay).max(0.01);
-        }
-
         // Update last_accessed_at in metadata to track access patterns
         memory.stats.record_read();
 

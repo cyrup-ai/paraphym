@@ -42,5 +42,10 @@ tokio-rustls = "0.26"
 bevy = { version = "0.16", default-features = false, features = ["bevy_ui", "bevy_text", "bevy_render", "bevy_core_pipeline", "bevy_asset"] }
 scraper = "0.21"
 
+[target.'cfg(target_family = "wasm")'.dependencies]
+gloo-net = "0.6"
+gloo-timers = "0.3"
+futures = "0.3"
+
 [workspace]
 # This makes the plugin a standalone package, not part of the parent workspace

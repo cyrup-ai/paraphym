@@ -25,6 +25,7 @@ pub struct RelaxedCounter {
 
 impl RelaxedCounter {
     #[inline]
+    #[must_use]
     pub const fn new(initial: u64) -> Self {
         Self {
             value: AtomicU64::new(initial),
@@ -60,6 +61,7 @@ pub struct AgentStatistics {
 impl AgentStatistics {
     /// Create new statistics with zero allocation
     #[inline]
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             agents_created: RelaxedCounter::new(0),

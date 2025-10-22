@@ -10,7 +10,7 @@ use surrealdb::Surreal;
 
 use crate::capability::registry::TextEmbeddingModel;
 use crate::memory::migration::{
-    BuiltinMigrations, DataExporter, ExportFormat, ImportFormat, MigrationManager,
+    BuiltinMigrations, DataExporter, DataImporter, ExportFormat, ImportFormat, MigrationManager,
 };
 use crate::memory::primitives::{MemoryNode, MemoryRelationship};
 use crate::memory::schema::memory_schema::MemoryNodeSchema;
@@ -263,19 +263,53 @@ impl SurrealDBMemoryManager {
     }
 
     /// Import memories and relationships from a file
-    pub async fn import_memories(&self, path: &Path, _format: ImportFormat) -> Result<()> {
-        // Simple JSON import for now
-        let content = tokio::fs::read_to_string(path)
-            .await
-            .map_err(|e| Error::Other(format!("Failed to read import file: {:?}", e)))?;
+    pub async fn import_memories(&self, path: &Path, format: ImportFormat) -> Result<()> {
+        // Use DataImporter for format-aware import
+        let importer = DataImporter::new();
         
-        let import_data: Vec<ExportData> = serde_json::from_str(&content)
-            .map_err(|e| Error::Other(format!("Failed to parse import data: {:?}", e)))?;
+        // Import based on format
+        let import_data_vec: Vec<ExportData> = match format {
+            ImportFormat::Json => importer
+                .import_json(path)
+                .await
+                .map_err(|e| Error::Other(format!("JSON import failed: {:?}", e)))?,
+            ImportFormat::Csv => importer
+                .import_csv(path)
+                .await
+                .map_err(|e| Error::Other(format!("CSV import failed: {:?}", e)))?,
+        };
         
-        let import_data = import_data
+        let import_data = import_data_vec
             .into_iter()
             .next()
             .ok_or_else(|| Error::Other("No data in import file".to_string()))?;
+
+        // Validation: Check for duplicate memory IDs
+        let mut memory_ids = std::collections::HashSet::new();
+        for memory in &import_data.memories {
+            if !memory_ids.insert(memory.id.clone()) {
+                return Err(Error::Other(format!(
+                    "Duplicate memory ID found: {}",
+                    memory.id
+                )));
+            }
+        }
+
+        // Validation: Verify relationship references exist
+        for relationship in &import_data.relationships {
+            if !memory_ids.contains(&relationship.source_id) {
+                return Err(Error::Other(format!(
+                    "Relationship references non-existent source_id: {}",
+                    relationship.source_id
+                )));
+            }
+            if !memory_ids.contains(&relationship.target_id) {
+                return Err(Error::Other(format!(
+                    "Relationship references non-existent target_id: {}",
+                    relationship.target_id
+                )));
+            }
+        }
 
         // Insert memories
         for memory in import_data.memories {

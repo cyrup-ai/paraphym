@@ -116,8 +116,6 @@ pub trait CandleAgentRole: Send + Sync + fmt::Debug + Clone {
 ///     }
 /// })
 /// ```
-pub struct CandleAgentRoleAgent;
-
 /// Agent conversation type
 pub struct CandleAgentConversation {
     /// Conversation messages as role-content pairs
